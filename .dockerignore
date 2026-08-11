@@ -1,0 +1,13 @@
+**/.venv
+**/node_modules
+**/__pycache__
+backend/data
+backend/.secret_key
+frontend/dist
+.git
+.env
+.env.example
+.gitignore
+README.md
+CLAUDE.md
+start.sh

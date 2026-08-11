@@ -93,6 +93,16 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="row">
+          {plan?.is_active && (() => {
+            const nextStart = new Date(plan.end_date)
+            nextStart.setDate(nextStart.getDate() + 1)
+            const nextStartStr = nextStart.toISOString().slice(0, 10)
+            return (
+              <Link className="btn btn-secondary" to={`/plan-erzeugen?start=${nextStartStr}&days=7`}>
+                Nächste 7 Tage planen
+              </Link>
+            )
+          })()}
           <Link className="btn btn-secondary" to="/training-erfassen">
             Training erfassen
           </Link>
@@ -157,8 +167,12 @@ export default function Dashboard() {
           {!plan ? (
             <EmptyState icon="📋" title="Kein aktiver Plan">
               <p className="small">
-                Beantworte den Fragebogen und lass dir einen Plan erzeugen.
+                Beantworte den Fragebogen und lass dir einen Plan erzeugen. Oder sieh dir
+                deine früheren Pläne an.
               </p>
+              <Link className="btn btn-secondary" to="/plan">
+                Frühere Pläne ansehen
+              </Link>
               <Link className="btn btn-primary" to="/neues-training">
                 Neues Training starten
               </Link>

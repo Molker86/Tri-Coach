@@ -10,15 +10,17 @@ function today(): string {
 }
 
 const DAY_OPTIONS = [2, 3, 4, 5, 6, 7]
-const DEFAULT_DAYS = 4
+const DEFAULT_DAYS = 7
 
 export default function PlanExchange() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const requestId = params.get('request') ? Number(params.get('request')) : undefined
+  const paramStart = params.get('start') || today()
+  const paramDays = params.get('days') ? Number(params.get('days')) : DEFAULT_DAYS
 
-  const [startDate, setStartDate] = useState(today())
-  const [days, setDays] = useState(DEFAULT_DAYS)
+  const [startDate, setStartDate] = useState(paramStart)
+  const [days, setDays] = useState(paramDays)
   const [exported, setExported] = useState<AiExport | null>(null)
   const [raw, setRaw] = useState('')
   const [preview, setPreview] = useState<PlanImportResult | null>(null)

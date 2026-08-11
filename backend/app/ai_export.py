@@ -32,7 +32,7 @@ from .sportscience import (
 SCHEMA_VERSION = "2.0"
 
 # Planungshorizont in Tagen. Kurz gehalten — siehe Modul-Docstring.
-PLAN_DAYS_DEFAULT = 4
+PLAN_DAYS_DEFAULT = 7
 PLAN_DAYS_MIN = 1
 PLAN_DAYS_MAX = 14
 

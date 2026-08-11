@@ -213,14 +213,14 @@ def test_ai_export_contains_context(client, auth):
 
     # Geplant wird ein kurzer Block, zurückgeblickt wird über vier Wochen.
     period = payload["planungszeitraum"]
-    assert period["tage"] == 4
+    assert period["tage"] == 7
     assert period["startdatum"] == date.today().isoformat()
-    assert period["enddatum"] == (date.today() + timedelta(days=3)).isoformat()
-    assert len(period["wochentage"]) == 4
+    assert period["enddatum"] == (date.today() + timedelta(days=6)).isoformat()
+    assert len(period["wochentage"]) == 7
     assert len(payload["trainingshistorie"]["wochenuebersicht"]) == 4
 
     # Der Prompt muss Auftrag, Daten und Formatvorgabe enthalten
-    assert "nächsten 4 Trainingstage" in data["prompt"]
+    assert "nächsten 7 Trainingstage" in data["prompt"]
     assert '"days"' in data["prompt"]
     assert "Olympische Distanz" in data["prompt"]
 

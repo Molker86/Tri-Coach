@@ -35,8 +35,10 @@ DATABASE_URL = os.environ.get(
     "TRI_DATABASE_URL", f"sqlite:///{DATA_DIR / 'tricoach.db'}"
 )
 
-# Vite-Devserver
-CORS_ORIGINS = [
+# CORS-Herkünfte. Für Docker Same-Origin, aber für die Entwicklung konfigurierbar.
+_default_cors = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+_env_cors = os.environ.get("TRI_CORS_ORIGINS", "").strip()
+CORS_ORIGINS = _env_cors.split(",") if _env_cors else _default_cors

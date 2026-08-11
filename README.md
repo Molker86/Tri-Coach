@@ -37,9 +37,10 @@ cd frontend && npm install
    Trainingstage, beim Triathlon die Sportart je Tag, Zeitbudget,
    Ergänzungstraining, Ausrüstung, Leistungswerte, Zusammenfassung.
    Jeder Block hat ein Freitextfeld für Individuelles.
-4. **Plan erzeugen** — ersten Tag und Blocklänge wählen (Vorgabe: heute, 4 Tage),
+4. **Plan erzeugen** — ersten Tag und Blocklänge wählen (Vorgabe: heute, 7 Tage),
    „Text kopieren" liefert Prompt plus Datenpaket. Diesen Text an eine KI
-   schicken, deren Antwort zurück ins Feld einfügen, „Plan übernehmen".
+   schicken, deren Antwort zurück ins Feld einfügen, „Plan übernehmen". Bei
+   aktivem Plan: Knopf „Nächste 7 Tage planen" verlängert den Block beliebig oft.
 5. **Trainingsplan** — die gewählten Tage, jede Einheit mit Aufbau, Zielpuls,
    Pace und Trainingswirkung.
 6. **Training erfassen** — nach der Einheit Puls, Strecke, Zeit, Watt, RPE und
@@ -100,4 +101,27 @@ Die Anwendung ist für den lokalen Einsatz gebaut. Vor einem Betrieb im Netz
 fehlen mindestens: HTTPS, ein gesetzter `TRI_SECRET_KEY`, angepasste
 CORS-Herkünfte, Rate-Limiting am Login und eine Datenbank mit Migrationen
 (Alembic) statt `create_all`.
-# Tri-Coach
+
+## Docker
+
+Für den Einsatz im Heimnetz (z. B. im Intranet) kann die App als Docker-Container
+bereitgestellt werden:
+
+```bash
+# Einmalig: Secret Key erzeugen und in .env speichern
+cp .env.example .env
+python3 -c "import secrets; print(secrets.token_urlsafe(48))" # kopieren und in .env einfügen
+
+# Starten
+docker compose up --build
+```
+
+Die App läuft dann unter **http://localhost:8000** (oder der IP des Hosts im Netz).
+
+**Datenpersistenz**: Die SQLite-Datenbank liegt in `./data/tricoach.db` und überlebt
+Container-Neustarts. Das `TRI_SECRET_KEY` ist in `.env` gespeichert — ohne Änderung
+bleiben Login-Sessions bei Neu-Starts erhalten.
+
+**Sicherheit für das Heimnetz**: HTTPS ist nicht konfiguriert, da der Betrieb über
+ein privates LAN vorgesehen ist. Für die Freigabe über das Internet wird ein
+Reverse-Proxy mit TLS empfohlen (z. B. Caddy, Traefik oder Nginx).

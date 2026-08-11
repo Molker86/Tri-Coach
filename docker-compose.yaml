@@ -1,0 +1,10 @@
+services:
+  tricoach:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TRI_SECRET_KEY=${TRI_SECRET_KEY}
+    restart: unless-stopped

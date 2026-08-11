@@ -9,7 +9,7 @@ Antwort wird zu einem strukturierten Trainingsblock über wenige Tage. Absolvier
 Trainings werden erfasst und fließen in den nächsten Export ein.
 
 **Asymmetrie merken:** Rückblick vier Wochen, Vorausplanung wenige Tage
-(Vorgabe 4, einstellbar 1–14 über `days` am Export). Das ist eine bewusste
+(Vorgabe 7, einstellbar 1–14 über `days` am Export). Das ist eine bewusste
 Entscheidung — siehe „Planungshorizont".
 
 **Wichtig:** Die App ruft *keine* KI-API auf. Der Austausch läuft bewusst über
@@ -31,7 +31,9 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 - Nach dem Training Werte erfassen (Puls, Strecke, Zeit …).
 - Immer die letzten 4 Wochen plus die Wunschdaten steuern die nächste Planung.
 - Geplant wird jeweils nur der nächste kurze Block (Nachforderung, ersetzt den
-  ursprünglichen Vier-Wochen-Plan).
+  ursprünglichen Vier-Wochen-Plan). Ein aktiver Plan kann per Knopfdruck um
+  beliebig viele weitere Blöcke verlängert werden — die Auswertung bezieht sich
+  immer auf die letzten 4 Wochen, unabhängig davon, wie lange der Block reicht.
 
 ## Starten und Testen
 
@@ -48,19 +50,22 @@ alles zurück. JWT-Schlüssel liegt in `backend/.secret_key` (automatisch erzeug
 ## Architekturentscheidungen (und warum)
 
 **Planungshorizont: wenige Tage, Rückblick vier Wochen** (`ai_export.py`,
-`PLAN_DAYS_DEFAULT` / `HISTORY_WEEKS`). Ein Vier-Wochen-Plan ist nach der ersten
+`PLAN_DAYS_DEFAULT = 7` / `HISTORY_WEEKS = 4`). Ein Plan ist nach der ersten
 Woche ohnehin überholt, und für die KI ist ein kurzer Block die deutlich
 leichtere und präzisere Aufgabe: statt 28 Tagen füllt sie ein paar Tage, die
 dafür genau zur aktuellen Belastungslage passen. Die Individualität kommt nicht
 aus der Länge des Plans, sondern aus der Historie — die bleibt vier Wochen tief
-und wandert vollständig in jeden Export. Deshalb liefert `_history_block()`
-zusätzlich `tage_seit_letzter_einheit_je_sportart` und
-`tage_seit_letzter_intensiver_einheit`: Auf vier Tagen entscheidet der Abstand
-zur letzten Einheit, welche Disziplin drankommt und ob am ersten Tag hart
-trainiert werden darf. Weil ein kurzer Block schnell ausläuft, weist das
-Dashboard darauf hin, sobald der aktive Block heute endet oder vorbei ist
-(`blockStatus()` in `Dashboard.tsx`) — sonst stünde der Nutzer mit einem
-abgelaufenen Plan da, ohne dass die App etwas dazu sagt.
+und wandert vollständig in jeden Export. Ein aktiver Plan kann per Knopfdruck
+um die nächsten 7 Tage verlängert werden (oder beliebig oft wiederholt); die
+Auswertung bezieht sich weiterhin auf die letzten 4 Wochen, nicht auf die
+bisherige Blocklänge. Deshalb liefert `_history_block()` zusätzlich
+`tage_seit_letzter_einheit_je_sportart` und
+`tage_seit_letzter_intensiver_einheit`: Auf wenigen Tagen entscheidet der
+Abstand zur letzten Einheit, welche Disziplin drankommt und ob am ersten Tag
+hart trainiert werden darf. Weil ein Block schnell ausläuft, weist das Dashboard
+darauf hin, sobald der aktive Block heute endet oder vorbei ist (`blockStatus()`
+in `Dashboard.tsx`) — sonst stünde der Nutzer mit einem abgelaufenen Plan da,
+ohne dass die App etwas dazu sagt.
 
 **Nachtragen ist derselbe Bildschirm, nicht ein zweites Formular.**
 `/training-nachtragen` rendert `LogSession` mit `mode="backfill"` — gleiche Felder,

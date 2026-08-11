@@ -21,16 +21,23 @@ export default function PlanView() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  function reload(navigateTo?: string) {
     setLoading(true)
     const load = planId ? api.getPlan(Number(planId)) : api.activePlan()
     Promise.all([load, api.listPlans()])
       .then(([loaded, summaries]) => {
         setPlan(loaded)
         setPlans(summaries)
+        if (navigateTo && navigateTo !== window.location.pathname) {
+          navigate(navigateTo)
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    reload()
   }, [planId])
 
   // Einheiten nach Woche und Tag gruppieren. Ein Block über wenige Tage liegt
@@ -58,7 +65,7 @@ export default function PlanView() {
   if (loading) return <Loading />
   if (error) return <Alert kind="error">{error}</Alert>
 
-  if (!plan) {
+  if (!plan && plans.length === 0) {
     return (
       <EmptyState icon="📋" title="Noch kein Trainingsplan vorhanden">
         <p>
@@ -69,6 +76,73 @@ export default function PlanView() {
           Neues Training starten
         </Link>
       </EmptyState>
+    )
+  }
+
+  if (!plan) {
+    return (
+      <>
+        <div className="page-header">
+          <div>
+            <h1>Trainingsplan</h1>
+            <p>Kein aktiver Plan</p>
+          </div>
+          <div className="row">
+            <Link className="btn btn-secondary" to="/neues-training">
+              Neuen Plan erstellen
+            </Link>
+          </div>
+        </div>
+
+        {plans.length > 0 && (
+          <div className="card">
+            <h3>Frühere Pläne</h3>
+            <div className="table-wrap">
+              <table>
+                <tbody>
+                  {plans.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>
+                        <Link to={`/plan/${entry.id}`}>{entry.title}</Link>
+                      </td>
+                      <td className="nowrap muted small">
+                        {new Date(entry.start_date).toLocaleDateString('de-DE')} –{' '}
+                        {new Date(entry.end_date).toLocaleDateString('de-DE')}
+                      </td>
+                      <td className="nowrap muted small">{entry.session_count} Einheiten</td>
+                      <td className="nowrap">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() =>
+                            api
+                              .activatePlan(entry.id)
+                              .then(() => reload())
+                              .catch((err) => setError(err.message))
+                          }
+                        >
+                          Aktivieren
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => {
+                            if (!confirm(`Plan „${entry.title}" wirklich löschen?`)) return
+                            api
+                              .deletePlan(entry.id)
+                              .then(() => reload())
+                              .catch((err) => setError(err.message))
+                          }}
+                        >
+                          Löschen
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </>
     )
   }
 
@@ -85,19 +159,32 @@ export default function PlanView() {
           </p>
         </div>
         <div className="row">
+          {plan.is_active && (() => {
+            const nextStart = new Date(plan.end_date)
+            nextStart.setDate(nextStart.getDate() + 1)
+            const nextStartStr = nextStart.toISOString().slice(0, 10)
+            return (
+              <Link className="btn btn-secondary" to={`/plan-erzeugen?start=${nextStartStr}&days=7`}>
+                Nächste 7 Tage planen
+              </Link>
+            )
+          })()}
           {!plan.is_active && (
             <button
               className="btn btn-secondary"
               onClick={() =>
                 api
                   .activatePlan(plan.id)
-                  .then(setPlan)
+                  .then(() => reload())
                   .catch((err) => setError(err.message))
               }
             >
               Als aktiv setzen
             </button>
           )}
+          <Link className="btn btn-secondary" to="/profil">
+            Meine Daten anpassen
+          </Link>
           <Link className="btn btn-primary" to="/neues-training">
             Neuen Plan erstellen
           </Link>
@@ -166,7 +253,7 @@ export default function PlanView() {
         ))}
       </div>
 
-      {plans.length > 1 && (
+      {plans.length > (plan ? 1 : 0) && (
         <div className="card">
           <h3>Frühere Pläne</h3>
           <div className="table-wrap">
@@ -186,16 +273,26 @@ export default function PlanView() {
                     </td>
                     <td className="nowrap muted small">{entry.session_count} Einheiten</td>
                     <td className="nowrap">
+                      {!entry.is_active && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() =>
+                            api
+                              .activatePlan(entry.id)
+                              .then(() => reload())
+                              .catch((err) => setError(err.message))
+                          }
+                        >
+                          Aktivieren
+                        </button>
+                      )}
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => {
                           if (!confirm(`Plan „${entry.title}" wirklich löschen?`)) return
                           api
                             .deletePlan(entry.id)
-                            .then(() => {
-                              if (entry.id === plan.id) navigate('/plan')
-                              else api.listPlans().then(setPlans)
-                            })
+                            .then(() => reload())
                             .catch((err) => setError(err.message))
                         }}
                       >
