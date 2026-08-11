@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: './',
   plugins: [react()],
   server: {
     // Ohne feste Adresse bindet Vite unter macOS nur an IPv6 (::1) — dann
