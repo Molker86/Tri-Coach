@@ -106,21 +106,22 @@ auf Lücken geprüft.
 **Kein UI-Framework.** `styles.css` ist ein kleines Designsystem mit
 CSS-Variablen und Hell/Dunkel-Umschaltung über `prefers-color-scheme`.
 
-**Home-Assistant-Integration: Dünner Wrapper um vorgefertigtes Image**
-(`addon/config.yaml`, `addon/Dockerfile`, `addon/run.sh`, GitHub Actions). Das
-Kernproblem: Supervisors Build-Context ist auf den Add-on-Ordner beschränkt —
-der Root-`Dockerfile` mit seinen `COPY backend/...` kann dort nicht laufen.
-Lösung: GitHub Actions baut den Root-`Dockerfile` pro Commit auf `main` und
-je Git-Tag (Multi-Arch: `amd64`, `arm64`) und pusht nach `ghcr.io/molker86/tricoach`.
-Das HA-Add-on-Dockerfile ist dann nur eine Thin Layer (`FROM ghcr.io/...`) mit
-einem kleinen `run.sh` für Supervisor-spezifische Env-Variablen
-(`TRI_SECRET_KEY`, `TRI_DATABASE_URL` → `/data`-Mount). Vorteil: Auf dem Pi wird
-kein Node-Build ausgelöst (schneller), kein Umbau des Root-`Dockerfile` nötig,
-Deployment läuft über Standard-GitHub-Actions. Zugriff läuft ausschließlich über
-**Ingress** (kein eigener Port in der HA-UI, authentifiziert durch HA-Session),
-nicht über `ports:` in `config.yaml`. Das Basis-Image (`python:3.12-slim`,
-bereits im Root-Dockerfile) liefert `python` und `secrets` — kein S6-Overlay
-oder Bashio nötig, da nur ein einzelner Uvicorn-Prozess läuft.
+**Home-Assistant-Integration: Lokales Build mit `build.yaml`**
+(`addon/config.yaml`, `addon/build.yaml`, `run.sh`). Der HA Supervisor baut
+die App beim Installieren lokal aus dem Repo-Quellcode. Das `addon/build.yaml`
+setzt den Build-Context auf das Repo-Root (`context: ../`) und referenziert
+den Root-`Dockerfile`, sodass dieser auf `backend/`, `frontend/` zugreifen
+kann. Das zentrale `run.sh` (Repo-Root) wird vom Root-`Dockerfile` kopiert
+und setzt Supervisor-spezifische Umgebungsvariablen: `TRI_SECRET_KEY` (aus
+`options.json` oder Auto-Generierung, persistent unter `/data/.secret_key`)
+und `TRI_DATABASE_URL` → `/data/tricoach.db` (Supervisors persistentes
+Verzeichnis). Vorteil: Keine externen Registry-Abhängigkeiten, völlig
+dezentral auf deinem HAOS. Nachteil: Der Build dauert auf dem Raspberry Pi
+länger (Node-Frontend wird dort kompiliert; ca. 10–20 Min). Zugriff läuft
+ausschließlich über **Ingress** (kein offener Port, authentifiziert durch
+HA-Session), nicht über `ports:` in `config.yaml`. Der Root-`Dockerfile`
+nutzt `python:3.12-slim` als Basis — kein S6-Overlay oder Bashio nötig, da
+nur ein einzelner Uvicorn-Prozess läuft.
 
 ## Konventionen
 

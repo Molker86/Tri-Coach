@@ -129,9 +129,8 @@ Reverse-Proxy mit TLS empfohlen (z. B. Caddy, Traefik oder Nginx).
 ## Home Assistant Add-on
 
 Tri-Coach kann als **Custom Add-on** in Home Assistant OS (HAOS) installiert und
-über die Sidebar aufgerufen werden. Die App läuft dabei im HAOS-Container und ist
-nur über Ingress (authentifiziert via Home Assistant) erreichbar, nicht über einen
-offenen LAN-Port.
+über die Sidebar aufgerufen werden. Supervisor baut die App lokal beim Installieren
+aus den Quellen.
 
 ### Einrichtung
 
@@ -142,12 +141,12 @@ offenen LAN-Port.
 
 2. **Tri-Coach installieren und starten**:
    - Im Add-on Store nach „Tri-Coach" suchen
-   - **Installieren** anklicken (Supervisor baut das Add-on lokal)
+   - **Installieren** anklicken (Supervisor baut Frontend + Backend lokal auf deinem HAOS; dauert ca. 10–20 Min)
    - Nach Abschluss: **Starten** anklicken
    - Checkbox **„In Sidebar anzeigen"** aktivieren (optional, aber empfohlen)
 
 3. **Zugriff**:
-   - Das Sidebar-Icon (🏃) öffnet Tri-Coach direkt innerhalb von HA
+   - Das Sidebar-Icon (🏃) öffnet Tri-Coach direkt innerhalb von HA (über Ingress)
    - Beim ersten Besuch: Konto anlegen, dann wie unter „Der Ablauf" oben beschrieben
 
 4. **Optionen (optional)**:
@@ -155,6 +154,4 @@ offenen LAN-Port.
    - Wenn leer gelassen, wird automatisch ein Schlüssel generiert und persistent gespeichert
    - Die SQLite-Datenbank (`tricoach.db`) und der Secret Key überleben Add-on-Neustarts
 
-**Hinweis**: Das Add-on nutzt die Multi-Arch-Images (aarch64/arm64 und amd64), die
-per GitHub-Actions gebaut werden. Nach einem Push auf `main` (oder beim Eintreffen
-eines Git-Tags) wird das Image automatisch aktualisiert.
+**Hinweis**: Der Build läuft lokal auf deinem HAOS-System (keine externen Registry-Abhängigkeiten).

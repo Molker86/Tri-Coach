@@ -19,15 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/app ./app
 
-# Create a non-root user
-RUN useradd -m -u 1000 appuser
-
 # Copy the built frontend from the previous stage
-COPY --from=frontend-build --chown=appuser:appuser /build/dist ./static
+COPY --from=frontend-build /build/dist ./static
 
-# Switch to non-root user
-USER appuser
+# Copy entrypoint script
+COPY run.sh /run.sh
+RUN chmod +x /run.sh
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/run.sh"]
