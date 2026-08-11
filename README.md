@@ -128,30 +128,27 @@ Reverse-Proxy mit TLS empfohlen (z. B. Caddy, Traefik oder Nginx).
 
 ## Home Assistant Add-on
 
-Tri-Coach kann als **Custom Add-on** in Home Assistant OS (HAOS) installiert und
-über die Sidebar aufgerufen werden. Supervisor baut die App lokal beim Installieren
-aus den Quellen.
+Tri-Coach läuft als **Custom Add-on** in Home Assistant OS (HAOS) — über die Sidebar
+erreichbar, authentifiziert via HA-Session (Ingress), komplett lokal gebaut.
 
-### Einrichtung
+### Installation (schnell)
 
-1. **GitHub-Repository als Add-on-Quelle hinzufügen**:
-   - Home Assistant: **Einstellungen → Add-ons → Add-on Store** (oben rechts ⋮) **→ Repositories**
+1. **Repository hinzufügen**:
+   - Home Assistant: **Einstellungen → Add-ons → Add-on Store** → oben rechts ⋮ → **Repositories**
    - URL: `https://github.com/Molker86/tri-coach`
-   - Speichern und warten, bis das Repository geladen wurde
+   - Speichern
 
-2. **Tri-Coach installieren und starten**:
-   - Im Add-on Store nach „Tri-Coach" suchen
-   - **Installieren** anklicken (Supervisor baut Frontend + Backend lokal auf deinem HAOS; dauert ca. 10–20 Min)
-   - Nach Abschluss: **Starten** anklicken
-   - Checkbox **„In Sidebar anzeigen"** aktivieren (optional, aber empfohlen)
+2. **Installieren & Starten**:
+   - Im Store nach „Tri-Coach" suchen → **Installieren**
+   - (Supervisor baut lokal; ~15–20 Min auf Raspberry Pi)
+   - Nach Build: **Starten**
+   - Optional: **„In Sidebar anzeigen"** aktivieren
 
 3. **Zugriff**:
-   - Das Sidebar-Icon (🏃) öffnet Tri-Coach direkt innerhalb von HA (über Ingress)
-   - Beim ersten Besuch: Konto anlegen, dann wie unter „Der Ablauf" oben beschrieben
+   - Icon (🏃) in der HA-Sidebar → Tri-Coach öffnet sich embedded
+   - Registrieren → wie unter „Der Ablauf" beschrieben
 
-4. **Optionen (optional)**:
-   - Im Add-on-Reiter **Konfiguration** kann ein eigener JWT Secret Key gesetzt werden
-   - Wenn leer gelassen, wird automatisch ein Schlüssel generiert und persistent gespeichert
-   - Die SQLite-Datenbank (`tricoach.db`) und der Secret Key überleben Add-on-Neustarts
+### Aktualisierungen
 
-**Hinweis**: Der Build läuft lokal auf deinem HAOS-System (keine externen Registry-Abhängigkeiten).
+Nach einem `git push` auf `main` wird das Repo beim nächsten Check aktualisiert.
+Im Add-on-Store auf der Tri-Coach-Karte: Falls eine neue Version vorhanden, **Update** anklicken.

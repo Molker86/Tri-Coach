@@ -106,22 +106,20 @@ auf Lücken geprüft.
 **Kein UI-Framework.** `styles.css` ist ein kleines Designsystem mit
 CSS-Variablen und Hell/Dunkel-Umschaltung über `prefers-color-scheme`.
 
-**Home-Assistant-Integration: Lokales Build mit `build.yaml`**
-(`addon/config.yaml`, `addon/build.yaml`, `run.sh`). Der HA Supervisor baut
-die App beim Installieren lokal aus dem Repo-Quellcode. Das `addon/build.yaml`
-setzt den Build-Context auf das Repo-Root (`context: ../`) und referenziert
-den Root-`Dockerfile`, sodass dieser auf `backend/`, `frontend/` zugreifen
-kann. Das zentrale `run.sh` (Repo-Root) wird vom Root-`Dockerfile` kopiert
-und setzt Supervisor-spezifische Umgebungsvariablen: `TRI_SECRET_KEY` (aus
-`options.json` oder Auto-Generierung, persistent unter `/data/.secret_key`)
-und `TRI_DATABASE_URL` → `/data/tricoach.db` (Supervisors persistentes
-Verzeichnis). Vorteil: Keine externen Registry-Abhängigkeiten, völlig
-dezentral auf deinem HAOS. Nachteil: Der Build dauert auf dem Raspberry Pi
-länger (Node-Frontend wird dort kompiliert; ca. 10–20 Min). Zugriff läuft
-ausschließlich über **Ingress** (kein offener Port, authentifiziert durch
-HA-Session), nicht über `ports:` in `config.yaml`. Der Root-`Dockerfile`
-nutzt `python:3.12-slim` als Basis — kein S6-Overlay oder Bashio nötig, da
-nur ein einzelner Uvicorn-Prozess läuft.
+**Home-Assistant-Integration: Lokales Build im Repo-Root**
+(`config.yaml`, `build.yaml`, `run.sh`, Root-`Dockerfile`). Der HA Supervisor
+baut die App beim Installieren lokal — `build.yaml` setzt den Build-Context
+auf `../` (Repo-Root), damit der Dockerfile auf `backend/`, `frontend/` und
+`run.sh` zugreifen kann. Keine Umorganisation in Unterordnern nötig; `git clone`
+oder `git pull` funktioniert direkt. Das zentrale `run.sh` setzt 
+Supervisor-spezifische Umgebungsvariablen: `TRI_SECRET_KEY` (optional aus
+`options.json`, sonst Auto-Generierung, persistent unter `/data/.secret_key`)
+und `TRI_DATABASE_URL` → `/data/tricoach.db`. Vorteil: Dezentral, keine
+externen Abhängigkeiten, einfache Update-Struktur. Nachteil: Build dauert auf
+Raspberry Pi ~15–20 Min (Node-Frontend wird lokal kompiliert). Zugriff über
+**Ingress** (kein offener LAN-Port, authentifiziert via HA-Session). Der
+Root-`Dockerfile` nutzt `python:3.12-slim` — kein S6-Overlay oder Bashio
+nötig (nur ein Uvicorn-Prozess).
 
 ## Konventionen
 
