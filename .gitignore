@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Daten und Geheimnisse
+backend/data/
+backend/.secret_key
+
+# Node
+node_modules/
+dist/
+
+# System
+.DS_Store

@@ -1,0 +1,11 @@
+Ich habe einen trainingsplan gelöscht, aber es wurden alle gelöscht, das darf nicht sein.
+
+ich möchte dass der Trainingsplan 7 Tage in die Zukunft abdeckt.
+
+ich möchte, dass wenn ein Trainingsplan aktiv ist, die Möglichkeit haben per knopfdruch die nächsten 7 tage zu planen. Im prinzip möchte ich dann ggf einen plan unendlich lang verlänger können (dabei sollen wieder die letzten 4 Wochen zur auswertung genommen werden) Ebenfalls möchte ich in einem aktiven plan die möglicheit haben meine "metadaten" wie gewicht usw. anzupassen.
+
+Die anwendung soll als dockerimage zu verfügung gestellt werden, sodass diese im intranet zuhause verwendet werden kann. ich benötige ein dockerfile und eine beispiel dockercompose.yaml. Gehe dazu nochmals die Sicherheiten durch, ob alles so korrekt sicher ist. Mache mir hier die möglichkeit ein docker image zu erstellen.
+
+
+
+passe die readme an
