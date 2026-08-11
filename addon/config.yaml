@@ -12,8 +12,7 @@ ingress: true
 ingress_port: 8000
 panel_icon: mdi:run
 panel_title: Tri-Coach
-options:
-  secret_key: ""
+options: {}
 schema:
   secret_key:
     description: "Optional: JWT Secret Key für die Sessions. Wird automatisch generiert, wenn leer gelassen."
