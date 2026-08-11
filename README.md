@@ -125,3 +125,36 @@ bleiben Login-Sessions bei Neu-Starts erhalten.
 **Sicherheit für das Heimnetz**: HTTPS ist nicht konfiguriert, da der Betrieb über
 ein privates LAN vorgesehen ist. Für die Freigabe über das Internet wird ein
 Reverse-Proxy mit TLS empfohlen (z. B. Caddy, Traefik oder Nginx).
+
+## Home Assistant Add-on
+
+Tri-Coach kann als **Custom Add-on** in Home Assistant OS (HAOS) installiert und
+über die Sidebar aufgerufen werden. Die App läuft dabei im HAOS-Container und ist
+nur über Ingress (authentifiziert via Home Assistant) erreichbar, nicht über einen
+offenen LAN-Port.
+
+### Einrichtung
+
+1. **GitHub-Repository als Add-on-Quelle hinzufügen**:
+   - Home Assistant: **Einstellungen → Add-ons → Add-on Store** (oben rechts ⋮) **→ Repositories**
+   - URL: `https://github.com/Molker86/tri-coach`
+   - Speichern und warten, bis das Repository geladen wurde
+
+2. **Tri-Coach installieren und starten**:
+   - Im Add-on Store nach „Tri-Coach" suchen
+   - **Installieren** anklicken (Supervisor baut das Add-on lokal)
+   - Nach Abschluss: **Starten** anklicken
+   - Checkbox **„In Sidebar anzeigen"** aktivieren (optional, aber empfohlen)
+
+3. **Zugriff**:
+   - Das Sidebar-Icon (🏃) öffnet Tri-Coach direkt innerhalb von HA
+   - Beim ersten Besuch: Konto anlegen, dann wie unter „Der Ablauf" oben beschrieben
+
+4. **Optionen (optional)**:
+   - Im Add-on-Reiter **Konfiguration** kann ein eigener JWT Secret Key gesetzt werden
+   - Wenn leer gelassen, wird automatisch ein Schlüssel generiert und persistent gespeichert
+   - Die SQLite-Datenbank (`tricoach.db`) und der Secret Key überleben Add-on-Neustarts
+
+**Hinweis**: Das Add-on nutzt die Multi-Arch-Images (aarch64/arm64 und amd64), die
+per GitHub-Actions gebaut werden. Nach einem Push auf `main` (oder beim Eintreffen
+eines Git-Tags) wird das Image automatisch aktualisiert.
