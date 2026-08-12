@@ -49,6 +49,12 @@ DISCIPLINE_LABEL = {
     "triathlon": "Triathlon",
 }
 
+# Tempo wird je Sportart in einer anderen Einheit erfasst. `avg_pace` speichert
+# nur den blanken Wert, deshalb muss die Einheit hier wieder dazu — sonst liest
+# die KI "31.5" beim Radfahren als min/km statt als km/h.
+PACE_UNIT = {"bike": "km/h", "swim": "min/100m"}
+PACE_UNIT_DEFAULT = "min/km"
+
 
 def default_start() -> date:
     """Ein Block über wenige Tage beginnt sinnvollerweise heute."""
@@ -139,6 +145,14 @@ def _days_since_hard_session(logs: list[SessionLog], today: date) -> int | None:
     return (today - max(hard)).days if hard else None
 
 
+def _pace_with_unit(sport: str, value: str | None) -> str | None:
+    """Tempo mit seiner Einheit — außer der Nutzer hat sie selbst mitgeschrieben."""
+    if not value:
+        return None
+    unit = PACE_UNIT.get(sport, PACE_UNIT_DEFAULT)
+    return value if unit in value else f"{value} {unit}"
+
+
 def _history_block(
     logs: list[SessionLog], profile: AthleteProfile | None, plan: Plan | None
 ) -> dict[str, Any]:
@@ -161,7 +175,7 @@ def _history_block(
             "distanz_km": lg.distance_km,
             "hf_schnitt": lg.avg_hr,
             "hf_max": lg.max_hr,
-            "pace": lg.avg_pace,
+            "pace": _pace_with_unit(lg.sport, lg.avg_pace),
             "leistung_watt": lg.avg_power,
             "trittfrequenz": lg.avg_cadence,
             "hoehenmeter": lg.elevation_gain_m,
@@ -272,7 +286,11 @@ RESPONSE_SCHEMA = {
                         "intensity_zone": "Z1 | Z2 | Z3 | Z4 | Z5 | gemischt",
                         "target_hr_low": 130,
                         "target_hr_high": 145,
-                        "target_pace": "string – z.B. '5:30-5:50 min/km' oder '1:50 min/100m'",
+                        "target_pace": (
+                            "string – Laufen in min/km ('5:30-5:50 min/km'), "
+                            "Schwimmen in min/100m ('1:50 min/100m'), "
+                            "Radfahren in km/h ('30-33 km/h')"
+                        ),
                         "target_power": "string – z.B. '210-230 W'",
                         "rpe_target": 4,
                     }

@@ -223,7 +223,8 @@ class SessionLog(Base):
     distance_km: Mapped[float | None] = mapped_column(Float)
     avg_hr: Mapped[int | None] = mapped_column(Integer)
     max_hr: Mapped[int | None] = mapped_column(Integer)
-    avg_pace: Mapped[str | None] = mapped_column(String(32))  # min/km bzw. min/100m
+    # Einheit hängt an `sport`: Laufen min/km, Schwimmen min/100m, Rad km/h.
+    avg_pace: Mapped[str | None] = mapped_column(String(32))
     avg_power: Mapped[int | None] = mapped_column(Integer)
     avg_cadence: Mapped[int | None] = mapped_column(Integer)
     elevation_gain_m: Mapped[int | None] = mapped_column(Integer)

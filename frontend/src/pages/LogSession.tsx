@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, Field, NumberField, TextArea, TextField } from '../components/ui'
-import { SPORT_ICON, SPORT_LABEL, sessionTypeLabel, sportLabel } from '../constants'
+import {
+  SPORT_ICON,
+  SPORT_LABEL,
+  paceFormat,
+  sessionTypeLabel,
+  sportLabel,
+} from '../constants'
 import type { Plan, PlanSession, SessionLogInput, Sport } from '../types'
 
 const LOGGABLE_SPORTS: Sport[] = ['run', 'bike', 'swim', 'strength', 'mobility', 'brick']
@@ -153,6 +159,7 @@ export default function LogSession({ mode = 'log' }: { mode?: Mode }) {
   )
 
   const isSwim = form.sport === 'swim'
+  const pace = paceFormat(form.sport)
   // Ältere Einträge bleiben im Verlauf, steuern die nächste Planung aber nicht mehr.
   const outsideHistoryWindow = form.date < daysAgo(HISTORY_WINDOW_DAYS)
 
@@ -245,7 +252,14 @@ export default function LogSession({ mode = 'log' }: { mode?: Mode }) {
           <Field label="Sportart">
             <select
               value={form.sport}
-              onChange={(e) => patch({ sport: e.target.value as Sport })}
+              onChange={(e) => {
+                const sport = e.target.value as Sport
+                // Die Einheit hängt an der Sportart: ein km/h-Wert würde nach
+                // dem Wechsel als min/km gelesen. Lieber leeren als falsch
+                // speichern.
+                const samePaceUnit = paceFormat(sport).unit === pace.unit
+                patch({ sport, avg_pace: samePaceUnit ? form.avg_pace : null })
+              }}
             >
               {LOGGABLE_SPORTS.map((sport) => (
                 <option key={sport} value={sport}>
@@ -288,8 +302,8 @@ export default function LogSession({ mode = 'log' }: { mode?: Mode }) {
                 onChange={(v) => patch({ distance_km: v })}
               />
               <TextField
-                label={isSwim ? 'Pace (min/100 m)' : 'Pace (min/km)'}
-                placeholder={isSwim ? '1:52' : '5:26'}
+                label={`${pace.label} (${pace.unit})`}
+                placeholder={pace.example}
                 value={form.avg_pace}
                 onChange={(v) => patch({ avg_pace: v })}
               />

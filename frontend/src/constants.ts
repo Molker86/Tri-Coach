@@ -156,3 +156,21 @@ export function sportIcon(sport: string): string {
 export function sessionTypeLabel(type: string): string {
   return SESSION_TYPE_LABEL[type] ?? type
 }
+
+/** Tempoangabe je Sportart.
+ *
+ * Radfahrer denken in Geschwindigkeit, Schwimmer in Zeit je 100 m, Läufer in
+ * Zeit je Kilometer. `avg_pace` speichert nur den blanken Wert — die Einheit
+ * ergibt sich aus der Sportart und muss deshalb überall dort mitgeliefert
+ * werden, wo der Wert erfasst oder angezeigt wird.
+ */
+const PACE_FORMAT: Record<string, { label: string; unit: string; example: string }> = {
+  bike: { label: 'Geschwindigkeit', unit: 'km/h', example: '31.5' },
+  swim: { label: 'Pace', unit: 'min/100 m', example: '1:52' },
+}
+
+const PACE_FORMAT_DEFAULT = { label: 'Pace', unit: 'min/km', example: '5:26' }
+
+export function paceFormat(sport: string): { label: string; unit: string; example: string } {
+  return PACE_FORMAT[sport] ?? PACE_FORMAT_DEFAULT
+}

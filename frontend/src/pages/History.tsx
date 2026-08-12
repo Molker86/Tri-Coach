@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
-import { sportIcon, sportLabel } from '../constants'
+import { paceFormat, sportIcon, sportLabel } from '../constants'
 import type { SessionLog } from '../types'
 
 const STATUS_LABEL: Record<SessionLog['status'], string> = {
@@ -142,7 +142,11 @@ export default function History() {
                 <DetailRow label="Status" value={STATUS_LABEL[selected.status]} />
                 <DetailRow label="Dauer" value={selected.duration_min} unit="min" />
                 <DetailRow label="Distanz" value={selected.distance_km} unit="km" />
-                <DetailRow label="Pace" value={selected.avg_pace} />
+                <DetailRow
+                  label={paceFormat(selected.sport).label}
+                  value={selected.avg_pace}
+                  unit={paceFormat(selected.sport).unit}
+                />
                 <DetailRow label="Durchschnittspuls" value={selected.avg_hr} unit="bpm" />
                 <DetailRow label="Maximalpuls" value={selected.max_hr} unit="bpm" />
                 <DetailRow label="Leistung" value={selected.avg_power} unit="Watt" />
