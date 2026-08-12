@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
 import { INTENSITY_ZONE_COLOR, sessionTypeLabel, sportIcon, sportLabel } from '../constants'
@@ -14,6 +14,10 @@ function isToday(iso: string): boolean {
 export default function PlanView() {
   const { planId } = useParams()
   const navigate = useNavigate()
+  // useLocation statt window.location: Unter Ingress trägt window.location.pathname
+  // den Prefix /api/hassio_ingress/<token>, navigateTo aber nicht — der Vergleich
+  // wäre dort immer verschieden.
+  const location = useLocation()
 
   const [plan, setPlan] = useState<Plan | null>(null)
   const [plans, setPlans] = useState<PlanSummary[]>([])
@@ -28,7 +32,7 @@ export default function PlanView() {
       .then(([loaded, summaries]) => {
         setPlan(loaded)
         setPlans(summaries)
-        if (navigateTo && navigateTo !== window.location.pathname) {
+        if (navigateTo && navigateTo !== location.pathname) {
           navigate(navigateTo)
         }
       })

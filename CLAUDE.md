@@ -106,6 +106,23 @@ auf Lücken geprüft.
 **Kein UI-Framework.** `styles.css` ist ein kleines Designsystem mit
 CSS-Variablen und Hell/Dunkel-Umschaltung über `prefers-color-scheme`.
 
+**Der Pfad-Prefix kommt zur Laufzeit, nicht aus dem Build.** Ingress liefert die
+App unter `/api/hassio_ingress/<token>/` aus, nicht unter `/`. Absolute Pfade
+laufen dort ins Leere: Der Browser löst sie gegen die Home-Assistant-Wurzel auf,
+also lädt kein Asset und die Seite bleibt weiß. Weil der Token pro Sitzung neu
+ist, kann der Prefix nicht in den Build wandern. Deshalb der Dreischritt: Vite
+baut mit `base: './'` relative Verweise, `_index_with_base()` in `main.py`
+schreibt aus dem `X-Ingress-Path`-Header ein `<base>`-Tag in die index.html, und
+`basePath.ts` liest den Prefix von dort zurück und gibt ihn an die API-Aufrufe
+(`client.ts`) und den Router-`basename` (`main.tsx`) weiter. Ohne die beiden
+letzten Schritte lädt die Oberfläche, aber `fetch('/api/…')` landet bei der
+Home-Assistant-API statt beim Add-on und ein Klick schiebt die Adresse auf die
+HA-Wurzel. Das `<base>`-Tag wird auch ohne Ingress gesetzt (dann `/`), weil
+relative Verweise beim Neuladen einer Unterseite sonst gegen `/dashboard/`
+aufgelöst würden. Wer im Frontend eine Adresse selbst zusammenbaut, muss
+`BASE_PATH` mitnehmen — Router-`Link`s und `navigate()` erledigen das von allein,
+`window.location` dagegen nicht (deshalb `useLocation()` in `PlanView.tsx`).
+
 **Home-Assistant-Integration: Lokales Build im Repo-Root**
 (`config.yaml`, `build.yaml`, `run.sh`, Root-`Dockerfile`). Der HA Supervisor
 baut die App beim Installieren lokal — `build.yaml` setzt den Build-Context

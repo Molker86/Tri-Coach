@@ -1,10 +1,11 @@
+import html
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from .config import CORS_ORIGINS
 from .database import init_db
@@ -46,10 +47,34 @@ def health() -> dict[str, str]:
 
 # Static file serving für den Docker-Betrieb (nur aktiv, wenn das Verzeichnis existiert).
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+def _index_with_base(request: Request) -> Response:
+    """Liefert die index.html mit passendem <base>-Tag.
+
+    Home Assistant stellt Add-ons nicht unter "/" bereit, sondern unter
+    `/api/hassio_ingress/<token>/`, und schickt diesen Prefix als
+    `X-Ingress-Path` mit. Die Assets sind relativ verlinkt (`vite.config.ts`,
+    `base: './'`), brauchen zur Auflösung also einen Anker — ohne ihn lädt der
+    Browser nichts und die Seite bleibt weiß. Das Frontend liest denselben Prefix
+    aus dem Tag zurück (`basePath.ts`), um API-Aufrufe und Router mitzuziehen.
+
+    Ohne Ingress steht dort `/`. Nötig ist das auch dann: Beim Neuladen einer
+    Unterseite wie `/dashboard` würden relative Pfade sonst gegen `/dashboard/`
+    aufgelöst.
+    """
+    prefix = request.headers.get("x-ingress-path", "").rstrip("/")
+    markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    base_tag = f'<base href="{html.escape(prefix, quote=True)}/">'
+    return HTMLResponse(markup.replace("<head>", f"<head>\n    {base_tag}", 1))
+
+
 if STATIC_DIR.is_dir():
     @app.get("/{full_path:path}")
-    def serve_frontend(full_path: str) -> FileResponse:
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
+    def serve_frontend(full_path: str, request: Request) -> Response:
+        candidate = (STATIC_DIR / full_path).resolve()
+        # Eingrenzung auf STATIC_DIR: Sonst liest ein Pfad wie `../app/config.py`
+        # Dateien außerhalb des Auslieferungsverzeichnisses.
+        if full_path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+        return _index_with_base(request)

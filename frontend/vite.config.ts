@@ -2,6 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  // Relative Asset-Pfade statt absoluter: Unter Home-Assistant-Ingress läuft die
+  // App nicht auf "/", sondern unter /api/hassio_ingress/<token>/. Ein absolutes
+  // /assets/index-xyz.js würde der Browser gegen die HA-Wurzel auflösen — dort
+  // liegt nichts, die Seite bliebe weiß. Aufgelöst werden die relativen Pfade
+  // gegen das <base>-Tag, das das Backend in die index.html schreibt.
+  base: './',
   plugins: [react()],
   server: {
     // Ohne feste Adresse bindet Vite unter macOS nur an IPv6 (::1) — dann

@@ -13,5 +13,8 @@ backend/.secret_key
 node_modules/
 dist/
 
+# Vom Dockerfile erzeugtes Auslieferungsverzeichnis des Frontends
+backend/static/
+
 # System
 .DS_Store

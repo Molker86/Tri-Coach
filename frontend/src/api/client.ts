@@ -13,6 +13,7 @@ import type {
   TrainingRequestInput,
   User,
 } from '../types'
+import { BASE_PATH } from '../basePath'
 
 const TOKEN_KEY = 'tricoach.token'
 
@@ -47,7 +48,7 @@ async function request<T>(
   if (token) headers.Authorization = `Bearer ${token}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${BASE_PATH}/api${path}`, {
     method: options.method ?? 'GET',
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
