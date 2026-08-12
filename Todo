@@ -1,5 +1,8 @@
-beim Radfahren sollen km/h als "pace" angegeben werden und beim schwimmen min/100m, beim laufen min/km (dort wo man das Training zurückmeldet)
+///////beim Radfahren sollen km/h als "pace" angegeben werden und beim schwimmen min/100m, beim laufen min/km (dort wo man das Training zurückmeldet)
 
-Für mobilgeräte ist es nicht wirklcih optimiert, ich möchte, dass dies übersichtlicher und schöner umgestzt wird. manche bereiche sind zu groß und manche zu klein. Für den Browser an einem Laptop ist es bereits sehr schön umgesetzt.
+//////////ür mobilgeräte ist es nicht wirklcih optimiert, ich möchte, dass dies übersichtlicher und schöner umgestzt wird. manche bereiche sind zu groß und manche zu klein. Für den Browser an einem Laptop ist es bereits sehr schön umgesetzt.
 
 Bei der Auswahl der Trainingstage soll es einen button geben mit "alle Tage auswählen"
+
+
+schaffe die möglichkeit die generierten Trainings in Garmin connect via import (fileimport) zu verfügung zu stellen, dass der User dieses Training mit seinen geräten absolvieren kann.

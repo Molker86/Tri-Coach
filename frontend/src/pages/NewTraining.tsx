@@ -121,6 +121,21 @@ export default function NewTraining() {
     })
   }
 
+  function setAllDays(selected: boolean) {
+    setForm((current) =>
+      selected
+        ? { ...current, available_days: WEEKDAYS.map((d) => d.key) }
+        : // Wie beim einzelnen Abwählen: nichts von den verworfenen Tagen stehen lassen.
+          {
+            ...current,
+            available_days: [],
+            day_sport_map: {},
+            day_time_budget: {},
+            long_session_day: null,
+          },
+    )
+  }
+
   function toggleDaySport(day: Weekday, sport: Sport) {
     setForm((current) => {
       const existing = current.day_sport_map[day] ?? []
@@ -137,6 +152,8 @@ export default function NewTraining() {
   function toggleFromList(list: string[], value: string): string[] {
     return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
   }
+
+  const allDaysSelected = form.available_days.length === WEEKDAYS.length
 
   const canAdvance = (() => {
     switch (step) {
@@ -285,6 +302,14 @@ export default function NewTraining() {
             <p className="muted">
               Wähle alle Tage aus, an denen Training grundsätzlich möglich ist.
             </p>
+            <div className="row mb-1" style={{ justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setAllDays(!allDaysSelected)}
+              >
+                {allDaysSelected ? 'Auswahl aufheben' : 'Alle Tage auswählen'}
+              </button>
+            </div>
             <div className="day-grid">
               {WEEKDAYS.map((day) => (
                 <button
