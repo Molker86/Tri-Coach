@@ -74,7 +74,7 @@ export default function Landing() {
       </section>
 
       <section className="landing-features">
-        <div className="grid grid-3">
+        <div className="feature-grid">
           {FEATURES.map((feature) => (
             <div className="feature" key={feature.title}>
               <div className="feature-icon">{feature.icon}</div>

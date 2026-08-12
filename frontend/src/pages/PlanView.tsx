@@ -102,19 +102,21 @@ export default function PlanView() {
           <div className="card">
             <h3>Frühere Pläne</h3>
             <div className="table-wrap">
-              <table>
+              <table className="table-cards">
                 <tbody>
                   {plans.map((entry) => (
                     <tr key={entry.id}>
-                      <td>
+                      <td className="cell-title">
                         <Link to={`/plan/${entry.id}`}>{entry.title}</Link>
                       </td>
-                      <td className="nowrap muted small">
+                      <td className="nowrap muted small" data-label="Zeitraum">
                         {new Date(entry.start_date).toLocaleDateString('de-DE')} –{' '}
                         {new Date(entry.end_date).toLocaleDateString('de-DE')}
                       </td>
-                      <td className="nowrap muted small">{entry.session_count} Einheiten</td>
-                      <td className="nowrap">
+                      <td className="nowrap muted small" data-label="Umfang">
+                        {entry.session_count} Einheiten
+                      </td>
+                      <td className="nowrap cell-actions">
                         <button
                           className="btn btn-ghost btn-sm"
                           onClick={() =>
@@ -229,7 +231,7 @@ export default function PlanView() {
 
             {week.days.map(([date, sessions]) => (
               <div className={`day-row ${isToday(date) ? 'is-today' : ''}`} key={date}>
-                <div>
+                <div className="day-row-head">
                   <div className="day-label">
                     {new Date(date).toLocaleDateString('de-DE', DAY_FORMAT)}
                     {isToday(date) && ' · heute'}
@@ -261,22 +263,24 @@ export default function PlanView() {
         <div className="card">
           <h3>Frühere Pläne</h3>
           <div className="table-wrap">
-            <table>
+            <table className="table-cards">
               <tbody>
                 {plans.map((entry) => (
                   <tr key={entry.id}>
-                    <td>
+                    <td className="cell-title">
                       <Link to={`/plan/${entry.id}`}>{entry.title}</Link>
                       {entry.is_active && (
                         <> <span className="badge badge-success">Aktiv</span></>
                       )}
                     </td>
-                    <td className="nowrap muted small">
+                    <td className="nowrap muted small" data-label="Zeitraum">
                       {new Date(entry.start_date).toLocaleDateString('de-DE')} –{' '}
                       {new Date(entry.end_date).toLocaleDateString('de-DE')}
                     </td>
-                    <td className="nowrap muted small">{entry.session_count} Einheiten</td>
-                    <td className="nowrap">
+                    <td className="nowrap muted small" data-label="Umfang">
+                      {entry.session_count} Einheiten
+                    </td>
+                    <td className="nowrap cell-actions">
                       {!entry.is_active && (
                         <button
                           className="btn btn-ghost btn-sm"

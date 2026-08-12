@@ -330,7 +330,7 @@ export default function ProfilePage() {
             hier festgehalten und geht als Trend in den nächsten Plan ein.
           </p>
           <div className="table-wrap">
-            <table>
+            <table className="table-cards">
               <thead>
                 <tr>
                   <th>Datum</th>
@@ -344,14 +344,14 @@ export default function ProfilePage() {
               <tbody>
                 {[...history].reverse().map((entry, index) => (
                   <tr key={`${entry.recorded_at}-${index}`}>
-                    <td className="nowrap">
+                    <td className="nowrap cell-title" data-label="Stand">
                       {new Date(entry.recorded_at).toLocaleDateString('de-DE')}
                     </td>
-                    <td>{entry.weight_kg ?? '–'}</td>
-                    <td>{entry.resting_hr ?? '–'}</td>
-                    <td>{entry.hrv_rmssd ?? '–'}</td>
-                    <td>{entry.vo2max ?? '–'}</td>
-                    <td>{entry.ftp_watts ?? '–'}</td>
+                    <td data-label="Gewicht">{entry.weight_kg ?? '–'}</td>
+                    <td data-label="Ruhepuls">{entry.resting_hr ?? '–'}</td>
+                    <td data-label="HRV">{entry.hrv_rmssd ?? '–'}</td>
+                    <td data-label="VO2max">{entry.vo2max ?? '–'}</td>
+                    <td data-label="FTP">{entry.ftp_watts ?? '–'}</td>
                   </tr>
                 ))}
               </tbody>

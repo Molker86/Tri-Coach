@@ -79,7 +79,7 @@ export default function History() {
       ) : (
         <div className="card">
           <div className="table-wrap">
-            <table>
+            <table className="table-cards">
               <thead>
                 <tr>
                   <th>Datum</th>
@@ -95,25 +95,29 @@ export default function History() {
               <tbody>
                 {logs.map((log) => (
                   <tr key={log.id}>
-                    <td className="nowrap">
+                    <td className="nowrap" data-label="Datum">
                       {new Date(log.date).toLocaleDateString('de-DE', {
                         weekday: 'short',
                         day: '2-digit',
                         month: '2-digit',
                       })}
                     </td>
-                    <td className="nowrap">
+                    <td className="nowrap cell-title">
                       {sportIcon(log.sport)} {sportLabel(log.sport)}
                       {log.status !== 'completed' && (
                         <> <span className="badge">{STATUS_LABEL[log.status]}</span></>
                       )}
                     </td>
-                    <td>{log.duration_min ? `${log.duration_min} min` : '–'}</td>
-                    <td>{log.distance_km ? `${log.distance_km} km` : '–'}</td>
-                    <td>{log.avg_hr ?? '–'}</td>
-                    <td>{log.rpe ?? '–'}</td>
-                    <td>{log.trimp ?? '–'}</td>
-                    <td className="nowrap">
+                    <td data-label="Dauer">
+                      {log.duration_min ? `${log.duration_min} min` : '–'}
+                    </td>
+                    <td data-label="Distanz">
+                      {log.distance_km ? `${log.distance_km} km` : '–'}
+                    </td>
+                    <td data-label="Ø Puls">{log.avg_hr ?? '–'}</td>
+                    <td data-label="RPE">{log.rpe ?? '–'}</td>
+                    <td data-label="TRIMP">{log.trimp ?? '–'}</td>
+                    <td className="nowrap cell-actions">
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => setSelected(log)}

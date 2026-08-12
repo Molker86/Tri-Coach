@@ -123,6 +123,33 @@ aufgelöst würden. Wer im Frontend eine Adresse selbst zusammenbaut, muss
 `BASE_PATH` mitnehmen — Router-`Link`s und `navigate()` erledigen das von allein,
 `window.location` dagegen nicht (deshalb `useLocation()` in `PlanView.tsx`).
 
+**Am Telefon trägt die Navigation unten, nicht oben.** Die Kopfleiste mit sieben
+Wegen nebeneinander funktioniert am Schreibtisch; auf einem Telefon bräuchte sie
+drei Zeilen und stünde bei jedem Scrollen im Weg. Unterhalb von 860 px entfällt
+sie deshalb ganz (`.topbar-app`), stattdessen blendet `Layout.tsx` eine feste
+Leiste am unteren Rand ein: Übersicht, Plan, Erfassen, Verlauf und „Mehr“ —
+hinter „Mehr“ liegt ein Blatt mit Neues Training, Nachtragen, Meine Daten und
+Abmelden. Orientierung geht dabei nicht verloren, weil jede Seite ihre
+Überschrift selbst trägt. Zwei Dinge hängen daran: `.page` braucht unten Platz
+für die Leiste samt `env(safe-area-inset-bottom)` — dafür steht
+`viewport-fit=cover` in der `index.html`, ohne das der Wert auf iOS 0 bleibt —
+und Eingabefelder bekommen dort 16 px Schriftgröße, weil iOS darunter beim
+Antippen in die Seite hineinzoomt und den Nutzer im vergrößerten Ausschnitt
+zurücklässt.
+
+**Tabellen werden auf schmalen Bildschirmen zu Karten.** Acht Spalten passen nur
+mit Querscrollen auf ein Telefon, und was man wegschieben muss, sieht man nicht.
+`.table-cards` bricht deshalb unterhalb von 640 px jede Zeile in eine Karte auf:
+Die Beschriftung je Wert kommt aus `data-label` am `<td>`, die Zelle mit
+`.cell-title` wird zur Überschrift der Karte, `.cell-actions` rückt an den
+rechten Rand. Das Markup bleibt eine Tabelle — am Schreibtisch ändert sich
+nichts, und eine zweite Darstellung, die mit der ersten auseinanderläuft,
+entsteht gar nicht erst. Wer eine Spalte ergänzt, muss `data-label` mitgeben,
+sonst steht der Wert am Telefon ohne Beschriftung da. Formularraster (`.grid-3`)
+rücken auf zwei Spalten zusammen statt untereinander; damit die Eingabefelder
+trotz unterschiedlich langer Beschriftungen auf einer Linie bleiben, teilen sich
+die Felder per `subgrid` dieselben Zeilen.
+
 **Home-Assistant-Integration: Lokales Build im Repo-Root**
 (`config.yaml`, `build.yaml`, `run.sh`, Root-`Dockerfile`). Der HA Supervisor
 baut die App beim Installieren lokal — `build.yaml` setzt den Build-Context

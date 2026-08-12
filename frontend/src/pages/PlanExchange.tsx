@@ -108,7 +108,7 @@ export default function PlanExchange() {
             Datenpaket kopieren
           </h2>
           <div className="row">
-            <div style={{ minWidth: 170 }}>
+            <div className="field-slot">
               <Field label="Erster Tag">
                 <input
                   type="date"
@@ -117,7 +117,7 @@ export default function PlanExchange() {
                 />
               </Field>
             </div>
-            <div style={{ minWidth: 130 }}>
+            <div className="field-slot">
               <Field label="Anzahl Tage">
                 <select
                   value={days}

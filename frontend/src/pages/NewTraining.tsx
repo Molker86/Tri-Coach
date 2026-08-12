@@ -295,7 +295,6 @@ export default function NewTraining() {
                   onClick={() => toggleDay(day.key)}
                 >
                   {day.short}
-                  <small>{day.label.slice(0, 2)}</small>
                 </button>
               ))}
             </div>

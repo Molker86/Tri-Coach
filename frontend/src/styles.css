@@ -337,6 +337,14 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   align-items: center;
 }
 
+/* Einzelnes Feld in einer Reihe neben anderen Bedienelementen — es soll nicht
+   auf Textbreite auseinanderlaufen, auf dem Telefon aber die Reihe füllen. */
+/* Feste Breite statt schrumpfbarer Basis: Ein schrumpfbares Feld zieht die
+   umgebende Reihe auf Mindestbreite zusammen — die beiden Felder stünden dann
+   auch bei viel Platz untereinander. */
+.field-slot { flex: 0 0 auto; width: 170px; }
+.field-slot .field { margin-bottom: 0; }
+
 /* ==========================================================================
    Buttons
    ========================================================================== */
@@ -439,12 +447,14 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   gap: 0.5rem;
 }
 
+/* Die Woche bleibt auch auf dem Telefon eine Reihe: Vier Kacheln plus drei in
+   der zweiten Zeile lesen sich nicht mehr als Woche. */
 @media (max-width: 640px) {
-  .day-grid { grid-template-columns: repeat(4, 1fr); }
+  .day-grid { gap: 0.3rem; }
 }
 
 .day-toggle {
-  padding: 0.7rem 0.3rem;
+  padding: 0.7rem 0.2rem;
   text-align: center;
   background: var(--surface);
   border: 1.5px solid var(--border);
@@ -461,13 +471,6 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-text);
-}
-
-.day-toggle small {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 500;
-  opacity: 0.8;
 }
 
 /* Chips für Sportarten je Tag */
@@ -798,6 +801,15 @@ textarea.paste-area {
   padding: 0 1.5rem 5rem;
 }
 
+/* Eigenes Raster statt `.grid-3`: Die Merkmalskarten tragen Fließtext und
+   bleiben deshalb breiter als die Formularspalten, die auf dem Telefon auf
+   zwei Spalten zusammenrücken. */
+.feature-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
 .feature {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -888,4 +900,358 @@ textarea.paste-area {
   background: var(--border);
   margin: 1.25rem 0;
   border: none;
+}
+
+/* ==========================================================================
+   Telefon-Navigation
+
+   Am Schreibtisch trägt die Kopfleiste alle sieben Wege nebeneinander. Auf
+   einem Telefon bräuchte dieselbe Leiste drei Zeilen und stünde bei jedem
+   Scrollen im Weg. Stattdessen: unten eine feste Leiste mit den vier Wegen des
+   Trainingsalltags, der Rest in einem Blatt hinter „Mehr“. Die Kopfleiste
+   entfällt dort ganz — jede Seite trägt ihre Überschrift ohnehin selbst.
+   ========================================================================== */
+
+.mobile-nav { display: none; }
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(8 12 16 / 55%);
+  display: flex;
+  align-items: flex-end;
+}
+
+.sheet {
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-lg);
+  padding: 0.6rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  animation: sheet-in 0.18s ease-out;
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(20%); opacity: 0.4; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { animation: none; }
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  margin: 0.2rem auto 0.9rem;
+}
+
+.sheet-link {
+  display: block;
+  padding: 0.9rem 0.25rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.sheet-link.active { color: var(--accent); }
+
+.sheet-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+/* ==========================================================================
+   Tabellen als Karten
+
+   Sieben Spalten passen auf ein Telefon nur mit Querscrollen — und was man
+   wegschieben muss, sieht man nicht. `.table-cards` bricht jede Zeile in eine
+   Karte auf: die Kennung als Überschrift, die Messwerte als beschriftete
+   Werte nebeneinander. Die Beschriftung kommt aus `data-label`, die Tabelle
+   bleibt also eine Tabelle — am Schreibtisch ändert sich nichts.
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .table-cards,
+  .table-cards tbody { display: block; }
+
+  .table-cards thead { display: none; }
+
+  .table-cards tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.85rem;
+    padding: 0.7rem 0.8rem;
+    margin-bottom: 0.6rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .table-cards tr:last-child { margin-bottom: 0; }
+
+  .table-cards td {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    padding: 0;
+    border: none;
+    font-size: 0.88rem;
+  }
+
+  /* Eine Zelle ohne Wert braucht als Karte keine Zeile — anders als in der
+     Tabelle, wo die Spalte trotzdem stehen bleiben muss. */
+  .table-cards td:empty { display: none; }
+
+  .table-cards td[data-label]::before {
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+  }
+
+  /* Die Kennung der Zeile trägt keine Beschriftung — sie ist die Überschrift
+     der Karte und steht deshalb ganz oben und über die volle Breite. */
+  .table-cards .cell-title {
+    order: -1;
+    flex: 1 0 100%;
+    font-size: 0.98rem;
+    font-weight: 650;
+  }
+
+  /* Die Schaltfläche rückt an den rechten Rand der Zeile, in der sie landet —
+     eine eigene Zeile je Karte wäre eine Zeile Luft ohne Inhalt. */
+  .table-cards .cell-actions { margin-left: auto; }
+}
+
+/* ==========================================================================
+   Telefon und schmale Fenster
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .topbar-app { display: none; }
+
+  .mobile-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 12px rgb(16 24 32 / 7%);
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    min-height: 56px;
+    padding: 0.5rem 0.15rem;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text-faint);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .mobile-nav-item.active { color: var(--accent); }
+
+  .mobile-nav-icon {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Nur im Rahmen der App: Auf Login und Registrierung liegt keine Leiste,
+     dort wäre der Platz unten verschenkt. */
+  .app-shell .page {
+    padding: 1.25rem max(1rem, env(safe-area-inset-left)) calc(5.5rem + env(safe-area-inset-bottom))
+      max(1rem, env(safe-area-inset-right));
+  }
+
+  /* 16 px ist die Grenze, unter der iOS beim Antippen eines Feldes in die
+     Seite zoomt und den Nutzer im vergrößerten Ausschnitt zurücklässt. */
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='number'],
+  input[type='date'],
+  select,
+  textarea,
+  textarea.paste-area { font-size: 16px; }
+
+  /* Fingerkuppen brauchen mehr Fläche als ein Mauszeiger. */
+  .btn { min-height: 44px; padding: 0.6rem 1.1rem; }
+  .btn-sm { min-height: 38px; padding: 0.4rem 0.8rem; }
+  .btn-lg { min-height: 50px; }
+  .modal-close { min-width: 40px; min-height: 40px; }
+}
+
+@media (max-width: 700px) {
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.18rem; }
+  h3 { font-size: 1.02rem; }
+
+  .page { padding: 1.25rem 1rem 3rem; }
+
+  .card { padding: 1rem; }
+  .card + .card { margin-top: 0.85rem; }
+
+  .grid { gap: 0.85rem; }
+  /* Kennzahlen bleiben zu zweit nebeneinander — einzeln würde jede Zahl eine
+     halbe Bildschirmhöhe belegen und der Vergleich ginge verloren. */
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); column-gap: 0.7rem; }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+
+  .stat { padding: 0.75rem 0.85rem; }
+  .stat-label { font-size: 0.7rem; }
+  .stat-value { font-size: 1.4rem; }
+  .stat-hint { font-size: 0.76rem; }
+
+  .field { margin-bottom: 0.85rem; }
+  .field label { font-size: 0.82rem; }
+  .field-hint { font-size: 0.76rem; }
+
+  /* Zwei Felder nebeneinander, deren Beschriftungen unterschiedlich lang
+     umbrechen, würden ihre Eingabefelder auf verschiedene Höhen schieben.
+     `subgrid` teilt beiden dieselben drei Zeilen zu — Beschriftung, Hinweis,
+     Feld stehen dadurch über die ganze Reihe auf einer Linie. */
+  .grid-3 > .field {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: span 3;
+    gap: 0.3rem;
+    margin-bottom: 0;
+  }
+
+  .grid-3 > .field > :last-child { grid-row: 3; }
+
+  /* Ein Auswahlfeld auf halber Breite schneidet seinen eigenen Wert ab —
+     „Vollständig absolviert“ endet dann bei „Vollständig abso“. */
+  .grid-3 > .field:has(> select) { grid-column: 1 / -1; }
+
+  /* Tabellen sind auf dem Telefon knapp bei Kasse: Die Zonentabelle passt nur
+     mit engeren Zellen ohne Querscrollen in die Karte. */
+  table { font-size: 0.86rem; }
+  th, td { padding: 0.4rem 0.35rem; }
+  .zone-dot { margin-right: 0.3rem; }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1.1rem;
+  }
+
+  /* Aktionen über die volle Breite statt rechtsbündig zerfranst. */
+  .page-header .row > .btn,
+  .page-header .row > select { flex: 1 1 45%; }
+
+  .card-title { flex-direction: column; align-items: stretch; }
+  /* Volle Breite statt zweier halber Spalten: Ein Datumsfeld braucht Platz für
+     „12.08.2026“ samt Kalendersymbol und schneidet sonst seinen Wert ab. */
+  .field-slot { width: 100%; }
+
+  .row-end { flex-direction: column-reverse; align-items: stretch; }
+  .row-end > .btn { width: 100%; }
+
+  .wizard-actions { gap: 0.6rem; margin-top: 1.25rem; padding-top: 1rem; }
+  .wizard-actions .btn { flex: 1; }
+  .question-block { margin-bottom: 1.35rem; }
+
+  /* Wochentag und Datum in eine Zeile: zwei Zeilen Kopf für einen Tag mit
+     einer Einheit ist zu viel Rahmen für zu wenig Inhalt. */
+  .day-row { padding: 0.85rem 0 0.6rem; }
+  .day-row-head { display: flex; align-items: baseline; gap: 0.5rem; }
+
+  .week-block { margin-bottom: 1.25rem; }
+  .empty-state { padding: 2rem 0.5rem; }
+  .code-box { font-size: 0.72rem; max-height: 260px; padding: 0.75rem; }
+  textarea.paste-area { min-height: 170px; }
+}
+
+@media (max-width: 640px) {
+  /* Auswahlkacheln tragen Beschreibungstext und bleiben deshalb einspaltig. */
+  .choice-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 359px) {
+  /* Erst unterhalb der schmalsten gängigen Geräte lohnt eine Spalte: Neun
+     Messwerte untereinander sind eine halbe Bildschirmhöhe Scrollen mehr. */
+  .grid-3 { grid-template-columns: 1fr; }
+}
+
+/* Fenster, das Blatt vom unteren Rand: Ein zentriertes Kästchen mit Rand
+   ringsum verschenkt auf einem Telefon die halbe Fläche. */
+@media (max-width: 640px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+
+  .modal {
+    margin: 0;
+    max-width: none;
+    max-height: 92vh;
+    overflow-y: auto;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 1.1rem 1rem calc(1.25rem + env(safe-area-inset-bottom));
+    animation: sheet-in 0.18s ease-out;
+  }
+
+  .modal-head {
+    position: sticky;
+    top: -1.1rem;
+    z-index: 1;
+    margin: -1.1rem -1rem 0.9rem;
+    padding: 1.1rem 1rem 0.6rem;
+    background: var(--surface);
+  }
+}
+
+/* Landing und Anmeldung */
+@media (max-width: 640px) {
+  .topbar { padding: 0.6rem 1rem; gap: 0.75rem; }
+  /* Marke plus zwei Schaltflächen müssen in eine Zeile passen, sonst rutscht
+     der Einstieg unter die Marke und die Seite beginnt mit einem Bruch. */
+  .topbar .btn { padding: 0.5rem 0.75rem; font-size: 0.88rem; }
+
+  .landing-hero { padding: 2.5rem 1rem 2rem; gap: 1rem; }
+  .landing-lead { font-size: 1rem; }
+  .landing-hero .row { align-items: stretch; flex-direction: column; width: 100%; }
+  .landing-features { padding: 0 1rem 3.5rem; }
+  .feature { padding: 1rem; }
+
+  .auth-card { margin: 1.5rem auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal { animation: none; }
 }

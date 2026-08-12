@@ -236,21 +236,24 @@ export default function Dashboard() {
             <p className="muted mb-0">Keine weiteren Einheiten geplant.</p>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table className="table-cards">
                 <tbody>
                   {upcoming.map((session) => (
                     <tr key={session.id}>
-                      <td className="nowrap muted small">
+                      <td className="nowrap muted small" data-label="Tag">
                         {new Date(session.date).toLocaleDateString('de-DE', {
                           weekday: 'short',
                           day: '2-digit',
                           month: '2-digit',
                         })}
                       </td>
-                      <td>
+                      <td className="cell-title">
                         {sportIcon(session.sport)} {session.title}
                       </td>
-                      <td className="nowrap muted small">
+                      <td
+                        className="nowrap muted small"
+                        data-label={session.duration_min ? 'Dauer' : undefined}
+                      >
                         {session.duration_min ? `${session.duration_min} min` : ''}
                       </td>
                     </tr>
@@ -277,7 +280,7 @@ export default function Dashboard() {
         <div className="card">
           <h2>Die letzten vier Wochen</h2>
           <div className="table-wrap">
-            <table>
+            <table className="table-cards">
               <thead>
                 <tr>
                   <th>Woche ab</th>
@@ -291,17 +294,17 @@ export default function Dashboard() {
               <tbody>
                 {stats.weekly.map((week) => (
                   <tr key={week.week_start}>
-                    <td className="nowrap">
+                    <td className="nowrap cell-title" data-label="Woche ab">
                       {new Date(week.week_start).toLocaleDateString('de-DE', {
                         day: '2-digit',
                         month: '2-digit',
                       })}
                     </td>
-                    <td>{week.sessions}</td>
-                    <td>{week.total_minutes}</td>
-                    <td>{week.total_km}</td>
-                    <td>{week.avg_rpe ?? '–'}</td>
-                    <td>{week.total_srpe_load ?? '–'}</td>
+                    <td data-label="Einheiten">{week.sessions}</td>
+                    <td data-label="Minuten">{week.total_minutes}</td>
+                    <td data-label="Kilometer">{week.total_km}</td>
+                    <td data-label="Ø RPE">{week.avg_rpe ?? '–'}</td>
+                    <td data-label="Last">{week.total_srpe_load ?? '–'}</td>
                   </tr>
                 ))}
               </tbody>
