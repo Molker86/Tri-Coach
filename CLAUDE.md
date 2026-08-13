@@ -19,7 +19,8 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ## Ursprüngliche Anforderungen
 
-- Anmelden/Registrieren über die Landingpage.
+- Anmelden/Registrieren über die Landingpage (Nachforderung: Die Anmeldung
+  läuft inzwischen ohne Passwort über eine Kontoauswahl — siehe „Anmeldung").
 - „Neues Training": Einzeldisziplinen Laufen, Schwimmen, Radfahren — oder Triathlon.
 - Geclusterte Fragen, Multiple Choice mit **Freitextfeld je Cluster**.
   Ausnahme: Die Wochentagsabfrage hat bewusst *kein* Freitextfeld.
@@ -66,6 +67,22 @@ hart trainiert werden darf. Weil ein Block schnell ausläuft, weist das Dashboar
 darauf hin, sobald der aktive Block heute endet oder vorbei ist (`blockStatus()`
 in `Dashboard.tsx`) — sonst stünde der Nutzer mit einem abgelaufenen Plan da,
 ohne dass die App etwas dazu sagt.
+
+**Anmeldung ohne Passwort, per Kontoauswahl.** `/api/auth/users` liefert alle
+Konten als `{id, username}`, `/api/auth/login` nimmt nur noch eine `user_id` und
+gibt dafür ein Token aus. Die App läuft hinter dem Home-Assistant-Ingress, der
+die Sitzung bereits authentifiziert hat — ein zweites Passwort davor wäre
+Reibung ohne Sicherheitsgewinn, zumal es hier nur um Trainingsdaten im eigenen
+Haushalt geht. Die Kehrseite steht damit fest: **Wer die App erreicht, kann sich
+als jedes Konto anmelden.** Wird sie je ohne Ingress ins Netz gestellt, muss
+davor eine Authentifizierung. Die Auswahlliste ist bewusst unauthentifiziert
+(sonst käme niemand an die Anmeldung) und gibt deshalb keine E-Mail preis. Weil
+kein Passwort mehr existiert, fragt auch die Registrierung keins mehr ab; die
+Spalte `hashed_password` bleibt leer im Modell stehen, weil ihr Entfernen ohne
+Alembic bestehende Datenbanken bräche. Das zuletzt genutzte Konto merkt sich
+`localStorage` (`tricoach.lastUser`, geschrieben im `AuthContext` nach
+erfolgreicher An- oder Neuanmeldung, gelesen von `Login.tsx`) und ist beim
+nächsten Mal vorausgewählt — steht es nicht mehr in der Liste, das erste Konto.
 
 **Nachtragen ist derselbe Bildschirm, nicht ein zweites Formular.**
 `/training-nachtragen` rendert `LogSession` mit `mode="backfill"` — gleiche Felder,
@@ -215,6 +232,9 @@ mitversorgt werden.
 - Kein Alembic; Schemaänderungen erfordern derzeit das Löschen der SQLite-Datei
   oder ein `ALTER TABLE` von Hand. Solange die App in Beta ist, ist das der
   bewusste Weg — kein Kompatibilitätsballast im Modell.
-- Kein Rate-Limiting am Login, keine Passwort-zurücksetzen-Funktion.
-- Für den Netzbetrieb fehlen HTTPS, gesetzter `TRI_SECRET_KEY` und angepasste
-  CORS-Herkünfte (`config.py`).
+- Die Anmeldung schützt nichts: Jeder, der die App erreicht, kann jedes Konto
+  wählen (bewusst — siehe „Anmeldung"). Der Schutz kommt vom Ingress davor.
+- Kein Löschen von Konten in der Oberfläche; ein Konto bleibt für immer in der
+  Auswahlliste.
+- Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
+  gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).

@@ -12,10 +12,12 @@ import type {
   TrainingRequest,
   TrainingRequestInput,
   User,
+  UserOption,
 } from '../types'
 import { BASE_PATH } from '../basePath'
 
 const TOKEN_KEY = 'tricoach.token'
+const LAST_USER_KEY = 'tricoach.lastUser'
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -24,6 +26,18 @@ export function getToken(): string | null {
 export function setToken(token: string | null): void {
   if (token === null) localStorage.removeItem(TOKEN_KEY)
   else localStorage.setItem(TOKEN_KEY, token)
+}
+
+/** Zuletzt angemeldetes Konto -- überlebt das Abmelden, damit die
+ *  Anmeldeseite es wieder vorauswählen kann. */
+export function getLastUserId(): number | null {
+  const raw = localStorage.getItem(LAST_USER_KEY)
+  const id = raw === null ? NaN : Number(raw)
+  return Number.isFinite(id) ? id : null
+}
+
+export function setLastUserId(id: number): void {
+  localStorage.setItem(LAST_USER_KEY, String(id))
 }
 
 export class ApiError extends Error {
@@ -88,16 +102,18 @@ async function extractError(response: Response): Promise<string> {
 }
 
 export const api = {
-  register: (email: string, username: string, password: string) =>
+  register: (email: string, username: string) =>
     request<AuthResponse>('/auth/register', {
       method: 'POST',
-      body: { email, username, password },
+      body: { email, username },
     }),
 
-  login: (identifier: string, password: string) =>
+  listUsers: () => request<UserOption[]>('/auth/users'),
+
+  login: (userId: number) =>
     request<AuthResponse>('/auth/login', {
       method: 'POST',
-      body: { identifier, password },
+      body: { user_id: userId },
     }),
 
   me: () => request<User>('/auth/me'),

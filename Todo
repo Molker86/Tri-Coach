@@ -2,7 +2,10 @@
 
 //////////ür mobilgeräte ist es nicht wirklcih optimiert, ich möchte, dass dies übersichtlicher und schöner umgestzt wird. manche bereiche sind zu groß und manche zu klein. Für den Browser an einem Laptop ist es bereits sehr schön umgesetzt.
 
-Bei der Auswahl der Trainingstage soll es einen button geben mit "alle Tage auswählen"
+//////Bei der Auswahl der Trainingstage soll es einen button geben mit "alle Tage auswählen"
 
 
 schaffe die möglichkeit die generierten Trainings in Garmin connect via import (fileimport) zu verfügung zu stellen, dass der User dieses Training mit seinen geräten absolvieren kann.
+
+ich habe meine daten in der garmin connect cloud auf garmin connect.com ich möchte gerne die trainingsdaten der vergangenheit, sagen wir das letzte Jahr initial herunterladen. ebenfalls mchte ich eine möglichkeit haben mit einem button die letzten aktuellen trainingsdaten herunterzuladen. 
+Es gibt einmal die fitness daten die relevant sind und es gibt die trainingsdaten. bei den fitnessdaten sind so sachen wie schlaf, hrv ruhe usw. diese werte sollen dann auch so in die app übernommen werden und zur auswertung in die nächsten trainingsvorschläge übrernommen werden. Im prinzip muss man dann keine trainigns und fitnessdaten in diese app nachtragen können. das soll alles über garmin laufen.

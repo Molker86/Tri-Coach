@@ -3,8 +3,8 @@ from sqlalchemy import func, or_
 
 from ..deps import CurrentUser, DbSession
 from ..models import AthleteProfile, User
-from ..schemas import LoginIn, RegisterIn, TokenOut, UserOut
-from ..security import create_access_token, hash_password, verify_password
+from ..schemas import LoginIn, RegisterIn, TokenOut, UserOption, UserOut
+from ..security import create_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -31,11 +31,7 @@ def register(data: RegisterIn, db: DbSession) -> TokenOut:
             detail=f"Diese(r) {field} ist bereits vergeben.",
         )
 
-    user = User(
-        email=email,
-        username=username,
-        hashed_password=hash_password(data.password),
-    )
+    user = User(email=email, username=username)
     # Leeres Profil direkt anlegen, damit das Frontend immer ein Objekt vorfindet.
     user.profile = AthleteProfile()
 
@@ -49,24 +45,29 @@ def register(data: RegisterIn, db: DbSession) -> TokenOut:
     )
 
 
+@router.get("/users", response_model=list[UserOption])
+def list_users(db: DbSession) -> list[User]:
+    """Kontoauswahl für die Anmeldeseite.
+
+    Ohne Authentifizierung erreichbar -- sie ist die Anmeldung, käme sie nur
+    mit Token, wäre sie nutzlos. Sie liefert deshalb nur Name und ID.
+    """
+    return db.query(User).order_by(func.lower(User.username)).all()
+
+
 @router.post("/login", response_model=TokenOut)
 def login(data: LoginIn, db: DbSession) -> TokenOut:
-    identifier = data.identifier.lower().strip()
-    user = (
-        db.query(User)
-        .filter(
-            or_(
-                func.lower(User.email) == identifier,
-                func.lower(User.username) == identifier,
-            )
-        )
-        .first()
-    )
+    """Anmeldung per Kontoauswahl, ohne Passwort.
 
-    if user is None or not verify_password(data.password, user.hashed_password):
+    Bewusste Entscheidung: Die App läuft hinter dem Home-Assistant-Ingress,
+    der die Sitzung bereits authentifiziert. Ein zweites Passwort davor wäre
+    nur ein Hindernis, keine zusätzliche Absicherung.
+    """
+    user = db.get(User, data.user_id)
+    if user is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Benutzername oder Passwort ist falsch.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dieses Konto gibt es nicht mehr.",
         )
 
     return TokenOut(

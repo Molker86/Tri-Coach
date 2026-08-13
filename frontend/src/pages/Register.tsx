@@ -9,27 +9,15 @@ export default function Register() {
 
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [repeat, setRepeat] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setError(null)
-
-    if (password !== repeat) {
-      setError('Die beiden Passwörter stimmen nicht überein.')
-      return
-    }
-    if (password.length < 8) {
-      setError('Das Passwort muss mindestens 8 Zeichen lang sein.')
-      return
-    }
-
     setBusy(true)
     try {
-      await register(email, username, password)
+      await register(email, username)
       // Direkt ins Profil: ohne Leistungswerte kann die KI wenig anfangen.
       navigate('/profil')
     } catch (err) {
@@ -58,7 +46,10 @@ export default function Register() {
             />
           </Field>
 
-          <Field label="Benutzername">
+          <Field
+            label="Benutzername"
+            hint="Unter diesem Namen erscheint das Konto in der Anmeldeliste."
+          >
             <input
               type="text"
               value={username}
@@ -66,27 +57,6 @@ export default function Register() {
               required
               minLength={3}
               onChange={(e) => setUsername(e.target.value)}
-            />
-          </Field>
-
-          <Field label="Passwort" hint="Mindestens 8 Zeichen.">
-            <input
-              type="password"
-              value={password}
-              autoComplete="new-password"
-              required
-              minLength={8}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
-
-          <Field label="Passwort wiederholen">
-            <input
-              type="password"
-              value={repeat}
-              autoComplete="new-password"
-              required
-              onChange={(e) => setRepeat(e.target.value)}
             />
           </Field>
 

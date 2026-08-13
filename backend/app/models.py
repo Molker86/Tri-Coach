@@ -34,7 +34,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    # Die Anmeldung läuft über Kontoauswahl, nicht über ein Passwort. Die Spalte
+    # bleibt (leer) bestehen, weil ihr Entfernen ohne Alembic ein Neuaufbauen
+    # der Tabelle erfordern und bestehende Datenbanken brechen würde.
+    hashed_password: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     profile: Mapped["AthleteProfile | None"] = relationship(

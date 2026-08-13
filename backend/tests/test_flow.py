@@ -33,11 +33,7 @@ def client():
 def auth(client):
     response = client.post(
         "/api/auth/register",
-        json={
-            "email": "athlet@example.com",
-            "username": "athlet",
-            "password": "supersicher123",
-        },
+        json={"email": "athlet@example.com", "username": "athlet"},
     )
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
@@ -101,27 +97,21 @@ def test_health(client):
 def test_login_and_duplicate_registration(client, auth):
     duplicate = client.post(
         "/api/auth/register",
-        json={
-            "email": "athlet@example.com",
-            "username": "anderer",
-            "password": "supersicher123",
-        },
+        json={"email": "athlet@example.com", "username": "anderer"},
     )
     assert duplicate.status_code == 409
 
-    # Login per Benutzername und per E-Mail
-    for identifier in ("athlet", "athlet@example.com"):
-        login = client.post(
-            "/api/auth/login",
-            json={"identifier": identifier, "password": "supersicher123"},
-        )
-        assert login.status_code == 200, login.text
+    # Die Kontoauswahl ist ohne Token erreichbar und gibt nur den Namen preis.
+    users = client.get("/api/auth/users")
+    assert users.status_code == 200, users.text
+    athlet = next(u for u in users.json() if u["username"] == "athlet")
+    assert set(athlet) == {"id", "username"}
 
-    wrong = client.post(
-        "/api/auth/login",
-        json={"identifier": "athlet", "password": "falsch-falsch"},
-    )
-    assert wrong.status_code == 401
+    login = client.post("/api/auth/login", json={"user_id": athlet["id"]})
+    assert login.status_code == 200, login.text
+
+    unknown = client.post("/api/auth/login", json={"user_id": 999_999})
+    assert unknown.status_code == 404
 
 
 def test_requires_auth(client):
@@ -521,11 +511,7 @@ def test_backfilled_session_counts_in_four_week_window(client, auth):
 def test_logs_of_other_user_are_invisible(client):
     other = client.post(
         "/api/auth/register",
-        json={
-            "email": "fremd@example.com",
-            "username": "fremd",
-            "password": "supersicher123",
-        },
+        json={"email": "fremd@example.com", "username": "fremd"},
     ).json()
     headers = {"Authorization": f"Bearer {other['access_token']}"}
 

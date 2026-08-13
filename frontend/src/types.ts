@@ -11,6 +11,12 @@ export interface User {
   created_at: string
 }
 
+/** Eintrag der Kontoauswahl auf der Anmeldeseite. */
+export interface UserOption {
+  id: number
+  username: string
+}
+
 export interface AuthResponse {
   access_token: string
   token_type: string

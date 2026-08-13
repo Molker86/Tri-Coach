@@ -61,13 +61,24 @@ def normalize_day(value: str) -> str:
 class RegisterIn(BaseModel):
     email: EmailStr
     username: str = Field(min_length=3, max_length=64)
-    password: str = Field(min_length=8, max_length=72)
 
 
 class LoginIn(BaseModel):
-    # Login per E-Mail oder Benutzername
-    identifier: str
-    password: str
+    # Anmeldung ohne Passwort: Der Nutzer wählt sein Konto aus der Liste aus.
+    user_id: int
+
+
+class UserOption(BaseModel):
+    """Eintrag der Kontoauswahl auf der Anmeldeseite.
+
+    Bewusst ohne E-Mail: Die Liste ist unauthentifiziert abrufbar, also gibt
+    sie nur preis, was zur Auswahl nötig ist.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
 
 
 class UserOut(BaseModel):

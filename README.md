@@ -30,7 +30,8 @@ cd frontend && npm install
 
 ## Der Ablauf
 
-1. **Anmelden** — Konto anlegen oder einloggen.
+1. **Anmelden** — Konto anlegen oder aus der Liste auswählen und einloggen. Ein
+   Passwort gibt es nicht; das zuletzt genutzte Konto ist vorausgewählt.
 2. **Meine Daten** — Größe, Gewicht, Ruhepuls, Maximalpuls, VO2max, HRV und mehr.
    Daraus berechnet die App deine Herzfrequenzzonen (Karvonen).
 3. **Neues Training** — Fragebogen in neun Schritten: Disziplin, Ziel,
@@ -52,8 +53,9 @@ cd frontend && npm install
 
 ## Technik
 
-**Backend** — FastAPI, SQLAlchemy, SQLite, JWT (`PyJWT`), Passwort-Hashing mit
-bcrypt. Die Datenbank entsteht beim ersten Start unter `backend/data/`.
+**Backend** — FastAPI, SQLAlchemy, SQLite, JWT (`PyJWT`). Die Anmeldung läuft
+ohne Passwort über eine Kontoauswahl; der Schutz kommt vom Home-Assistant-Ingress
+davor. Die Datenbank entsteht beim ersten Start unter `backend/data/`.
 
 **Frontend** — React 19, TypeScript, Vite, React Router. Kein UI-Framework; das
 Designsystem liegt in `src/styles.css` und unterstützt helles und dunkles Theme.
@@ -65,7 +67,7 @@ backend/app/
   main.py           FastAPI-App, CORS, Routen-Registrierung
   models.py         SQLAlchemy-Modelle
   schemas.py        Pydantic-Schemas, inkl. Validierung der KI-Antwort
-  security.py       Passwort-Hashing und JWT
+  security.py       JWT erzeugen und prüfen
   deps.py           Auth-Abhängigkeiten (CurrentUser, DbSession)
   sportscience.py   HF-Zonen, TRIMP, sRPE-Last, ACWR, Umsetzungsquote
   ai_export.py      Datenpaket und Prompt für die KI

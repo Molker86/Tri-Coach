@@ -7,14 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, getToken, onUnauthorized, setToken } from '../api/client'
+import { api, getToken, onUnauthorized, setLastUserId, setToken } from '../api/client'
 import type { User } from '../types'
 
 interface AuthState {
   user: User | null
   loading: boolean
-  login: (identifier: string, password: string) => Promise<void>
-  register: (email: string, username: string, password: string) => Promise<void>
+  login: (userId: number) => Promise<void>
+  register: (email: string, username: string) => Promise<void>
   logout: () => void
 }
 
@@ -50,20 +50,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false))
   }, [])
 
-  const login = useCallback(async (identifier: string, password: string) => {
-    const response = await api.login(identifier, password)
+  const login = useCallback(async (userId: number) => {
+    const response = await api.login(userId)
     setToken(response.access_token)
+    setLastUserId(response.user.id)
     setUser(response.user)
   }, [])
 
-  const register = useCallback(
-    async (email: string, username: string, password: string) => {
-      const response = await api.register(email, username, password)
-      setToken(response.access_token)
-      setUser(response.user)
-    },
-    [],
-  )
+  const register = useCallback(async (email: string, username: string) => {
+    const response = await api.register(email, username)
+    setToken(response.access_token)
+    setLastUserId(response.user.id)
+    setUser(response.user)
+  }, [])
 
   const value = useMemo(
     () => ({ user, loading, login, register, logout }),
