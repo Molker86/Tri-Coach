@@ -11,8 +11,17 @@ if [ -z "$TRI_SECRET_KEY" ]; then
   fi
 fi
 
+# Der erzeugte Schlüssel muss auf /data liegen, nicht im Containerdateisystem:
+# Ein Add-on-Update baut das Abbild neu, damit wäre der Schlüssel weg — und mit
+# ihm die Lesbarkeit aller gespeicherten Garmin-Token.
 if [ -z "$TRI_SECRET_KEY" ]; then
-  SECRET_FILE="${TRI_SECRET_FILE:-.secret_key}"
+  if [ -n "$TRI_SECRET_FILE" ]; then
+    SECRET_FILE="$TRI_SECRET_FILE"
+  elif [ -d /data ]; then
+    SECRET_FILE=/data/.secret_key
+  else
+    SECRET_FILE=.secret_key
+  fi
   if [ ! -f "$SECRET_FILE" ]; then
     python3 -c "import secrets;print(secrets.token_urlsafe(48))" > "$SECRET_FILE"
   fi

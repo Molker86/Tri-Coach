@@ -412,20 +412,28 @@ Raspberry Pi. Bei `visibilitychange` wird sofort einmal nachgefragt, weil
 Telefone Zeitgeber im Hintergrund drosseln und der Balken sonst eingefroren
 wirkte. Netzfehler beenden die Schleife nicht: Der Lauf geht im Server weiter.
 
-**Home-Assistant-Integration: Lokales Build im Repo-Root**
-(`config.yaml`, `build.yaml`, `run.sh`, Root-`Dockerfile`). Der HA Supervisor
-baut die App beim Installieren lokal — `build.yaml` setzt den Build-Context
-auf `../` (Repo-Root), damit der Dockerfile auf `backend/`, `frontend/` und
-`run.sh` zugreifen kann. Keine Umorganisation in Unterordnern nötig; `git clone`
-oder `git pull` funktioniert direkt. Das zentrale `run.sh` setzt 
-Supervisor-spezifische Umgebungsvariablen: `TRI_SECRET_KEY` (optional aus
-`options.json`, sonst Auto-Generierung, persistent unter `/data/.secret_key`)
-und `TRI_DATABASE_URL` → `/data/tricoach.db`. Vorteil: Dezentral, keine
-externen Abhängigkeiten, einfache Update-Struktur. Nachteil: Build dauert auf
-Raspberry Pi ~15–20 Min (Node-Frontend wird lokal kompiliert). Zugriff über
-**Ingress** (kein offener LAN-Port, authentifiziert via HA-Session). Der
-Root-`Dockerfile` nutzt `python:3.12-slim` — kein S6-Overlay oder Bashio
-nötig (nur ein Uvicorn-Prozess).
+**Home-Assistant-Integration: Das Add-on-Verzeichnis *ist* die Repo-Wurzel**
+(`repository.yaml`, `config.yaml`, `run.sh`, Root-`Dockerfile`). Der Supervisor
+klont den Default-Branch, sucht mit `**/config.*` nach Add-ons und baut jedes
+lokal — **mit dem Verzeichnis des `Dockerfile` als Build-Context, und der lässt
+sich nicht verstellen.** Genau daran hängt die Entscheidung: Läge das Add-on
+nach Lehrbuch in einem Unterordner, käme sein `Dockerfile` nicht mehr an
+`backend/` und `frontend/`. Der Glob findet die Wurzel mit, also liegt es dort,
+und der Context umfasst das ganze Repo (`.dockerignore` hält `.git` und
+`node_modules` heraus). Ein `build.yaml` gibt es **nicht mehr**: Seine Schlüssel
+`context`/`dockerfile` hat der Supervisor nie gelesen (sein Schema wirft
+Unbekanntes still weg), und seit Supervisor 2026.04 wird die Datei überhaupt
+nicht mehr ausgewertet — Basis-Abbild, Labels und Build-Argumente gehören in den
+`Dockerfile`. `version` in `config.yaml` ist der **einzige** Auslöser für ein
+Update im Store; ohne Erhöhung bleibt ein Push unsichtbar. Das zentrale `run.sh`
+setzt die Supervisor-spezifischen Umgebungsvariablen: `TRI_SECRET_KEY`
+(aus `options.json`, sonst selbst erzeugt und unter `/data/.secret_key`
+abgelegt — **nicht** relativ zum Arbeitsverzeichnis, das überlebt kein Update)
+und `TRI_DATABASE_URL` → `/data/tricoach.db`. Nachteil des lokalen Builds: Er
+dauert auf dem Raspberry Pi ~15–20 Min (Node-Frontend wird mitkompiliert).
+Zugriff über **Ingress** (kein offener LAN-Port, authentifiziert via
+HA-Session). Der `Dockerfile` nutzt `python:3.12-slim` — kein S6-Overlay oder
+Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
 
 ## Konventionen
 

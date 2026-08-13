@@ -179,11 +179,14 @@ erreichbar, authentifiziert via HA-Session (Ingress), komplett lokal gebaut.
 
 1. **Repository hinzufügen**:
    - Home Assistant: **Einstellungen → Add-ons → Add-on Store** → oben rechts ⋮ → **Repositories**
-   - URL: `https://github.com/Molker86/tri-coach`
-   - Speichern
+   - URL: `https://github.com/Molker86/Tri-Coach`
+   - Speichern, dann das Dialogfenster schließen
+
+   Oder in einem Rutsch über diesen Link:
+   [Repository in Home Assistant hinzufügen](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FMolker86%2FTri-Coach)
 
 2. **Installieren & Starten**:
-   - Im Store nach „Tri-Coach" suchen → **Installieren**
+   - Store neu laden (⋮ → **Nach Updates suchen**), Karte „Tri-Coach Add-ons" → **Tri-Coach** → **Installieren**
    - (Supervisor baut lokal; ~15–20 Min auf Raspberry Pi)
    - Nach Build: **Starten**
    - Optional: **„In Sidebar anzeigen"** aktivieren
@@ -192,7 +195,45 @@ erreichbar, authentifiziert via HA-Session (Ingress), komplett lokal gebaut.
    - Icon (🏃) in der HA-Sidebar → Tri-Coach öffnet sich embedded
    - Registrieren → wie unter „Der Ablauf" beschrieben
 
+### Was das Repository dafür mitbringen muss
+
+Der Supervisor klont den **Default-Branch** (`main`) und sucht darin:
+
+| Datei | Wo | Wofür |
+| --- | --- | --- |
+| `repository.yaml` | Wurzel | macht das Repo zum Add-on-Repository (nur `name` ist Pflicht) |
+| `config.yaml` | Add-on-Verzeichnis | Pflichtfelder `name`, `version`, `slug`, `description`, `arch` |
+| `Dockerfile` | **dasselbe** Verzeichnis wie `config.yaml` | wird lokal gebaut |
+
+Das Add-on-Verzeichnis ist hier die **Repo-Wurzel** — `config.yaml` und
+`Dockerfile` liegen also neben `repository.yaml`. Das ist Absicht: Der
+Build-Context ist immer genau das Verzeichnis, in dem der `Dockerfile` liegt,
+und er lässt sich nirgends umstellen. Läge das Add-on in einem Unterordner,
+käme sein `Dockerfile` nicht mehr an `backend/` und `frontend/` heran.
+
+Ein `build.yaml` gibt es nicht mehr: Seit Supervisor 2026.04 baut Home Assistant
+über Docker BuildKit, die Datei wird nicht mehr gelesen. Basis-Abbild, Labels und
+Build-Argumente stehen direkt im `Dockerfile`.
+
 ### Aktualisierungen
 
-Nach einem `git push` auf `main` wird das Repo beim nächsten Check aktualisiert.
-Im Add-on-Store auf der Tri-Coach-Karte: Falls eine neue Version vorhanden, **Update** anklicken.
+Nach einem `git push` auf `main` holt der Supervisor den neuen Stand beim
+nächsten Durchlauf — anstoßen lässt sich das über ⋮ → **Nach Updates suchen**.
+
+**Wichtig:** Der Store bietet ein Update nur an, wenn `version` in `config.yaml`
+größer ist als die installierte. Ein Push ohne Versionswechsel ändert im Store
+nichts, egal wie viel Code sich geändert hat.
+
+### Wenn das Add-on nicht auftaucht
+
+- **Nichts im Store**: ⋮ → **Nach Updates suchen**, dann die Seite neu laden.
+  Bleibt es leer, steht der Grund im Supervisor-Protokoll (**Einstellungen →
+  System → Protokolle → Supervisor**) — meist ein YAML-Fehler in `config.yaml`
+  oder ein fehlendes Pflichtfeld.
+- **Repository lässt sich nicht hinzufügen**: Das Repo muss öffentlich sein und
+  `repository.yaml` in der Wurzel des Default-Branches haben.
+- **Add-on da, aber Build bricht ab**: Protokoll der Add-on-Karte lesen. Der
+  Context ist die Repo-Wurzel, `.dockerignore` gilt von dort.
+- **Kein Update angeboten**: `version` in `config.yaml` erhöhen und pushen.
+- **Nur `armv7`-Hardware** (32-Bit-HAOS auf Pi 3): Das Add-on erscheint nicht,
+  `arch` listet nur `aarch64` und `amd64`.
