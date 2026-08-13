@@ -312,6 +312,23 @@ soll). Die Kennungen für Sport-, Schritt- und Zieltypen kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen — zwei Quellen dafür liefen
 auseinander.
 
+**Zwei Grammatiken, weil derselbe Text Verschiedenes bedeutet**
+(`zerlege_uebungsliste()` neben `zerlege_struktur()`). Bei Kraft und Mobility
+beschreibt `structure` keinen Zeitverlauf, sondern eine Übungsliste — „3x15 Leg
+Raise je Seite / 2x45 s Dehnung je Seite“. Durch die Ausdauer-Grammatik gelesen
+wurde daraus Unsinn: „3x15“ eine Wiederholungsgruppe über 15 Sekunden, die
+zweite Übung darin die „Pause“, und jede Übung ohne Zeitangabe fiel still weg —
+auf der Uhr standen dann zwei Abschnitte, während die Notiz vier nannte. Für die
+Sportarten in `UEBUNGSSPORTARTEN` wird deshalb jede Übung *ein* Schritt in der
+Reihenfolge des Plans, beendet per **Rundentaste** statt nach Zeit: Die Angabe
+„2x45 s je Seite“ gilt je Satz und Seite, sind also vier Haltephasen und nicht
+ein 45-Sekunden-Schritt. Getrennt wird nur an „ / “, Zeilenumbruch und
+Aufzählungszeichen — nicht am Komma („…, 4 s exzentrisch abgesenkt“ ist ein
+Zusatz) und nicht an „mit“ („Monster Walks mit Band“). Unter zwei erkannten
+Übungen greift wieder der Ersatzschritt über die geplante Dauer. Diese Einheiten
+bekommen außerdem **keinen Herzfrequenzkorridor**: Der Puls springt dort von
+Satz zu Satz und fällt in der Dehnung, ein Alarm liefe fast durchgehend.
+
 **Vorlage und Termin sind zwei Dinge** (`garmin/uebertragung.py`,
 `GarminWorkoutLink`). In Garmin liegt das Workout in der Bibliothek und ein
 Zeitplaneintrag verweist darauf; entsprechend hält jede übertragene Einheit
@@ -486,10 +503,11 @@ Klammern müssten verdoppelt werden.
 - Die **Bahnlänge für Schwimm-Workouts** liegt fest bei 25 m
   (`workouts.POOL_LAENGE_M`) — die App fragt sie nirgends ab. Im 50-m-Becken
   stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.
-- **Krafteinheiten** werden ein Zeitschritt, keine Übungsliste mit
-  Wiederholungen. Garmin könnte das (`create_strength_set` samt
-  Übungskatalog), aber der Plan liefert keine Übungsnamen in maschinenlesbarer
-  Form.
+- **Kraft- und Mobility-Schritte tragen keine Wiederholungszahl**: Jede Übung
+  ist ein Schritt bis zur Rundentaste, „3x15 je Seite“ steht nur als Text
+  darin. Garmin könnte mehr (`create_strength_set` samt Übungskatalog), aber
+  dafür müssten die Übungsnamen des Plans auf Garmins Katalog abgebildet
+  werden — der Plan liefert sie als Fließtext.
 - Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
   und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
 - Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren

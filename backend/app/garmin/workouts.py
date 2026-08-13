@@ -11,6 +11,13 @@ vorsichtig: Was er nicht sicher erkennt, wird **ein** Schritt über die geplante
 Dauer und nie ein geratener Intervallblock. Ein falsch geratenes Training auf
 der Uhr ist schlimmer als ein grobes, denn es wird ungeprüft absolviert.
 
+Zwei Grammatiken, nicht eine: Bei Ausdauereinheiten beschreibt der Aufbautext
+einen Zeitverlauf („15 min Z2, 5 x 3 min Z4“), bei Kraft und Mobility eine
+Übungsliste („3x15 Leg Raise je Seite / 2x45 s Dehnung je Seite“). Dieselben
+Zeichen bedeuten dort Verschiedenes — „3x15“ sind fünfzehn Wiederholungen, nicht
+fünfzehn Minuten —, weshalb `zerlege_uebungsliste()` neben `zerlege_struktur()`
+steht.
+
 Die Kennungen für Sportarten, Schritttypen, Endbedingungen und Ziele kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen: Sie sind Teil der Gegenseite,
 und zwei Quellen dafür liefen unweigerlich auseinander.
@@ -39,6 +46,9 @@ SPORT_ZU_GARMIN: dict[str, tuple[int, str, int]] = {
     "mobility": (SportType.YOGA, "yoga", 7),
     "brick": (SportType.MULTI_SPORT, "multi_sport", 10),
 }
+
+# Sportarten, deren Aufbautext eine Übungsliste ist und kein Zeitverlauf.
+UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
 
 # Bahnlänge für Schwimm-Workouts. Garmin verlangt sie am Workout; die App fragt
 # sie nirgends ab, und 25 m ist das, was in Deutschland im Hallenbad liegt. Wer
@@ -337,6 +347,41 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
     return elemente
 
 
+# Übungen trennt der Schrägstrich mit Leerzeichen, ein Zeilenumbruch oder ein
+# Aufzählungszeichen — bewusst *nicht* das Komma („3x8 Step-Downs je Seite,
+# 4 s exzentrisch abgesenkt“ ist eine Übung mit Zusatz) und nicht das „mit“ aus
+# `_TEIL_TRENNER` („Monster Walks mit Band“ wäre sonst zweigeteilt).
+_UEBUNG_TRENNER = re.compile(r"\s+/\s+|[\n;·•]|\s+\|\s+")
+
+
+def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
+    """Jede Übung wird ein Schritt — Reihenfolge und Wortlaut wie im Plan.
+
+    Beendet wird per Rundentaste statt nach Zeit, denn die Zeitangabe einer
+    Übung gilt je Satz und je Seite: „2x45 s je Seite“ sind vier Haltephasen,
+    kein einziger Schritt über 45 s. Wie oft, wie lange und je welcher Seite
+    steht im Text, den die Uhr beim Schritt anzeigt; wann es weitergeht,
+    entscheidet der Athlet. Damit stimmen die Abschnitte auf der Uhr mit dem
+    Aufbau in der Notiz überein — vorher fielen Übungen ohne Zeitangabe still
+    weg und „3x15 Leg Raise“ wurde zur Wiederholungsgruppe über 15 Sekunden.
+
+    Unter zwei erkannten Übungen bleibt die Liste leer: Ein Fließtext ohne
+    Trennzeichen ist keine Liste, und ein einzelner Schritt ohne Ende wäre
+    schlechter als der Ersatzschritt über die geplante Dauer.
+    """
+    if not struktur or not struktur.strip():
+        return []
+
+    uebungen = [teil.strip(" .\t") for teil in _UEBUNG_TRENNER.split(struktur)]
+    uebungen = [teil for teil in uebungen if teil]
+    if len(uebungen) < 2:
+        return []
+
+    # Alle Einträge sind Arbeit: In einer Übungsliste steht keine Pause, und
+    # `_art()` läse aus „Ausrollen“ (Faszienrolle) sonst ein Auslaufen.
+    return [Schritt(art="interval", text=teil) for teil in uebungen]
+
+
 # --------------------------------------------------------------------------
 # Zielvorgaben
 # --------------------------------------------------------------------------
@@ -427,6 +472,12 @@ def _ziel(
     # Pausen und das Ein-/Auslaufen bleiben ohne Korridor: Ein Alarm in der
     # Erholung treibt genau die Herzfrequenz hoch, die gerade sinken soll.
     if schritt.art != "interval":
+        return _ZIEL_KEINS, None, None
+
+    # Kraft und Mobility ebenso: Dort springt die Herzfrequenz von Satz zu Satz
+    # und sinkt in der Dehnung — der Alarm liefe fast durchgehend, obwohl die
+    # Einheit richtig läuft.
+    if sport in UEBUNGSSPORTARTEN:
         return _ZIEL_KEINS, None, None
 
     if session.target_hr_low and session.target_hr_high:
@@ -623,7 +674,12 @@ def baue_workout(
         raise ValueError(f"Sportart '{session.sport}' lässt sich nicht übertragen.")
 
     zonen = zonen or {}
-    elemente = zerlege_struktur(session.structure) or _ersatz_elemente(session)
+    zerlegen = (
+        zerlege_uebungsliste
+        if session.sport in UEBUNGSSPORTARTEN
+        else zerlege_struktur
+    )
+    elemente = zerlegen(session.structure) or _ersatz_elemente(session)
 
     hinweis: str | None = None
     if session.sport == "brick":

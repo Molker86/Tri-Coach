@@ -102,6 +102,83 @@ def test_unverstandener_text_wird_ein_einziger_schritt():
     assert folge[0]["endConditionValue"] == 45 * 60
 
 
+def test_uebungsliste_wird_abschnitt_fuer_abschnitt_uebernommen():
+    """Was in der Notiz als Aufbau steht, muss auf der Uhr als Abschnitt stehen."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="mobility",
+            duration_min=12,
+            target_hr_low=90,
+            target_hr_high=115,
+            structure=(
+                "90/90-Hüftrotation 2x8 je Seite"
+                " / Hüftbeuger-Ausfallschritt 2x45 s je Seite"
+                " / Tractus- und Glutealdehnung 2x45 s je Seite"
+                " / Thoraxrotation 2x8 je Seite"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    # Vorher blieben zwei Schritte übrig: Übungen ohne Zeitangabe fielen weg,
+    # und aus „2x45 s je Seite“ wurde ein einziger Schritt über 45 Sekunden.
+    assert [s["description"] for s in folge] == [
+        "90/90-Hüftrotation 2x8 je Seite",
+        "Hüftbeuger-Ausfallschritt 2x45 s je Seite",
+        "Tractus- und Glutealdehnung 2x45 s je Seite",
+        "Thoraxrotation 2x8 je Seite",
+    ]
+    assert all(s["endCondition"]["conditionTypeKey"] == "lap.button" for s in folge)
+    # Kein Herzfrequenzalarm über einer Dehnung.
+    assert all(s["targetType"]["workoutTargetTypeKey"] == "no.target" for s in folge)
+    assert plan["estimatedDurationInSecs"] == 12 * 60
+
+
+def test_krafttext_wird_keine_wiederholungsgruppe():
+    """„3x15 Leg Raise“ sind fünfzehn Wiederholungen, keine fünfzehn Sekunden."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            duration_min=20,
+            structure=(
+                "3x15 Side-Lying Leg Raise je Seite"
+                " / 3x40 s Side Plank je Seite"
+                " / 3x15 Monster Walks mit Band"
+                " / 3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert all(s["type"] == "ExecutableStepDTO" for s in folge)
+    # „mit Band“ gehört zur Übung, das Komma trennt einen Zusatz und keine Übung.
+    assert [s["description"] for s in folge] == [
+        "3x15 Side-Lying Leg Raise je Seite",
+        "3x40 s Side Plank je Seite",
+        "3x15 Monster Walks mit Band",
+        "3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt",
+    ]
+    # Und keine Übung wird zur Pause umgedeutet, bloß weil sie an zweiter
+    # Stelle steht.
+    assert {s["stepType"]["stepTypeKey"] for s in folge} == {"interval"}
+
+
+def test_kraft_ohne_uebungsliste_bleibt_ein_einziger_schritt():
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            structure="Ganzkörperkraft nach Tagesform, 3 Runden",
+            duration_min=45,
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    assert len(folge) == 1
+    assert folge[0]["endConditionValue"] == 45 * 60
+
+
 def test_ohne_dauer_und_strecke_zaehlt_die_rundentaste():
     plan = workouts.baue_workout(
         einheit(structure=None, duration_min=None, distance_km=None), zonen=ZONEN
