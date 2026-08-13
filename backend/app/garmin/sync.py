@@ -56,8 +56,13 @@ PAUSE_SEKUNDEN = 5.0
 TAGESSCHLEIFE_TAGE = 42
 
 # Überlappung beim laufenden Abgleich. Garmin trägt Schlaf- und Erholungswerte
-# teils Stunden später nach; ohne Überlappung bliebe die Lücke für immer.
-INKREMENT_TAGE = 14
+# teils Stunden später nach; ohne Überlappung bliebe die Lücke für immer. Der
+# Wert deckt bewusst das volle Rückblickfenster des KI-Exports ab (4 Wochen):
+# Was nachträglich in Garmin auftaucht oder beim letzten Lauf gefehlt hat, wird
+# so noch geholt, solange es die Planung überhaupt beeinflussen kann. Preis
+# dafür ist die Tagesschleife — sie läuft mit 5 s Pause je Tag entsprechend
+# länger.
+INKREMENT_TAGE = 28
 
 
 def _now() -> datetime:

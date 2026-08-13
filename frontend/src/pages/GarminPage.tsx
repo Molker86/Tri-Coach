@@ -487,7 +487,7 @@ function AbgleichKarte(props: {
         >
           {props.busy ? 'Startet …' : 'Jetzt synchronisieren'}
         </button>
-        <span className="muted small">Holt die letzten zwei Wochen nach.</span>
+        <span className="muted small">Holt die letzten vier Wochen nach.</span>
       </div>
 
       <div className="divider" />
