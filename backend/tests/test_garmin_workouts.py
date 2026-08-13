@@ -407,6 +407,81 @@ def test_vergangene_tage_bleiben_liegen(client, verbunden, fake):
     assert len(fake._workouts) == 1
 
 
+def _mache_vergangen(plan_session_id: int, tage: int = 1) -> None:
+    """Schiebt eine übertragene Einheit in die Vergangenheit.
+
+    Billiger als die Uhr zu stellen: Das Aufräumen entscheidet allein am Datum
+    der Einheit, ob ihr Tag vorbei ist.
+    """
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import GarminWorkoutLink, PlanSession
+
+    with SessionLocal() as db:
+        session = db.get(PlanSession, plan_session_id)
+        session.date = HEUTE - timedelta(days=tage)
+        link = db.scalar(
+            select(GarminWorkoutLink).where(
+                GarminWorkoutLink.plan_session_id == plan_session_id
+            )
+        )
+        link.scheduled_date = session.date
+        db.commit()
+
+
+def test_abgleich_raeumt_vergangene_einheiten_auf(client, verbunden, fake):
+    """Sonst wüchse Garmins Bibliothek mit jedem Block weiter."""
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    assert len(fake._workouts) == 2
+
+    _mache_vergangen(next(s["id"] for s in plan["sessions"] if s["sport"] == "run"))
+
+    antwort = client.post("/api/garmin/sync", headers=verbunden)
+    assert antwort.status_code == 202, antwort.text
+    fertig = client.get(
+        f"/api/garmin/jobs/{antwort.json()['id']}", headers=verbunden
+    ).json()
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_removed"] == 1
+    assert "aufgeräumt" in fertig["message"]
+    # Vorlage *und* Termin sind weg, die künftige Einheit bleibt stehen.
+    assert len(fake._workouts) == 1
+    assert len(fake._termine) == 1
+
+
+def test_aufraeumen_laesst_fremde_workouts_stehen(client, verbunden, fake):
+    """Angefasst wird nur, was diese App selbst angelegt hat."""
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    # Ein Training, das der Athlet selbst in Connect gebaut hat.
+    eigenes = fake.upload_workout({"workoutName": "Mein eigenes"})["workoutId"]
+    for eintrag in plan["sessions"]:
+        if eintrag["sport"] != "rest":
+            _mache_vergangen(eintrag["id"])
+
+    client.post("/api/garmin/sync", headers=verbunden)
+
+    assert list(fake._workouts) == [eigenes]
+
+
+def test_uebertragen_raeumt_den_vorigen_block_auf(client, verbunden, fake):
+    """Auch ohne täglichen Abgleich bleibt die Bibliothek sauber."""
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    _mache_vergangen(next(s["id"] for s in plan["sessions"] if s["sport"] == "run"))
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_removed"] == 1
+    assert "aufgeräumt" in fertig["message"]
+    assert len(fake._workouts) == 1
+
+
 def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)

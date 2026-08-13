@@ -205,6 +205,13 @@ class SyncRunner:
 
             self._fuehre_profil_nach(db, konto, user_id)
 
+            # Der tägliche Abgleich ist der Zeitpunkt, an dem sich „vorbei"
+            # ändert — und der Zugang steht hier ohnehin schon.
+            if aufgeraeumt := self._raeume_workouts_auf(db, konto, api, user_id):
+                job.workouts_removed = aufgeraeumt
+                job.message = f"{job.message} {_aufraeummeldung(aufgeraeumt)}"
+                db.commit()
+
         except SyncAbbruch:
             job.state = "cancelled"
             job.message = "Der Abgleich wurde abgebrochen."
@@ -362,6 +369,21 @@ class SyncRunner:
                 konto.rate_limited_until = None
             db.commit()
 
+            # Der zweite Zeitpunkt zum Aufräumen: Wer den nächsten Block
+            # überträgt, hat den vorigen hinter sich — ohne das bliebe die
+            # Bibliothek voll, solange der tägliche Abgleich abgeschaltet ist.
+            # Bewusst **nach** dem Festschreiben: Läuft das Aufräumen in die
+            # Anfragesperre, setzten die Zeilen darüber sie sonst gleich wieder
+            # zurück.
+            if aktion == "push" and (
+                aufgeraeumt := self._raeume_workouts_auf(
+                    db, konto, api, user_id, pause_s=pause_s
+                )
+            ):
+                job.workouts_removed = aufgeraeumt
+                job.message = f"{job.message} {_aufraeummeldung(aufgeraeumt)}"
+                db.commit()
+
         except SyncAbbruch:
             job.state = "cancelled"
             job.message = (
@@ -382,6 +404,49 @@ class SyncRunner:
             if job is not None and konto is not None:
                 _notiere_fehler(job, konto, exc, "Die Übertragung")
                 db.commit()
+
+    def _raeume_workouts_auf(
+        self,
+        db,
+        konto: GarminAccount,
+        api,
+        user_id: int,
+        *,
+        pause_s: float | None = None,
+    ) -> int:
+        """Löscht übertragene Einheiten, deren Tag vorbei ist. Gibt deren Zahl zurück.
+
+        Am Ende eines Laufs statt als eigener Job: Der Zugang steht, das Schloss
+        ist gehalten, und ein Fortschrittsbalken für eine Handvoll Löschungen
+        wäre Umstand ohne Nutzen.
+
+        Kein Fehlschlag hier darf den Lauf umwerten — der hat sein eigentliches
+        Ziel bereits erreicht. Nur die Anfragesperre wird festgehalten: Sie gilt
+        für alles Folgende, und der Erfolgspfad hat sie gerade erst zurückgesetzt.
+        """
+        from . import uebertragung
+
+        try:
+            ergebnis = uebertragung.raeume_vergangene_auf(
+                db, api, user_id, pause_s=pause_s
+            )
+        except GarminRateLimit as exc:
+            db.rollback()
+            konto.status = "rate_limited"
+            konto.status_message = exc.meldung
+            konto.rate_limited_until = _now() + timedelta(hours=1)
+            db.commit()
+            return 0
+        except Exception:  # noqa: BLE001 — der Lauf selbst war erfolgreich
+            logger.exception("Aufräumen vergangener Workouts fehlgeschlagen")
+            db.rollback()
+            return 0
+
+        if ergebnis.fehler:
+            logger.warning(
+                "Nicht aufgeräumt: %s", "; ".join(ergebnis.fehler[:5])
+            )
+        return ergebnis.entfernt
 
     def _fuehre_profil_nach(self, db, konto: GarminAccount, user_id: int) -> None:
         """Trägt Gewicht, Ruhepuls, HRV und VO2max ins Profil nach."""
@@ -495,6 +560,12 @@ def _uebertragungsmeldung(ergebnis, aktion: str) -> str:
     if ergebnis.fehler:
         meldung += " Nicht geklappt hat es bei: " + "; ".join(ergebnis.fehler[:5])
     return meldung
+
+
+def _aufraeummeldung(anzahl: int) -> str:
+    if anzahl == 1:
+        return "1 vergangenes Training wurde aus Garmin aufgeräumt."
+    return f"{anzahl} vergangene Trainings wurden aus Garmin aufgeräumt."
 
 
 def markiere_unterbrochene_jobs() -> int:

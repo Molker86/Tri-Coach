@@ -446,6 +446,12 @@ function UebertragungsKarte(props: {
               </span>
             )}
           </div>
+
+          <p className="muted small mb-0">
+            Sobald der Tag einer Einheit vorbei ist, nimmt die App sie von selbst
+            aus deinem Garmin-Kalender und aus der Trainingsbibliothek — dein
+            absolviertes Training bleibt davon unberührt.
+          </p>
         </>
       )}
     </div>

@@ -15,6 +15,12 @@ nur für eine Einheit, die noch keins hat.
 muss die Kennung der Vorlage trotzdem gespeichert sein. Sonst legte der nächste
 Versuch dieselbe Einheit ein zweites Mal an, und in der Bibliothek stünden
 Karteileichen, die niemand mehr zuordnen kann.
+
+**Was vorbei ist, wird weggeräumt** (`raeume_vergangene_auf`). Jede Einheit im
+Garmin-Kalender braucht eine Vorlage in der Bibliothek — anders kennt Garmin
+keinen Termin, und eine bloße Notiz käme nie auf die Uhr. Ohne Aufräumen wüchse
+diese Bibliothek also mit jedem Block weiter, bis der Athlet seine eigenen
+Trainings darin nicht mehr findet.
 """
 
 import logging
@@ -340,7 +346,61 @@ def entferne_plan(
     fortschritt: Fortschritt | None = None,
     pause_s: float | None = None,
 ) -> UebertragungsErgebnis:
-    verknuepft = list(links_zum_plan(db, plan).values())
+    return _entferne_reihe(
+        db,
+        api,
+        list(links_zum_plan(db, plan).values()),
+        fortschritt=fortschritt,
+        pause_s=pause_s,
+    )
+
+
+def raeume_vergangene_auf(
+    db: Session,
+    api: Any,
+    user_id: int,
+    *,
+    heute: date | None = None,
+    pause_s: float | None = None,
+) -> UebertragungsErgebnis:
+    """Nimmt Vorlage und Termin jeder Einheit zurück, deren Tag vorbei ist.
+
+    Der Grund liegt in Garmins Aufbau: Ein Kalendertermin ist nur ein Verweis
+    auf eine Vorlage in der Bibliothek, es gibt also keinen Weg, eine Einheit
+    einzuplanen, ohne sie dort abzulegen. Wer wöchentlich einen Block überträgt,
+    hätte nach einem Jahr dreihundert Vorlagen unter „Meine Trainings" stehen —
+    und fände seine eigenen nicht mehr.
+
+    Angefasst wird ausschließlich, was diese App selbst angelegt hat: Die Liste
+    kommt aus `GarminWorkoutLink`, nicht aus Garmins Bibliothek. Was der Athlet
+    dort selbst gebaut hat, bleibt unberührt.
+
+    Was ebenfalls bleibt: die **absolvierte Aktivität**. Sie ist in Garmin ein
+    eigener Datensatz; gelöscht wird nur die Vorgabe, nicht ihre Erfüllung. Auch
+    die Umsetzungsquote leidet nicht — `matching` verknüpft über Tag und
+    Sportart, nie über die Garmin-Kennung.
+    """
+    heute = heute or date.today()
+    alte = db.scalars(
+        select(GarminWorkoutLink)
+        .where(
+            GarminWorkoutLink.user_id == user_id,
+            GarminWorkoutLink.scheduled_date < heute,
+        )
+        .order_by(GarminWorkoutLink.scheduled_date)
+    ).all()
+    return _entferne_reihe(db, api, list(alte), pause_s=pause_s)
+
+
+def _entferne_reihe(
+    db: Session,
+    api: Any,
+    verknuepft: list[GarminWorkoutLink],
+    *,
+    fortschritt: Fortschritt | None = None,
+    pause_s: float | None = None,
+) -> UebertragungsErgebnis:
+    """Löscht eine Reihe von Einheiten aus Garmin — einzeln, mit Pause dazwischen."""
     ergebnis = UebertragungsErgebnis()
     pause = PAUSE_SEKUNDEN if pause_s is None else pause_s
 

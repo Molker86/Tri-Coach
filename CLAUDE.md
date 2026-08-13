@@ -52,7 +52,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 108 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 114 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -343,6 +343,22 @@ bei jedem Versuch neue Karteileichen in einem fremden Konto. Wer eine Vorlage
 in Connect von Hand löscht, bekommt sie neu — ein 404 löst die Zuordnung, statt
 für immer gegen eine tote Kennung zu laufen (`verbindung.verschwunden`).
 
+**Was vorbei ist, wird weggeräumt** (`uebertragung.raeume_vergangene_auf`).
+Weil ein Kalendertermin ohne Vorlage nicht existieren kann, legt jede übertragene
+Einheit zwangsläufig einen Eintrag in Garmins Bibliothek ab — bei einem Block je
+Woche wären das nach einem Jahr dreihundert, zwischen denen der Athlet seine
+eigenen Trainings nicht mehr fände. Deshalb löscht die App Vorlage *und* Termin
+jeder Einheit, deren Tag vorbei ist: am Ende jedes Abgleichs und am Ende jeder
+Übertragung — den beiden Zeitpunkten, an denen der Zugang ohnehin steht und das
+Schloss gehalten wird. Die Liste kommt aus `GarminWorkoutLink`, **nie** aus
+Garmins Bibliothek: Angefasst wird ausschließlich, was diese App selbst angelegt
+hat. Die absolvierte Aktivität ist ein eigener Datensatz und bleibt; auch die
+Umsetzungsquote hängt nicht daran, weil `matching` über Tag und Sportart
+verknüpft, nicht über die Garmin-Kennung. Ein Fehlschlag beim Aufräumen wertet
+den Lauf nicht um — er hat sein eigentliches Ziel schon erreicht —, aber die
+Anfragesperre wird festgehalten, und zwar **nach** dem Festschreiben des
+Ergebnisses: Der Erfolgspfad setzt sie eine Zeile vorher zurück.
+
 **Die Übertragung ist ein Job, der Kalender nicht.** Ein Block kostet zwei
 Anfragen je Einheit und läuft deshalb durch denselben Runner und dasselbe
 globale Schloss wie ein Abgleich — Garmins Grenze unterscheidet nicht, ob
@@ -514,8 +530,13 @@ Klammern müssten verdoppelt werden.
   des Geräts. Ein Direktversand an ein bestimmtes Gerät
   (`push_workout_to_device`) ist nicht eingebaut; er kostete zusätzliche
   Anfragen für die Gerätesuche.
+- Das Aufräumen vergangener Einheiten lässt sich nicht abschalten und hängt an
+  einem Abgleich oder einer Übertragung; wer beides nie auslöst, behält seine
+  alten Vorlagen.
 - Wird ein Plan gelöscht, verschwindet nur die Zuordnung — was schon in Garmin
-  steht, bleibt dort. Ungefragt in einem fremden Konto zu löschen wäre
+  steht, bleibt dort. Das Aufräumen erreicht diese Vorlagen nicht mehr: Es geht
+  ausschließlich über `GarminWorkoutLink`, und der ist mit dem Plan gelöscht
+  worden. Ungefragt in einem fremden Konto zu löschen wäre
   übergriffig; der Kalender in der App zeigt es weiterhin zum Entfernen an.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).
