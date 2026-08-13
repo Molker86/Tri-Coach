@@ -1,4 +1,6 @@
+import asyncio
 import html
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -7,15 +9,34 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .config import CORS_ORIGINS
+from .config import CORS_ORIGINS, GARMIN_AUTOSYNC
 from .database import init_db
-from .routers import auth, logs, plans, profile, questionnaire
+from .garmin.automatik import automatik_schleife
+from .garmin.runner import markiere_unterbrochene_jobs
+from .routers import auth, garmin, logs, plans, profile, questionnaire
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_db()
-    yield
+    # Läufe, die im Zustand "läuft" stehen, können den Neustart nicht überlebt
+    # haben — ihr Thread ist mit dem Prozess gestorben. Ohne das Aufräumen zeigte
+    # die Oberfläche für immer einen Fortschrittsbalken, der sich nie bewegt.
+    unterbrochen = markiere_unterbrochene_jobs()
+    if unterbrochen:
+        logger.info("%d unterbrochene Garmin-Abgleiche aufgeräumt", unterbrochen)
+
+    aufgabe = asyncio.create_task(automatik_schleife()) if GARMIN_AUTOSYNC else None
+    try:
+        yield
+    finally:
+        if aufgabe is not None:
+            aufgabe.cancel()
+            # Abwarten, damit ein laufender Abgleich sein Ende in die Datenbank
+            # schreiben kann, statt als Leiche zurückzubleiben.
+            await asyncio.gather(aufgabe, return_exceptions=True)
 
 
 app = FastAPI(
@@ -38,6 +59,7 @@ app.include_router(profile.router)
 app.include_router(questionnaire.router)
 app.include_router(plans.router)
 app.include_router(logs.router)
+app.include_router(garmin.router)
 
 
 @app.get("/api/health")

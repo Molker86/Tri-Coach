@@ -5,3 +5,10 @@ pydantic[email]==2.10.4
 pydantic-settings==2.7.0
 PyJWT==2.10.1
 python-multipart==0.0.20
+
+# Garmin-Anbindung. `garminconnect` verlangt Python 3.12 — es bringt mit
+# `curl_cffi` eine eigene TLS-Nachbildung mit, ohne die Garmins Cloudflare den
+# Login abweist. `garth`, die frühere Grundlage, ist seit März 2026 tot.
+garminconnect==0.3.10
+# Verschlüsselt das Garmin-Token in der Datenbank (siehe app/crypto.py).
+cryptography>=44

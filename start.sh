@@ -6,12 +6,34 @@ cd "$(dirname "$0")"
 BACKEND_PORT=8000
 FRONTEND_PORT=5173
 
+# Die Anleitung steht an zwei Stellen (fehlende und zu alte Umgebung) — deshalb
+# einmal formuliert. Achtung: ausdrücklich `python3.12`, denn `python3` zeigt
+# auf manchen Rechnern noch auf eine ältere Version.
+neu_einrichten() {
+  echo "  rm -rf backend/.venv"
+  echo "  python3.12 -m venv backend/.venv"
+  echo "  backend/.venv/bin/pip install -U pip"
+  echo "  backend/.venv/bin/pip install -r backend/requirements.txt"
+}
+
 if [ ! -d backend/.venv ]; then
   echo "Backend-Umgebung fehlt. Einmalig einrichten:"
-  echo "  python3 -m venv backend/.venv"
-  echo "  backend/.venv/bin/pip install -r backend/requirements.txt"
+  neu_einrichten
   exit 1
 fi
+
+# `garminconnect` läuft erst ab Python 3.12. Ohne diese Prüfung käme der Fehler
+# erst tief im Programm als ImportError und nennt die Ursache nicht.
+py_version=$(backend/.venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "?")
+case "$py_version" in
+  3.1[2-9]|3.[2-9][0-9]) ;;
+  *)
+    echo "Die Backend-Umgebung läuft mit Python $py_version — die Garmin-Anbindung braucht 3.12 oder neuer."
+    echo "Neu einrichten:"
+    neu_einrichten
+    exit 1
+    ;;
+esac
 
 if [ ! -d frontend/node_modules ]; then
   echo "Frontend-Pakete fehlen. Einmalig einrichten:  cd frontend && npm install"

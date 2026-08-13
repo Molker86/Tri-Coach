@@ -2,13 +2,21 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
+/** Die Kopfleiste am Schreibtisch.
+ *
+ * Sieben Einträge ist die Obergrenze — ein achter drückt die Leiste auf zwei
+ * Zeilen. „Nachtragen" ist deshalb Garmin gewichen: Wer seine Trainings
+ * automatisch bekommt, trägt kaum noch von Hand nach, und der Weg dorthin
+ * bleibt über „Mehr" am Telefon, über den Verlauf und über die Erfassungsseite
+ * erreichbar.
+ */
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Übersicht' },
   { to: '/plan', label: 'Trainingsplan' },
   { to: '/neues-training', label: 'Neues Training' },
   { to: '/training-erfassen', label: 'Training erfassen' },
-  { to: '/training-nachtragen', label: 'Nachtragen' },
   { to: '/verlauf', label: 'Verlauf' },
+  { to: '/garmin', label: 'Garmin' },
   { to: '/profil', label: 'Meine Daten' },
 ]
 
@@ -27,6 +35,7 @@ const MOBILE_PRIMARY = [
 ]
 
 const MOBILE_MORE = [
+  { to: '/garmin', label: 'Garmin Connect' },
   { to: '/neues-training', label: 'Neues Training' },
   { to: '/training-nachtragen', label: 'Training nachtragen' },
   { to: '/profil', label: 'Meine Daten' },

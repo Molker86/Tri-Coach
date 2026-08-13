@@ -11,6 +11,8 @@ import {
 } from '../components/ui'
 import type { Profile, ProfileHistoryEntry } from '../types'
 
+const VON_GARMIN = 'Wird täglich aus Garmin nachgeführt.'
+
 const ZONE_COLORS: Record<string, string> = {
   Z1: 'var(--zone-1)',
   Z2: 'var(--zone-2)',
@@ -25,6 +27,7 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [garminFuehrtNach, setGarminFuehrtNach] = useState(false)
 
   useEffect(() => {
     Promise.all([api.getProfile(), api.getProfileHistory()])
@@ -33,6 +36,17 @@ export default function ProfilePage() {
         setHistory(h)
       })
       .catch((err) => setError(err.message))
+
+    // Ob Werte automatisch vom Gerät kommen, muss hier stehen — sonst wundert
+    // sich der Nutzer, warum eine Eingabe am nächsten Tag wieder anders ist.
+    api
+      .garminStatus()
+      .then((z) =>
+        setGarminFuehrtNach(
+          z.konto?.status === 'connected' && z.konto.profile_sync_enabled,
+        ),
+      )
+      .catch(() => setGarminFuehrtNach(false))
   }, [])
 
   function patch(changes: Partial<Profile>) {
@@ -127,6 +141,7 @@ export default function ProfilePage() {
             label="Gewicht"
             unit="kg"
             step={0.1}
+            hint={garminFuehrtNach ? VON_GARMIN : undefined}
             value={profile.weight_kg}
             onChange={(v) => patch({ weight_kg: v })}
           />
@@ -146,14 +161,22 @@ export default function ProfilePage() {
           <NumberField
             label="Ruhepuls"
             unit="bpm"
-            hint="Morgens im Liegen gemessen."
+            hint={
+              garminFuehrtNach
+                ? 'Median der letzten 7 Tage aus Garmin.'
+                : 'Morgens im Liegen gemessen.'
+            }
             value={profile.resting_hr}
             onChange={(v) => patch({ resting_hr: v })}
           />
           <NumberField
             label="Maximalpuls"
             unit="bpm"
-            hint="Aus einem Ausbelastungstest, nicht geschätzt."
+            hint={
+              garminFuehrtNach
+                ? 'Bleibt Handarbeit — Garmins Schätzung ist zu ungenau, und dieser Wert bestimmt alle Zonen.'
+                : 'Aus einem Ausbelastungstest, nicht geschätzt.'
+            }
             value={profile.max_hr}
             onChange={(v) => patch({ max_hr: v })}
           />
@@ -168,6 +191,7 @@ export default function ProfilePage() {
             label="VO2max"
             unit="ml/kg/min"
             step={0.1}
+            hint={garminFuehrtNach ? VON_GARMIN : undefined}
             value={profile.vo2max}
             onChange={(v) => patch({ vo2max: v })}
           />
@@ -175,7 +199,11 @@ export default function ProfilePage() {
             label="HRV (rMSSD)"
             unit="ms"
             step={0.1}
-            hint="Herzratenvariabilität, morgens gemessen."
+            hint={
+              garminFuehrtNach
+                ? 'Nachtmittel aus Garmin — nahe an rMSSD, aber nicht dasselbe.'
+                : 'Herzratenvariabilität, morgens gemessen.'
+            }
             value={profile.hrv_rmssd}
             onChange={(v) => patch({ hrv_rmssd: v })}
           />

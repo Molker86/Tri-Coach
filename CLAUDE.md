@@ -12,6 +12,12 @@ Trainings werden erfasst und fließen in den nächsten Export ein.
 (Vorgabe 7, einstellbar 1–14 über `days` am Export). Das ist eine bewusste
 Entscheidung — siehe „Planungshorizont".
 
+**Trainings- und Fitnessdaten kommen aus Garmin Connect.** Wer ein Konto
+verbindet, muss nichts mehr von Hand nachtragen: Trainings, Schlaf, HRV,
+Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
+nächsten Export ein. Die Formulare bleiben als Rückfallebene — für Einheiten
+ohne Uhr und für subjektive Werte, die kein Gerät misst.
+
 **Wichtig:** Die App ruft *keine* KI-API auf. Der Austausch läuft bewusst über
 Kopieren und Einfügen — so war die Anforderung. Ein späterer Direktaufruf wäre
 eine Erweiterung, kein Ersatz: Der Export-Endpunkt liefert bereits den fertigen
@@ -40,13 +46,32 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 16 Tests, decken den Vollablauf ab
+cd backend && .venv/bin/python -m pytest tests/ -q # 79 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
+**Python 3.12 ist Pflicht** (`garminconnect` verlangt es). Auf manchen Rechnern
+zeigt `python3` noch auf eine ältere Version — deshalb ausdrücklich:
+
+```bash
+rm -rf backend/.venv && python3.12 -m venv backend/.venv
+backend/.venv/bin/pip install -U pip
+backend/.venv/bin/pip install -r backend/requirements-dev.txt   # enthält requirements.txt
+```
+
+`start.sh` prüft die Version und sagt es, falls sie nicht reicht. Test- und
+Entwicklungspakete (pytest, httpx) stehen in `requirements-dev.txt` und bleiben
+so aus dem Docker-Abbild heraus.
+
 Datenbank: `backend/data/tricoach.db`, entsteht beim ersten Start. Löschen setzt
-alles zurück. JWT-Schlüssel liegt in `backend/.secret_key` (automatisch erzeugt),
-überschreibbar per `TRI_SECRET_KEY`; die DB per `TRI_DATABASE_URL`.
+alles zurück — **und trennt die Garmin-Verbindung**, weil das verschlüsselte
+Token mit verschwindet.
+
+Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
+erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
+Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
+(`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
+`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 5).
 
 ## Architekturentscheidungen (und warum)
 
@@ -167,6 +192,123 @@ rücken auf zwei Spalten zusammen statt untereinander; damit die Eingabefelder
 trotz unterschiedlich langer Beschriftungen auf einer Linie bleiben, teilen sich
 die Felder per `subgrid` dieselben Zeilen.
 
+**Garmin Connect: Token statt Passwort, Thread statt Auftragswarteschlange**
+(`app/garmin/`). Das Passwort wird einmal zum Anmelden benutzt und sofort
+verworfen; dauerhaft bleibt nur Garmins Zugangsschlüssel, verschlüsselt in der
+Datenbank (`crypto.py`, Fernet mit einem aus `SECRET_KEY` abgeleiteten
+Schlüssel). Der Grund für die Verschlüsselung liegt nicht in der App, sondern im
+Betrieb: `/data/tricoach.db` wandert in jedes Home-Assistant-Backup und von dort
+auf NAS oder USB-Stick. Ein Klartext-Token mit Dauerzugriff auf ein fremdes
+Gesundheitskonto hätte dort nichts zu suchen. Was das *nicht* schützt: Wer
+Zugriff auf die Maschine hat, kommt an Schlüssel und Geheimtext.
+
+**Das eigentliche Risiko ist der Login, nicht der Datenabruf.** Garmin zählt
+Anmeldeversuche auf Kontoebene und sperrt bis zu 48 Stunden, und jeder weitere
+Versuch verlängert die Sperre. Deshalb: Token wiederverwenden statt neu
+anmelden, höchstens drei Anmeldeversuche je Stunde (`client.py`), nach einem 429
+wird `rate_limited_until` gesetzt und respektiert, und nirgends wird eine
+gesperrte Anfrage automatisch wiederholt. Die Bibliotheksfehler werden an genau
+einer Stelle in eigene Fehler mit deutschen Meldungen übersetzt (`errors.py`);
+`sync._hole_geschuetzt()` fängt jeden Endpunkt einzeln ab — **außer** der
+Anfragesperre, die den ganzen Lauf beenden muss.
+
+**Bereichsabfragen statt Tagesschleife** (`sync.py`). Trainings, Schlaf, HRV,
+Ruhepuls, VO2max, Gewicht und Körperbatterie gibt es je Zeitraum in einer
+Anfrage — ein Jahr kostet damit rund fünfzig statt dreitausend Anfragen. Nur
+Trainingsreife, Trainingsstatus, Stress und der Schlafscore gibt es
+ausschließlich tageweise, und diese Schleife läuft bewusst nur `TAGESSCHLEIFE_TAGE`
+= 42 Tage weit: Das sind Zustandsgrößen, ein Readiness-Wert von vor zehn Monaten
+trägt keine Planungsentscheidung mehr. Zwischen zwei Tagen liegen 5 s Pause —
+pro Tag, nicht pro Anfrage. Alles ist ein Upsert über `(user_id, date)` bzw.
+`(user_id, garmin_activity_id)`, damit ein zweiter Lauf nichts verdoppelt und
+ein Wiederaufsetzen nach einer Sperre folgenlos bleibt.
+
+**Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
+`BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach
+einem Neustart erkennbar unterbrochen sein — nichts davon leistet ein
+Hintergrundauftrag von Starlette, der außerdem einen Platz im Threadpool
+belegte, über den auch normale Anfragen laufen. Der Fortschritt steht in
+`GarminSyncJob`, nicht in einem Dict im Speicher, damit die Oberfläche ihn
+abfragen kann. Ein **globales** Schloss, nicht eines je Nutzer: Garmins Grenze
+hängt auch an der Herkunftsadresse. Beim Start markiert
+`markiere_unterbrochene_jobs()` alle noch als „läuft" eingetragenen Läufe als
+unterbrochen — ihr Thread ist mit dem Prozess gestorben. Weil zwei Schreiber auf
+derselben SQLite-Datei arbeiten, steht `journal_mode=WAL` und ein `timeout` von
+30 s in `database.py`.
+
+**RPE wird geschätzt, ACWR bleibt sRPE-basiert** (`mapping.schaetze_rpe`).
+Garmin liefert kein RPE, aber `weekly_summary`, `acute_chronic_ratio` und
+`_days_since_hard_session` rechnen alle damit — ohne Schätzung fiele die halbe
+Steuerung für importierte Trainings aus. Geschätzt wird aus der Zeitverteilung
+über die Herzfrequenzzonen, ersatzweise aus dem Trainingseffekt oder dem
+Durchschnittspuls; `rpe_source` hält fest, woher der Wert stammt, und ein selbst
+eingetragenes RPE wird beim nächsten Abgleich nicht überschrieben (`logs.py`
+setzt `rpe_source` auf `manual`, sobald der Nutzer den Wert ändert). Garmins
+`activityTrainingLoad` läuft nur *zusätzlich* mit (`total_garmin_load`) und
+ersetzt die sRPE-Last **nicht**: Beide sind unterschiedlich skaliert, und eine
+Übergangswoche aus manuellen und importierten Einheiten ergäbe sonst Unsinn.
+Eine einheitliche Skala über den Übergang ist mehr wert als die theoretisch
+bessere Metrik.
+
+**Ein Triathlon ist eine Koppeleinheit, keine drei Einheiten**
+(`mapping.teile_multisport`). Drei Kindeinträge an einem Tag würden die
+Einheitenzahl verdreifachen, die sRPE-Last überzählen und
+`tage_seit_letzter_einheit_je_sportart` für alle drei Disziplinen auf 0 setzen —
+die KI plante dann kein Schwimmen mehr, obwohl nur der Radteil stattfand. Die
+Teildisziplinen wandern als Notizzeile an die Elterneinheit.
+
+**Zwei gegenläufige Zeitzonenregeln**, die zusammen in `mapping.py` kommentiert
+stehen: Aktivitäten werden über `startTimeLocal` datiert (der Trainingstag ist
+der lokale Tag), Schlafdaten über die `*GMT`-Felder (die `*Local`-Varianten sind
+bei manchen Zeitzonen doppelt versetzt). Wer das „vereinheitlicht", verschiebt
+entweder alle Trainings oder alle Schlafwerte um einen Tag. Verwandt: SQLite
+gibt Zeitstempel ohne Zeitzone zurück, ein Vergleich mit `now(timezone.utc)`
+wirft — dafür gibt es `app/zeit.py`.
+
+**Fitnessdaten sind ein eigener Block im Export, nicht Teil der Historie**
+(`ai_export._fitness_block`). Die Historie beschreibt absolvierte *Einheiten*,
+die Fitnessdaten den *Zustand*. Auf oberster Ebene kann der Prompt sie
+namentlich mit eigenen Regeln ansprechen. Der Block hat vier Ebenen, weil die KI
+vier Fragen hat: `aktuell`, `mittelwerte` (7 gegen 28 Tage), `auffaelligkeiten`
+(vorverdichtete deutsche Sätze aus `sportscience.wellness_auffaelligkeiten`) und
+`tage`. Vorverdichtet, weil Sprachmodelle beim Mitteln von Zahlenreihen
+unzuverlässig sind. Die Regeln dazu stehen als Punkt 2 der Trainingsprinzipien
+und existieren in **zwei** Fassungen: Ohne verbundenes Konto entfällt der Block,
+und der Prompt verweist stattdessen ausdrücklich auf RPE und Morgenpuls — Regeln
+zu Daten, die es nicht gibt, laden zum Erfinden ein. Die Schwellen in
+`wellness_auffaelligkeiten` und die Zahlen im Prompt müssen zusammen geändert
+werden.
+
+**Profilwerte kommen automatisch nach — außer dem Maximalpuls**
+(`profile_sync.py`). Gewicht, Körperfett, Ruhepuls, HRV und VO2max werden
+übernommen, der Ruhepuls als **Median der letzten sieben Tage**, weil ein
+einzelner Ausreißer sonst alle Karvonen-Zonen verschöbe. Der Maximalpuls bleibt
+Handarbeit: Garmin schätzt ihn, liegt oft daneben, und er steuert sämtliche
+Zonen. Geschrieben wird nur bei relevanter Abweichung, sonst entstünde täglich
+ein `ProfileHistory`-Eintrag ohne Erkenntnis. Die History-Logik wurde aus
+`routers/profile.py` nach `profile_sync.uebernehme_profilwerte()` gezogen, damit
+Handeingabe und Gerät dieselbe Regel benutzen. Garmins `lastNightAvg` ist
+übrigens *nicht* rMSSD, sondern ein Nachtmittel — der Spaltenname `hrv_rmssd`
+bleibt (Umbenennen wäre eine Migration ohne Gewinn), die Herkunft wird im Profil
+und im Export ausgewiesen.
+
+**Schemaänderungen laufen jetzt über einen Migrationshelfer** (`database.py`,
+`_NACHGEREICHTE_SPALTEN`). `create_all()` legt fehlende *Tabellen* an, sieht aber
+neue *Spalten* nicht. Bisher war „Datenbank löschen" der bewusste Weg; mit
+Garmin wird er teuer, weil ein neuer Rückblick Minuten gegen ein fremdes System
+mit Anfragegrenze kostet und Passwort samt Bestätigungscode erneut verlangt. Ein
+paar Zeilen `ALTER TABLE ADD COLUMN`, idempotent bei jedem Start, sind billiger
+als Alembic. Neue Spalten gehören dort eingetragen, sonst brechen bestehende
+Datenbanken.
+
+**Der Fortschritt wird abgefragt, nicht geschoben** (`api/client.ts`,
+`pollJob`). Erstes Muster dieser Art in der App. Das Intervall ist bewusst träge
+(2,5 s, nach zwei Minuten 5 s) — der Abgleich macht ohnehin nur alle paar
+Sekunden einen Schritt, und häufigeres Fragen erzeugt nur Last auf einem
+Raspberry Pi. Bei `visibilitychange` wird sofort einmal nachgefragt, weil
+Telefone Zeitgeber im Hintergrund drosseln und der Balken sonst eingefroren
+wirkte. Netzfehler beenden die Schleife nicht: Der Lauf geht im Server weiter.
+
 **Home-Assistant-Integration: Lokales Build im Repo-Root**
 (`config.yaml`, `build.yaml`, `run.sh`, Root-`Dockerfile`). Der HA Supervisor
 baut die App beim Installieren lokal — `build.yaml` setzt den Build-Context
@@ -193,7 +335,16 @@ nötig (nur ein Uvicorn-Prozess).
 - Profil-Updates sind Teil-Updates (`exclude_unset`): Ein Formular, das nur ein
   Feld schickt, darf die anderen nicht löschen.
 - Änderungen an Gewicht, Ruhepuls, HRV, VO2max, Maximalpuls oder FTP schreiben
-  automatisch einen Eintrag in `ProfileHistory`.
+  automatisch einen Eintrag in `ProfileHistory` — über
+  `profile_sync.uebernehme_profilwerte()`, gleich ob von Hand oder aus Garmin.
+- Neue Felder auf `SessionLog`, die *nicht* vom Nutzer kommen, gehören nur an
+  `SessionLogOut` und nicht an `SessionLogIn`: `PUT /api/logs/{id}` überschreibt
+  mit `model_dump()` ohne `exclude_unset` alle Eingabefelder und würde die
+  Herkunft sonst beim Bearbeiten zurücksetzen.
+- Jeder Zugriff auf Garmin-JSON läuft über `mapping.hole()` / `erster_wert()` /
+  `als_liste()`, nie über `d["a"]["b"]`: Die API ist undokumentiert, ändert
+  Feldnamen ohne Vorwarnung, und ihre Typangaben stimmen nicht (`get_activities`
+  deklariert selbst `dict | list`).
 
 ## Sportwissenschaftliche Logik (`sportscience.py`)
 
@@ -205,6 +356,11 @@ nötig (nur ein Uvicorn-Prozess).
 - **sRPE-Last** nach Foster (Dauer × RPE) — funktioniert ohne Pulsgurt.
 - **ACWR**: Last der letzten Woche gegen den Vier-Wochen-Schnitt. Über 1,3 gilt
   als erhöhtes Überlastungsrisiko.
+- **Auffälligkeiten aus den Fitnessdaten** (`wellness_auffaelligkeiten`): HRV
+  unter der eigenen Baseline, Schlafdefizit, steigender Ruhepuls, niedrige
+  Trainingsreife, kritischer Trainingsstatus, Garmin-ACWR über 1,3, hoher
+  Stress, Gewichtsverlust. Die Schwellen stehen als Konstanten am Kopf des
+  Abschnitts und entsprechen den Zahlen im Prompt.
 - **Umsetzungsquote**: Nur Planeinheiten, deren Datum bereits vergangen ist,
   zählen als fällig. Ein Block, der erst morgen startet, hat deshalb
   korrekterweise `rate_pct: null`.
@@ -220,6 +376,12 @@ Abstand statt „alle drei pro Woche". Das Template wird mit `.format()` gefüll
 neue Platzhalter (`{tage}`, `{start}`, `{ende}`) müssen in `build_prompt()`
 mitversorgt werden.
 
+Punkt 2 der Prinzipien ist der Platzhalter `{fitnessregeln}` und existiert in
+zwei Fassungen (`FITNESSREGELN_MIT_DATEN` / `_OHNE_DATEN`) — welche eingesetzt
+wird, entscheidet `build_prompt()` daran, ob der Payload einen
+`fitnessdaten`-Block trägt. Beide Texte laufen durch `.format()`: geschweifte
+Klammern müssten verdoppelt werden.
+
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
 `plan_import.py`.
@@ -229,12 +391,25 @@ mitversorgt werden.
 - Kein Bearbeiten erfasster Trainings im Frontend (die API kann es bereits:
   `PUT /api/logs/{id}`).
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
-- Kein Alembic; Schemaänderungen erfordern derzeit das Löschen der SQLite-Datei
-  oder ein `ALTER TABLE` von Hand. Solange die App in Beta ist, ist das der
-  bewusste Weg — kein Kompatibilitätsballast im Modell.
+- Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
+  eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
+  bleibt es beim Löschen der Datei.
+- Die genaue Form von `get_sleep_daily()` (Zeilen aus `individualStats`) ist
+  nicht dokumentiert. Der Mapper liest sie über mehrere Pfade und fällt auf die
+  Tagesantwort zurück; **beim ersten echten Rückblick prüfen**, ob Schlafdauer
+  und -phasen für den älteren Teil des Zeitraums ankommen.
+- Der Rückblick über ein Jahr wurde bisher nur gegen die Nachbildung geprüft,
+  nicht gegen ein echtes Konto.
 - Die Anmeldung schützt nichts: Jeder, der die App erreicht, kann jedes Konto
   wählen (bewusst — siehe „Anmeldung"). Der Schutz kommt vom Ingress davor.
 - Kein Löschen von Konten in der Oberfläche; ein Konto bleibt für immer in der
   Auswahlliste.
+- Ein zweites Garmin-Konto im selben Haushalt teilt sich die Anfragegrenze über
+  die gemeinsame Herkunftsadresse; das globale Schloss im Runner bremst das ab,
+  löst es aber nicht.
+- Trainings in die andere Richtung — geplante Einheiten *nach* Garmin schieben —
+  gibt es noch nicht. Das Datenmodell trägt es bereits: Mit dem gespeicherten
+  Token und den Workout-Endpunkten der Bibliothek ließe sich jede `PlanSession`
+  als geplantes Workout auf die Uhr legen.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).

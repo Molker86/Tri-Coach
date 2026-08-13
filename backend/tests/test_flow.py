@@ -5,39 +5,12 @@ erfassen → Auswertung.
 """
 
 import json
-import os
-import tempfile
 from datetime import date, timedelta
 
 import pytest
 
-os.environ["TRI_DATABASE_URL"] = (
-    f"sqlite:///{tempfile.mkdtemp()}/test.db"
-)
-os.environ["TRI_SECRET_KEY"] = "test-key-nicht-fuer-produktion"
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app.database import init_db  # noqa: E402
-from app.main import app  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def client():
-    init_db()
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest.fixture(scope="module")
-def auth(client):
-    response = client.post(
-        "/api/auth/register",
-        json={"email": "athlet@example.com", "username": "athlet"},
-    )
-    assert response.status_code == 201, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
-
+# `client` und `auth` kommen aus `tests/conftest.py` — dort steht auch die
+# Vorbereitung der Umgebung, die vor dem Import von `app.main` laufen muss.
 
 ROTATION = [
     ("swim", "technique", "Techniktraining", 45),

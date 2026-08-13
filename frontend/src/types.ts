@@ -171,9 +171,30 @@ export interface SessionLog {
   conditions: string | null
   notes: string | null
   trimp: number | null
+
+  /** Herkunft des Eintrags. Garmin-Einträge werden in der Oberfläche markiert. */
+  source: 'manual' | 'garmin'
+  garmin_activity_id: string | null
+  garmin_activity_type: string | null
+  garmin_training_load: number | null
+  garmin_aerobic_te: number | null
+  garmin_anaerobic_te: number | null
+  /** Woher `rpe` stammt — bei Garmin-Einheiten ist es geschätzt. */
+  rpe_source: 'manual' | 'hf_zonen' | 'trainingseffekt' | 'hf_schnitt'
 }
 
-export type SessionLogInput = Omit<SessionLog, 'id' | 'created_at' | 'trimp'>
+/** Was ein Formular schicken darf.
+ *
+ * Die Garmin-Felder fehlen bewusst: Das Backend nimmt sie beim Speichern nicht
+ * entgegen (`SessionLogIn`), damit ein Bearbeiten die Herkunft nicht löscht.
+ */
+export type SessionLogInput = Omit<
+  SessionLog,
+  | 'id' | 'created_at' | 'trimp'
+  | 'source' | 'garmin_activity_id' | 'garmin_activity_type'
+  | 'garmin_training_load' | 'garmin_aerobic_te' | 'garmin_anaerobic_te'
+  | 'rpe_source'
+>
 
 export interface WeeklyBucket {
   week_start: string
@@ -200,4 +221,107 @@ export interface AiExport {
   prompt: string
   payload: Record<string, unknown>
   combined: string
+}
+
+// --------------------------------------------------------------------------
+// Garmin Connect
+// --------------------------------------------------------------------------
+
+export type GarminStatusName = 'connected' | 'token_expired' | 'rate_limited' | 'error'
+
+export interface GarminAccount {
+  email: string
+  status: GarminStatusName
+  status_message: string | null
+  connected_at: string
+  last_sync_at: string | null
+  backfill_from: string | null
+  rate_limited_until: string | null
+  auto_sync_enabled: boolean
+  profile_sync_enabled: boolean
+}
+
+export type GarminJobState =
+  | 'queued' | 'running' | 'done' | 'failed'
+  | 'cancelled' | 'rate_limited' | 'interrupted'
+
+export interface GarminJob {
+  id: number
+  kind: 'backfill' | 'incremental' | 'auto'
+  state: GarminJobState
+  started_at: string
+  finished_at: string | null
+  range_start: string | null
+  range_end: string | null
+  cursor_date: string | null
+  step: string | null
+  step_index: number
+  step_total: number
+  progress_pct: number
+  activities_new: number
+  activities_updated: number
+  wellness_days: number
+  message: string | null
+  error: string | null
+}
+
+export interface GarminStatus {
+  konto: GarminAccount | null
+  aktiver_job: GarminJob | null
+  letzter_job: GarminJob | null
+  trainings_gesamt: number
+  fitness_tage_gesamt: number
+}
+
+/** Antwort auf den Anmeldeversuch — bei aktivem MFA fehlt noch der Code. */
+export interface GarminConnectResult {
+  status: 'verbunden' | 'mfa_erforderlich'
+  pending_id?: string
+  hinweis?: string
+}
+
+/** Ein Tag Fitnessdaten. Alle Werte optional — jede Quelle füllt nur ihre eigenen. */
+export interface WellnessDay {
+  date: string
+  sleep_seconds: number | null
+  sleep_deep_seconds: number | null
+  sleep_light_seconds: number | null
+  sleep_rem_seconds: number | null
+  sleep_awake_seconds: number | null
+  sleep_score: number | null
+  sleep_stress_avg: number | null
+  sleep_body_battery_change: number | null
+  hrv_last_night_ms: number | null
+  hrv_weekly_avg_ms: number | null
+  hrv_status: string | null
+  hrv_baseline_low: number | null
+  hrv_baseline_high: number | null
+  resting_hr: number | null
+  weight_kg: number | null
+  body_fat_pct: number | null
+  vo2max_run: number | null
+  vo2max_bike: number | null
+  readiness_score: number | null
+  readiness_level: string | null
+  readiness_feedback: string | null
+  recovery_time_h: number | null
+  training_status: string | null
+  training_status_feedback: string | null
+  weekly_training_load: number | null
+  garmin_acwr: number | null
+  garmin_acwr_status: string | null
+  body_battery_high: number | null
+  body_battery_low: number | null
+  stress_avg: number | null
+  stress_max: number | null
+}
+
+/** Ein manueller Eintrag, den es nun auch aus Garmin gibt. */
+export interface GarminDublette {
+  manual_log_id: number
+  garmin_log_id: number
+  date: string
+  sport: Sport
+  manual_duration_min: number | null
+  garmin_duration_min: number | null
 }

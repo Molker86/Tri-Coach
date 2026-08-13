@@ -345,6 +345,32 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .field-slot { flex: 0 0 auto; width: 170px; }
 .field-slot .field { margin-bottom: 0; }
 
+/* Ankreuzfeld mit Beschriftung und erklärender Zeile darunter.
+   Das Kästchen steht in einer eigenen, festen Spalte, damit die zweite Zeile
+   nicht darunter einrückt, sondern bündig zur Beschriftung bleibt. */
+.check-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  align-items: start;
+  cursor: pointer;
+}
+
+.check-row input[type='checkbox'] {
+  /* Ohne feste Maße zieht die globale Eingabefeld-Regel das Kästchen auf
+     volle Breite. Die 1.05rem richten es an der Grundlinie der Beschriftung
+     aus, und 44 px Trefferfläche kommen über das Label selbst. */
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  min-height: 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.check-row .field-hint { margin: 0.15rem 0 0; }
+
 /* ==========================================================================
    Buttons
    ========================================================================== */
@@ -493,6 +519,11 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   border-color: var(--accent);
   color: var(--accent-text);
 }
+
+/* Chips als Umschalter zwischen zwei Ansichten. Enger gesetzt als frei
+   stehende Chips, damit sie als eine Einheit gelesen werden und nicht als
+   zwei unabhängige Schalter. */
+.chip-group { display: flex; gap: 0.3rem; }
 
 /* ==========================================================================
    Wizard

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { sessionTypeLabel, sportIcon, sportLabel } from '../constants'
-import type { Plan, Profile, Stats } from '../types'
+import type { Plan, Profile, Stats, WellnessDay } from '../types'
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
@@ -37,6 +37,38 @@ function blockStatus(plan: Plan | null, today: string) {
   return null
 }
 
+/** Jüngster belegter Wert einer Größe aus den Fitnessdaten.
+ *
+ * Nicht einfach der Wert von heute: Garmin trägt Schlaf und Erholungswerte
+ * teils erst im Laufe des Vormittags nach, und ein Gewicht wird nicht täglich
+ * gemessen. Ohne diesen Rückgriff stünden die Kacheln morgens leer da.
+ */
+function letzterWert<K extends keyof WellnessDay>(
+  tage: WellnessDay[],
+  feld: K,
+): WellnessDay[K] | null {
+  for (const tag of tage) {
+    if (tag[feld] !== null && tag[feld] !== undefined) return tag[feld]
+  }
+  return null
+}
+
+/** Einordnung der Trainingsreife in eine Ampel. */
+function reifeBewertung(score: number | null): string {
+  if (score === null) return 'badge'
+  if (score < 40) return 'badge-warning'
+  if (score < 65) return 'badge'
+  return 'badge-success'
+}
+
+const HRV_STATUS_TEXT: Record<string, string> = {
+  BALANCED: 'im Normalbereich',
+  UNBALANCED: 'außerhalb der Norm',
+  LOW: 'niedrig',
+  POOR: 'deutlich niedrig',
+  NOT_ENOUGH_DATA: 'zu wenig Daten',
+}
+
 /** Bewertung der Belastungsentwicklung nach dem Acute:Chronic-Verhältnis. */
 function acwrVerdict(acwr: number | null): { text: string; kind: string } | null {
   if (acwr === null) return null
@@ -45,19 +77,94 @@ function acwrVerdict(acwr: number | null): { text: string; kind: string } | null
   return { text: 'Belastung steigt schnell', kind: 'badge-warning' }
 }
 
+/** Was Garmin über die Erholung sagt.
+ *
+ * Steht bewusst weit oben: Hier wird morgens die Frage gestellt „kann ich heute
+ * hart trainieren?" — und genau darauf antworten diese vier Werte.
+ */
+function ErholungsKacheln({ tage }: { tage: WellnessDay[] }) {
+  const reife = letzterWert(tage, 'readiness_score')
+  const hrv = letzterWert(tage, 'hrv_last_night_ms')
+  const hrvStatus = letzterWert(tage, 'hrv_status')
+  const schlafSekunden = letzterWert(tage, 'sleep_seconds')
+  const schlafScore = letzterWert(tage, 'sleep_score')
+  const ruhepuls = letzterWert(tage, 'resting_hr')
+  const erholungszeit = letzterWert(tage, 'recovery_time_h')
+
+  // Der Ruhepuls sagt erst im Vergleich etwas. Die vier Wochen dienen als
+  // eigene Grundlinie — ein Anstieg darüber ist ein Warnzeichen.
+  const alleRuhepulse = tage.map((t) => t.resting_hr).filter((w): w is number => w !== null)
+  const schnitt =
+    alleRuhepulse.length > 0
+      ? Math.round(alleRuhepulse.reduce((a, b) => a + b, 0) / alleRuhepulse.length)
+      : null
+  const abweichung = ruhepuls !== null && schnitt !== null ? ruhepuls - schnitt : null
+
+  return (
+    <div className="grid grid-4 mb-1">
+      <Stat
+        label="Trainingsreife"
+        value={reife ?? '–'}
+        hint={
+          reife !== null ? (
+            <span className={`badge ${reifeBewertung(reife)}`}>
+              {reife < 40 ? 'Heute locker' : reife < 65 ? 'Kein Schlüsseltraining' : 'Bereit'}
+            </span>
+          ) : (
+            'Von Garmin'
+          )
+        }
+      />
+      <Stat
+        label="HRV letzte Nacht"
+        value={hrv !== null ? Math.round(hrv) : '–'}
+        unit="ms"
+        hint={hrvStatus ? (HRV_STATUS_TEXT[hrvStatus] ?? hrvStatus) : undefined}
+      />
+      <Stat
+        label="Schlaf letzte Nacht"
+        value={schlafSekunden !== null ? (schlafSekunden / 3600).toFixed(1) : '–'}
+        unit="h"
+        hint={schlafScore !== null ? `Schlafscore ${schlafScore}` : undefined}
+      />
+      <Stat
+        label="Ruhepuls"
+        value={ruhepuls ?? '–'}
+        unit="bpm"
+        hint={
+          abweichung !== null && abweichung !== 0
+            ? `${abweichung > 0 ? '+' : ''}${abweichung} gegenüber dem Schnitt`
+            : erholungszeit
+              ? `Noch ${erholungszeit} h Erholung`
+              : undefined
+        }
+      />
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [wellness, setWellness] = useState<WellnessDay[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([api.activePlan(), api.stats(), api.getProfile()])
-      .then(([activePlan, loadedStats, loadedProfile]) => {
+    Promise.all([
+      api.activePlan(),
+      api.stats(),
+      api.getProfile(),
+      // Ohne verbundenes Garmin-Konto ist die Liste leer — das ist kein Fehler,
+      // und die Übersicht darf daran nicht scheitern.
+      api.garminWellness(4).catch(() => [] as WellnessDay[]),
+    ])
+      .then(([activePlan, loadedStats, loadedProfile, loadedWellness]) => {
         setPlan(activePlan)
         setStats(loadedStats)
         setProfile(loadedProfile)
+        setWellness(loadedWellness)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -156,6 +263,8 @@ export default function Dashboard() {
           }
         />
       </div>
+
+      {wellness.length > 0 && <ErholungsKacheln tage={wellness} />}
 
       <div className="grid grid-2">
         <div className="card">

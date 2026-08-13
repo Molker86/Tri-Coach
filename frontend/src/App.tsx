@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import { Loading } from './components/ui'
 import { useAuth } from './auth/AuthContext'
 import Dashboard from './pages/Dashboard'
+import GarminPage from './pages/GarminPage'
 import History from './pages/History'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -47,6 +48,7 @@ export default function App() {
       />
       <Route path="/verlauf" element={<Protected><History /></Protected>} />
       <Route path="/profil" element={<Protected><ProfilePage /></Protected>} />
+      <Route path="/garmin" element={<Protected><GarminPage /></Protected>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

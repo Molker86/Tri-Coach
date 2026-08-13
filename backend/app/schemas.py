@@ -367,6 +367,139 @@ class SessionLogOut(SessionLogIn):
     created_at: datetime
     trimp: float | None = None
 
+    # Bewusst nur hier und nicht in `SessionLogIn`: `update_log` überschreibt
+    # mit `model_dump()` *ohne* `exclude_unset` alle Eingabefelder. Stünde die
+    # Herkunft dort, würde ein Bearbeiten im Frontend sie auf die Vorgabewerte
+    # zurücksetzen — und der nächste Sync legte die Einheit ein zweites Mal an.
+    source: str = "manual"
+    garmin_activity_id: str | None = None
+    garmin_activity_type: str | None = None
+    garmin_training_load: float | None = None
+    garmin_aerobic_te: float | None = None
+    garmin_anaerobic_te: float | None = None
+    rpe_source: str = "manual"
+
+
+# --------------------------------------------------------------------------
+# Garmin Connect
+# --------------------------------------------------------------------------
+
+
+class GarminConnectIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=256)
+
+
+class GarminMfaIn(BaseModel):
+    pending_id: str
+    code: str = Field(min_length=1, max_length=16)
+
+
+class GarminBackfillIn(BaseModel):
+    von: date | None = None
+    bis: date | None = None
+    # Trainingsreife, Trainingsstatus und Stress gibt es nur tageweise. Über ein
+    # ganzes Jahr sind das über tausend Anfragen; als Zustandsgrößen sind sie
+    # rückwirkend aber kaum etwas wert. Vorgabe daher: kurzes Fenster.
+    tagesschleife_voll: bool = False
+
+
+class GarminAccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    email: str
+    status: str
+    status_message: str | None = None
+    connected_at: datetime
+    last_sync_at: datetime | None = None
+    backfill_from: date | None = None
+    rate_limited_until: datetime | None = None
+    auto_sync_enabled: bool
+    profile_sync_enabled: bool
+
+
+class GarminSettingsIn(BaseModel):
+    auto_sync_enabled: bool | None = None
+    profile_sync_enabled: bool | None = None
+
+
+class GarminJobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    state: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    range_start: date | None = None
+    range_end: date | None = None
+    cursor_date: date | None = None
+    step: str | None = None
+    step_index: int
+    step_total: int
+    progress_pct: int
+    activities_new: int
+    activities_updated: int
+    wellness_days: int
+    message: str | None = None
+    error: str | None = None
+
+
+class GarminStatusOut(BaseModel):
+    konto: GarminAccountOut | None = None
+    aktiver_job: GarminJobOut | None = None
+    letzter_job: GarminJobOut | None = None
+    trainings_gesamt: int = 0
+    fitness_tage_gesamt: int = 0
+
+
+class WellnessDayOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date
+    sleep_seconds: int | None = None
+    sleep_deep_seconds: int | None = None
+    sleep_light_seconds: int | None = None
+    sleep_rem_seconds: int | None = None
+    sleep_awake_seconds: int | None = None
+    sleep_score: int | None = None
+    sleep_stress_avg: float | None = None
+    sleep_body_battery_change: int | None = None
+    hrv_last_night_ms: float | None = None
+    hrv_weekly_avg_ms: float | None = None
+    hrv_status: str | None = None
+    hrv_baseline_low: float | None = None
+    hrv_baseline_high: float | None = None
+    resting_hr: int | None = None
+    weight_kg: float | None = None
+    body_fat_pct: float | None = None
+    vo2max_run: float | None = None
+    vo2max_bike: float | None = None
+    readiness_score: int | None = None
+    readiness_level: str | None = None
+    readiness_feedback: str | None = None
+    recovery_time_h: int | None = None
+    training_status: str | None = None
+    training_status_feedback: str | None = None
+    weekly_training_load: float | None = None
+    garmin_acwr: float | None = None
+    garmin_acwr_status: str | None = None
+    body_battery_high: int | None = None
+    body_battery_low: int | None = None
+    stress_avg: int | None = None
+    stress_max: int | None = None
+
+
+class GarminDubletteOut(BaseModel):
+    """Ein manueller Eintrag, den es nun auch aus Garmin gibt."""
+
+    manual_log_id: int
+    garmin_log_id: int
+    date: date
+    sport: str
+    manual_duration_min: int | None = None
+    garmin_duration_min: int | None = None
+
 
 # --------------------------------------------------------------------------
 # KI-Export

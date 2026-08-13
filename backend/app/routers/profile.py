@@ -2,13 +2,13 @@ from fastapi import APIRouter
 
 from ..deps import CurrentUser, DbSession
 from ..models import AthleteProfile, ProfileHistory
+from ..profile_sync import TRACKED_FIELDS, uebernehme_profilwerte
 from ..schemas import ProfileHistoryOut, ProfileIn, ProfileOut
 from ..sportscience import calc_age, calc_bmi, hr_zones
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
-# Werte, deren Verlauf für die Trainingssteuerung interessant ist.
-TRACKED_FIELDS = ("weight_kg", "resting_hr", "hrv_rmssd", "vo2max", "max_hr", "ftp_watts")
+__all__ = ["router", "TRACKED_FIELDS"]
 
 
 def _ensure_profile(db, user) -> AthleteProfile:
@@ -38,22 +38,7 @@ def update_profile(data: ProfileIn, user: CurrentUser, db: DbSession) -> Profile
     profile = _ensure_profile(db, user)
 
     # Nur gesetzte Felder überschreiben — ein Teil-Update darf nichts löschen.
-    updates = data.model_dump(exclude_unset=True)
-    changed_tracked = any(
-        field in updates and updates[field] != getattr(profile, field)
-        for field in TRACKED_FIELDS
-    )
-
-    for field, value in updates.items():
-        setattr(profile, field, value)
-
-    if changed_tracked:
-        db.add(
-            ProfileHistory(
-                user_id=user.id,
-                **{field: getattr(profile, field) for field in TRACKED_FIELDS},
-            )
-        )
+    uebernehme_profilwerte(db, user.id, profile, data.model_dump(exclude_unset=True))
 
     db.commit()
     db.refresh(profile)

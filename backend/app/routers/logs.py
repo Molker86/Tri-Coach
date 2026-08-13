@@ -124,6 +124,13 @@ def update_log(
 
     _check_plan_session(db, data.plan_session_id, user.id)
 
+    # Trägt der Nutzer bei einer importierten Einheit ein eigenes RPE ein, gilt
+    # ab jetzt seins. Ohne diesen Wechsel der Herkunft würde der nächste
+    # Garmin-Abgleich den Wert wieder durch die Schätzung ersetzen — die
+    # Eingabe wäre spätestens am Folgetag verschwunden.
+    if data.rpe is not None and data.rpe != log.rpe:
+        log.rpe_source = "manual"
+
     for field, value in data.model_dump().items():
         setattr(log, field, value)
 

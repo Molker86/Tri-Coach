@@ -16,7 +16,7 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from .models import AthleteProfile, Plan, SessionLog, TrainingRequest, User
+from .models import AthleteProfile, Plan, SessionLog, TrainingRequest, User, WellnessDay
 from .schemas import WEEKDAYS
 from .sportscience import (
     acute_chronic_ratio,
@@ -27,9 +27,11 @@ from .sportscience import (
     estimate_max_hr,
     hr_zones,
     weekly_summary,
+    wellness_auffaelligkeiten,
+    wellness_mittelwerte,
 )
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
 
 # Planungshorizont in Tagen. Kurz gehalten — siehe Modul-Docstring.
 PLAN_DAYS_DEFAULT = 7
@@ -180,6 +182,13 @@ def _history_block(
             "trittfrequenz": lg.avg_cadence,
             "hoehenmeter": lg.elevation_gain_m,
             "rpe_1_10": lg.rpe,
+            # Bei importierten Einheiten ist das RPE geschätzt. Die Quelle steht
+            # dabei, damit die KI weiß, wie belastbar die Zahl ist.
+            "rpe_quelle": lg.rpe_source,
+            "quelle": "garmin" if lg.source == "garmin" else "manuell",
+            "garmin_trainingslast": lg.garmin_training_load,
+            "trainingseffekt_aerob": lg.garmin_aerobic_te,
+            "trainingseffekt_anaerob": lg.garmin_anaerobic_te,
             "befinden_1_5": lg.feeling,
             "muskelkater_1_5": lg.soreness,
             "schlaf_h": lg.sleep_hours,
@@ -215,12 +224,136 @@ def _history_block(
     return block
 
 
+def _stunden(sekunden: int | None) -> float | None:
+    return None if sekunden is None else round(sekunden / 3600, 1)
+
+
+def _fitness_block(
+    tage: list[WellnessDay], heute: date
+) -> dict[str, Any] | None:
+    """Garmins Sicht auf den Zustand des Athleten.
+
+    Bewusst ein eigener Block neben `trainingshistorie` und nicht darin: Die
+    Historie beschreibt absolvierte *Einheiten*, die Fitnessdaten den *Zustand*.
+    Auf oberster Ebene kann der Prompt sie namentlich mit eigenen Regeln
+    ansprechen — eingebettet in die Historie würden sie überlesen.
+
+    Vier Ebenen, weil die KI vier Fragen hat: Wie ist es heute (`aktuell`),
+    wohin läuft es (`mittelwerte`), was ist auffällig (`auffaelligkeiten`) und
+    wie sah der Verlauf im Einzelnen aus (`tage`). Ohne die Tageswerte kann sie
+    einen Einbruch nicht datieren; ohne die Mittelwerte verwechselt sie einen
+    schlechten Tag mit einer Entwicklung.
+
+    Gibt `None` zurück, wenn nichts vorliegt: Ein leerer Block, auf den sich
+    Prompt-Regeln beziehen, ist schlimmer als gar keiner.
+    """
+    if not tage:
+        return None
+
+    sortiert = sorted(tage, key=lambda t: t.date, reverse=True)
+
+    def juengster(feld: str) -> tuple[Any, str | None]:
+        """Jüngster belegter Wert samt seinem Datum.
+
+        Das Datum gehört dazu: Ein Gewicht von vor drei Wochen ist etwas
+        anderes als das von heute Morgen, und ohne Datum kann die KI das nicht
+        unterscheiden.
+        """
+        for tag in sortiert:
+            wert = getattr(tag, feld, None)
+            if wert is not None:
+                return wert, tag.date.isoformat()
+        return None, None
+
+    def wert(feld: str) -> Any:
+        return juengster(feld)[0]
+
+    aktuell: dict[str, Any] = {
+        "stand": sortiert[0].date.isoformat(),
+        "schlaf_h": _stunden(wert("sleep_seconds")),
+        "schlaf_tiefschlaf_h": _stunden(wert("sleep_deep_seconds")),
+        "schlaf_rem_h": _stunden(wert("sleep_rem_seconds")),
+        "schlafscore_0_100": wert("sleep_score"),
+        "hrv_nachtmittel_ms": wert("hrv_last_night_ms"),
+        "hrv_status": wert("hrv_status"),
+        "hrv_normalbereich_ms": {
+            "unten": wert("hrv_baseline_low"),
+            "oben": wert("hrv_baseline_high"),
+        },
+        "ruhepuls": wert("resting_hr"),
+        "gewicht_kg": wert("weight_kg"),
+        "koerperfett_pct": wert("body_fat_pct"),
+        "vo2max_laufen": wert("vo2max_run"),
+        "vo2max_rad": wert("vo2max_bike"),
+        "stress_tagesmittel": wert("stress_avg"),
+        "koerperbatterie": {
+            "hoechstwert": wert("body_battery_high"),
+            "tiefstwert": wert("body_battery_low"),
+        },
+        "training_readiness": {
+            "score_0_100": wert("readiness_score"),
+            "stufe": wert("readiness_level"),
+            "hinweis": wert("readiness_feedback"),
+            "erholungszeit_h": wert("recovery_time_h"),
+        },
+        "training_status": {
+            "status": wert("training_status_feedback"),
+            "wochenlast": wert("weekly_training_load"),
+            "acwr_garmin": wert("garmin_acwr"),
+            "acwr_bewertung": wert("garmin_acwr_status"),
+            "akutlast": wert("garmin_load_acute"),
+            "chronische_last": wert("garmin_load_chronic"),
+        },
+        # Ausdrücklich benannt, weil der Feldname im Profil `hrv_rmssd` heißt:
+        # Garmins Nachtmittel ist konzeptionell nahe an RMSSD, aber nicht
+        # dasselbe. Ohne den Hinweis würde die KI beides gleichsetzen.
+        "hrv_quelle": "Garmin Nachtmittel (nicht identisch mit RMSSD einer Kurzmessung)",
+    }
+
+    return {
+        "quelle": "Garmin Connect",
+        "aktuell": aktuell,
+        "mittelwerte": wellness_mittelwerte(sortiert, heute),
+        "auffaelligkeiten": wellness_auffaelligkeiten(sortiert, heute),
+        "tage": [
+            {
+                "datum": tag.date.isoformat(),
+                "schlaf_h": _stunden(tag.sleep_seconds),
+                "schlafscore": tag.sleep_score,
+                "hrv_ms": tag.hrv_last_night_ms,
+                "hrv_status": tag.hrv_status,
+                "ruhepuls": tag.resting_hr,
+                "trainingsreife": tag.readiness_score,
+                "erholungszeit_h": tag.recovery_time_h,
+                "stress": tag.stress_avg,
+                "koerperbatterie_hoch": tag.body_battery_high,
+                "gewicht_kg": tag.weight_kg,
+            }
+            for tag in sorted(tage, key=lambda t: t.date)
+            # Tage ohne jeden Wert weglassen: Sie kosten Platz im Prompt und
+            # sagen nichts, was das Fehlen nicht ohnehin ausdrückt.
+            if any(
+                getattr(tag, feld) is not None
+                for feld in (
+                    "sleep_seconds",
+                    "hrv_last_night_ms",
+                    "resting_hr",
+                    "readiness_score",
+                    "stress_avg",
+                    "weight_kg",
+                )
+            )
+        ],
+    }
+
+
 def build_payload(
     user: User,
     profile: AthleteProfile | None,
     request: TrainingRequest | None,
     logs: list[SessionLog],
     plan: Plan | None = None,
+    wellness: list[WellnessDay] | None = None,
     start_date: date | None = None,
     days: int = PLAN_DAYS_DEFAULT,
 ) -> dict[str, Any]:
@@ -232,7 +365,9 @@ def build_payload(
     )
     start = start_date or default_start()
 
-    return {
+    fitness = _fitness_block(wellness or [], date.today())
+
+    payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "erzeugt_am": date.today().isoformat(),
         "athlet": _athlete_block(profile),
@@ -250,6 +385,13 @@ def build_payload(
             ],
         },
     }
+
+    # Nur aufnehmen, wenn wirklich Daten vorliegen: Sonst stünden im Prompt
+    # Regeln zu einem Block, der leer ist — und die KI erfände sich Werte dazu.
+    if fitness is not None:
+        payload["fitnessdaten"] = fitness
+
+    return payload
 
 
 # --------------------------------------------------------------------------
@@ -319,27 +461,31 @@ nicht einen vollständigen Trainingszyklus.
 gleicher Leistung heißt: in diesem Block zurücknehmen. Eine ruhige oder ausgefallene \
 Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht \
 umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
-2. **Intensitätsverteilung**: Polarisiert — der Großteil des Umfangs in Z1/Z2. In \
+{fitnessregeln}
+3. **Intensitätsverteilung**: Polarisiert — der Großteil des Umfangs in Z1/Z2. In \
 einem so kurzen Block höchstens eine intensive Einheit (Z4/Z5) je drei Tage. Keine \
 "Wohlfühl-Mitteldistanz".
-3. **Regeneration**: Mindestens 48 h zwischen zwei intensiven Einheiten. Das gilt \
+4. **Regeneration**: Mindestens 48 h zwischen zwei intensiven Einheiten. Das gilt \
 auch über den Blockanfang hinaus: Prüfe `tage_seit_letzter_intensiver_einheit`, bevor \
 du am ersten Tag hart planst. Nach einer langen Einheit am Folgetag nichts Hartes.
-4. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. \
+5. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. \
 Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlänge.
-5. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
+6. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
 Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf \
 welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.
-6. **Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
+7. **Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
 `tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten \
 zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
 Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
 diesen Block sinnvoll passt.
-7. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
+8. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
 Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
 Schlüsseleinheit. Mobility kurz und regelmäßig.
-8. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
-aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben.
+9. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
+aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Steht bei \
+einer Einheit `rpe_quelle` auf etwas anderem als "manual", stammt das RPE nicht vom \
+Athleten, sondern ist aus Herzfrequenzzonen oder Trainingseffekt geschätzt — stütze \
+dich dort stärker auf `hf_schnitt`, `trimp` und `garmin_trainingslast`.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
@@ -363,13 +509,56 @@ Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 """
 
 
+# Punkt 2 der Trainingsprinzipien. Zwei Fassungen, weil Regeln zu Daten, die
+# nicht vorliegen, die KI zum Erfinden einladen: Wer keine Uhr trägt, bekommt
+# ausdrücklich gesagt, woran sie sich stattdessen halten soll.
+#
+# Achtung beim Ändern: Der Text geht durch `.format()`. Geschweifte Klammern
+# müssten verdoppelt werden.
+FITNESSREGELN_MIT_DATEN = """2. **Erholungslage aus den Fitnessdaten**: `fitnessdaten.aktuell` und \
+`fitnessdaten.auffaelligkeiten` beschreiben den Zustand von *heute*, während die \
+`wochenuebersicht` die Vergangenheit beschreibt. Für einen so kurzen Block ist das die \
+härteste Steuergröße — widersprechen sich beide, gewinnen die Fitnessdaten. \
+Verbindlich:
+   - `hrv_status` UNBALANCED, LOW oder POOR, oder ein HRV-Wert unter \
+`hrv_normalbereich_ms.unten`: an Tag 1 und Tag 2 keine intensive Einheit, sondern \
+Z1/Z2 oder Ruhe.
+   - `training_readiness.score_0_100` unter 40: erster Tag locker oder frei. 40 bis \
+65: normaler Aufbau, aber keine Schlüsseleinheit. Über 65: Die harte Einheit darf an \
+den Blockanfang.
+   - `training_readiness.erholungszeit_h` nennt die von Garmin veranschlagte \
+Resterholung. Plane in diesem Zeitfenster nichts oberhalb von Z2.
+   - `training_status.status` OVERREACHING, UNPRODUCTIVE, STRAINED oder DETRAINING: \
+Umfang und Intensität dieses Blocks liegen unter denen der Vorwoche. PRODUCTIVE oder \
+MAINTAINING erlaubt einen Aufbau, PEAKING heißt Formerhalt statt Aufbau.
+   - `training_status.acwr_garmin` über 1.3 wiegt schwerer als die sRPE-basierte \
+`acute_chronic_workload_ratio`, weil sie aus gemessener Last statt aus geschätzter \
+Anstrengung stammt. Sagen beide dasselbe, nimm den Block deutlich zurück.
+   - Liegt `mittelwerte.schlaf_h.7_tage` mehr als 45 Minuten unter \
+`mittelwerte.schlaf_h.28_tage` oder unter 6,5 Stunden absolut, gilt der Athlet als \
+unterschlafen: Streiche die intensive Einheit und kürze die längste Einheit um etwa \
+ein Fünftel. Ein `stress_tagesmittel` über 50 oder eine niedrige Körperbatterie an \
+mehreren Tagen heißt: Umfang halten, Intensität zurücknehmen.
+   - Nenne in `summary` ausdrücklich, welcher dieser Werte deine Entscheidung \
+getragen hat."""
+
+FITNESSREGELN_OHNE_DATEN = """2. **Keine Gerätedaten vorhanden**: Für diesen Athleten liegen keine Schlaf-, HRV- \
+oder Erholungswerte vor. Steuere ausschließlich über RPE, Morgenpuls, morgendliche \
+HRV und Befinden aus `trainingshistorie.einheiten` — und plane im Zweifel die \
+konservativere Variante."""
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
+    hat_fitnessdaten = bool(payload.get("fitnessdaten"))
     return PROMPT_TEMPLATE.format(
         tage=period.get("tage", PLAN_DAYS_DEFAULT),
         start=period.get("startdatum", ""),
         ende=period.get("enddatum", ""),
         historie_wochen=HISTORY_WEEKS,
+        fitnessregeln=(
+            FITNESSREGELN_MIT_DATEN if hat_fitnessdaten else FITNESSREGELN_OHNE_DATEN
+        ),
         schema=json.dumps(RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
     )

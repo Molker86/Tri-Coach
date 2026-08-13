@@ -67,16 +67,18 @@ export function TextField({
   type = 'text',
   min,
   max,
+  autoComplete,
 }: {
   label: string
   hint?: string
   value: string | null
   onChange: (value: string | null) => void
   placeholder?: string
-  type?: 'text' | 'date'
+  type?: 'text' | 'date' | 'password' | 'email'
   /** Nur für `type="date"` gedacht: begrenzt den wählbaren Zeitraum. */
   min?: string
   max?: string
+  autoComplete?: string
 }) {
   return (
     <Field label={label} hint={hint}>
@@ -86,6 +88,7 @@ export function TextField({
         placeholder={placeholder}
         min={min}
         max={max}
+        autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
       />
     </Field>

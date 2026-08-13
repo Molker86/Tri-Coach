@@ -1,11 +1,11 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.orm import selectinload
 
 from .. import ai_export, plan_import
 from ..deps import CurrentUser, DbSession
-from ..models import Plan, SessionLog, TrainingRequest
+from ..models import Plan, SessionLog, TrainingRequest, WellnessDay
 from ..schemas import (
     ExportOut,
     PlanImportIn,
@@ -96,12 +96,24 @@ def export_for_ai(
 
     logs = db.query(SessionLog).filter(SessionLog.user_id == user.id).all()
 
+    # Fitnessdaten aus Garmin, im selben Rückblickfenster wie die Historie.
+    # Ohne verbundenes Konto bleibt die Liste leer und der Block entfällt.
+    wellness = (
+        db.query(WellnessDay)
+        .filter(
+            WellnessDay.user_id == user.id,
+            WellnessDay.date >= date.today() - timedelta(weeks=ai_export.HISTORY_WEEKS),
+        )
+        .all()
+    )
+
     payload = ai_export.build_payload(
         user=user,
         profile=user.profile,
         request=training_request,
         logs=logs,
         plan=_active_plan(db, user.id),
+        wellness=wellness,
         start_date=start_date,
         days=days,
     )

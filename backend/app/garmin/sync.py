@@ -1,0 +1,656 @@
+"""Abruf und Speicherung eines Zeitraums.
+
+Zwei Grundsätze bestimmen den Aufbau:
+
+**Bereichsabfragen statt Tagesschleife.** Für Trainings, Schlaf, HRV, Ruhepuls,
+VO2max, Gewicht und Body Battery gibt es Endpunkte, die einen ganzen Zeitraum in
+einer Anfrage liefern. Ein Jahr kostet damit rund fünfzig Anfragen statt
+dreitausend. Nur Trainingsreife, Trainingsstatus, Stress und der Schlafscore
+gibt es ausschließlich tageweise.
+
+**Alles ist ein Upsert.** Ein zweiter Lauf über denselben Zeitraum darf nichts
+verdoppeln — sonst wäre weder ein Wiederaufsetzen nach einer Sperre noch ein
+täglicher Abgleich mit Überlappung möglich.
+"""
+
+import logging
+import time
+from collections.abc import Callable
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
+
+from garminconnect import GarminConnectTooManyRequestsError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from ..models import AthleteProfile, SessionLog, WellnessDay
+from .errors import GarminRateLimit
+from .mapping import (
+    aktivitaet_zu_log,
+    als_ganzzahl,
+    als_datum,
+    als_liste,
+    als_zahl,
+    erster_wert,
+    gewicht_kg,
+    hole,
+    koppel_notiz,
+    teile_multisport,
+)
+from .matching import finde_offene_planeinheit
+
+logger = logging.getLogger(__name__)
+
+# Pause zwischen zwei Tagen der Tagesschleife. Nicht zwischen einzelnen
+# Anfragen: Die vier Tagesabfragen gehören zusammen und werden am Stück
+# erledigt. Der Wert stammt aus der Praxis vergleichbarer Projekte; kleiner zu
+# werden ist ausdrücklich nicht empfohlen.
+PAUSE_SEKUNDEN = 5.0
+
+# Wie weit die Tagesschleife zurückreicht, auch wenn der Bereich ein Jahr
+# umfasst. Trainingsreife und Trainingsstatus sind Zustandsgrößen — ein Wert von
+# vor zehn Monaten trägt keine Planungsentscheidung mehr, kostet aber vier
+# Anfragen. Der KI-Export blickt ohnehin vier Wochen zurück; 42 Tage sind das
+# Fenster plus Puffer.
+TAGESSCHLEIFE_TAGE = 42
+
+# Überlappung beim laufenden Abgleich. Garmin trägt Schlaf- und Erholungswerte
+# teils Stunden später nach; ohne Überlappung bliebe die Lücke für immer.
+INKREMENT_TAGE = 14
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class SyncAbbruch(Exception):
+    """Der Lauf wurde von außen abgebrochen."""
+
+
+class Fortschritt:
+    """Meldet Schritt und Fortschritt an den Aufrufer zurück.
+
+    Als eigenes Objekt, damit `sync.py` nichts über Jobs und Datenbankzeilen
+    wissen muss und in Tests ohne Umstand still bleiben kann.
+    """
+
+    def __init__(
+        self,
+        melde: Callable[[str, int, int, str | None], None] | None = None,
+        abgebrochen: Callable[[], bool] | None = None,
+    ) -> None:
+        self._melde = melde or (lambda *args: None)
+        self._abgebrochen = abgebrochen or (lambda: False)
+        self.schritte: list[str] = []
+
+    def schritt(self, name: str, index: int, gesamt: int, meldung: str | None = None) -> None:
+        if self._abgebrochen():
+            raise SyncAbbruch()
+        self.schritte.append(name)
+        self._melde(name, index, gesamt, meldung)
+
+    def pruefe_abbruch(self) -> None:
+        if self._abgebrochen():
+            raise SyncAbbruch()
+
+
+class SyncErgebnis:
+    def __init__(self) -> None:
+        self.aktivitaeten_neu = 0
+        self.aktivitaeten_aktualisiert = 0
+        self.fitness_tage = 0
+        self.hinweise: list[str] = []
+        self.letzter_tag: date | None = None
+
+
+# --------------------------------------------------------------------------
+# Wellness-Upsert
+# --------------------------------------------------------------------------
+
+
+def _wellness_tag(db: Session, user_id: int, tag: date, cache: dict) -> WellnessDay:
+    """Holt oder legt die Zeile für einen Tag an."""
+    if tag in cache:
+        return cache[tag]
+    zeile = db.scalar(
+        select(WellnessDay).where(
+            WellnessDay.user_id == user_id, WellnessDay.date == tag
+        )
+    )
+    if zeile is None:
+        zeile = WellnessDay(user_id=user_id, date=tag)
+        db.add(zeile)
+    cache[tag] = zeile
+    return zeile
+
+
+def _setze(zeile: WellnessDay, **werte: Any) -> bool:
+    """Schreibt nur belegte Werte. Gibt zurück, ob sich etwas geändert hat.
+
+    Ein `None` aus einem Endpunkt bedeutet "keine Daten", nicht "Wert löschen" —
+    sonst räumte ein Endpunkt, der gerade schweigt, die Angaben eines anderen ab.
+    """
+    geaendert = False
+    for feld, wert in werte.items():
+        if wert is not None and getattr(zeile, feld) != wert:
+            setattr(zeile, feld, wert)
+            geaendert = True
+    return geaendert
+
+
+# --------------------------------------------------------------------------
+# Die einzelnen Quellen
+# --------------------------------------------------------------------------
+
+
+def _hole_geschuetzt(name: str, ergebnis: SyncErgebnis, aufruf: Callable[[], Any]) -> Any:
+    """Ruft einen Endpunkt auf; ein Fehlschlag beendet den Lauf nicht.
+
+    Ausnahme ist die Anfragesperre: Sie betrifft alle weiteren Aufrufe, und
+    weiterzumachen würde sie nur verlängern. Sie muss deshalb **vor** dem
+    allgemeinen Auffangen erkannt werden — auch in ihrer Form aus der
+    Bibliothek, sonst liefe der Abgleich stur weiter und triebe die Sperre von
+    einer Stunde auf zwei Tage.
+    """
+    try:
+        return aufruf()
+    except (GarminRateLimit, GarminConnectTooManyRequestsError) as exc:
+        raise GarminRateLimit() from exc
+    except Exception as exc:  # noqa: BLE001 — undokumentierte Gegenstelle
+        logger.warning("Garmin-Abruf '%s' fehlgeschlagen: %s", name, exc)
+        ergebnis.hinweise.append(f"{name} konnte nicht geladen werden.")
+        return None
+
+
+def importiere_aktivitaeten(
+    db: Session,
+    api: Any,
+    user_id: int,
+    profil: AthleteProfile | None,
+    von: date,
+    bis: date,
+    ergebnis: SyncErgebnis,
+) -> None:
+    roh = _hole_geschuetzt(
+        "Trainings",
+        ergebnis,
+        lambda: api.get_activities_by_date(von.isoformat(), bis.isoformat(), sortorder="asc"),
+    )
+    aktivitaeten = als_liste(roh, "activityList", "activities")
+    if not aktivitaeten:
+        return
+
+    eigenstaendig, kinder_je_eltern = teile_multisport(aktivitaeten)
+
+    for aktivitaet in eigenstaendig:
+        felder = aktivitaet_zu_log(aktivitaet, profil)
+        if felder is None:
+            continue
+
+        kinder = kinder_je_eltern.get(str(aktivitaet.get("activityId")))
+        if kinder:
+            notiz = koppel_notiz(kinder)
+            if notiz:
+                felder["notes"] = (
+                    f"{felder['notes']} — {notiz}" if felder.get("notes") else notiz
+                )
+
+        _speichere_aktivitaet(db, user_id, felder, ergebnis)
+        # Je Training einzeln festschreiben. Sammelt man sie und eine einzige
+        # Einheit kollidiert (siehe `_speichere_aktivitaet`), würde das nötige
+        # `rollback()` auch alle zuvor verarbeiteten Trainings dieses Durchlaufs
+        # verwerfen — sie wären erst beim nächsten Abgleich wieder da.
+        db.commit()
+
+
+# Felder, die dem Nutzer gehören: Sie werden beim erneuten Abgleich nie
+# überschrieben. Wer ein RPE selbst eingetragen oder eine Notiz ergänzt hat,
+# soll das nicht beim nächsten Knopfdruck verlieren.
+_NUTZERFELDER = ("feeling", "soreness", "sleep_quality", "conditions")
+
+
+def _speichere_aktivitaet(
+    db: Session, user_id: int, felder: dict[str, Any], ergebnis: SyncErgebnis
+) -> None:
+    vorhanden = db.scalar(
+        select(SessionLog).where(
+            SessionLog.user_id == user_id,
+            SessionLog.garmin_activity_id == felder["garmin_activity_id"],
+        )
+    )
+
+    if vorhanden is None:
+        log = SessionLog(user_id=user_id, **felder)
+        planeinheit = finde_offene_planeinheit(db, user_id, log.date, log.sport)
+        if planeinheit is not None:
+            log.plan_session_id = planeinheit.id
+        db.add(log)
+        try:
+            db.flush()
+        except IntegrityError:
+            # Der Nutzer hat dieselbe Planeinheit parallel von Hand erfasst.
+            # Die Verknüpfung ist verzichtbar, der Trainingseintrag nicht — also
+            # ohne sie erneut anlegen. Der Aufrufer schreibt je Training einzeln
+            # fest, sodass hier nur dieses eine verworfen wird.
+            db.rollback()
+            log = SessionLog(user_id=user_id, **felder)
+            db.add(log)
+            db.flush()
+        ergebnis.aktivitaeten_neu += 1
+        return
+
+    # Aktualisieren: Messwerte kommen von Garmin, Empfindungen vom Nutzer.
+    geaendert = False
+    for feld, wert in felder.items():
+        if feld in _NUTZERFELDER:
+            continue
+        if feld == "rpe" and vorhanden.rpe_source == "manual" and vorhanden.rpe is not None:
+            continue  # selbst eingetragenes RPE hat Vorrang vor der Schätzung
+        if feld == "rpe_source" and vorhanden.rpe_source == "manual" and vorhanden.rpe is not None:
+            continue
+        if feld == "notes" and vorhanden.notes:
+            # Eine vorhandene Notiz bleibt stehen — auch bei einer
+            # Garmin-Einheit. Beim Import steht dort nur der Aktivitätsname;
+            # was jetzt drinsteht, kann der Nutzer geschrieben haben, und das
+            # ist ungleich mehr wert. Der Preis: Wird eine Aktivität in Garmin
+            # umbenannt, zieht der Name hier nicht nach.
+            continue
+        if wert is not None and getattr(vorhanden, feld) != wert:
+            setattr(vorhanden, feld, wert)
+            geaendert = True
+
+    if vorhanden.plan_session_id is None:
+        planeinheit = finde_offene_planeinheit(
+            db, user_id, vorhanden.date, vorhanden.sport
+        )
+        if planeinheit is not None:
+            vorhanden.plan_session_id = planeinheit.id
+            geaendert = True
+
+    if geaendert:
+        ergebnis.aktivitaeten_aktualisiert += 1
+
+
+def importiere_bereichswerte(
+    db: Session,
+    api: Any,
+    user_id: int,
+    von: date,
+    bis: date,
+    ergebnis: SyncErgebnis,
+    fortschritt: Fortschritt,
+    schritt_versatz: int,
+    schritte_gesamt: int,
+) -> None:
+    """Die Endpunkte, die einen ganzen Zeitraum auf einmal liefern."""
+    cache: dict[date, WellnessDay] = {}
+    a, b = von.isoformat(), bis.isoformat()
+
+    fortschritt.schritt("Ruhepuls", schritt_versatz + 1, schritte_gesamt)
+    for zeile in als_liste(
+        _hole_geschuetzt("Ruhepuls", ergebnis, lambda: api.get_rhr_daily(a, b))
+    ):
+        tag = als_datum(zeile.get("calendarDate"))
+        if tag:
+            _setze(
+                _wellness_tag(db, user_id, tag, cache),
+                resting_hr=als_ganzzahl(zeile.get("value")),
+            )
+    db.commit()
+
+    fortschritt.schritt("Herzfrequenzvariabilität", schritt_versatz + 2, schritte_gesamt)
+    hrv_roh = _hole_geschuetzt("HRV", ergebnis, lambda: api.get_hrv_data_range(a, b))
+    for zeile in als_liste(hrv_roh, "hrvSummaries", "hrvSummary"):
+        tag = als_datum(zeile.get("calendarDate"))
+        if not tag:
+            continue
+        _setze(
+            _wellness_tag(db, user_id, tag, cache),
+            hrv_last_night_ms=als_zahl(zeile.get("lastNightAvg")),
+            hrv_weekly_avg_ms=als_zahl(zeile.get("weeklyAvg")),
+            hrv_status=zeile.get("status"),
+            hrv_baseline_low=als_zahl(hole(zeile, "baseline", "balancedLow")),
+            hrv_baseline_high=als_zahl(hole(zeile, "baseline", "balancedUpper")),
+        )
+    db.commit()
+
+    fortschritt.schritt("VO2max", schritt_versatz + 3, schritte_gesamt)
+    for zeile in als_liste(
+        _hole_geschuetzt("VO2max", ergebnis, lambda: api.get_max_metrics_range(a, b)),
+        "generic",
+    ):
+        tag = als_datum(erster_wert(zeile, ("generic", "calendarDate"), ("calendarDate",)))
+        if not tag:
+            continue
+        _setze(
+            _wellness_tag(db, user_id, tag, cache),
+            vo2max_run=als_zahl(
+                erster_wert(
+                    zeile,
+                    ("generic", "vo2MaxPreciseValue"),
+                    ("generic", "vo2MaxValue"),
+                    ("vo2MaxPreciseValue",),
+                    ("vo2MaxValue",),
+                )
+            ),
+            vo2max_bike=als_zahl(
+                erster_wert(
+                    zeile,
+                    ("cycling", "vo2MaxPreciseValue"),
+                    ("cycling", "vo2MaxValue"),
+                )
+            ),
+        )
+    db.commit()
+
+    fortschritt.schritt("Schlaf", schritt_versatz + 4, schritte_gesamt)
+    for zeile in als_liste(
+        _hole_geschuetzt("Schlaf", ergebnis, lambda: api.get_sleep_daily(a, b)),
+        "individualStats",
+    ):
+        tag = als_datum(zeile.get("calendarDate"))
+        if not tag:
+            continue
+        _setze(
+            _wellness_tag(db, user_id, tag, cache),
+            sleep_seconds=als_ganzzahl(
+                erster_wert(
+                    zeile,
+                    ("values", "totalSleepSeconds"),
+                    ("values", "sleepTimeSeconds"),
+                    ("dailySleepDTO", "sleepTimeSeconds"),
+                    ("sleepTimeSeconds",),
+                )
+            ),
+            sleep_deep_seconds=als_ganzzahl(
+                erster_wert(
+                    zeile,
+                    ("values", "deepSleepSeconds"),
+                    ("dailySleepDTO", "deepSleepSeconds"),
+                    ("deepSleepSeconds",),
+                )
+            ),
+            sleep_light_seconds=als_ganzzahl(
+                erster_wert(
+                    zeile,
+                    ("values", "lightSleepSeconds"),
+                    ("dailySleepDTO", "lightSleepSeconds"),
+                    ("lightSleepSeconds",),
+                )
+            ),
+            sleep_rem_seconds=als_ganzzahl(
+                erster_wert(
+                    zeile,
+                    ("values", "remSleepSeconds"),
+                    ("dailySleepDTO", "remSleepSeconds"),
+                    ("remSleepSeconds",),
+                )
+            ),
+            sleep_awake_seconds=als_ganzzahl(
+                erster_wert(
+                    zeile,
+                    ("values", "awakeSleepSeconds"),
+                    ("dailySleepDTO", "awakeSleepSeconds"),
+                    ("awakeSleepSeconds",),
+                )
+            ),
+        )
+    db.commit()
+
+    fortschritt.schritt("Gewicht", schritt_versatz + 5, schritte_gesamt)
+    for zeile in als_liste(
+        _hole_geschuetzt("Gewicht", ergebnis, lambda: api.get_body_composition(a, b)),
+        "dateWeightList",
+    ):
+        tag = als_datum(zeile.get("calendarDate") or zeile.get("date"))
+        if not tag:
+            continue
+        _setze(
+            _wellness_tag(db, user_id, tag, cache),
+            weight_kg=gewicht_kg(zeile.get("weight")),
+            body_fat_pct=als_zahl(zeile.get("bodyFat")),
+        )
+    db.commit()
+
+    fortschritt.schritt("Körperbatterie", schritt_versatz + 6, schritte_gesamt)
+    for zeile in als_liste(
+        _hole_geschuetzt("Körperbatterie", ergebnis, lambda: api.get_body_battery(a, b))
+    ):
+        tag = als_datum(zeile.get("date") or zeile.get("calendarDate"))
+        if not tag:
+            continue
+        werte = [
+            als_ganzzahl(eintrag[2])
+            for eintrag in als_liste(zeile.get("bodyBatteryValuesArray"))
+            if isinstance(eintrag, (list, tuple)) and len(eintrag) > 2
+        ]
+        werte = [w for w in werte if w is not None]
+        _setze(
+            _wellness_tag(db, user_id, tag, cache),
+            body_battery_high=max(werte) if werte else None,
+            body_battery_low=min(werte) if werte else None,
+        )
+    db.commit()
+
+
+def _juengster_trainingsstatus(daten: dict[str, Any]) -> dict[str, Any] | None:
+    """Wählt aus den Geräteeinträgen den maßgeblichen aus.
+
+    `latestTrainingStatusData` ist nach Geräte-Kennung gruppiert, nicht nach
+    Datum: Wer eine Laufuhr *und* einen Radcomputer benutzt, hat zwei Einträge
+    mit verschiedenen Werten. Ohne feste Regel flackerte der Trainingsstatus
+    zwischen zwei Abgleichen. Es gewinnt der jüngste Eintrag, bei Gleichstand
+    der mit der höheren Wochenlast.
+    """
+    je_geraet = hole(daten, "mostRecentTrainingStatus", "latestTrainingStatusData")
+    if not isinstance(je_geraet, dict):
+        return None
+    eintraege = [e for e in je_geraet.values() if isinstance(e, dict)]
+    if not eintraege:
+        return None
+    return max(
+        eintraege,
+        key=lambda e: (
+            str(e.get("calendarDate") or ""),
+            als_zahl(e.get("timestamp")) or 0.0,
+            als_zahl(e.get("weeklyTrainingLoad")) or 0.0,
+        ),
+    )
+
+
+def importiere_tageswerte(
+    db: Session,
+    api: Any,
+    user_id: int,
+    von: date,
+    bis: date,
+    ergebnis: SyncErgebnis,
+    fortschritt: Fortschritt,
+    schritt_versatz: int,
+    schritte_gesamt: int,
+    pause_s: float,
+) -> None:
+    """Trainingsreife, Trainingsstatus, Stress und Schlafscore — nur tageweise."""
+    cache: dict[date, WellnessDay] = {}
+    gesamt_tage = (bis - von).days + 1
+    tag = von
+    nummer = 0
+
+    while tag <= bis:
+        nummer += 1
+        fortschritt.schritt(
+            "Erholungswerte",
+            schritt_versatz + 1,
+            schritte_gesamt,
+            f"Erholungswerte: Tag {nummer} von {gesamt_tage}",
+        )
+        datum = tag.isoformat()
+        zeile = _wellness_tag(db, user_id, tag, cache)
+
+        bereitschaft = als_liste(
+            _hole_geschuetzt(
+                "Trainingsreife", ergebnis, lambda: api.get_training_readiness(datum)
+            )
+        )
+        # Der Wert direkt nach dem Aufwachen ist der aussagekräftige; spätere
+        # Messungen des Tages sind bereits vom Tagesgeschehen gefärbt.
+        eintrag = next(
+            (e for e in bereitschaft if e.get("inputContext") == "AFTER_WAKEUP_RESET"),
+            bereitschaft[0] if bereitschaft else None,
+        )
+        if isinstance(eintrag, dict):
+            _setze(
+                zeile,
+                readiness_score=als_ganzzahl(eintrag.get("score")),
+                readiness_level=eintrag.get("level"),
+                readiness_feedback=eintrag.get("feedbackShort"),
+                recovery_time_h=als_ganzzahl(eintrag.get("recoveryTime")),
+                readiness_hrv_factor_pct=als_ganzzahl(eintrag.get("hrvFactorPercent")),
+                readiness_acwr_factor_pct=als_ganzzahl(eintrag.get("acwrFactorPercent")),
+                acute_load=als_zahl(eintrag.get("acuteLoad")),
+            )
+
+        status_roh = _hole_geschuetzt(
+            "Trainingsstatus", ergebnis, lambda: api.get_training_status(datum)
+        )
+        status = _juengster_trainingsstatus(status_roh or {})
+        if status:
+            _setze(
+                zeile,
+                training_status=str(status.get("trainingStatus"))
+                if status.get("trainingStatus") is not None
+                else None,
+                training_status_feedback=status.get("trainingStatusFeedbackPhrase"),
+                weekly_training_load=als_zahl(status.get("weeklyTrainingLoad")),
+                garmin_acwr=als_zahl(
+                    hole(status, "acuteTrainingLoadDTO", "dailyAcuteChronicWorkloadRatio")
+                ),
+                garmin_load_acute=als_zahl(
+                    hole(status, "acuteTrainingLoadDTO", "dailyTrainingLoadAcute")
+                ),
+                garmin_load_chronic=als_zahl(
+                    hole(status, "acuteTrainingLoadDTO", "dailyTrainingLoadChronic")
+                ),
+                garmin_acwr_status=hole(status, "acuteTrainingLoadDTO", "acwrStatus"),
+            )
+
+        stress = _hole_geschuetzt(
+            "Stress", ergebnis, lambda: api.get_all_day_stress(datum)
+        )
+        if isinstance(stress, dict):
+            _setze(
+                zeile,
+                stress_avg=als_ganzzahl(stress.get("avgStressLevel")),
+                stress_max=als_ganzzahl(stress.get("maxStressLevel")),
+            )
+
+        # Schlafscore, Schlafstress und das HRV-Nachtmittel stehen nur in der
+        # Tagesantwort, nicht im Bereichsergebnis.
+        schlaf = _hole_geschuetzt("Schlafscore", ergebnis, lambda: api.get_sleep_data(datum))
+        if isinstance(schlaf, dict):
+            _setze(
+                zeile,
+                sleep_score=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "sleepScores", "overall", "value")
+                ),
+                sleep_stress_avg=als_zahl(hole(schlaf, "dailySleepDTO", "avgSleepStress")),
+                sleep_body_battery_change=als_ganzzahl(schlaf.get("bodyBatteryChange")),
+                hrv_last_night_ms=als_zahl(schlaf.get("avgOvernightHrv")),
+                hrv_status=schlaf.get("hrvStatus"),
+                resting_hr=als_ganzzahl(schlaf.get("restingHeartRate")),
+                sleep_seconds=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "sleepTimeSeconds")
+                ),
+                sleep_deep_seconds=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "deepSleepSeconds")
+                ),
+                sleep_light_seconds=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "lightSleepSeconds")
+                ),
+                sleep_rem_seconds=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "remSleepSeconds")
+                ),
+                sleep_awake_seconds=als_ganzzahl(
+                    hole(schlaf, "dailySleepDTO", "awakeSleepSeconds")
+                ),
+            )
+
+        db.commit()
+        ergebnis.letzter_tag = tag
+        tag += timedelta(days=1)
+
+        if tag <= bis and pause_s:
+            time.sleep(pause_s)
+            fortschritt.pruefe_abbruch()
+
+
+def fuehre_sync_aus(
+    db: Session,
+    api: Any,
+    user_id: int,
+    von: date,
+    bis: date,
+    tagesschleife_von: date,
+    fortschritt: Fortschritt,
+    pause_s: float = PAUSE_SEKUNDEN,
+    ergebnis: SyncErgebnis | None = None,
+) -> SyncErgebnis:
+    """Holt einen Zeitraum vollständig und schreibt ihn in die Datenbank.
+
+    `ergebnis` darf von außen kommen: Bricht der Lauf mitten in der
+    Tagesschleife ab (Sperre, Abbruch durch den Nutzer), braucht der Aufrufer
+    den zuletzt erfolgreich verarbeiteten Tag, um dort wieder anzusetzen — und
+    an eine Rückgabe kommt er dann nicht mehr heran.
+    """
+    ergebnis = ergebnis if ergebnis is not None else SyncErgebnis()
+    profil = db.scalar(
+        select(AthleteProfile).where(AthleteProfile.user_id == user_id)
+    )
+
+    schritte_gesamt = 8  # Trainings + 6 Bereichsabfragen + Tagesschleife
+
+    fortschritt.schritt("Trainings", 1, schritte_gesamt)
+    importiere_aktivitaeten(db, api, user_id, profil, von, bis, ergebnis)
+
+    importiere_bereichswerte(
+        db, api, user_id, von, bis, ergebnis, fortschritt, 1, schritte_gesamt
+    )
+
+    if tagesschleife_von <= bis:
+        importiere_tageswerte(
+            db,
+            api,
+            user_id,
+            tagesschleife_von,
+            bis,
+            ergebnis,
+            fortschritt,
+            7,
+            schritte_gesamt,
+            pause_s,
+        )
+
+    ergebnis.fitness_tage = len(
+        db.scalars(
+            select(WellnessDay.id).where(
+                WellnessDay.user_id == user_id,
+                WellnessDay.date >= von,
+                WellnessDay.date <= bis,
+            )
+        ).all()
+    )
+    return ergebnis
+
+
+def standard_zeitraum(kind: str, heute: date, backfill_von: date | None = None) -> tuple[date, date, date]:
+    """Zeitraum und Beginn der Tagesschleife für einen Lauf.
+
+    Rückgabe: (von, bis, tagesschleife_von).
+    """
+    if kind == "backfill":
+        von = backfill_von or (heute - timedelta(days=365))
+    else:
+        von = heute - timedelta(days=INKREMENT_TAGE)
+    tagesschleife_von = max(von, heute - timedelta(days=TAGESSCHLEIFE_TAGE))
+    return von, heute, tagesschleife_von
