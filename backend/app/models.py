@@ -407,6 +407,51 @@ class GarminSyncJob(Base):
     activities_new: Mapped[int] = mapped_column(Integer, default=0)
     activities_updated: Mapped[int] = mapped_column(Integer, default=0)
     wellness_days: Mapped[int] = mapped_column(Integer, default=0)
+    # Zählwerke der Gegenrichtung (`kind` = workout_push | workout_remove).
+    workouts_pushed: Mapped[int] = mapped_column(Integer, default=0)
+    workouts_removed: Mapped[int] = mapped_column(Integer, default=0)
 
     message: Mapped[str | None] = mapped_column(Text)  # deutscher Klartext
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class GarminWorkoutLink(Base):
+    """Was eine geplante Einheit in Garmin geworden ist.
+
+    Ohne diese Zeile gäbe es keinen Weg zurück: Ein zweiter Druck auf
+    „Trainings übertragen“ legte dieselbe Einheit noch einmal an, und das
+    Entfernen aus dem Kalender wüsste nicht, welches der zwanzig Workouts in
+    der Garmin-Bibliothek gemeint ist.
+
+    Garmin führt zwei getrennte Dinge, und beide werden hier festgehalten: die
+    **Vorlage** in der Workout-Bibliothek (`garmin_workout_id`) und ihren
+    **Termin** im Kalender (`garmin_schedule_id`). Eine Vorlage ohne Termin
+    steht in der Bibliothek, kommt aber nie auf die Uhr; ein Termin ohne
+    Vorlage kann nicht existieren.
+
+    `fingerabdruck` ist der Inhalt der zuletzt übertragenen Fassung. Stimmt er
+    noch, kostet ein erneutes Übertragen keine einzige Anfrage — das ist die
+    Voraussetzung dafür, dass der Knopf gefahrlos zweimal gedrückt werden darf.
+    """
+
+    __tablename__ = "garmin_workout_links"
+    __table_args__ = (
+        UniqueConstraint("plan_session_id", name="uq_garmin_workout_session"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    plan_session_id: Mapped[int] = mapped_column(
+        ForeignKey("plan_sessions.id", ondelete="CASCADE"), index=True
+    )
+
+    garmin_workout_id: Mapped[str] = mapped_column(String(32))
+    garmin_schedule_id: Mapped[str | None] = mapped_column(String(32))
+    scheduled_date: Mapped[date] = mapped_column(Date, index=True)
+
+    title: Mapped[str] = mapped_column(String(255), default="")
+    fingerabdruck: Mapped[str] = mapped_column(String(64), default="")
+
+    pushed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    last_error: Mapped[str | None] = mapped_column(Text)

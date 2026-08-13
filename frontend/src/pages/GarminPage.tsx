@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiError, api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, Loading, Stat, TextField } from '../components/ui'
 import type { GarminDublette, GarminJob, GarminStatus } from '../types'
@@ -177,9 +178,17 @@ export default function GarminPage() {
           <h1>Garmin Connect</h1>
           <p className="muted">
             Trainings und Fitnessdaten kommen von deiner Uhr — Nachtragen von Hand
-            ist damit nur noch die Ausnahme.
+            ist damit nur noch die Ausnahme. Und der Weg zurück: Geplante Einheiten
+            wandern als Workout in den Garmin-Kalender.
           </p>
         </div>
+        {konto !== null && (
+          <div className="row">
+            <Link className="btn btn-secondary" to="/garmin-kalender">
+              Kalender öffnen
+            </Link>
+          </div>
+        )}
       </div>
 
       {fehler && <Alert kind="error">{fehler}</Alert>}
@@ -414,27 +423,44 @@ function VerbindungsKarte(props: {
 
 function FortschrittsKarte(props: { job: GarminJob; onAbbrechen: () => void }) {
   const aktuellerSchritt = props.job.step
+  // Eine Übertragung läuft nicht durch die Schrittfolge des Abgleichs — dort
+  // heißt jeder Schritt wie die Einheit, die gerade gesendet wird.
+  const istUebertragung = props.job.kind.startsWith('workout')
+
   return (
     <div className="card">
       <div className="card-title">
-        <h2>Abgleich läuft</h2>
+        <h2>{istUebertragung ? 'Übertragung läuft' : 'Abgleich läuft'}</h2>
         <button className="btn btn-ghost btn-sm" onClick={props.onAbbrechen}>
           Abbrechen
         </button>
       </div>
 
       <div className="wizard-progress">
-        {SCHRITTE.map((schritt, index) => {
-          const aktiv = schritt === aktuellerSchritt
-          const erledigt = index < SCHRITTE.indexOf(aktuellerSchritt ?? '')
-          return (
+        {istUebertragung ? (
+          <>
             <div
-              key={schritt}
-              className={`wizard-step-bar${erledigt ? ' done' : ''}${aktiv ? ' current' : ''}`}
-              title={schritt}
+              className="wizard-step-bar current"
+              style={{ flexGrow: Math.max(1, props.job.progress_pct) }}
             />
-          )
-        })}
+            <div
+              className="wizard-step-bar"
+              style={{ flexGrow: Math.max(1, 100 - props.job.progress_pct) }}
+            />
+          </>
+        ) : (
+          SCHRITTE.map((schritt, index) => {
+            const aktiv = schritt === aktuellerSchritt
+            const erledigt = index < SCHRITTE.indexOf(aktuellerSchritt ?? '')
+            return (
+              <div
+                key={schritt}
+                className={`wizard-step-bar${erledigt ? ' done' : ''}${aktiv ? ' current' : ''}`}
+                title={schritt}
+              />
+            )
+          })
+        )}
       </div>
 
       <p className="muted mb-0">{props.job.message ?? 'Daten werden geladen …'}</p>

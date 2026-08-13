@@ -441,6 +441,8 @@ class GarminJobOut(BaseModel):
     activities_new: int
     activities_updated: int
     wellness_days: int
+    workouts_pushed: int = 0
+    workouts_removed: int = 0
     message: str | None = None
     error: str | None = None
 
@@ -488,6 +490,73 @@ class WellnessDayOut(BaseModel):
     body_battery_low: int | None = None
     stress_avg: int | None = None
     stress_max: int | None = None
+
+
+class GarminWorkoutPushIn(BaseModel):
+    """Welcher Plan übertragen werden soll. Ohne Angabe: der aktive."""
+
+    plan_id: int | None = None
+    # Vergangene Tage bleiben liegen. Ein Workout von vorgestern im Kalender
+    # ist Altpapier, das der Athlet von Hand wieder wegräumen müsste.
+    ab_heute: bool = True
+
+
+class GarminEinheitStatusOut(BaseModel):
+    """Was aus einer geplanten Einheit in Garmin geworden ist."""
+
+    plan_session_id: int
+    date: date
+    title: str
+    sport: str
+    zustand: Literal["offen", "aktuell", "geaendert", "fehler"]
+    garmin_workout_id: str | None = None
+    garmin_schedule_id: str | None = None
+    last_error: str | None = None
+
+
+class GarminPlanUebertragungOut(BaseModel):
+    plan_id: int
+    plan_title: str
+    # Ob überhaupt ein Konto verbunden ist. Steht hier mit drin, damit der
+    # Trainingsplan den Übertragungsknopf zeigen kann, ohne den Garmin-Zustand
+    # ein zweites Mal abzufragen.
+    garmin_verbunden: bool = False
+    einheiten: list[GarminEinheitStatusOut] = []
+    offen: int = 0
+    aktuell: int = 0
+    geaendert: int = 0
+    fehler: int = 0
+    # Einheiten des Plans, die vor heute liegen und deshalb übersprungen werden.
+    vergangen: int = 0
+
+
+class GarminKalenderEintragOut(BaseModel):
+    datum: date
+    art: Literal["workout", "aktivitaet", "sonstiges"]
+    schedule_id: str | None = None
+    workout_id: str | None = None
+    activity_id: str | None = None
+    titel: str
+    sportart: str | None = None
+    garmin_typ: str | None = None
+    dauer_min: int | None = None
+    distanz_km: float | None = None
+    abgeschlossen: bool = False
+    # Von dieser App übertragen — nur solche Einträge lassen sich hier auch
+    # wieder der Planeinheit zuordnen.
+    aus_tri_coach: bool = False
+    plan_session_id: int | None = None
+
+
+class GarminKalenderOut(BaseModel):
+    jahr: int
+    monat: int
+    eintraege: list[GarminKalenderEintragOut] = []
+
+
+class GarminVerschiebenIn(BaseModel):
+    workout_id: str
+    datum: date
 
 
 class GarminDubletteOut(BaseModel):

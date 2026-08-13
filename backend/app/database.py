@@ -61,6 +61,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "garmin_anaerobic_te": "FLOAT",
         "rpe_source": "VARCHAR(20) NOT NULL DEFAULT 'manual'",
     },
+    # Zählwerke für die Gegenrichtung: geplante Einheiten nach Garmin schieben.
+    "garmin_sync_jobs": {
+        "workouts_pushed": "INTEGER NOT NULL DEFAULT 0",
+        "workouts_removed": "INTEGER NOT NULL DEFAULT 0",
+    },
 }
 
 _NACHGEREICHTE_INDIZES: tuple[str, ...] = (

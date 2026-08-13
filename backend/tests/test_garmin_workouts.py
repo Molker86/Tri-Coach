@@ -1,0 +1,549 @@
+"""Trainings nach Garmin: bauen, übertragen, im Kalender verwalten.
+
+Die Gegenrichtung zum Abgleich. Zwei Dinge werden getrennt geprüft: der Umbau
+eines Fließtexts in Garmins Schrittliste (reine Rechnerei, ohne Netz) und der
+Weg über die Endpunkte gegen die Nachbildung.
+"""
+
+import json
+from datetime import date, timedelta
+from types import SimpleNamespace
+
+import pytest
+
+from app.garmin import workouts
+
+HEUTE = date.today()
+MORGEN = HEUTE + timedelta(days=1)
+
+ZONEN = {"Z1": (100, 120), "Z2": (120, 140), "Z3": (140, 155), "Z4": (155, 170), "Z5": (170, 185)}
+
+
+def einheit(**abweichend):
+    """Eine Planeinheit, wie sie aus der KI-Antwort entsteht."""
+    felder = dict(
+        id=1,
+        date=MORGEN,
+        sport="run",
+        session_type="intervals",
+        title="Schwellenintervalle",
+        description="Die harte Einheit der Woche",
+        structure=None,
+        purpose="Laktatschwelle anheben",
+        duration_min=60,
+        distance_km=None,
+        intensity_zone=None,
+        target_hr_low=None,
+        target_hr_high=None,
+        target_pace=None,
+        target_power=None,
+        rpe_target=8,
+        order_in_day=0,
+    )
+    felder.update(abweichend)
+    return SimpleNamespace(**felder)
+
+
+def schritte(workout, segment=0):
+    return workout["workoutSegments"][segment]["workoutSteps"]
+
+
+# --------------------------------------------------------------------------
+# Der Aufbautext wird zu Schritten
+# --------------------------------------------------------------------------
+
+
+def test_intervalltext_wird_zu_wiederholungsgruppe():
+    plan = workouts.baue_workout(
+        einheit(structure="15 min Einlaufen Z1-Z2, 5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
+    gruppe = folge[1]
+    assert gruppe["numberOfIterations"] == 5
+    belastung, pause = gruppe["workoutSteps"]
+
+    assert belastung["endConditionValue"] == 180.0
+    assert belastung["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+    assert (belastung["targetValueOne"], belastung["targetValueTwo"]) == (155.0, 170.0)
+
+    # Die Pause bleibt ohne Zielkorridor: Ein Alarm in der Erholung triebe
+    # genau die Herzfrequenz hoch, die gerade sinken soll.
+    assert pause["stepType"]["stepTypeKey"] == "recovery"
+    assert pause["targetType"]["workoutTargetTypeKey"] == "no.target"
+
+    # Die Schrittnummern laufen über die Verschachtelung hinweg durch.
+    assert [s["stepOrder"] for s in folge] == [1, 2, 5]
+    assert [s["stepOrder"] for s in gruppe["workoutSteps"]] == [3, 4]
+
+
+def test_streckenintervalle_enden_nach_distanz():
+    plan = workouts.baue_workout(
+        einheit(structure="20 min einlaufen, 6x800m (3:45/km) mit 400m Trabpause, 15 min auslaufen"),
+        zonen=ZONEN,
+    )
+    belastung = schritte(plan)[1]["workoutSteps"][0]
+    assert belastung["endCondition"]["conditionTypeKey"] == "distance"
+    assert belastung["endConditionValue"] == 800.0
+    # Die Tempoangabe in der Klammer darf nicht als Dauer von 3:45 durchgehen.
+    assert belastung["endConditionValue"] != 225.0
+
+
+def test_unverstandener_text_wird_ein_einziger_schritt():
+    """Lieber grob und richtig als fein und geraten."""
+    plan = workouts.baue_workout(
+        einheit(structure="Ganzkörperkraft nach Tagesform, 3 Runden", duration_min=45),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    assert len(folge) == 1
+    assert folge[0]["endConditionValue"] == 45 * 60
+
+
+def test_ohne_dauer_und_strecke_zaehlt_die_rundentaste():
+    plan = workouts.baue_workout(
+        einheit(structure=None, duration_min=None, distance_km=None), zonen=ZONEN
+    )
+    assert schritte(plan)[0]["endCondition"]["conditionTypeKey"] == "lap.button"
+
+
+def test_herzfrequenzvorgabe_der_einheit_greift_ohne_zone_im_text():
+    plan = workouts.baue_workout(
+        einheit(structure="60 min Dauerlauf", target_hr_low=128, target_hr_high=142),
+        zonen=ZONEN,
+    )
+    schritt = schritte(plan)[0]
+    assert (schritt["targetValueOne"], schritt["targetValueTwo"]) == (128.0, 142.0)
+
+
+def test_wattvorgabe_wird_zum_leistungsziel():
+    plan = workouts.baue_workout(
+        einheit(sport="bike", structure="90 min Grundlage", target_power="210-240 W"),
+        zonen={},
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (schritt["targetValueOne"], schritt["targetValueTwo"]) == (210.0, 240.0)
+
+
+def test_laufpace_wird_zu_geschwindigkeit_in_meter_pro_sekunde():
+    plan = workouts.baue_workout(
+        einheit(structure="40 min Tempolauf", target_pace="4:30"), zonen={}
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "pace.zone"
+    # 4:30/km sind 3,70 m/s; der Korridor liegt um fünf Sekunden herum.
+    assert 3.6 < schritt["targetValueOne"] < schritt["targetValueTwo"] < 3.8
+
+
+def test_schwimmeinheit_bekommt_bahnlaenge_und_zugart():
+    plan = workouts.baue_workout(
+        einheit(sport="swim", structure="400m Einschwimmen, 8x100m Kraul P30s, 200m Ausschwimmen"),
+        zonen=ZONEN,
+    )
+    assert plan["poolLength"] == workouts.POOL_LAENGE_M
+    assert plan["sportType"]["sportTypeKey"] == "swimming"
+    assert schritte(plan)[0]["strokeType"]["strokeTypeId"] == 0
+
+
+def test_koppeleinheit_wird_zu_zwei_abschnitten():
+    plan = workouts.baue_workout(
+        einheit(sport="brick", structure="60 min Rad Z3, direkt danach 20 min Laufen Z2"),
+        zonen=ZONEN,
+    )
+    abschnitte = plan["workoutSegments"]
+    assert [a["sportType"]["sportTypeKey"] for a in abschnitte] == ["cycling", "running"]
+    assert plan["sportType"]["sportTypeKey"] == "multi_sport"
+
+
+def test_koppeleinheit_ohne_erkennbare_teilung_weist_die_schaetzung_aus():
+    plan = workouts.baue_workout(
+        einheit(sport="brick", structure=None, duration_min=90), zonen=ZONEN
+    )
+    assert len(plan["workoutSegments"]) == 2
+    assert "geschätzt" in plan["description"]
+
+
+def test_ruhetag_laesst_sich_nicht_bauen():
+    with pytest.raises(ValueError):
+        workouts.baue_workout(einheit(sport="rest"), zonen=ZONEN)
+
+
+def test_gleicher_inhalt_gleicher_fingerabdruck():
+    """Trägt die Ersparnis: Unverändertes wird gar nicht erst gesendet."""
+    eine = workouts.baue_workout(einheit(structure="60 min locker"), zonen=ZONEN)
+    andere = workouts.baue_workout(einheit(structure="60 min locker"), zonen=ZONEN)
+    geaendert = workouts.baue_workout(einheit(structure="75 min locker"), zonen=ZONEN)
+
+    assert workouts.fingerabdruck(eine) == workouts.fingerabdruck(andere)
+    assert workouts.fingerabdruck(eine) != workouts.fingerabdruck(geaendert)
+
+
+# --------------------------------------------------------------------------
+# Der Weg über die Endpunkte
+# --------------------------------------------------------------------------
+
+
+def _importiere_plan(client, auth, tage=3):
+    plan = {
+        "schema_version": "2.0",
+        "plan": {
+            "title": "Übertragungsblock",
+            "summary": "kurz",
+            "coaching_notes": "keine",
+            "start_date": HEUTE.isoformat(),
+            "days": [
+                {
+                    "date": (HEUTE + timedelta(days=i)).isoformat(),
+                    "sessions": [
+                        {
+                            "sport": ["run", "bike", "rest"][i % 3],
+                            "type": "endurance",
+                            "title": f"Einheit {i + 1}",
+                            "duration_min": 60,
+                            "structure": "15 min einlaufen, 4 x 4 min Z4 mit 3 min Pause, 10 min auslaufen",
+                        }
+                    ],
+                }
+                for i in range(tage)
+            ],
+        },
+    }
+    antwort = client.post(
+        "/api/plans/import",
+        json={"raw": json.dumps(plan), "days": tage},
+        headers=auth,
+    )
+    assert antwort.status_code == 201, antwort.text
+    return antwort.json()["plan"]
+
+
+def _uebertrage(client, auth):
+    antwort = client.post("/api/garmin/workouts/uebertragen", json={}, headers=auth)
+    assert antwort.status_code == 202, antwort.text
+    job_id = antwort.json()["id"]
+    return client.get(f"/api/garmin/jobs/{job_id}", headers=auth).json()
+
+
+def test_uebertragung_legt_workouts_an_und_terminiert_sie(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_pushed"] == 2  # der Ruhetag bleibt außen vor
+    assert len(fake._workouts) == 2
+    assert len(fake._termine) == 2
+
+    # Jede Vorlage hat genau einen Termin, und der liegt auf dem geplanten Tag.
+    for _, (workout_id, tag) in fake._termine.items():
+        assert workout_id in fake._workouts
+        assert date.fromisoformat(tag) >= HEUTE
+
+
+def test_zweite_uebertragung_kostet_keine_anfrage(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    fake.aufrufe.clear()
+
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done"
+    assert fertig["workouts_pushed"] == 0
+    assert "bereits aktuell" in fertig["message"]
+    assert "upload_workout" not in fake.aufrufe
+    assert "schedule_workout" not in fake.aufrufe
+    assert len(fake._workouts) == 2
+
+
+def test_geaenderte_einheit_wird_ersetzt_statt_verdoppelt(client, verbunden, fake):
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    # Der Nutzer plant um: dieselbe Einheit, andere Dauer.
+    from app.database import SessionLocal
+    from app.models import PlanSession
+
+    einheit_id = next(
+        s["id"] for s in plan["sessions"] if s["sport"] != "rest"
+    )
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        session.duration_min = 95
+        db.commit()
+
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["geaendert"] == 1
+    assert zustand["aktuell"] == 1
+
+    fake.aufrufe.clear()
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done"
+    assert "update_workout" in fake.aufrufe
+    assert "upload_workout" not in fake.aufrufe
+    # Die Vorlage behält ihre Kennung — der Termin bleibt damit gültig.
+    assert len(fake._workouts) == 2
+    assert len(fake._termine) == 2
+
+
+def test_status_kennt_offene_einheiten_vor_der_uebertragung(client, verbunden):
+    _importiere_plan(client, verbunden)
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+
+    assert zustand["offen"] == 2
+    assert zustand["aktuell"] == 0
+    assert {e["sport"] for e in zustand["einheiten"]} == {"run", "bike"}
+
+
+def test_vergangene_tage_bleiben_liegen(client, verbunden, fake):
+    """Ein Workout von vorgestern im Kalender wäre Altpapier."""
+    plan = {
+        "schema_version": "2.0",
+        "plan": {
+            "title": "Alter Block",
+            "start_date": (HEUTE - timedelta(days=3)).isoformat(),
+            "days": [
+                {
+                    "date": (HEUTE - timedelta(days=3)).isoformat(),
+                    "sessions": [{"sport": "run", "type": "easy", "title": "Gestern",
+                                  "duration_min": 40}],
+                },
+                {
+                    "date": MORGEN.isoformat(),
+                    "sessions": [{"sport": "run", "type": "easy", "title": "Morgen",
+                                  "duration_min": 40}],
+                },
+            ],
+        },
+    }
+    client.post(
+        "/api/plans/import", json={"raw": json.dumps(plan)}, headers=verbunden
+    )
+
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["vergangen"] == 1
+    assert len(zustand["einheiten"]) == 1
+
+    _uebertrage(client, verbunden)
+    assert len(fake._workouts) == 1
+
+
+def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    antwort = client.post("/api/garmin/workouts/entfernen", json={}, headers=verbunden)
+    assert antwort.status_code == 202, antwort.text
+    fertig = client.get(
+        f"/api/garmin/jobs/{antwort.json()['id']}", headers=verbunden
+    ).json()
+
+    assert fertig["state"] == "done"
+    assert fertig["workouts_removed"] == 2
+    assert fake._workouts == {}
+    assert fake._termine == {}
+
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["offen"] == 2
+
+
+def test_einzelne_einheit_geht_ohne_job(client, verbunden, fake):
+    plan = _importiere_plan(client, verbunden)
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+
+    antwort = client.post(
+        f"/api/garmin/workouts/einheit/{einheit_id}", headers=verbunden
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["zustand"] == "aktuell"
+    assert len(fake._workouts) == 1
+
+    assert client.delete(
+        f"/api/garmin/workouts/einheit/{einheit_id}", headers=verbunden
+    ).status_code == 204
+    assert fake._workouts == {}
+
+
+def test_ruhetag_wird_abgelehnt(client, verbunden):
+    plan = _importiere_plan(client, verbunden)
+    ruhetag = next(s["id"] for s in plan["sessions"] if s["sport"] == "rest")
+
+    antwort = client.post(
+        f"/api/garmin/workouts/einheit/{ruhetag}", headers=verbunden
+    )
+    assert antwort.status_code == 422
+    assert "Ruhetag" in antwort.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# Kalender
+# --------------------------------------------------------------------------
+
+
+def test_kalender_zeigt_eigene_und_fremde_eintraege(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    antwort = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    )
+    assert antwort.status_code == 200, antwort.text
+    eintraege = antwort.json()["eintraege"]
+
+    eigene = [e for e in eintraege if e["aus_tri_coach"]]
+    assert eigene, "Die übertragenen Einheiten fehlen im Kalender"
+    assert all(e["art"] == "workout" for e in eigene)
+    assert all(e["plan_session_id"] is not None for e in eigene)
+
+    # Absolvierte Aktivitäten stehen daneben — sie gehören nicht dieser App.
+    fremde = [e for e in eintraege if e["art"] == "aktivitaet"]
+    assert fremde
+    assert all(not e["aus_tri_coach"] for e in fremde)
+
+
+def test_kalendereintrag_laesst_sich_loeschen(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    eintraege = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    ).json()["eintraege"]
+    eigener = next(e for e in eintraege if e["aus_tri_coach"])
+
+    antwort = client.delete(
+        f"/api/garmin/kalender/{eigener['schedule_id']}"
+        f"?workout_id={eigener['workout_id']}",
+        headers=verbunden,
+    )
+    assert antwort.status_code == 204, antwort.text
+    assert int(eigener["workout_id"]) not in fake._workouts
+    assert int(eigener["schedule_id"]) not in fake._termine
+
+    # Und die Einheit gilt wieder als offen.
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["offen"] == 1
+
+
+def test_nur_termin_loeschen_laesst_die_vorlage_stehen(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    eintraege = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    ).json()["eintraege"]
+    eigener = next(e for e in eintraege if e["aus_tri_coach"])
+
+    client.delete(f"/api/garmin/kalender/{eigener['schedule_id']}", headers=verbunden)
+
+    assert int(eigener["workout_id"]) in fake._workouts
+    assert int(eigener["schedule_id"]) not in fake._termine
+
+
+def test_verschieben_legt_den_termin_auf_einen_anderen_tag(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    eintraege = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    ).json()["eintraege"]
+    eigener = next(e for e in eintraege if e["aus_tri_coach"])
+    ziel = HEUTE + timedelta(days=5)
+
+    antwort = client.post(
+        f"/api/garmin/kalender/{eigener['schedule_id']}/verschieben",
+        json={"workout_id": eigener["workout_id"], "datum": ziel.isoformat()},
+        headers=verbunden,
+    )
+    assert antwort.status_code == 204, antwort.text
+
+    termine = {tag for _, tag in fake._termine.values()}
+    assert ziel.isoformat() in termine
+    # Die Vorlage blieb dieselbe — sonst hinge die Zuordnung in der Luft.
+    assert int(eigener["workout_id"]) in fake._workouts
+
+
+def test_in_garmin_geloeschtes_workout_wird_neu_angelegt(client, verbunden, fake):
+    """Wer die Vorlage in Connect löscht, darf hier nicht dauerhaft hängen bleiben."""
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    # Von Hand in Garmin Connect gelöscht — die App weiß davon nichts.
+    fake._workouts.clear()
+    fake._termine.clear()
+
+    # Der Plan ändert sich, damit die Übertragung die Vorlage anfassen muss.
+    from app.database import SessionLocal
+    from app.models import PlanSession
+
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        session.duration_min = 75
+        db.commit()
+
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert len(fake._workouts) >= 1
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["fehler"] == 0
+
+
+def test_eine_abgelehnte_einheit_stoppt_die_anderen_nicht(client, verbunden, fake):
+    """Garmin lehnt gelegentlich einzelne Workouts ab — das darf kein Alles-oder-Nichts sein."""
+    _importiere_plan(client, verbunden)
+    original = fake.upload_workout
+    versuche = {"n": 0}
+
+    def mal_so_mal_so(workout_json):
+        versuche["n"] += 1
+        if versuche["n"] == 1:
+            raise RuntimeError("400 Bad Request: unsupported step")
+        return original(workout_json)
+
+    fake.upload_workout = mal_so_mal_so
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done"
+    assert fertig["workouts_pushed"] == 1
+    assert "Nicht geklappt hat es bei" in fertig["message"]
+    assert len(fake._workouts) == 1
+
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["aktuell"] == 1
+    assert zustand["offen"] == 1
+
+
+def test_anfragesperre_beendet_die_uebertragung_sofort(client, verbunden, fake):
+    """Weitermachen verlängerte die Sperre nur — deshalb hält der ganze Lauf an."""
+    from garminconnect import GarminConnectTooManyRequestsError
+
+    _importiere_plan(client, verbunden)
+
+    def gesperrt(workout_json):
+        raise GarminConnectTooManyRequestsError("429 Too Many Requests")
+
+    fake.upload_workout = gesperrt
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "rate_limited"
+    assert "48 Stunden" in fertig["message"]
+
+    # Ein sofortiger zweiter Versuch wird abgelehnt, statt es erneut zu wagen.
+    antwort = client.post("/api/garmin/workouts/uebertragen", json={}, headers=verbunden)
+    assert antwort.status_code == 429
+
+
+def test_uebertragen_ohne_plan_meldet_409(client, verbunden):
+    antwort = client.post(
+        "/api/garmin/workouts/uebertragen", json={"plan_id": 999999}, headers=verbunden
+    )
+    assert antwort.status_code == 404
+
+
+def test_uebertragen_ohne_garmin_konto_meldet_409(client, garmin_auth):
+    antwort = client.post("/api/garmin/workouts/uebertragen", json={}, headers=garmin_auth)
+    assert antwort.status_code == 409
+    assert "kein Garmin-Konto" in antwort.json()["detail"]

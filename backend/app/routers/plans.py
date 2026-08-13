@@ -5,7 +5,13 @@ from sqlalchemy.orm import selectinload
 
 from .. import ai_export, plan_import
 from ..deps import CurrentUser, DbSession
-from ..models import Plan, SessionLog, TrainingRequest, WellnessDay
+from ..models import (
+    GarminWorkoutLink,
+    Plan,
+    SessionLog,
+    TrainingRequest,
+    WellnessDay,
+)
 from ..schemas import (
     ExportOut,
     PlanImportIn,
@@ -244,9 +250,17 @@ def activate_plan(plan_id: int, user: CurrentUser, db: DbSession) -> PlanOut:
 @router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_plan(plan_id: int, user: CurrentUser, db: DbSession) -> None:
     plan = _owned_plan(db, plan_id, user.id)
+    einheiten = [s.id for s in plan.sessions] or [-1]
     # Logs überleben den Plan — die Referenz wird gelöst, nicht der Verlauf.
     db.query(SessionLog).filter(
-        SessionLog.plan_session_id.in_([s.id for s in plan.sessions] or [-1])
+        SessionLog.plan_session_id.in_(einheiten)
     ).update({"plan_session_id": None}, synchronize_session=False)
+    # Die Zuordnung zu Garmin dagegen wird wertlos: Ohne Einheit gibt es nichts
+    # mehr abzugleichen. Was bereits in Garmin steht, bleibt dort stehen — es
+    # ungefragt aus einem fremden Konto zu löschen wäre übergriffig, und der
+    # Kalender dieser App zeigt es weiterhin zum Entfernen an.
+    db.query(GarminWorkoutLink).filter(
+        GarminWorkoutLink.plan_session_id.in_(einheiten)
+    ).delete(synchronize_session=False)
     db.delete(plan)
     db.commit()

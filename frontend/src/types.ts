@@ -247,7 +247,7 @@ export type GarminJobState =
 
 export interface GarminJob {
   id: number
-  kind: 'backfill' | 'incremental' | 'auto'
+  kind: 'backfill' | 'incremental' | 'auto' | 'workout_push' | 'workout_remove'
   state: GarminJobState
   started_at: string
   finished_at: string | null
@@ -261,6 +261,8 @@ export interface GarminJob {
   activities_new: number
   activities_updated: number
   wellness_days: number
+  workouts_pushed: number
+  workouts_removed: number
   message: string | null
   error: string | null
 }
@@ -314,6 +316,67 @@ export interface WellnessDay {
   body_battery_low: number | null
   stress_avg: number | null
   stress_max: number | null
+}
+
+// --------------------------------------------------------------------------
+// Trainings nach Garmin übertragen
+// --------------------------------------------------------------------------
+
+/** Was aus einer geplanten Einheit in Garmin geworden ist.
+ *
+ * `geaendert` heißt: Sie steht dort, aber mit einem anderen Inhalt als dem,
+ * den der Plan heute vorsieht — ein erneutes Übertragen ersetzt sie.
+ */
+export type GarminUebertragungsZustand = 'offen' | 'aktuell' | 'geaendert' | 'fehler'
+
+export interface GarminEinheitStatus {
+  plan_session_id: number
+  date: string
+  title: string
+  sport: Sport
+  zustand: GarminUebertragungsZustand
+  garmin_workout_id: string | null
+  garmin_schedule_id: string | null
+  last_error: string | null
+}
+
+export interface GarminPlanUebertragung {
+  plan_id: number
+  plan_title: string
+  /** Ohne verbundenes Konto gibt es nichts zu übertragen. */
+  garmin_verbunden: boolean
+  einheiten: GarminEinheitStatus[]
+  offen: number
+  aktuell: number
+  geaendert: number
+  fehler: number
+  /** Einheiten des Plans, die vor heute liegen und übersprungen werden. */
+  vergangen: number
+}
+
+/** Ein Eintrag aus dem Garmin-Kalender — geplant oder bereits absolviert. */
+export interface GarminKalenderEintrag {
+  datum: string
+  art: 'workout' | 'aktivitaet' | 'sonstiges'
+  /** Der Termin. Über ihn wird ein Workout aus dem Kalender genommen. */
+  schedule_id: string | null
+  /** Die Vorlage in der Workout-Bibliothek. */
+  workout_id: string | null
+  activity_id: string | null
+  titel: string
+  sportart: Sport | null
+  garmin_typ: string | null
+  dauer_min: number | null
+  distanz_km: number | null
+  abgeschlossen: boolean
+  aus_tri_coach: boolean
+  plan_session_id: number | null
+}
+
+export interface GarminKalender {
+  jahr: number
+  monat: number
+  eintraege: GarminKalenderEintrag[]
 }
 
 /** Ein manueller Eintrag, den es nun auch aus Garmin gibt. */

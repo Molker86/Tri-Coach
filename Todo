@@ -5,7 +5,4 @@
 //////Bei der Auswahl der Trainingstage soll es einen button geben mit "alle Tage auswählen"
 
 
-schaffe die möglichkeit die generierten Trainings in Garmin connect via import (fileimport) zu verfügung zu stellen, dass der User dieses Training mit seinen geräten absolvieren kann.
-
-ich habe meine daten in der garmin connect cloud auf garmin connect.com ich möchte gerne die trainingsdaten der vergangenheit, sagen wir das letzte Jahr initial herunterladen. ebenfalls mchte ich eine möglichkeit haben mit einem button die letzten aktuellen trainingsdaten herunterzuladen. 
-Es gibt einmal die fitness daten die relevant sind und es gibt die trainingsdaten. bei den fitnessdaten sind so sachen wie schlaf, hrv ruhe usw. diese werte sollen dann auch so in die app übernommen werden und zur auswertung in die nächsten trainingsvorschläge übrernommen werden. Im prinzip muss man dann keine trainigns und fitnessdaten in diese app nachtragen können. das soll alles über garmin laufen.
+schaffe die möglichkeit die generierten Trainings in Garmin connect via import zu verfügung zu stellen, dass der User dieses Training mit seinen geräten absolvieren kann. Es soll natürlich auch so gemacht werdne, dass im garmin kalender, das training dann dort erscheint und mit den synchronisierten geräten gestartet werden kann. ggf schau dir die doku von der Schnittstelle an. Wenn die geplanten trainings bekannt sind, soll man mit einem knopfdruck auf "garmin trainings übertragen" die daten an den Kalender senden können. Ich möchte auch den Garmin kalender in der App zu verfügung haben. Der kalneder soll die vollen funkeionen haben mit training löschen aus garmin connect z.B. usw.

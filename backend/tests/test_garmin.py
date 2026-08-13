@@ -7,78 +7,19 @@ Möglich ist das, weil der gesamte Zugriff durch zwei Funktionen in
 
 from datetime import date, timedelta
 
-import pytest
 from sqlalchemy import text
 
 from app.database import SessionLocal, engine
-from app.garmin import client as garmin_client
 from app.garmin import runner as runner_modul
-from app.garmin import sync as sync_modul
 from app.garmin.errors import GarminAnmeldungFehlgeschlagen, GarminTokenUngueltig
-from app.models import GarminAccount, SessionLog, WellnessDay
+from app.models import GarminAccount, WellnessDay
 
-from fakes import FakeGarmin, baue_aktivitaet
+from fakes import baue_aktivitaet
 
 HEUTE = date.today()
 
-
-_konto_zaehler = iter(range(1, 1000))
-
-
-@pytest.fixture
-def garmin_auth(registriere):
-    """Für jeden Test ein frisches Konto.
-
-    Bewusst nicht modulweit: Die Tests importieren Trainings in dieselbe
-    Datenbank, und ein geteiltes Konto ließe die Einheiten des einen Tests in
-    den Zählungen des nächsten auftauchen.
-    """
-    nummer = next(_konto_zaehler)
-    return registriere(f"garmin{nummer}@example.com", f"garminathlet{nummer}")
-
-
-@pytest.fixture
-def fake(monkeypatch):
-    """Ersetzt den Zugang zu Garmin und macht die Läufe test-tauglich."""
-    tage = [HEUTE - timedelta(days=i) for i in range(30)]
-    stand = FakeGarmin(
-        aktivitaeten=[
-            baue_aktivitaet(1001, HEUTE - timedelta(days=1)),
-            baue_aktivitaet(1002, HEUTE - timedelta(days=3), typkey="cycling"),
-            baue_aktivitaet(1003, HEUTE - timedelta(days=5), typkey="lap_swimming"),
-            # Zählt bewusst nicht als Training
-            baue_aktivitaet(1004, HEUTE - timedelta(days=6), typkey="walking"),
-        ],
-        tage=tage,
-    )
-
-    monkeypatch.setattr(garmin_client, "erzeuge_client", lambda email, password: stand)
-    monkeypatch.setattr(garmin_client, "client_aus_token", lambda token: stand)
-    # Die Endpunkte werden über den Router-Import angezogen — dort ebenfalls.
-    import app.routers.garmin as garmin_router
-
-    monkeypatch.setattr(garmin_router, "erzeuge_client", lambda email, password: stand)
-    monkeypatch.setattr(runner_modul, "client_aus_token", lambda token: stand)
-
-    # Ohne diese beiden Zeilen dauerte ein 30-Tage-Test über zwei Minuten und
-    # verlangte eine Abfrageschleife.
-    monkeypatch.setattr(sync_modul, "PAUSE_SEKUNDEN", 0.0)
-    monkeypatch.setattr(runner_modul, "IM_HINTERGRUND", False)
-
-    garmin_client._nur_fuer_tests_zuruecksetzen()
-    return stand
-
-
-@pytest.fixture
-def verbunden(client, garmin_auth, fake):
-    antwort = client.post(
-        "/api/garmin/connect",
-        json={"email": "athlet@example.com", "password": "geheim"},
-        headers=garmin_auth,
-    )
-    assert antwort.status_code == 200, antwort.text
-    assert antwort.json()["status"] == "verbunden"
-    return garmin_auth
+# `garmin_auth`, `fake` und `verbunden` stehen in `conftest.py` — die
+# Übertragung nach Garmin braucht dieselbe Nachbildung.
 
 
 def _backfill(client, auth, tage: int = 20, **extra):

@@ -35,6 +35,7 @@ const MOBILE_PRIMARY = [
 ]
 
 const MOBILE_MORE = [
+  { to: '/garmin-kalender', label: 'Garmin-Kalender' },
   { to: '/garmin', label: 'Garmin Connect' },
   { to: '/neues-training', label: 'Neues Training' },
   { to: '/training-nachtragen', label: 'Training nachtragen' },

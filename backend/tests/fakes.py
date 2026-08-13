@@ -35,6 +35,10 @@ class FakeGarmin:
         self.aufrufe: list[str] = []
         self.client = _FakeClient()
         self.mfa_noetig = False
+        self._workouts: dict[int, dict[str, Any]] = {}
+        self._termine: dict[int, tuple[int, str]] = {}
+        self._workout_id = 5000
+        self._schedule_id = 9000
 
     # -- Anmeldung ----------------------------------------------------------
 
@@ -243,6 +247,80 @@ class FakeGarmin:
             "restingHeartRate": 44,
             "bodyBatteryChange": 41,
         }
+
+    # -- Workouts und Kalender ----------------------------------------------
+    #
+    # Garmin führt Vorlage und Termin getrennt: Ein Workout liegt in der
+    # Bibliothek, ein Zeitplaneintrag verweist darauf. Die Nachbildung hält
+    # beides ebenso getrennt — sonst fiele nicht auf, wenn die App eine Vorlage
+    # löscht und den Termin stehen lässt.
+
+    def upload_workout(self, workout_json):
+        self.aufrufe.append("upload_workout")
+        self._workout_id += 1
+        self._workouts[self._workout_id] = dict(workout_json)
+        return {"workoutId": self._workout_id}
+
+    def update_workout(self, workout_id, workout_json):
+        self.aufrufe.append("update_workout")
+        if int(workout_id) not in self._workouts:
+            raise RuntimeError("404 Not Found")
+        self._workouts[int(workout_id)] = dict(workout_json)
+        return {"workoutId": int(workout_id)}
+
+    def delete_workout(self, workout_id):
+        self.aufrufe.append("delete_workout")
+        if self._workouts.pop(int(workout_id), None) is None:
+            raise RuntimeError("404 Not Found")
+        return {}
+
+    def schedule_workout(self, workout_id, date_str):
+        self.aufrufe.append("schedule_workout")
+        if int(workout_id) not in self._workouts:
+            raise RuntimeError("404 Not Found")
+        self._schedule_id += 1
+        self._termine[self._schedule_id] = (int(workout_id), date_str)
+        return {"workoutScheduleId": self._schedule_id}
+
+    def unschedule_workout(self, scheduled_workout_id):
+        self.aufrufe.append("unschedule_workout")
+        if self._termine.pop(int(scheduled_workout_id), None) is None:
+            raise RuntimeError("404 Not Found")
+        return {}
+
+    def get_scheduled_workouts(self, year, month):
+        self.aufrufe.append("get_scheduled_workouts")
+        eintraege = []
+        for termin_id, (workout_id, tag) in self._termine.items():
+            wann = date.fromisoformat(tag)
+            if (wann.year, wann.month) != (int(year), int(month)):
+                continue
+            workout = self._workouts.get(workout_id, {})
+            eintraege.append({
+                "id": termin_id,
+                "itemType": "workout",
+                "date": tag,
+                "title": workout.get("workoutName", "Training"),
+                "workoutId": workout_id,
+                "sportTypeKey": workout.get("sportType", {}).get("sportTypeKey"),
+                "duration": workout.get("estimatedDurationInSecs"),
+            })
+        for aktivitaet in self._aktivitaeten:
+            wann = date.fromisoformat(str(aktivitaet["startTimeLocal"])[:10])
+            if (wann.year, wann.month) != (int(year), int(month)):
+                continue
+            eintraege.append({
+                "id": aktivitaet["activityId"],
+                "itemType": "activity",
+                "date": wann.isoformat(),
+                "title": aktivitaet["activityName"],
+                "activityId": aktivitaet["activityId"],
+                "activityType": {"typeKey": aktivitaet["activityType"]["typeKey"]},
+                "duration": aktivitaet["duration"],
+                "distance": aktivitaet["distance"],
+            })
+        # Umhülltes Dict, nicht die blanke Liste — so kommt es wirklich an.
+        return {"calendarItems": eintraege, "year": year, "month": month}
 
     # -- Hilfsmittel --------------------------------------------------------
 

@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
 import { INTENSITY_ZONE_COLOR, sessionTypeLabel, sportIcon, sportLabel } from '../constants'
-import type { Plan, PlanSession, PlanSummary } from '../types'
+import type {
+  GarminJob,
+  GarminPlanUebertragung,
+  GarminUebertragungsZustand,
+  Plan,
+  PlanSession,
+  PlanSummary,
+} from '../types'
 
 const DAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: 'long' }
 
@@ -25,6 +32,20 @@ export default function PlanView() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Garmin-Übertragung. Der Zustand kostet keine Anfrage an Garmin — er wird
+  // aus dem Vergleich Plan gegen bereits Übertragenes im Server errechnet.
+  const [garmin, setGarmin] = useState<GarminPlanUebertragung | null>(null)
+  const [garminJob, setGarminJob] = useState<GarminJob | null>(null)
+  const [garminBusy, setGarminBusy] = useState(false)
+  const abbrechenRef = useRef<(() => void) | null>(null)
+
+  const ladeGarmin = useCallback((forPlanId: number) => {
+    api
+      .garminWorkoutStatus(forPlanId)
+      .then(setGarmin)
+      .catch(() => setGarmin(null))
+  }, [])
+
   function reload(navigateTo?: string) {
     setLoading(true)
     const load = planId ? api.getPlan(Number(planId)) : api.activePlan()
@@ -32,6 +53,8 @@ export default function PlanView() {
       .then(([loaded, summaries]) => {
         setPlan(loaded)
         setPlans(summaries)
+        if (loaded) ladeGarmin(loaded.id)
+        else setGarmin(null)
         if (navigateTo && navigateTo !== location.pathname) {
           navigate(navigateTo)
         }
@@ -42,7 +65,39 @@ export default function PlanView() {
 
   useEffect(() => {
     reload()
+    return () => abbrechenRef.current?.()
   }, [planId])
+
+  function uebertrageNachGarmin() {
+    if (!plan) return
+    setGarminBusy(true)
+    setError(null)
+    api
+      .garminWorkoutsUebertragen(plan.id)
+      .then((job) => {
+        setGarminJob(job)
+        abbrechenRef.current?.()
+        abbrechenRef.current = pollJob(
+          job.id,
+          (aktualisiert) => {
+            setGarminJob(aktualisiert)
+            if (!jobLaeuft(aktualisiert)) ladeGarmin(plan.id)
+          },
+          (meldung) => setError(meldung),
+        )
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setGarminBusy(false))
+  }
+
+  /** Zustand je Einheit, damit die Karten ihn zeigen können. */
+  const garminJeEinheit = useMemo(() => {
+    const karte = new Map<number, GarminUebertragungsZustand>()
+    for (const eintrag of garmin?.einheiten ?? []) {
+      karte.set(eintrag.plan_session_id, eintrag.zustand)
+    }
+    return karte
+  }, [garmin])
 
   // Einheiten nach Woche und Tag gruppieren. Ein Block über wenige Tage liegt
   // komplett in Woche 1 — die Wochenebene zeigen wir dann gar nicht erst an, sie
@@ -197,6 +252,15 @@ export default function PlanView() {
         </div>
       </div>
 
+      {garmin?.garmin_verbunden && (
+        <GarminKarte
+          garmin={garmin}
+          job={garminJob}
+          busy={garminBusy}
+          onUebertragen={uebertrageNachGarmin}
+        />
+      )}
+
       {plan.summary && (
         <div className="card">
           <h3>Zur Ausrichtung des Blocks</h3>
@@ -249,6 +313,7 @@ export default function PlanView() {
                     <SessionCard
                       key={session.id}
                       session={session}
+                      garminZustand={garminJeEinheit.get(session.id)}
                       onOpen={() => session.sport !== 'rest' && setSelected(session)}
                     />
                   ))}
@@ -322,11 +387,77 @@ export default function PlanView() {
   )
 }
 
+/** Der Weg auf die Uhr: übertragen, nachsehen, im Kalender verwalten. */
+function GarminKarte({
+  garmin,
+  job,
+  busy,
+  onUebertragen,
+}: {
+  garmin: GarminPlanUebertragung
+  job: GarminJob | null
+  busy: boolean
+  onUebertragen: () => void
+}) {
+  const offen = garmin.offen + garmin.geaendert + garmin.fehler
+  const laeuft = jobLaeuft(job)
+
+  return (
+    <div className="card">
+      <div className="card-title">
+        <h3>Auf der Uhr</h3>
+        <Link className="btn btn-ghost btn-sm" to="/garmin-kalender">
+          Garmin-Kalender öffnen
+        </Link>
+      </div>
+
+      {job?.message && !laeuft && (
+        <Alert kind={job.state === 'done' ? 'success' : 'warning'}>{job.message}</Alert>
+      )}
+
+      <div className="row">
+        <button
+          className="btn btn-primary"
+          onClick={onUebertragen}
+          disabled={busy || laeuft || offen === 0}
+        >
+          {laeuft ? 'Wird übertragen …' : 'Garmin Trainings übertragen'}
+        </button>
+        <span className="muted small">
+          {laeuft
+            ? (job?.message ?? 'Die Einheiten wandern in den Garmin-Kalender …')
+            : offen === 0
+              ? `Alle ${garmin.aktuell} Einheiten liegen im Garmin-Kalender.`
+              : `${garmin.aktuell} von ${garmin.einheiten.length} übertragen — ` +
+                `${offen} ${offen === 1 ? 'Einheit wartet' : 'Einheiten warten'}.`}
+        </span>
+      </div>
+
+      {garmin.vergangen > 0 && !laeuft && (
+        <p className="small faint mb-0 mt-1">
+          {garmin.vergangen} vergangene{' '}
+          {garmin.vergangen === 1 ? 'Einheit bleibt' : 'Einheiten bleiben'} außen vor —
+          ein Training von gestern hilft auf der Uhr niemandem mehr.
+        </p>
+      )}
+    </div>
+  )
+}
+
+const GARMIN_MARKE: Record<GarminUebertragungsZustand, { text: string; art: string } | null> = {
+  aktuell: { text: '⌚ auf der Uhr', art: 'badge-accent' },
+  geaendert: { text: '⌚ geändert', art: 'badge-warning' },
+  fehler: { text: '⌚ nicht übertragen', art: 'badge-warning' },
+  offen: null,
+}
+
 function SessionCard({
   session,
+  garminZustand,
   onOpen,
 }: {
   session: PlanSession
+  garminZustand?: GarminUebertragungsZustand
   onOpen: () => void
 }) {
   const zoneColor = session.intensity_zone
@@ -354,6 +485,13 @@ function SessionCard({
             </span>
           )}
           {session.logged && <span className="badge badge-success">✓ erfasst</span>}
+          {!session.logged &&
+            garminZustand &&
+            GARMIN_MARKE[garminZustand] !== null && (
+              <span className={`badge ${GARMIN_MARKE[garminZustand]!.art}`}>
+                {GARMIN_MARKE[garminZustand]!.text}
+              </span>
+            )}
         </span>
         <span className="session-meta">
           <span>{sportLabel(session.sport)}</span>

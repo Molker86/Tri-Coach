@@ -3,7 +3,10 @@ import type {
   AuthResponse,
   GarminConnectResult,
   GarminDublette,
+  GarminEinheitStatus,
   GarminJob,
+  GarminKalender,
+  GarminPlanUebertragung,
   GarminStatus,
   Plan,
   PlanImportResult,
@@ -193,6 +196,42 @@ export const api = {
     request<GarminJob>(`/garmin/jobs/${id}/abbrechen`, { method: 'POST' }),
   garminWellness: (weeks = 4) => request<WellnessDay[]>(`/garmin/wellness?weeks=${weeks}`),
   garminDubletten: () => request<GarminDublette[]>('/garmin/dubletten'),
+
+  // Gegenrichtung: geplante Einheiten auf die Uhr legen.
+  garminWorkoutStatus: (planId?: number) =>
+    request<GarminPlanUebertragung>(
+      `/garmin/workouts/status${planId !== undefined ? `?plan_id=${planId}` : ''}`,
+    ),
+  garminWorkoutsUebertragen: (planId?: number) =>
+    request<GarminJob>('/garmin/workouts/uebertragen', {
+      method: 'POST',
+      body: { plan_id: planId ?? null },
+    }),
+  garminWorkoutsEntfernen: (planId?: number) =>
+    request<GarminJob>('/garmin/workouts/entfernen', {
+      method: 'POST',
+      body: { plan_id: planId ?? null },
+    }),
+  garminEinheitUebertragen: (planSessionId: number) =>
+    request<GarminEinheitStatus>(`/garmin/workouts/einheit/${planSessionId}`, {
+      method: 'POST',
+    }),
+  garminEinheitEntfernen: (planSessionId: number) =>
+    request<void>(`/garmin/workouts/einheit/${planSessionId}`, { method: 'DELETE' }),
+
+  garminKalender: (jahr: number, monat: number) =>
+    request<GarminKalender>(`/garmin/kalender?jahr=${jahr}&monat=${monat}`),
+  /** Ohne `workoutId` bleibt die Vorlage in der Bibliothek stehen. */
+  garminKalenderLoeschen: (scheduleId: string, workoutId?: string | null) =>
+    request<void>(
+      `/garmin/kalender/${scheduleId}${workoutId ? `?workout_id=${workoutId}` : ''}`,
+      { method: 'DELETE' },
+    ),
+  garminKalenderVerschieben: (scheduleId: string, workoutId: string, datum: string) =>
+    request<void>(`/garmin/kalender/${scheduleId}/verschieben`, {
+      method: 'POST',
+      body: { workout_id: workoutId, datum },
+    }),
 }
 
 /** Zustände, in denen ein Abgleich beendet ist. */

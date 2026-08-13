@@ -18,6 +18,12 @@ Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
 nächsten Export ein. Die Formulare bleiben als Rückfallebene — für Einheiten
 ohne Uhr und für subjektive Werte, die kein Gerät misst.
 
+**Und der Weg zurück: Geplante Einheiten gehen als Workout auf die Uhr.** Ein
+Knopf im Trainingsplan legt jede Einheit des Blocks als strukturiertes Workout
+in Garmin an und terminiert sie im Kalender; beim nächsten Synchronisieren
+liegt sie auf dem Gerät und lässt sich dort starten. Die App bringt dafür einen
+eigenen Kalender mit — Monatsansicht, verschieben, aus Garmin löschen.
+
 **Wichtig:** Die App ruft *keine* KI-API auf. Der Austausch läuft bewusst über
 Kopieren und Einfügen — so war die Anforderung. Ein späterer Direktaufruf wäre
 eine Erweiterung, kein Ersatz: Der Export-Endpunkt liefert bereits den fertigen
@@ -46,7 +52,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 79 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 108 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -179,6 +185,15 @@ und Eingabefelder bekommen dort 16 px Schriftgröße, weil iOS darunter beim
 Antippen in die Seite hineinzoomt und den Nutzer im vergrößerten Ausschnitt
 zurücklässt.
 
+**Der Kalender ist ein Markup für zwei Größen.** Am Schreibtisch ein
+Monatsraster mit sieben Spalten, am Telefon eine Tagesliste — aber nicht zwei
+Bausteine, sondern dieselben Zellen: Unterhalb von 700 px fällt das
+Spaltenraster auf eine Spalte zusammen, Leerfelder vor dem Monatsersten und
+Tage ohne Eintrag werden ausgeblendet (`.kalender-fueller`, `.is-leer`), und
+der Wochentag rückt in die Zelle, weil es keine Spaltenüberschrift mehr gibt.
+Dieselbe Überlegung wie bei den Tabellen: Eine zweite Darstellung liefe mit der
+ersten auseinander.
+
 **Tabellen werden auf schmalen Bildschirmen zu Karten.** Acht Spalten passen nur
 mit Querscrollen auf ein Telefon, und was man wegschieben muss, sieht man nicht.
 `.table-cards` bricht deshalb unterhalb von 640 px jede Zeile in eine Karte auf:
@@ -278,6 +293,61 @@ und der Prompt verweist stattdessen ausdrücklich auf RPE und Morgenpuls — Reg
 zu Daten, die es nicht gibt, laden zum Erfinden ein. Die Schwellen in
 `wellness_auffaelligkeiten` und die Zahlen im Prompt müssen zusammen geändert
 werden.
+
+**Ein echtes Workout, keine Kalendernotiz** (`garmin/workouts.py`). Garmin führt
+im Kalender auch Notizen; die erscheinen in Connect, kommen aber nie auf das
+Gerät. Nur ein Workout mit Schrittliste *leitet* die Uhr an — Schrittwechsel,
+Zielkorridor, Signal beim Verlassen. Deshalb wird `PlanSession.structure`, ein
+Fließtext aus der KI, in Garmins Schritte zerlegt: „15 min Einlaufen Z1-Z2,
+5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen“ wird zu Aufwärmschritt,
+Wiederholungsgruppe und Auslaufen, jeweils mit Herzfrequenzkorridor aus den
+Karvonen-Zonen des Profils. **Der Parser rät nicht**: Erkennt er nichts, wird
+die Einheit *ein* Schritt über die geplante Dauer, und der ganze Aufbautext
+steht in der Beschreibung. Ein falsch geratenes Intervalltraining auf der Uhr
+ist schlimmer als ein grobes, weil es ungeprüft absolviert wird. Zwei Regeln
+sind Konvention und deshalb kommentiert: Der zweite Teil eines Zweierpaars in
+einer Wiederholung ist die Pause, und Pausen bekommen bewusst *keinen*
+Zielkorridor (ein Alarm in der Erholung triebe genau den Puls hoch, der sinken
+soll). Die Kennungen für Sport-, Schritt- und Zieltypen kommen aus
+`garminconnect.workout` statt aus eigenen Zahlen — zwei Quellen dafür liefen
+auseinander.
+
+**Vorlage und Termin sind zwei Dinge** (`garmin/uebertragung.py`,
+`GarminWorkoutLink`). In Garmin liegt das Workout in der Bibliothek und ein
+Zeitplaneintrag verweist darauf; entsprechend hält jede übertragene Einheit
+beide Kennungen fest. Dazu einen `fingerabdruck` des zuletzt gesendeten
+Inhalts — **damit der Knopf gefahrlos zweimal gedrückt werden darf**:
+Unverändertes wird übersprungen (null Anfragen), Geändertes über
+`update_workout` an Ort und Stelle ersetzt, wodurch die Vorlage ihre Kennung
+und der Kalendertermin seine Gültigkeit behält. Nach jedem Schritt wird
+festgeschrieben, denn zwischen „Vorlage angelegt“ und „Termin eingetragen“
+liegt eine zweite Anfrage: Ginge die Kennung dazwischen verloren, entstünden
+bei jedem Versuch neue Karteileichen in einem fremden Konto. Wer eine Vorlage
+in Connect von Hand löscht, bekommt sie neu — ein 404 löst die Zuordnung, statt
+für immer gegen eine tote Kennung zu laufen (`verbindung.verschwunden`).
+
+**Die Übertragung ist ein Job, der Kalender nicht.** Ein Block kostet zwei
+Anfragen je Einheit und läuft deshalb durch denselben Runner und dasselbe
+globale Schloss wie ein Abgleich — Garmins Grenze unterscheidet nicht, ob
+gelesen oder geschrieben wird. Einzelne Aufrufe (Monat laden, ein Workout
+löschen, eine Einheit nachschieben) gehen dagegen über `garmin/verbindung.py`
+direkt im Anfrage-Thread: Für eine einzelne Anfrage einen Fortschrittsbalken
+zu bauen wäre Umstand ohne Nutzen. Beide Wege behandeln die Anfragesperre
+gleich, und beide fangen sie **auch in ihrer Form aus der Bibliothek** ab
+(`GarminConnectTooManyRequestsError`) — sonst liefe die Übertragung stur weiter
+und triebe eine Stunde Sperre auf zwei Tage. Ein Fehlschlag bei *einer* Einheit
+stoppt die anderen nicht; er wird benannt und an der Einheit vermerkt.
+
+**Der Kalender wird gelesen, nicht gespiegelt** (`garmin/kalender.py`). Ein
+Monat kostet genau eine Anfrage und liefert alles, was in Connect steht. Eine
+Kopie in der Datenbank wäre nach der ersten Änderung in Connect falsch — womit
+die Ansicht ihren einzigen Zweck verlöre, den echten Stand zu zeigen.
+**Absolvierte Aktivitäten sind dort schreibgeschützt**: Sie zu löschen hieße,
+die Trainingsdaten zu vernichten, aus denen diese App ihre Planung ableitet.
+Gelöscht werden nur geplante Workouts, und zwar in zwei Stufen — nur der Termin
+(die Vorlage bleibt zum erneuten Einplanen) oder beides. Vergangene Tage werden
+gar nicht erst übertragen: Ein Workout von gestern im Kalender ist Altpapier,
+das der Athlet von Hand wegräumen müsste.
 
 **Profilwerte kommen automatisch nach — außer dem Maximalpuls**
 (`profile_sync.py`). Gewicht, Körperfett, Ruhepuls, HRV und VO2max werden
@@ -393,7 +463,9 @@ Klammern müssten verdoppelt werden.
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
-  bleibt es beim Löschen der Datei.
+  bleibt es beim Löschen der Datei. Die Tabelle `garmin_workout_links` legt
+  `create_all()` beim Start an, die zwei Zählwerke an `garmin_sync_jobs` kommen
+  über den Helfer.
 - Die genaue Form von `get_sleep_daily()` (Zeilen aus `individualStats`) ist
   nicht dokumentiert. Der Mapper liest sie über mehrere Pfade und fällt auf die
   Tagesantwort zurück; **beim ersten echten Rückblick prüfen**, ob Schlafdauer
@@ -407,9 +479,25 @@ Klammern müssten verdoppelt werden.
 - Ein zweites Garmin-Konto im selben Haushalt teilt sich die Anfragegrenze über
   die gemeinsame Herkunftsadresse; das globale Schloss im Runner bremst das ab,
   löst es aber nicht.
-- Trainings in die andere Richtung — geplante Einheiten *nach* Garmin schieben —
-  gibt es noch nicht. Das Datenmodell trägt es bereits: Mit dem gespeicherten
-  Token und den Workout-Endpunkten der Bibliothek ließe sich jede `PlanSession`
-  als geplantes Workout auf die Uhr legen.
+- Die Übertragung wurde bisher nur gegen die Nachbildung geprüft, nicht gegen
+  ein echtes Konto. Der Aufbau der Workout-JSON folgt den Modellen der
+  Bibliothek; sollte Garmin eine Einheit ablehnen, steht die Meldung an der
+  Einheit und die anderen gehen trotzdem durch.
+- Die **Bahnlänge für Schwimm-Workouts** liegt fest bei 25 m
+  (`workouts.POOL_LAENGE_M`) — die App fragt sie nirgends ab. Im 50-m-Becken
+  stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.
+- **Krafteinheiten** werden ein Zeitschritt, keine Übungsliste mit
+  Wiederholungen. Garmin könnte das (`create_strength_set` samt
+  Übungskatalog), aber der Plan liefert keine Übungsnamen in maschinenlesbarer
+  Form.
+- Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
+  und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
+- Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren
+  des Geräts. Ein Direktversand an ein bestimmtes Gerät
+  (`push_workout_to_device`) ist nicht eingebaut; er kostete zusätzliche
+  Anfragen für die Gerätesuche.
+- Wird ein Plan gelöscht, verschwindet nur die Zuordnung — was schon in Garmin
+  steht, bleibt dort. Ungefragt in einem fremden Konto zu löschen wäre
+  übergriffig; der Kalender in der App zeigt es weiterhin zum Entfernen an.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).
