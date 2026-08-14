@@ -18,6 +18,12 @@ Zeichen bedeuten dort Verschiedenes — „3x15“ sind fünfzehn Wiederholungen
 fünfzehn Minuten —, weshalb `zerlege_uebungsliste()` neben `zerlege_struktur()`
 steht.
 
+Bei diesen beiden Sportarten wird jeder Schritt zusätzlich *benannt*: Erkennt
+`uebungen.finde()` in der Zeile eine Übung aus Garmins Katalog, trägt der
+Schritt deren `category` und `exerciseName`, und die Uhr zeigt dazu die
+Bewegungsanimation. Erkennt sie nichts, bleibt es beim reinen Text — dieselbe
+Vorsicht wie beim Zerlegen, aus demselben Grund.
+
 Die Kennungen für Sportarten, Schritttypen, Endbedingungen und Ziele kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen: Sie sind Teil der Gegenseite,
 und zwei Quellen dafür liefen unweigerlich auseinander.
@@ -31,6 +37,8 @@ from typing import Any
 
 from garminconnect.workout import ConditionType, SportType, StepType, TargetType
 
+from . import uebungen
+
 # --------------------------------------------------------------------------
 # Feste Größen der Gegenseite
 # --------------------------------------------------------------------------
@@ -38,12 +46,19 @@ from garminconnect.workout import ConditionType, SportType, StepType, TargetType
 # Sportart dieser App -> (Kennung, Schlüssel, Anzeigereihenfolge) bei Garmin.
 # `rest` fehlt bewusst: Ein Ruhetag ist kein Training und hat auf der Uhr nichts
 # verloren.
+#
+# Mobility läuft als Garmins „Mobility“ und nicht mehr als Yoga: Der
+# Übungskatalog hängt an der Sportart des Workouts, und Yoga hat einen eigenen
+# Posenkatalog, den Garmin nicht herausgibt. Die Dehn- und Mobilisationsübungen
+# aus dem Katalog der Bibliothek (Child's Pose, Cat Cow, Pigeon Pose …) gehören
+# zur Kraftseite — unter Yoga bekämen sie keine Animation, unter Mobility nach
+# aller Wahrscheinlichkeit schon.
 SPORT_ZU_GARMIN: dict[str, tuple[int, str, int]] = {
     "run": (SportType.RUNNING, "running", 1),
     "bike": (SportType.CYCLING, "cycling", 2),
     "swim": (SportType.SWIMMING, "swimming", 3),
     "strength": (SportType.STRENGTH_TRAINING, "strength_training", 5),
-    "mobility": (SportType.YOGA, "yoga", 7),
+    "mobility": (SportType.MOBILITY, "mobility", 11),
     "brick": (SportType.MULTI_SPORT, "multi_sport", 10),
 }
 
@@ -138,6 +153,7 @@ class Schritt:
     zone_bis: int | None = None
     text: str = ""
     sport: str | None = None  # nur bei Koppeleinheiten belegt
+    uebung: uebungen.Uebung | None = None  # nur bei Kraft und Mobility belegt
 
 
 @dataclass
@@ -368,18 +384,25 @@ def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
     Unter zwei erkannten Übungen bleibt die Liste leer: Ein Fließtext ohne
     Trennzeichen ist keine Liste, und ein einzelner Schritt ohne Ende wäre
     schlechter als der Ersatzschritt über die geplante Dauer.
+
+    Jede Zeile wird zusätzlich in Garmins Übungskatalog nachgeschlagen. Der
+    Treffer hängt am Schritt und wird auf der Uhr zur Bewegungsanimation; ohne
+    Treffer bleibt der Schritt wie bisher eine Textzeile.
     """
     if not struktur or not struktur.strip():
         return []
 
-    uebungen = [teil.strip(" .\t") for teil in _UEBUNG_TRENNER.split(struktur)]
-    uebungen = [teil for teil in uebungen if teil]
-    if len(uebungen) < 2:
+    teile = [teil.strip(" .\t") for teil in _UEBUNG_TRENNER.split(struktur)]
+    teile = [teil for teil in teile if teil]
+    if len(teile) < 2:
         return []
 
     # Alle Einträge sind Arbeit: In einer Übungsliste steht keine Pause, und
     # `_art()` läse aus „Ausrollen“ (Faszienrolle) sonst ein Auslaufen.
-    return [Schritt(art="interval", text=teil) for teil in uebungen]
+    return [
+        Schritt(art="interval", text=teil, uebung=uebungen.finde(teil))
+        for teil in teile
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -545,6 +568,13 @@ def _schritt_json(
     }
     if schritt.text:
         eintrag["description"] = schritt.text[:512]
+    if schritt.uebung is not None:
+        # Erst diese beiden Felder machen aus dem Schritt eine benannte Übung,
+        # zu der die Uhr die Bewegungsanimation zeigt. Beide gehören zusammen:
+        # Garmin lehnt eine unbekannte Kategorie mit 400 ab, und zwar das ganze
+        # Workout — deshalb kommen sie nur aus dem Katalog und nie aus dem Text.
+        eintrag["category"] = schritt.uebung.kategorie
+        eintrag["exerciseName"] = schritt.uebung.name
     if sport == "swim":
         # Ohne Zug- und Materialangabe lehnt Garmin Schwimmschritte ab.
         eintrag["strokeType"] = {"strokeTypeId": 0, "displayOrder": 0}

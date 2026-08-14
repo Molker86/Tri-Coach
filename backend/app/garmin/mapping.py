@@ -138,6 +138,10 @@ TYPKEY_ZU_SPORT: dict[str, str] = {
     "pilates": "mobility",
     "breathwork": "mobility",
     "stretching": "mobility",
+    # Die App überträgt Mobility-Einheiten selbst unter dieser Sportart
+    # (`workouts.SPORT_ZU_GARMIN`) — ohne den Eintrag fiele die absolvierte
+    # Einheit beim Abgleich stillschweigend heraus.
+    "mobility": "mobility",
     "multi_sport": "brick",
     "triathlon": "brick",
 }
@@ -168,6 +172,7 @@ _STAMM_ZU_SPORT: tuple[tuple[str, str], ...] = (
     ("strength", "strength"),
     ("yoga", "mobility"),
     ("pilates", "mobility"),
+    ("mobil", "mobility"),
 )
 
 

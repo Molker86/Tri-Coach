@@ -70,6 +70,9 @@ def test_als_liste_vertraegt_liste_und_umhuelltes_dict():
         ("lap_swimming", "swim"),
         ("strength_training", "strength"),
         ("yoga", "mobility"),
+        # Unter dieser Sportart überträgt die App ihre Mobility-Einheiten —
+        # sie muss auch zurückfinden.
+        ("mobility", "mobility"),
         ("multi_sport", "brick"),
         # Unbekannter Untertyp: über den Wortstamm erkannt statt verworfen
         ("virtual_trail_run", "run"),

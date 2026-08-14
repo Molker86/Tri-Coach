@@ -376,7 +376,7 @@ class FakeGarmin:
                 "title": workout.get("workoutName", "Training"),
                 "workoutId": workout_id,
                 "sportTypeKey": workout.get("sportType", {}).get("sportTypeKey"),
-                "duration": workout.get("estimatedDurationInSecs"),
+                "estimatedDurationInSecs": workout.get("estimatedDurationInSecs"),
             })
         for aktivitaet in self._aktivitaeten:
             wann = date.fromisoformat(str(aktivitaet["startTimeLocal"])[:10])
@@ -389,8 +389,11 @@ class FakeGarmin:
                 "title": aktivitaet["activityName"],
                 "activityId": aktivitaet["activityId"],
                 "activityType": {"typeKey": aktivitaet["activityType"]["typeKey"]},
-                "duration": aktivitaet["duration"],
-                "distance": aktivitaet["distance"],
+                # Millisekunden und Zentimeter — der Kalenderdienst zählt hier
+                # anders als `get_activities` (Sekunden und Meter). Genau das
+                # hat die Nachbildung früher eingeebnet und den Fehler verdeckt.
+                "duration": aktivitaet["duration"] * 1000,
+                "distance": aktivitaet["distance"] * 100,
             })
         # Umhülltes Dict, nicht die blanke Liste — so kommt es wirklich an.
         return {"calendarItems": eintraege, "year": year, "month": month}

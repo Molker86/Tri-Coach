@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.garmin import workouts
+from app.garmin import kalender, workouts
 
 HEUTE = date.today()
 MORGEN = HEUTE + timedelta(days=1)
@@ -163,6 +163,64 @@ def test_krafttext_wird_keine_wiederholungsgruppe():
     # Und keine Übung wird zur Pause umgedeutet, bloß weil sie an zweiter
     # Stelle steht.
     assert {s["stepType"]["stepTypeKey"] for s in folge} == {"interval"}
+
+
+def test_erkannte_uebungen_tragen_die_katalogkennung():
+    """Erst `category` und `exerciseName` bringen die Animation auf die Uhr."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            duration_min=20,
+            structure=(
+                "3x15 Side-Lying Leg Raise je Seite"
+                " / 3x40 s Side Plank je Seite"
+                " / 3x12 Liegestütze"
+                " / 3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert [(s.get("category"), s.get("exerciseName")) for s in folge] == [
+        ("HIP_STABILITY", "SIDE_LYING_LEG_RAISE"),
+        ("PLANK", "SIDE_PLANK"),
+        ("PUSH_UP", "PUSH_UP"),
+        # „Step-Downs“ kennt Garmin nicht. Lieber keine Kennung als eine
+        # falsche — der Schritt bleibt die Textzeile, die er vorher war.
+        (None, None),
+    ]
+    # Die Kennung ersetzt den Aufbautext nicht, sie tritt daneben.
+    assert folge[2]["description"] == "3x12 Liegestütze"
+
+
+def test_mobility_geht_als_mobility_und_nicht_als_yoga():
+    """Der Übungskatalog hängt an der Sportart; Yoga hat einen eigenen."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="mobility",
+            duration_min=12,
+            structure="Katze-Kuh 10 Wiederholungen / Taubenhaltung 2x45 s je Seite",
+        ),
+        zonen=ZONEN,
+    )
+    assert plan["sportType"]["sportTypeKey"] == "mobility"
+    assert [s.get("exerciseName") for s in schritte(plan)] == [
+        "STRETCH_CAT_COW",
+        "STRETCH_PIGEON_POSE",
+    ]
+
+
+def test_ausdauerschritte_bekommen_keine_uebungskennung():
+    """„5 x 3 min Z4“ ist kein Katalogeintrag und darf keiner werden."""
+    plan = workouts.baue_workout(
+        einheit(structure="15 min Einlaufen Z2, 5 x 3 min Z4 mit 2 min Trabpause"),
+        zonen=ZONEN,
+    )
+    for segment in plan["workoutSegments"]:
+        for schritt in segment["workoutSteps"]:
+            kinder = schritt.get("workoutSteps", [schritt])
+            assert all("category" not in k for k in kinder)
 
 
 def test_kraft_ohne_uebungsliste_bleibt_ein_einziger_schritt():
@@ -553,6 +611,57 @@ def test_kalender_zeigt_eigene_und_fremde_eintraege(client, verbunden, fake):
     fremde = [e for e in eintraege if e["art"] == "aktivitaet"]
     assert fremde
     assert all(not e["aus_tri_coach"] for e in fremde)
+
+    # Millisekunden und Zentimeter, nicht Sekunden und Meter: Die Aktivitäten
+    # der Nachbildung laufen 3600 s über 12000 m.
+    assert all(e["dauer_min"] == 60 for e in fremde)
+    assert all(e["distanz_km"] == 12.0 for e in fremde)
+
+
+def test_kalender_deutet_garmins_einheiten_richtig():
+    """Der Fall aus der Praxis: 32:25 über 9,34 km, nicht 32417 min über 933 km."""
+    aktivitaet = kalender.eintrag_aus_garmin({
+        "itemType": "activity",
+        "date": "2026-08-14",
+        "title": "Sonthofen Radfahren",
+        "activityId": 4711,
+        "activityType": {"typeKey": "cycling"},
+        "duration": 1945020,  # ms
+        "distance": 933660,  # cm
+    })
+    assert aktivitaet["dauer_min"] == 32
+    assert aktivitaet["distanz_km"] == 9.34
+
+    # Beim geplanten Workout sagt der Feldname die Einheit — nur dieses Feld
+    # wird gelesen, geraten wird nicht.
+    workout = kalender.eintrag_aus_garmin({
+        "itemType": "workout",
+        "date": "2026-08-14",
+        "title": "Schwellenintervalle",
+        "workoutId": 99,
+        "estimatedDurationInSecs": 3600,
+        "estimatedDistanceInMeters": 12000,
+    })
+    assert workout["dauer_min"] == 60
+    assert workout["distanz_km"] == 12.0
+
+
+def test_kalender_erfindet_keine_dauer_aus_einem_deutungsfreien_feld():
+    """Ein nacktes `duration` an einem Workout bleibt ungelesen.
+
+    Ob Garmin dort Sekunden oder Millisekunden führt, ist nicht belegt. Eine
+    fehlende Zeile ist besser als eine um Faktor 1000 falsche Dauer.
+    """
+    workout = kalender.eintrag_aus_garmin({
+        "itemType": "workout",
+        "date": "2026-08-14",
+        "title": "Schwellenintervalle",
+        "workoutId": 99,
+        "duration": 3600,
+        "distance": 12000,
+    })
+    assert workout["dauer_min"] is None
+    assert workout["distanz_km"] is None
 
 
 def test_kalendereintrag_laesst_sich_loeschen(client, verbunden, fake):

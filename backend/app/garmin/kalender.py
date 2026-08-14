@@ -41,6 +41,42 @@ def _art(eintrag: dict[str, Any]) -> str:
     return "sonstiges"
 
 
+# Der Kalenderdienst zählt anders als der Aktivitätsdienst: Bei absolvierten
+# Aktivitäten steht `duration` hier in **Millisekunden** und `distance` in
+# **Zentimetern**, während dieselbe Ausfahrt über `get_activities` in Sekunden
+# und Metern ankommt (`mapping.aktivitaet_zu_log`). Wer das angleicht, macht aus
+# 32:25 Minuten „32417 min" und aus 9,34 km „933,66 km".
+_MS_JE_SEKUNDE = 1000
+_CM_JE_METER = 100
+
+
+def _dauer_sekunden(eintrag: dict[str, Any], art: str) -> float | None:
+    """Dauer in Sekunden — nur aus Feldern, deren Einheit feststeht.
+
+    Bei geplanten Workouts wird ausschließlich das selbstbeschreibende
+    `estimatedDurationInSecs` gelesen. Ob ein nacktes `duration` dort in
+    Sekunden oder Millisekunden steht, ist nicht belegt — und eine um den
+    Faktor 1000 danebenliegende Dauer ist schlechter als gar keine, denn dann
+    entfällt die Zeile in der Ansicht einfach.
+    """
+    if (wert := als_zahl(hole(eintrag, "estimatedDurationInSecs"))) is not None:
+        return wert
+    if art != "aktivitaet":
+        return None
+    wert = als_zahl(hole(eintrag, "duration"))
+    return None if wert is None else wert / _MS_JE_SEKUNDE
+
+
+def _distanz_meter(eintrag: dict[str, Any], art: str) -> float | None:
+    """Distanz in Metern — dieselbe Regel wie bei der Dauer."""
+    if (wert := als_zahl(hole(eintrag, "estimatedDistanceInMeters"))) is not None:
+        return wert
+    if art != "aktivitaet":
+        return None
+    wert = als_zahl(hole(eintrag, "distance"))
+    return None if wert is None else wert / _CM_JE_METER
+
+
 def _typkey(eintrag: dict[str, Any]) -> str | None:
     wert = erster_wert(
         eintrag,
@@ -62,8 +98,8 @@ def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
 
     art = _art(roh)
     typkey = _typkey(roh)
-    dauer_s = als_zahl(erster_wert(roh, ("duration",), ("estimatedDurationInSecs",)))
-    distanz_m = als_zahl(erster_wert(roh, ("distance",), ("estimatedDistanceInMeters",)))
+    dauer_s = _dauer_sekunden(roh, art)
+    distanz_m = _distanz_meter(roh, art)
     workout_id = erster_wert(roh, ("workoutId",))
     # Der eindeutige Name zuerst, `id` nur als Rückfallebene: `id` trägt je nach
     # Eintragsart Verschiedenes (bei Aktivitäten die Aktivitätskennung), und ein

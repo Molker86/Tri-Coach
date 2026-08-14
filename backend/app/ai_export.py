@@ -417,7 +417,10 @@ RESPONSE_SCHEMA = {
                         "description": "string – was gemacht wird",
                         "structure": (
                             "string – konkreter Aufbau, z.B. "
-                            "'15 min Einlaufen Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen'"
+                            "'15 min Einlaufen Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen'. "
+                            "Bei strength und mobility stattdessen eine Übungsliste, "
+                            "eine Übung je Abschnitt, getrennt durch ' / ', z.B. "
+                            "'3x12 Liegestütze (Push-up) / 3x40 s Seitstütz (Side Plank) je Seite'"
                         ),
                         "purpose": "string – physiologisches Ziel der Einheit",
                         "duration_min": 60,
@@ -502,7 +505,13 @@ Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie 
 diesen Block sinnvoll passt.
 9. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
 Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
-Schlüsseleinheit. Mobility kurz und regelmäßig.
+Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist \
+`structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
+durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
+Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
+3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout \
+auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
+Bewegungsanimation zur Übung erscheint.
 10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
 aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Steht bei \
 einer Einheit `rpe_quelle` auf etwas anderem als "manual", stammt das RPE nicht vom \

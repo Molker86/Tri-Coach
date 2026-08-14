@@ -352,6 +352,56 @@ Zusatz) und nicht an „mit“ („Monster Walks mit Band“). Unter zwei erkann
 bekommen außerdem **keinen Herzfrequenzkorridor**: Der Puls springt dort von
 Satz zu Satz und fällt in der Dehnung, ein Alarm liefe fast durchgehend.
 
+**Eine benannte Übung wird auf der Uhr vorgemacht** (`garmin/uebungen.py`).
+Garmin zeigt zu einem Workout-Schritt eine Bewegungsanimation — aber nur, wenn
+der Schritt zwei Felder trägt: `category` (Bewegungsgruppe) und `exerciseName`
+(die genaue Variante), beide aus Garmins eigenem Katalog. Ohne sie steht auf
+der Fenix bloß die Textzeile „Seitstütz 3x40 s“, und wer die Bewegung nicht
+kennt, macht sie falsch. Der Katalog kommt aus `garminconnect.exercises` (1527
+Einträge, 47 Kategorien, abgelesen aus dem Übungswähler des Connect-Editors) —
+eigene Zahlen kämen nicht in Frage, denn eine unbekannte Kategorie beantwortet
+Garmin mit 400, und zwar für das ganze Workout. Das Problem in der Mitte: Der
+Katalog ist englisch, der Plan deutsch, und die Übung steht in einer Zeile
+voller Beiwerk. Deshalb wird beides auf Wortstämme normalisiert und im Text das
+*längste zusammenhängende* Stück gesucht, das im Verzeichnis steht — „Seitstütz“
+ergibt Side Plank und nicht Plank, weil zwei Wörter mehr wiegen als eins. Die
+deutschen Entsprechungen in `SYNONYME` sind dabei nur ein zweiter Schlüssel auf
+denselben Eintrag, keine zweite Datenhaltung.
+
+Zwei Regeln der Normalisierung sind gegen echte Pläne entstanden und stehen
+deshalb fest. **Verklebt wird vor dem Kürzen** (`_schluessel`): Im Deutschen ist
+die Wortgrenze Geschmackssache — der Plan schreibt „Quadrizeps-Dehnung“, das
+Wörterbuch „quadrizepsdehnung“ —, und wer zuerst die Mehrzahl abschneidet,
+zerlegt das Kompositum an seiner Fuge und verliert das Fugen-s. Und **„ß“ fällt
+auf „ss“**, nicht auf „s“: Sonst verfehlt „Gesäßdehnung“ seinen Wörterbucheintrag
+um genau einen Buchstaben.
+
+**Geraten wird auch hier nicht.** Ohne Treffer bleibt der Schritt die Textzeile,
+die er vorher war; eine falsch zugeordnete Animation zeigte eine andere Bewegung
+als die geplante, und die wird ungeprüft nachgemacht. Daran hängen zwei Sperren.
+Die 24 Katalogzeilen, die eine Gruppe benennen statt einer Bewegung (`Core`,
+`Warm-up`, `Cardio` …), sind ausgeschlossen — zu einer Schublade gibt es keine
+Animation. Und die 47 Bewegungen, die der Katalog unter ihrem *bloßen* Namen
+führt („Plank“, „Squat“, „Row“), zählen nur, wenn sie für sich allein stehen
+(`_grundform_ok`): Steht direkt davor oder dahinter ein Wort, das keine
+Mengenangabe ist, gehört es mit einiger Wahrscheinlichkeit zum Übungsnamen.
+„Copenhagen Plank“ ist eine Adduktorenübung und kein Unterarmstütz, „Squat
+Jumps“ sind keine Kniebeugen — beide bekämen sonst die Animation der Grundform.
+
+**Mobility geht als Garmins „Mobility“, nicht mehr als Yoga**
+(`SPORT_ZU_GARMIN`, `SportType.MOBILITY` = 11). Der Übungskatalog hängt an der
+Sportart des Workouts — Garmin lässt in Connect nicht einmal zu, eine Yogapose
+in ein Krafttraining zu legen. Für Yoga führt Garmin einen eigenen Posenkatalog,
+den es nirgends öffentlich gibt; die Dehn- und Mobilisationsübungen der App
+(Child's Pose, Cat Cow, Pigeon Pose, 90/90 …) liegen dagegen alle in der
+`WARM_UP`-Kategorie des Kraftkatalogs. Unter Yoga bekämen sie deshalb keine
+Animation. Der Preis: **Diese Sportart ist gegen ein echtes Konto ungeprüft** —
+lehnt Garmin die Kategorie dort ab, steht die Meldung an der Einheit und die
+übrigen gehen trotzdem durch. Dazu gehört zwingend `"mobility": "mobility"` in
+`mapping.TYPKEY_ZU_SPORT`: Die App überträgt jetzt unter einer Sportart, die
+sie vorher nur nicht kannte — ohne den Eintrag fiele die absolvierte Einheit
+beim Abgleich stillschweigend heraus.
+
 **Vorlage und Termin sind zwei Dinge** (`garmin/uebertragung.py`,
 `GarminWorkoutLink`). In Garmin liegt das Workout in der Bibliothek und ein
 Zeitplaneintrag verweist darauf; entsprechend hält jede übertragene Einheit
@@ -407,6 +457,18 @@ das der Athlet von Hand wegräumen müsste. Antwortet Garmin in einer Form, die
 `_rohliste()` nicht kennt, ist das ein **Fehler** und kein leerer Monat: Beides
 sähe sonst gleich aus — ein leerer Kalender ohne ein Wort dazu —, und der
 Bestandsabgleich schlösse aus dem Nichts, dass die eigenen Workouts weg sind.
+
+**Der Kalenderdienst zählt in anderen Einheiten als der Aktivitätsdienst.** Bei
+absolvierten Aktivitäten steht `duration` dort in **Millisekunden** und
+`distance` in **Zentimetern**, während dieselbe Ausfahrt über `get_activities`
+in Sekunden und Metern ankommt (`mapping.aktivitaet_zu_log`). Ungerechnet wurden
+aus 32:25 min „32417 min" und aus 9,34 km „933,66 km" — sichtbar nur in der
+Kalenderansicht, denn diese Werte werden nie gespeichert und gehen deshalb auch
+nicht in den Export. Bei geplanten Workouts liest `_dauer_sekunden()` /
+`_distanz_meter()` ausschließlich die selbstbeschreibenden Felder
+(`estimatedDurationInSecs`, `estimatedDistanceInMeters`): Was ein nacktes
+`duration` dort bedeutet, ist nicht belegt, und eine um Faktor 1000 falsche
+Dauer wäre schlechter als die dann entfallende Zeile.
 
 **`GarminWorkoutLink` ist eine Behauptung und wird nachgeprüft**
 (`uebertragung.gleiche_mit_garmin_ab`). Die Zuordnung sagt „liegt in Garmin",
@@ -640,6 +702,14 @@ wird, entscheidet `build_prompt()` daran, ob der Payload einen
 `fitnessdaten`-Block trägt. Beide Texte laufen durch `.format()`: geschweifte
 Klammern müssten verdoppelt werden.
 
+Punkt 9 verlangt bei `strength` und `mobility` eine **Übungsliste** in
+`structure` und hinter jeder deutschen Bezeichnung den geläufigen englischen
+Namen in Klammern („Seitstütz (Side Plank) 3x40 s je Seite“). Das ist kein
+Schönheitswunsch: Der englische Name ist der Schlüssel in Garmins Übungskatalog
+und entscheidet darüber, ob auf der Uhr die Bewegungsanimation erscheint
+(`garmin/uebungen.py`). Das Wörterbuch dort fängt den Fall ohne Klammer ab —
+beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
+
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
 `plan_import.py`.
@@ -697,9 +767,24 @@ Klammern müssten verdoppelt werden.
   stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.
 - **Kraft- und Mobility-Schritte tragen keine Wiederholungszahl**: Jede Übung
   ist ein Schritt bis zur Rundentaste, „3x15 je Seite“ steht nur als Text
-  darin. Garmin könnte mehr (`create_strength_set` samt Übungskatalog), aber
-  dafür müssten die Übungsnamen des Plans auf Garmins Katalog abgebildet
-  werden — der Plan liefert sie als Fließtext.
+  darin. Garmin könnte mehr (`create_strength_set`, also Wiederholungsgruppe
+  mit `endCondition: reps` und Satzpause), und die Übungskennung liegt jetzt
+  vor — was fehlt, ist die Regel für „je Seite“: Sie verdoppelt die Sätze, und
+  eine Haltedauer („2x45 s“) ist keine Wiederholungszahl. Ob die Animation die
+  `reps`-Endbedingung überhaupt braucht, ist offen: **beim ersten echten
+  Versuch prüfen**, ob sie auch an einem Rundentasten-Schritt erscheint.
+- Die **Zuordnung zum Übungskatalog** deckt ab, was in Kraft- und
+  Mobilityplänen für Ausdauersportler üblich ist, nicht den ganzen Katalog.
+  Was `uebungen.finde()` nicht erkennt, bleibt ohne Animation — sichtbar wird
+  das nur auf der Uhr, die App meldet es nirgends. Wer eine Lücke bemerkt,
+  trägt sie in `SYNONYME` nach; `test_garmin_uebungen.py` prüft, dass jede
+  Entsprechung im Katalog existiert.
+- **Yogaposen fehlen ganz.** Garmins Posenkatalog steckt hinter dem
+  angemeldeten Connect-Editor und wird nirgends öffentlich ausgeliefert
+  (`web-data/exercises/Yoga.json` ist ein 404). Deshalb laufen Mobility-
+  Einheiten als Garmins „Mobility“ über den Kraftkatalog statt als Yoga.
+- Die **Sportart `mobility` (11) ist gegen ein echtes Konto ungeprüft**, ebenso
+  die Übungskennungen selbst. Beides wurde nur gegen die Nachbildung geprüft.
 - Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
   und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
 - Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren
