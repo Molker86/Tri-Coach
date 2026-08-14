@@ -148,6 +148,72 @@ class FakeGarmin:
             for tag in self._im_bereich(startdate, enddate)
         ]
 
+    # -- Schwellenwerte -----------------------------------------------------
+    #
+    # Kein Zeitraum, kein Tag: Garmin gibt nur den zuletzt erkannten Stand
+    # heraus. Die Formen sind die des Originals — die FTP kommt als Liste, die
+    # Laktatschwelle als Bündel aus Tempo (m/s) und Herzfrequenz.
+
+    def get_cycling_ftp(self):
+        self.aufrufe.append("get_cycling_ftp")
+        return [
+            {
+                "userProfilePK": 4711,
+                "calendarDate": date.today().isoformat(),
+                "sport": "CYCLING",
+                "functionalThresholdPower": 248,
+            }
+        ]
+
+    def get_lactate_threshold(self, latest=True, **_kwargs):
+        self.aufrufe.append("get_lactate_threshold")
+        return {
+            "speed_and_heart_rate": {
+                "calendarDate": date.today().isoformat(),
+                # 3,7 m/s sind 4:30 min/km.
+                "speed": 3.7037,
+                "heartRate": 168,
+                "heartRateCycling": None,
+            },
+            "power": {},
+        }
+
+    def get_personal_record(self):
+        """Bestzeiten in der Form des Originals: nur `typeId` und `value`.
+
+        Mit dabei, was der Mapper aussortieren muss — ein Schrittrekord ohne
+        Aktivität und ein Eintrag, dessen Wert keine Zeit sein kann.
+        """
+        self.aufrufe.append("get_personal_record")
+        return [
+            {
+                "id": 1,
+                "typeId": 3,  # 5 km
+                "activityId": 900001,
+                "activityStartDateTimeLocal": "2026-05-02T08:14:00.0",
+                "value": 1214.0,  # 20:14
+            },
+            {
+                "id": 2,
+                "typeId": 4,  # 10 km
+                "activityId": 900002,
+                "activityStartDateTimeLocal": "2026-06-14T07:02:00.0",
+                "value": 2550.0,  # 42:30
+            },
+            {
+                "id": 3,
+                "typeId": 12,  # meiste Schritte an einem Tag — keine Bestzeit
+                "activityId": None,
+                "value": 28412.0,
+            },
+            {
+                "id": 4,
+                "typeId": 1,  # 1 km, aber der Wert wäre ein Tempo von 0:16/km
+                "activityId": 900003,
+                "value": 16.0,
+            },
+        ]
+
     # -- Tagesabfragen ------------------------------------------------------
 
     def _tagesabruf(self) -> None:

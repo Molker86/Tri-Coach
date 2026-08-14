@@ -118,9 +118,7 @@ class ProfileIn(BaseModel):
     threshold_pace_run: str | None = Field(None, max_length=16)
     css_swim: str | None = Field(None, max_length=16)
 
-    experience_years: float | None = Field(None, ge=0, le=70)
     current_weekly_hours: float | None = Field(None, ge=0, le=40)
-    sleep_hours: float | None = Field(None, ge=0, le=16)
     stress_level: int | None = Field(None, ge=1, le=5)
     injuries: str | None = None
     personal_bests: str | None = None
@@ -129,6 +127,10 @@ class ProfileIn(BaseModel):
 
 class ProfileOut(ProfileIn):
     model_config = ConfigDict(from_attributes=True)
+
+    # Kommt aus Garmin, nicht vom Nutzer — steht deshalb nur hier und nicht an
+    # `ProfileIn`: Ein Teil-Update aus dem Formular würde es sonst leeren.
+    garmin_personal_bests: list[dict[str, Any]] | None = None
 
     updated_at: datetime | None = None
     age: int | None = None

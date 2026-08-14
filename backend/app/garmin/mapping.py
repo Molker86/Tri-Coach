@@ -229,6 +229,187 @@ def gewicht_kg(gramm: Any) -> float | None:
 
 
 # --------------------------------------------------------------------------
+# Schwellenwerte
+#
+# FTP, Schwellentempo und Schwellenpuls fallen nicht tageweise an: Garmin führt
+# sie als Zustand des Athleten und gibt jeweils nur den zuletzt erkannten Stand
+# heraus, jede Größe hinter einem eigenen Endpunkt. Sie wandern deshalb direkt
+# ins Profil und nicht in `WellnessDay`.
+#
+# Genau deshalb wird hier jeder Wert gegen die Spanne aus `schemas.ProfileIn`
+# geprüft: Ein Ausreißer aus einer undokumentierten Schnittstelle käme sonst
+# ungefiltert in die Datenbank, und weil `ProfileOut` dieselben Grenzen
+# validiert, bekäme die Profilseite danach einen Fehler statt ihrer Daten.
+# --------------------------------------------------------------------------
+
+FTP_SPANNE = (50.0, 600.0)  # Watt
+SCHWELLENPULS_SPANNE = (90.0, 220.0)  # bpm
+# Garmins Geschwindigkeiten sind m/s; die Spanne entspricht 15:00 bis 2:00
+# min/km. Sie prüft vor allem die *Einheit*: Käme der Wert eines Tages in km/h,
+# fiele er heraus, statt eine Schwellenpace von 0:16 min/km ins Profil zu
+# schreiben.
+SCHWELLENTEMPO_SPANNE = (1.1, 8.4)  # m/s
+
+
+def _eintraege(antwort: Any) -> list[dict[str, Any]]:
+    """Ein Ergebnis, das mal Dict und mal Liste ist, als Liste von Dicts."""
+    if isinstance(antwort, dict):
+        return [antwort]
+    return [eintrag for eintrag in als_liste(antwort) if isinstance(eintrag, dict)]
+
+
+def _in_spanne(wert: float | int | None, spanne: tuple[float, float]) -> bool:
+    return wert is not None and spanne[0] <= wert <= spanne[1]
+
+
+def ftp_watt(antwort: Any) -> int | None:
+    """Die zuletzt erkannte Schwellenleistung aus `get_cycling_ftp()`."""
+    for eintrag in _eintraege(antwort):
+        wert = als_ganzzahl(
+            erster_wert(
+                eintrag,
+                ("functionalThresholdPower",),
+                ("ftpValue",),
+                ("value",),
+            )
+        )
+        if _in_spanne(wert, FTP_SPANNE):
+            return wert
+    return None
+
+
+def schwellentempo_ms(antwort: Any) -> float | None:
+    """Laufgeschwindigkeit an der Laktatschwelle in m/s.
+
+    Die Pfade decken beide Formen von `get_lactate_threshold()` ab — die
+    Bibliothek fasst den jüngsten Stand unter `speed_and_heart_rate` zusammen,
+    die Profileinstellungen führen denselben Wert flach.
+    """
+    for pfad in (
+        ("speed_and_heart_rate", "speed"),
+        ("lactateThresholdSpeed",),
+        ("speed",),
+    ):
+        wert = als_zahl(hole(antwort, *pfad))
+        if _in_spanne(wert, SCHWELLENTEMPO_SPANNE):
+            return wert
+    return None
+
+
+def schwellenpace_laufen(antwort: Any) -> str | None:
+    """Garmins Laktatschwelle als Pace dieser App — mm:ss pro Kilometer."""
+    tempo = schwellentempo_ms(antwort)
+    return None if tempo is None else pace_aus_geschwindigkeit("run", tempo)
+
+
+def schwellenpuls(antwort: Any) -> int | None:
+    """Die Herzfrequenz an der Laktatschwelle (LTHR)."""
+    for pfad in (
+        ("speed_and_heart_rate", "heartRate"),
+        # Garmins historischer Tippfehler. Die Bibliothek fängt ihn nur auf
+        # einem ihrer beiden Wege ab.
+        ("speed_and_heart_rate", "hearRate"),
+        ("lactateThresholdHeartRate",),
+        ("heartRate",),
+    ):
+        wert = als_ganzzahl(hole(antwort, *pfad))
+        if _in_spanne(wert, SCHWELLENPULS_SPANNE):
+            return wert
+    return None
+
+
+# --------------------------------------------------------------------------
+# Bestzeiten
+#
+# `get_personal_record()` liefert eine flache Liste, in der jeder Eintrag nur
+# eine Kennziffer (`typeId`) und einen nackten `value` trägt — was die Zahl
+# bedeutet, sagt Garmin nirgends: Bei den Streckenrekorden sind es Sekunden,
+# beim längsten Lauf Meter, bei den Schrittrekorden Schritte.
+#
+# Deshalb wird hier dreifach abgesichert, statt der Kennziffer zu glauben:
+# gelesen werden nur die sechs Laufstrecken, die Garmin Connect seit jeher als
+# Bestzeiten führt; der Eintrag muss an einer Aktivität hängen (Schritt- und
+# Streak-Rekorde tun das nicht); und der Wert muss als Zeit über seine Strecke
+# ein menschenmögliches Tempo ergeben. Eine falsch gedeutete Zahl fällt damit
+# heraus, statt als absurde Bestzeit in den Prompt zu wandern.
+#
+# Rad- und Schwimmrekorde bleiben ungelesen: Ihre Kennziffern lassen sich nicht
+# sicher zuordnen, und eine falsch beschriftete Bestzeit ist schlechter als
+# keine. Dafür gibt es weiterhin das Freitextfeld im Profil.
+# --------------------------------------------------------------------------
+
+BESTZEIT_STRECKEN: dict[int, tuple[str, float]] = {
+    1: ("1 km", 1.0),
+    2: ("1 Meile", 1.60934),
+    3: ("5 km", 5.0),
+    4: ("10 km", 10.0),
+    5: ("Halbmarathon", 21.0975),
+    6: ("Marathon", 42.195),
+}
+
+# Sekunden je Kilometer. Schneller als eine Weltbestzeit und langsamer als
+# zügiges Gehen ist keine Laufbestzeit, sondern eine fehlgedeutete Zahl.
+BESTZEIT_PACE_SPANNE = (140.0, 600.0)
+
+
+def _hms(sekunden: float) -> str:
+    """Laufzeiten in der Schreibweise der Ergebnislisten: 42:30 oder 1:38:20."""
+    gesamt = int(round(sekunden))
+    stunden, rest = divmod(gesamt, 3600)
+    minuten, sek = divmod(rest, 60)
+    if stunden:
+        return f"{stunden}:{minuten:02d}:{sek:02d}"
+    return f"{minuten}:{sek:02d}"
+
+
+def bestzeiten(antwort: Any) -> list[dict[str, Any]]:
+    """Garmins persönliche Rekorde als Liste, nach Streckenlänge sortiert."""
+    beste: dict[int, tuple[float, dict[str, Any]]] = {}
+
+    for eintrag in _eintraege(antwort):
+        typ = als_ganzzahl(eintrag.get("typeId"))
+        if typ not in BESTZEIT_STRECKEN:
+            continue
+        if eintrag.get("activityId") is None:
+            continue
+
+        strecke, km = BESTZEIT_STRECKEN[typ]
+        sekunden = als_zahl(erster_wert(eintrag, ("value",), ("prValue",)))
+        if sekunden is None or not (
+            BESTZEIT_PACE_SPANNE[0] <= sekunden / km <= BESTZEIT_PACE_SPANNE[1]
+        ):
+            continue
+
+        datum = als_datum(
+            erster_wert(
+                eintrag,
+                ("activityStartDateTimeLocal",),
+                ("activityStartDateTimeInGMT",),
+                ("prStartTimeGmt",),
+            )
+        )
+        # Garmin führt zu einer Kennziffer gelegentlich mehrere Einträge. Die
+        # schnellste Zeit ist die Bestzeit.
+        if typ not in beste or sekunden < beste[typ][0]:
+            beste[typ] = (
+                sekunden,
+                {
+                    "sportart": "run",
+                    "strecke": strecke,
+                    "zeit": _hms(sekunden),
+                    "datum": datum.isoformat() if datum else None,
+                },
+            )
+
+    return [
+        eintrag
+        for _, (_, eintrag) in sorted(
+            beste.items(), key=lambda paar: BESTZEIT_STRECKEN[paar[0]][1]
+        )
+    ]
+
+
+# --------------------------------------------------------------------------
 # Anstrengung
 # --------------------------------------------------------------------------
 

@@ -179,6 +179,9 @@ class SyncRunner:
                 fortschritt,
                 pause_s=sync_modul.PAUSE_SEKUNDEN if pause_s is None else pause_s,
                 ergebnis=ergebnis,
+                # Die Schwellenwerte kosten eigene Anfragen. Wer die
+                # Nachführung abgeschaltet hat, soll sie nicht bezahlen.
+                mit_leistungswerten=konto.profile_sync_enabled,
             )
 
             # Die Bibliothek erneuert den Zugangsschlüssel unterwegs still.
@@ -203,7 +206,7 @@ class SyncRunner:
                 konto.backfill_from = von
             db.commit()
 
-            self._fuehre_profil_nach(db, konto, user_id)
+            self._fuehre_profil_nach(db, konto, user_id, ergebnis.leistungswerte)
 
             # Der tägliche Abgleich ist der Zeitpunkt, an dem sich „vorbei"
             # ändert — und der Zugang steht hier ohnehin schon.
@@ -448,14 +451,25 @@ class SyncRunner:
             )
         return ergebnis.entfernt
 
-    def _fuehre_profil_nach(self, db, konto: GarminAccount, user_id: int) -> None:
-        """Trägt Gewicht, Ruhepuls, HRV und VO2max ins Profil nach."""
+    def _fuehre_profil_nach(
+        self,
+        db,
+        konto: GarminAccount,
+        user_id: int,
+        leistungswerte: dict | None = None,
+    ) -> None:
+        """Trägt Fitness- und Schwellenwerte ins Profil nach.
+
+        Aus den Fitnessdaten kommen Gewicht, Ruhepuls, HRV und VO2max; FTP,
+        Schwellenpace und Schwellenpuls hat der Lauf bereits geholt und reicht
+        sie hier durch — geschrieben wird beides in einem Zug.
+        """
         if not konto.profile_sync_enabled:
             return
         try:
             from ..profile_sync import uebernehme_aus_garmin
 
-            uebernehme_aus_garmin(db, user_id)
+            uebernehme_aus_garmin(db, user_id, leistungswerte=leistungswerte)
         except Exception:  # noqa: BLE001 — der Abgleich selbst war erfolgreich
             logger.exception("Profil-Nachführung fehlgeschlagen")
             db.rollback()

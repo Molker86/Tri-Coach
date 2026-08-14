@@ -248,6 +248,7 @@ export default function NewTraining() {
                     onClick={() => patch({ goal_type: goal.key })}
                   >
                     <span className="choice-title">{goal.label}</span>
+                    <span className="choice-desc">{goal.hint}</span>
                   </button>
                 ))}
               </div>
@@ -591,7 +592,7 @@ export default function NewTraining() {
                   onChange={(v) => patchProfile({ vo2max: v })}
                 />
                 <NumberField
-                  label="HRV (rMSSD)"
+                  label="HRV"
                   unit="ms"
                   step={0.1}
                   value={profile.hrv_rmssd}
@@ -607,7 +608,7 @@ export default function NewTraining() {
             </div>
 
             <div className="question-block">
-              <div className="question-label">Leistung und Erfahrung</div>
+              <div className="question-label">Leistungswerte</div>
               <div className="grid grid-3">
                 <NumberField
                   label="FTP Rad"
@@ -628,25 +629,11 @@ export default function NewTraining() {
                   onChange={(v) => patchProfile({ css_swim: v })}
                 />
                 <NumberField
-                  label="Trainingserfahrung"
-                  unit="Jahre"
-                  step={0.5}
-                  value={profile.experience_years}
-                  onChange={(v) => patchProfile({ experience_years: v })}
-                />
-                <NumberField
                   label="Aktuelles Wochenvolumen"
                   unit="Stunden"
                   step={0.5}
                   value={profile.current_weekly_hours}
                   onChange={(v) => patchProfile({ current_weekly_hours: v })}
-                />
-                <NumberField
-                  label="Schlaf"
-                  unit="h/Nacht"
-                  step={0.5}
-                  value={profile.sleep_hours}
-                  onChange={(v) => patchProfile({ sleep_hours: v })}
                 />
               </div>
             </div>

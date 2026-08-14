@@ -59,8 +59,16 @@ export default function ProfilePage() {
     setBusy(true)
     setError(null)
     try {
-      // Berechnete Felder gehören nicht in den Request zurück.
-      const { age: _age, bmi: _bmi, hr_zones: _zones, updated_at: _u, ...payload } = profile
+      // Berechnete Felder und die aus Garmin nachgeführten Bestzeiten gehören
+      // nicht in den Request zurück — das Backend kennt sie nicht als Eingabe.
+      const {
+        age: _age,
+        bmi: _bmi,
+        hr_zones: _zones,
+        updated_at: _u,
+        garmin_personal_bests: _pb,
+        ...payload
+      } = profile
       const updated = await api.updateProfile(payload)
       setProfile(updated)
       setHistory(await api.getProfileHistory())
@@ -75,6 +83,7 @@ export default function ProfilePage() {
   if (!profile) return error ? <Alert kind="error">{error}</Alert> : <Loading />
 
   const estimatedMax = profile.hr_zones[0]?.estimated_max_hr
+  const garminBestzeiten = profile.garmin_personal_bests ?? []
 
   return (
     <>
@@ -183,7 +192,11 @@ export default function ProfilePage() {
           <NumberField
             label="Schwellenpuls (LTHR)"
             unit="bpm"
-            hint="Mittlere HF bei einem harten 30-min-Test."
+            hint={
+              garminFuehrtNach
+                ? 'Aus Garmins erkannter Laktatschwelle.'
+                : 'Mittlere HF bei einem harten 30-min-Test.'
+            }
             value={profile.lthr}
             onChange={(v) => patch({ lthr: v })}
           />
@@ -196,14 +209,10 @@ export default function ProfilePage() {
             onChange={(v) => patch({ vo2max: v })}
           />
           <NumberField
-            label="HRV (rMSSD)"
+            label="HRV"
             unit="ms"
             step={0.1}
-            hint={
-              garminFuehrtNach
-                ? 'Nachtmittel aus Garmin — nahe an rMSSD, aber nicht dasselbe.'
-                : 'Herzratenvariabilität, morgens gemessen.'
-            }
+            hint={garminFuehrtNach ? VON_GARMIN : 'Herzratenvariabilität, morgens gemessen.'}
             value={profile.hrv_rmssd}
             onChange={(v) => patch({ hrv_rmssd: v })}
           />
@@ -260,20 +269,32 @@ export default function ProfilePage() {
           <NumberField
             label="FTP Rad"
             unit="Watt"
-            hint="Funktionelle Schwellenleistung."
+            hint={
+              garminFuehrtNach
+                ? 'Funktionelle Schwellenleistung — aus Garmin nachgeführt.'
+                : 'Funktionelle Schwellenleistung.'
+            }
             value={profile.ftp_watts}
             onChange={(v) => patch({ ftp_watts: v })}
           />
           <TextField
             label="Schwellenpace Laufen"
-            hint="Format mm:ss pro Kilometer, z. B. 4:15."
+            hint={
+              garminFuehrtNach
+                ? 'Aus Garmins Laktatschwelle. Format mm:ss pro Kilometer.'
+                : 'Format mm:ss pro Kilometer, z. B. 4:15.'
+            }
             placeholder="4:15"
             value={profile.threshold_pace_run}
             onChange={(v) => patch({ threshold_pace_run: v })}
           />
           <TextField
             label="CSS Schwimmen"
-            hint="Kritische Schwimmgeschwindigkeit pro 100 m, z. B. 1:45."
+            hint={
+              garminFuehrtNach
+                ? 'Garmin führt keinen CSS-Wert — bitte selbst eintragen (400-m- und 200-m-Test).'
+                : 'Kritische Schwimmgeschwindigkeit pro 100 m, z. B. 1:45.'
+            }
             placeholder="1:45"
             value={profile.css_swim}
             onChange={(v) => patch({ css_swim: v })}
@@ -285,26 +306,12 @@ export default function ProfilePage() {
         <h2>Trainingskontext</h2>
         <div className="grid grid-3">
           <NumberField
-            label="Trainingserfahrung"
-            unit="Jahre"
-            step={0.5}
-            value={profile.experience_years}
-            onChange={(v) => patch({ experience_years: v })}
-          />
-          <NumberField
             label="Aktuelles Wochenvolumen"
             unit="Stunden"
             step={0.5}
             hint="Was du derzeit tatsächlich trainierst."
             value={profile.current_weekly_hours}
             onChange={(v) => patch({ current_weekly_hours: v })}
-          />
-          <NumberField
-            label="Schlaf"
-            unit="Stunden/Nacht"
-            step={0.5}
-            value={profile.sleep_hours}
-            onChange={(v) => patch({ sleep_hours: v })}
           />
           <Field
             label="Alltagsbelastung"
@@ -334,9 +341,49 @@ export default function ProfilePage() {
           onChange={(v) => patch({ injuries: v })}
         />
 
+        {garminBestzeiten.length > 0 && (
+          <Field
+            label="Bestzeiten aus Garmin"
+            hint="Von Garmin erkannt und bei jedem Abgleich aktualisiert. Garmin führt sie nur fürs Laufen — Schwimmen und Rad trägst du unten ein."
+          >
+            <div className="table-wrap">
+              <table className="table-cards">
+                <thead>
+                  <tr>
+                    <th>Strecke</th>
+                    <th>Zeit</th>
+                    <th>Datum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {garminBestzeiten.map((best) => (
+                    <tr key={best.strecke}>
+                      <td className="cell-title" data-label="Strecke">
+                        {best.strecke}
+                      </td>
+                      <td className="nowrap" data-label="Zeit">
+                        <strong>{best.zeit}</strong>
+                      </td>
+                      <td className="nowrap" data-label="Datum">
+                        {best.datum
+                          ? new Date(best.datum).toLocaleDateString('de-DE')
+                          : '–'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Field>
+        )}
+
         <TextArea
-          label="Bestzeiten"
-          hint="Hilft der KI, dein Leistungsniveau einzuschätzen."
+          label={garminBestzeiten.length > 0 ? 'Weitere Bestzeiten' : 'Bestzeiten'}
+          hint={
+            garminBestzeiten.length > 0
+              ? 'Was Garmin nicht kennt: Schwimmen, Rad, ältere Wettkämpfe.'
+              : 'Hilft der KI, dein Leistungsniveau einzuschätzen.'
+          }
           placeholder="z. B. 10 km in 42:30 (2025), Halbmarathon 1:38"
           value={profile.personal_bests}
           onChange={(v) => patch({ personal_bests: v })}

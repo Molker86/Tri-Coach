@@ -54,6 +54,8 @@ _MINDESTABWEICHUNG: dict[str, float] = {
     "resting_hr": 1,
     "hrv_rmssd": 1,
     "vo2max": 0.1,
+    "ftp_watts": 1,
+    "lthr": 1,
 }
 
 
@@ -65,12 +67,24 @@ def _juengster(tage: list[WellnessDay], feld: str) -> Any:
     return None
 
 
-def uebernehme_aus_garmin(db: Session, user_id: int, heute: date | None = None) -> list[str]:
-    """Trägt Gewicht, Ruhepuls, HRV und VO2max aus den Fitnessdaten ins Profil.
+def uebernehme_aus_garmin(
+    db: Session,
+    user_id: int,
+    heute: date | None = None,
+    leistungswerte: dict[str, Any] | None = None,
+) -> list[str]:
+    """Trägt die Werte aus Garmin ins Profil: Fitnessdaten und Schwellenwerte.
+
+    Aus den Fitnessdaten kommen Gewicht, Körperfett, Ruhepuls, HRV und VO2max;
+    `leistungswerte` bringt mit, was nur hinter eigenen Endpunkten steht (FTP,
+    Schwellenpace, Schwellenpuls und die Bestzeiten — geholt in
+    `garmin.sync.hole_leistungswerte`). Beides geht bewusst durch **eine**
+    Übernahme: Zwei Aufrufe hinterließen je Abgleich zwei fast gleiche Einträge
+    im Werteverlauf.
 
     Bewusst **nicht** übernommen wird der Maximalpuls: Garmin schätzt ihn, liegt
     dabei oft daneben, und er steuert sämtliche Herzfrequenzzonen dieser App.
-    Er bleibt Handarbeit. Ebenso Schwellenpuls und FTP.
+    Er bleibt Handarbeit.
 
     Gibt die geänderten Felder zurück.
     """
@@ -87,10 +101,10 @@ def uebernehme_aus_garmin(db: Session, user_id: int, heute: date | None = None) 
         )
         .order_by(WellnessDay.date.desc())
     ).all()
-    if not tage:
-        return []
 
-    neu: dict[str, Any] = {}
+    neu: dict[str, Any] = dict(leistungswerte or {})
+    if not tage:
+        return _schreibe(db, user_id, profil, neu)
 
     # Gewicht und Körperfett sind Punktmessungen — der jüngste Wert gilt.
     if (gewicht := _juengster(tage, "weight_kg")) is not None:
@@ -110,15 +124,21 @@ def uebernehme_aus_garmin(db: Session, user_id: int, heute: date | None = None) 
         neu["resting_hr"] = int(round(statistics.median(letzte_woche)))
 
     if (hrv := _juengster(tage, "hrv_last_night_ms")) is not None:
-        # Garmins Nachtmittel ist konzeptionell nahe an RMSSD, aber nicht
-        # dasselbe. Der Feldname bleibt (Umbenennen wäre eine Migration ohne
-        # Gewinn); die Herkunft wird in der Oberfläche ausgewiesen.
+        # `hrv_rmssd` ist nur noch ein Altname der Spalte — geführt wird der
+        # Wert überall als HRV in ms. Umbenennen wäre eine Migration ohne Gewinn.
         neu["hrv_rmssd"] = hrv
 
     vo2 = _juengster(tage, "vo2max_run") or _juengster(tage, "vo2max_bike")
     if vo2 is not None:
         neu["vo2max"] = vo2
 
+    return _schreibe(db, user_id, profil, neu)
+
+
+def _schreibe(
+    db: Session, user_id: int, profil: AthleteProfile, neu: dict[str, Any]
+) -> list[str]:
+    """Übernimmt nur, was sich wirklich unterscheidet. Gibt die Felder zurück."""
     relevant = {
         feld: wert
         for feld, wert in neu.items()

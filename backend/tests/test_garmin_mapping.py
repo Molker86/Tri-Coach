@@ -14,12 +14,16 @@ import pytest
 from app.garmin.mapping import (
     aktivitaet_zu_log,
     als_liste,
+    bestzeiten,
     erster_wert,
+    ftp_watt,
     gewicht_kg,
     hole,
     koppel_notiz,
     pace_aus_geschwindigkeit,
     schaetze_rpe,
+    schwellenpace_laufen,
+    schwellenpuls,
     sport_aus_typkey,
     teile_multisport,
 )
@@ -264,3 +268,91 @@ def test_eigenstaendige_aktivitaet_mit_parentid_bleibt_erhalten():
     zu_importieren, kinder = teile_multisport([einzeln])
     assert len(zu_importieren) == 1
     assert kinder == {}
+
+
+# --------------------------------------------------------------------------
+# Schwellenwerte
+# --------------------------------------------------------------------------
+
+
+def test_ftp_liest_liste_und_einzelantwort():
+    """`get_cycling_ftp` liefert je nach Konto eine Liste oder ein Dict."""
+    assert ftp_watt([{"functionalThresholdPower": 248, "sport": "CYCLING"}]) == 248
+    assert ftp_watt({"functionalThresholdPower": 248}) == 248
+    assert ftp_watt({"ftpValue": 199}) == 199
+    assert ftp_watt(None) is None
+    assert ftp_watt([{"functionalThresholdPower": None}]) is None
+
+
+def test_ftp_ausserhalb_der_profilspanne_wird_verworfen():
+    """Ein Ausreißer würde die Profilseite mit einem Validierungsfehler lahmlegen."""
+    assert ftp_watt([{"functionalThresholdPower": 5}]) is None
+    assert ftp_watt([{"functionalThresholdPower": 4200}]) is None
+
+
+def test_schwellenwerte_aus_der_laktatschwelle():
+    antwort = {
+        "speed_and_heart_rate": {"speed": 3.7037, "heartRate": 168},
+        "power": {},
+    }
+    assert schwellenpace_laufen(antwort) == "4:30"  # m/s in min/km
+    assert schwellenpuls(antwort) == 168
+
+    # Garmins historischer Tippfehler im Feldnamen
+    assert schwellenpuls({"speed_and_heart_rate": {"hearRate": 171}}) == 171
+    # Und die flache Form aus den Profileinstellungen
+    assert schwellenpace_laufen({"lactateThresholdSpeed": 3.7037}) == "4:30"
+
+
+def test_schwellentempo_in_falscher_einheit_wird_verworfen():
+    """13,3 wäre km/h — als m/s gelesen ergäbe das 0:16 min/km."""
+    assert schwellenpace_laufen({"speed_and_heart_rate": {"speed": 13.3}}) is None
+    assert schwellenpace_laufen({"speed_and_heart_rate": {"speed": 0}}) is None
+    assert schwellenpace_laufen(None) is None
+    assert schwellenpuls(None) is None
+
+
+# --------------------------------------------------------------------------
+# Bestzeiten
+# --------------------------------------------------------------------------
+
+
+def test_bestzeiten_werden_nach_strecke_sortiert_und_formatiert():
+    antwort = [
+        {"typeId": 6, "activityId": 4, "value": 11900.0},  # Marathon 3:18:20
+        {"typeId": 3, "activityId": 1, "value": 1214.0,
+         "activityStartDateTimeLocal": "2026-05-02T08:14:00.0"},
+        {"typeId": 4, "activityId": 2, "value": 2550.0},  # 10 km 42:30
+    ]
+    gefunden = bestzeiten(antwort)
+
+    assert [b["strecke"] for b in gefunden] == ["5 km", "10 km", "Marathon"]
+    assert [b["zeit"] for b in gefunden] == ["20:14", "42:30", "3:18:20"]
+    assert gefunden[0]["datum"] == "2026-05-02"
+    assert gefunden[1]["datum"] is None
+    assert all(b["sportart"] == "run" for b in gefunden)
+
+
+def test_bestzeiten_ohne_deutbare_kennziffer_fallen_heraus():
+    """Garmin führt in derselben Liste Rekorde, deren `value` keine Zeit ist."""
+    # Schritte an einem Tag: hängt an keiner Aktivität.
+    assert bestzeiten([{"typeId": 12, "activityId": None, "value": 28412.0}]) == []
+    # Eine Kennziffer, die diese App nicht als Laufstrecke kennt.
+    assert bestzeiten([{"typeId": 9, "activityId": 7, "value": 1800.0}]) == []
+    assert bestzeiten(None) == []
+
+
+def test_bestzeit_mit_unmoeglichem_tempo_wird_verworfen():
+    """Der Test gegen ein menschenmögliches Tempo fängt eine fehlgedeutete Zahl."""
+    # 16 Sekunden auf 1 km wären 0:16 min/km.
+    assert bestzeiten([{"typeId": 1, "activityId": 1, "value": 16.0}]) == []
+    # 25 000 als Halbmarathonzeit wären 19:45 min/km — in Wahrheit Meter.
+    assert bestzeiten([{"typeId": 5, "activityId": 1, "value": 25000.0}]) == []
+
+
+def test_bestzeit_nimmt_den_schnellsten_eintrag_je_strecke():
+    antwort = [
+        {"typeId": 3, "activityId": 1, "value": 1300.0},
+        {"typeId": 3, "activityId": 2, "value": 1214.0},
+    ]
+    assert [b["zeit"] for b in bestzeiten(antwort)] == ["20:14"]

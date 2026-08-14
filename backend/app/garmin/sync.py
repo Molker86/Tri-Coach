@@ -32,10 +32,14 @@ from .mapping import (
     als_datum,
     als_liste,
     als_zahl,
+    bestzeiten,
     erster_wert,
+    ftp_watt,
     gewicht_kg,
     hole,
     koppel_notiz,
+    schwellenpace_laufen,
+    schwellenpuls,
     teile_multisport,
 )
 from .matching import finde_offene_planeinheit
@@ -107,6 +111,11 @@ class SyncErgebnis:
         self.fitness_tage = 0
         self.hinweise: list[str] = []
         self.letzter_tag: date | None = None
+        # FTP, Schwellenpace, Schwellenpuls und Bestzeiten. Sie werden hier nur
+        # eingesammelt und nicht geschrieben: Ins Profil gehen sie zusammen mit
+        # Gewicht, Ruhepuls, HRV und VO2max in *einem* Zug, sonst entstünden je
+        # Abgleich zwei fast gleiche Einträge im Werteverlauf.
+        self.leistungswerte: dict[str, Any] = {}
 
 
 # --------------------------------------------------------------------------
@@ -590,6 +599,46 @@ def importiere_tageswerte(
             fortschritt.pruefe_abbruch()
 
 
+def hole_leistungswerte(api: Any, ergebnis: SyncErgebnis) -> dict[str, Any]:
+    """FTP, Schwellenwerte und Bestzeiten — drei Aufrufe, kein Zeitraum.
+
+    Diese Werte gibt es nicht je Tag: Garmin gibt jeweils nur den zuletzt
+    erkannten Stand heraus. Sie werden deshalb nicht in `WellnessDay`
+    geschrieben, sondern gebündelt zurückgegeben und von der Profil-Nachführung
+    übernommen. Zusammen kosten sie vier Anfragen — `get_lactate_threshold`
+    holt selbst zwei, wovon die App nur Tempo und Herzfrequenz braucht.
+
+    Die Aufrufe stehen in Lambdas, damit auch ein *fehlender* Methodenname der
+    Bibliothek als Hinweis im Lauf landet statt als Abbruch: `_hole_geschuetzt`
+    fängt nur, was innerhalb des Aufrufs passiert.
+
+    Was hier bewusst fehlt, ist die kritische Schwimmgeschwindigkeit: Garmin
+    führt keinen CSS-Wert, weder als Endpunkt noch in den Profileinstellungen.
+    Sie bleibt Handarbeit — siehe Hinweis auf der Profilseite.
+    """
+    ftp = ftp_watt(
+        _hole_geschuetzt("FTP", ergebnis, lambda: api.get_cycling_ftp())
+    )
+    schwelle = _hole_geschuetzt(
+        "Laktatschwelle", ergebnis, lambda: api.get_lactate_threshold(latest=True)
+    )
+    rekorde = _hole_geschuetzt(
+        "Bestzeiten", ergebnis, lambda: api.get_personal_record()
+    )
+
+    werte = {
+        "ftp_watts": ftp,
+        "threshold_pace_run": schwellenpace_laufen(schwelle),
+        "lthr": schwellenpuls(schwelle),
+        # Eine leere Liste ist kein Ergebnis, sondern „nichts Deutbares dabei" —
+        # sie darf die bisherigen Bestzeiten nicht löschen.
+        "garmin_personal_bests": bestzeiten(rekorde) or None,
+    }
+    # Ein fehlender Wert heißt „Garmin weiß es nicht", nicht „Profilfeld
+    # leeren" — dieselbe Regel wie bei den Fitnessdaten (`_setze`).
+    return {feld: wert for feld, wert in werte.items() if wert is not None}
+
+
 def fuehre_sync_aus(
     db: Session,
     api: Any,
@@ -600,6 +649,7 @@ def fuehre_sync_aus(
     fortschritt: Fortschritt,
     pause_s: float = PAUSE_SEKUNDEN,
     ergebnis: SyncErgebnis | None = None,
+    mit_leistungswerten: bool = True,
 ) -> SyncErgebnis:
     """Holt einen Zeitraum vollständig und schreibt ihn in die Datenbank.
 
@@ -613,7 +663,8 @@ def fuehre_sync_aus(
         select(AthleteProfile).where(AthleteProfile.user_id == user_id)
     )
 
-    schritte_gesamt = 8  # Trainings + 6 Bereichsabfragen + Tagesschleife
+    # Trainings + 6 Bereichsabfragen + Tagesschleife (+ Leistungswerte)
+    schritte_gesamt = 9 if mit_leistungswerten else 8
 
     fortschritt.schritt("Trainings", 1, schritte_gesamt)
     importiere_aktivitaeten(db, api, user_id, profil, von, bis, ergebnis)
@@ -635,6 +686,14 @@ def fuehre_sync_aus(
             schritte_gesamt,
             pause_s,
         )
+
+    # Zum Schluss, weil es die billigsten Anfragen des Laufs sind: Wer vorher in
+    # die Sperre läuft, hat sie nicht dafür verbraucht. Übersprungen wird der
+    # Schritt, wenn die Profil-Nachführung abgeschaltet ist — die Werte hätten
+    # dann keinen Empfänger.
+    if mit_leistungswerten:
+        fortschritt.schritt("Leistungswerte", schritte_gesamt, schritte_gesamt)
+        ergebnis.leistungswerte = hole_leistungswerte(api, ergebnis)
 
     ergebnis.fitness_tage = len(
         db.scalars(

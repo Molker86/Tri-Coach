@@ -480,6 +480,51 @@ def test_profil_wird_nachgefuehrt_ausser_maximalpuls(client, verbunden):
     assert any(eintrag["weight_kg"] == 78.5 for eintrag in verlauf)
 
 
+def test_leistungswerte_kommen_aus_garmin(client, verbunden):
+    """FTP und Schwellenwerte stehen hinter eigenen Endpunkten, nicht in den Tageswerten."""
+    client.put(
+        "/api/profile",
+        json={"ftp_watts": 200, "css_swim": "1:45"},
+        headers=verbunden,
+    )
+
+    _backfill(client, verbunden)
+
+    profil = client.get("/api/profile", headers=verbunden).json()
+    assert profil["ftp_watts"] == 248
+    assert profil["threshold_pace_run"] == "4:30"  # aus 3,7 m/s
+    assert profil["lthr"] == 168
+    # Garmin führt keine kritische Schwimmgeschwindigkeit — der Wert bleibt stehen.
+    assert profil["css_swim"] == "1:45"
+
+    verlauf = client.get("/api/profile/history", headers=verbunden).json()
+    assert verlauf[-1]["ftp_watts"] == 248
+    # Genau ein Eintrag aus dem Abgleich: Fitness- und Schwellenwerte werden
+    # zusammen übernommen, nicht in zwei Zügen.
+    assert len(verlauf) == 2
+
+
+def test_bestzeiten_kommen_aus_garmin_und_landen_im_export(client, verbunden):
+    """Was Garmin selbst erkannt hat, muss der Athlet nicht abtippen."""
+    client.put(
+        "/api/profile",
+        json={"personal_bests": "Ironman 70.3 in 5:12"},
+        headers=verbunden,
+    )
+
+    _backfill(client, verbunden)
+
+    profil = client.get("/api/profile", headers=verbunden).json()
+    assert [b["strecke"] for b in profil["garmin_personal_bests"]] == ["5 km", "10 km"]
+    assert profil["garmin_personal_bests"][1]["zeit"] == "42:30"
+    # Der Freitext bleibt unangetastet: Rad und Schwimmen führt Garmin nicht.
+    assert profil["personal_bests"] == "Ironman 70.3 in 5:12"
+
+    athlet = client.get("/api/plans/export", headers=verbunden).json()["payload"]["athlet"]
+    assert athlet["bestzeiten_aus_garmin"][0]["zeit"] == "20:14"
+    assert athlet["bestzeiten"] == "Ironman 70.3 in 5:12"
+
+
 def test_profil_nachfuehrung_ist_abschaltbar(client, garmin_auth, fake):
     client.post(
         "/api/garmin/connect",
@@ -497,6 +542,11 @@ def test_profil_nachfuehrung_ist_abschaltbar(client, garmin_auth, fake):
 
     profil = client.get("/api/profile", headers=garmin_auth).json()
     assert profil["weight_kg"] == 70.0
+    # Und die Schwellenwerte werden gar nicht erst angefragt: Sie hätten ohne
+    # Nachführung keinen Empfänger, kosteten aber Anfragen.
+    assert "get_cycling_ftp" not in fake.aufrufe
+    assert "get_lactate_threshold" not in fake.aufrufe
+    assert "get_personal_record" not in fake.aufrufe
 
 
 # --------------------------------------------------------------------------
@@ -624,19 +674,35 @@ def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
             " duration_min, rpe) VALUES (1, 1, '2026-01-01', '2026-01-01', 'run',"
             " 'completed', 60, 6)"
         )
+        verbindung.exec_driver_sql(
+            """
+            CREATE TABLE athlete_profiles (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                weight_kg FLOAT,
+                personal_bests TEXT
+            )
+            """
+        )
 
     with alt.begin() as verbindung:
         ergaenzt = _ergaenze_spalten(verbindung)
         for ddl in _NACHGEREICHTE_INDIZES:
             verbindung.exec_driver_sql(ddl)
 
-    assert len(ergaenzt) == 7
+    assert len(ergaenzt) == 8
 
     with alt.connect() as verbindung:
         spalten = {
             r[1] for r in verbindung.exec_driver_sql("PRAGMA table_info(session_logs)")
         }
         assert {"source", "garmin_activity_id", "rpe_source"} <= spalten
+
+        profilspalten = {
+            r[1]
+            for r in verbindung.exec_driver_sql("PRAGMA table_info(athlete_profiles)")
+        }
+        assert "garmin_personal_bests" in profilspalten
 
         indizes = {
             r[1] for r in verbindung.exec_driver_sql("PRAGMA index_list(session_logs)")

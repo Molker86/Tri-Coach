@@ -83,14 +83,52 @@ export const SESSION_TYPE_LABEL: Record<string, string> = {
   rest: 'Ruhe',
 }
 
+// Die Schlüssel gehen unverändert als `trainingswunsch.ziel` in den Export und
+// werden im Prompt namentlich angesprochen (Punkt 6 der Trainingsprinzipien in
+// `ai_export.py`): Er unterscheidet Ziele, die einen Reiz verlangen, von
+// solchen, bei denen Regelmäßigkeit mehr zählt. Wer hier einen Schlüssel
+// ändert oder ergänzt, muss den Prompt mitziehen.
 export const GOAL_OPTIONS = [
-  { key: 'Wettkampfvorbereitung', label: 'Wettkampf vorbereiten' },
-  { key: 'Bestzeit', label: 'Persönliche Bestzeit verbessern' },
-  { key: 'Grundlagenausdauer', label: 'Grundlagenausdauer aufbauen' },
-  { key: 'Wiedereinstieg', label: 'Wiedereinstieg nach Pause oder Verletzung' },
-  { key: 'Gewichtsreduktion', label: 'Gewicht reduzieren' },
-  { key: 'Gesundheit', label: 'Fitness und Gesundheit erhalten' },
-  { key: 'Erstfinish', label: 'Distanz erstmals finishen' },
+  {
+    key: 'Wettkampfvorbereitung',
+    label: 'Wettkampf vorbereiten',
+    hint: 'Auf ein festes Datum hin — Form zum Wettkampf.',
+  },
+  {
+    key: 'Bestzeit',
+    label: 'Persönliche Bestzeit verbessern',
+    hint: 'Bekannte Distanz, schneller als bisher.',
+  },
+  {
+    key: 'Aufbau',
+    label: 'Allgemeines Aufbautraining',
+    hint: 'Ohne Wettkampf leistungsfähiger werden — mit Schwellen- und VO2max-Reizen.',
+  },
+  {
+    key: 'Grundlagenausdauer',
+    label: 'Grundlagenausdauer aufbauen',
+    hint: 'Umfang im lockeren Bereich, wenig Intensität.',
+  },
+  {
+    key: 'Wiedereinstieg',
+    label: 'Wiedereinstieg nach Pause oder Verletzung',
+    hint: 'Vorsichtig herantasten, Belastung langsam steigern.',
+  },
+  {
+    key: 'Gewichtsreduktion',
+    label: 'Gewicht reduzieren',
+    hint: 'Hoher Umsatz, moderate Intensität, gut verträglich.',
+  },
+  {
+    key: 'Gesundheit',
+    label: 'Fitness und Gesundheit erhalten',
+    hint: 'Regelmäßig bewegen, Form halten statt steigern.',
+  },
+  {
+    key: 'Erstfinish',
+    label: 'Distanz erstmals finishen',
+    hint: 'Ankommen zählt, die Zeit nicht.',
+  },
 ]
 
 export const RACE_DISTANCES: Record<Discipline, string[]> = {

@@ -87,16 +87,17 @@ def _athlete_block(profile: AthleteProfile | None) -> dict[str, Any]:
         "maximalpuls_geschaetzt": profile.max_hr is None,
         "laktatschwellen_hf": profile.lthr,
         "vo2max": profile.vo2max,
-        "hrv_rmssd": profile.hrv_rmssd,
+        "hrv_ms": profile.hrv_rmssd,
         "ftp_watt": profile.ftp_watts,
         "schwellenpace_laufen_min_pro_km": profile.threshold_pace_run,
         "css_schwimmen_min_pro_100m": profile.css_swim,
-        "trainingserfahrung_jahre": profile.experience_years,
         "aktuelles_wochenvolumen_h": profile.current_weekly_hours,
-        "schlaf_h_pro_nacht": profile.sleep_hours,
         "alltagsbelastung_1_5": profile.stress_level,
         "verletzungen_einschraenkungen": profile.injuries,
+        # Zwei Herkünfte, getrennt benannt: Der Freitext ist die Angabe des
+        # Athleten, die Liste stammt aus Garmins erkannten Laufrekorden.
         "bestzeiten": profile.personal_bests,
+        "bestzeiten_aus_garmin": profile.garmin_personal_bests or None,
         "sonstiges": profile.notes,
     }
 
@@ -274,7 +275,7 @@ def _fitness_block(
         "schlaf_tiefschlaf_h": _stunden(wert("sleep_deep_seconds")),
         "schlaf_rem_h": _stunden(wert("sleep_rem_seconds")),
         "schlafscore_0_100": wert("sleep_score"),
-        "hrv_nachtmittel_ms": wert("hrv_last_night_ms"),
+        "hrv_ms": wert("hrv_last_night_ms"),
         "hrv_status": wert("hrv_status"),
         "hrv_normalbereich_ms": {
             "unten": wert("hrv_baseline_low"),
@@ -304,10 +305,6 @@ def _fitness_block(
             "akutlast": wert("garmin_load_acute"),
             "chronische_last": wert("garmin_load_chronic"),
         },
-        # Ausdrücklich benannt, weil der Feldname im Profil `hrv_rmssd` heißt:
-        # Garmins Nachtmittel ist konzeptionell nahe an RMSSD, aber nicht
-        # dasselbe. Ohne den Hinweis würde die KI beides gleichsetzen.
-        "hrv_quelle": "Garmin Nachtmittel (nicht identisch mit RMSSD einer Kurzmessung)",
     }
 
     return {
@@ -470,18 +467,31 @@ auch über den Blockanfang hinaus: Prüfe `tage_seit_letzter_intensiver_einheit`
 du am ersten Tag hart planst. Nach einer langen Einheit am Folgetag nichts Hartes.
 5. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. \
 Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlänge.
-6. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
+6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 sind Bremsen \
+— sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block \
+enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine lange \
+Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber der letzten Woche \
+in `wochenuebersicht` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, \
+obwohl Erholungslage und ACWR ihn nicht verlangen, verschenkt die Zeit. Bei den Zielen \
+"Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz Pflicht — dort \
+geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in \
+`trainingshistorie.einheiten` nach, welcher Reiz zuletzt gefehlt hat (nichts \
+Intensives, keine lange Einheit, immer dieselbe Dauer) und setze ihn. Bei \
+"Grundlagenausdauer", "Gesundheit", "Gewichtsreduktion", "Erstfinish" und \
+"Wiedereinstieg" zählt Regelmäßigkeit mehr als Reiz — dort steigt zuerst der Umfang, \
+und Intensität bleibt die Ausnahme.
+7. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
 Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf \
 welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.
-7. **Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
+8. **Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
 `tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten \
 zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
 Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
 diesen Block sinnvoll passt.
-8. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
+9. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
 Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
 Schlüsseleinheit. Mobility kurz und regelmäßig.
-9. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
+10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
 aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Steht bei \
 einer Einheit `rpe_quelle` auf etwas anderem als "manual", stammt das RPE nicht vom \
 Athleten, sondern ist aus Herzfrequenzzonen oder Trainingseffekt geschätzt — stütze \

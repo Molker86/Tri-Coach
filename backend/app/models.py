@@ -86,13 +86,24 @@ class AthleteProfile(Base):
     css_swim: Mapped[str | None] = mapped_column(String(16))  # "1:45" min/100m
 
     # Trainingskontext
-    experience_years: Mapped[float | None] = mapped_column(Float)
     current_weekly_hours: Mapped[float | None] = mapped_column(Float)
-    sleep_hours: Mapped[float | None] = mapped_column(Float)
     stress_level: Mapped[int | None] = mapped_column(Integer)  # 1-5 (Beruf/Alltag)
     injuries: Mapped[str | None] = mapped_column(Text)
-    personal_bests: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+
+    # Bestzeiten in zwei Feldern, weil sie zwei Herkünfte haben: `personal_bests`
+    # ist der Freitext des Athleten (Schwimmen, Rad, alte Wettkämpfe),
+    # `garmin_personal_bests` die Laufrekorde, die Garmin selbst erkannt hat —
+    # eine Liste aus {sportart, strecke, zeit, datum}.
+    personal_bests: Mapped[str | None] = mapped_column(Text)
+    garmin_personal_bests: Mapped[list | None] = mapped_column(JSON)
+
+    # Altlasten: Trainingserfahrung und selbst geschätzter Schlaf wurden aus
+    # Oberfläche und Export entfernt (Schlaf misst Garmin, Erfahrung sagt über
+    # den nächsten Block nichts, was die Historie nicht besser sagt). Die
+    # Spalten bleiben stehen, damit bestehende Datenbanken weiterlaufen.
+    experience_years: Mapped[float | None] = mapped_column(Float)
+    sleep_hours: Mapped[float | None] = mapped_column(Float)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
@@ -335,8 +346,7 @@ class WellnessDay(Base):
     sleep_stress_avg: Mapped[float | None] = mapped_column(Float)
     sleep_body_battery_change: Mapped[int | None] = mapped_column(Integer)
 
-    # Herzfrequenzvariabilität. Garmin liefert ein Nachtmittel in ms — nahe an
-    # RMSSD, aber nicht dasselbe; die Herkunft wird deshalb überall ausgewiesen.
+    # Herzfrequenzvariabilität in ms, wie Garmin sie über die Nacht liefert.
     hrv_last_night_ms: Mapped[float | None] = mapped_column(Float)
     hrv_weekly_avg_ms: Mapped[float | None] = mapped_column(Float)
     hrv_status: Mapped[str | None] = mapped_column(String(24))

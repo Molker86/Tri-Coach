@@ -20,6 +20,7 @@ const SCHRITTE = [
   'Gewicht',
   'Körperbatterie',
   'Erholungswerte',
+  'Leistungswerte',
 ]
 
 function vorTagen(tage: number): string {
@@ -409,10 +410,13 @@ function VerbindungsKarte(props: {
             onChange={(e) => props.onEinstellung('profile_sync_enabled', e.target.checked)}
           />
           <span>
-            Gewicht, Ruhepuls, HRV und VO2max ins Profil übernehmen
+            Gewicht, Ruhepuls, HRV, VO2max, Schwellenwerte und Bestzeiten ins
+            Profil übernehmen
             <span className="field-hint">
-              Der Maximalpuls bleibt unangetastet: Garmin schätzt ihn, und er
-              bestimmt alle Herzfrequenzzonen.
+              Schwellenwerte sind FTP, Schwellenpace und Schwellenpuls, Bestzeiten
+              die von Garmin erkannten Laufrekorde. Der Maximalpuls bleibt
+              unangetastet: Garmin schätzt ihn, und er bestimmt alle
+              Herzfrequenzzonen.
             </span>
           </span>
         </label>

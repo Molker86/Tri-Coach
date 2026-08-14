@@ -49,17 +49,26 @@ export default function PlanExchange() {
     }
   }
 
-  function downloadJson() {
+  /**
+   * Lädt genau das herunter, was auch der Kopierknopf liefert: Prompt samt
+   * eingebettetem Datenpaket. Das nackte JSON allein wäre für die KI wertlos —
+   * ohne die Anweisungen davor fehlt ihr die Aufgabe.
+   */
+  function downloadPrompt() {
     if (!exported) return
-    const blob = new Blob([JSON.stringify(exported.payload, null, 2)], {
-      type: 'application/json',
+    const blob = new Blob([exported.combined], {
+      type: 'text/plain;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `tri-coach-daten-${startDate}.json`
+    link.download = `tri-coach-prompt-${startDate}.txt`
+    // Safari lädt nur herunter, was im Dokument hängt, und bricht ab, wenn die
+    // Blob-Adresse noch im selben Tick wieder freigegeben wird.
+    document.body.appendChild(link)
     link.click()
-    URL.revokeObjectURL(url)
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   async function checkPlan() {
@@ -150,8 +159,8 @@ export default function PlanExchange() {
               <button className="btn btn-primary" onClick={copyPrompt}>
                 {copied ? '✓ In die Zwischenablage kopiert' : 'Text kopieren'}
               </button>
-              <button className="btn btn-secondary" onClick={downloadJson}>
-                Nur JSON herunterladen
+              <button className="btn btn-secondary" onClick={downloadPrompt}>
+                Als Datei herunterladen
               </button>
             </div>
 

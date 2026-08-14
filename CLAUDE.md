@@ -52,7 +52,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 114 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 124 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -390,10 +390,63 @@ Handarbeit: Garmin schätzt ihn, liegt oft daneben, und er steuert sämtliche
 Zonen. Geschrieben wird nur bei relevanter Abweichung, sonst entstünde täglich
 ein `ProfileHistory`-Eintrag ohne Erkenntnis. Die History-Logik wurde aus
 `routers/profile.py` nach `profile_sync.uebernehme_profilwerte()` gezogen, damit
-Handeingabe und Gerät dieselbe Regel benutzen. Garmins `lastNightAvg` ist
-übrigens *nicht* rMSSD, sondern ein Nachtmittel — der Spaltenname `hrv_rmssd`
-bleibt (Umbenennen wäre eine Migration ohne Gewinn), die Herkunft wird im Profil
-und im Export ausgewiesen.
+Handeingabe und Gerät dieselbe Regel benutzen. **HRV ist HRV** — ein Wert in ms,
+so beschriftet und so exportiert (`hrv_ms` im Athleten- wie im Fitnessblock).
+Die frühere Unterscheidung „Garmins Nachtmittel ist nicht rMSSD“ stand in
+Oberfläche und Prompt und stiftete mehr Verwirrung als Nutzen; der Spaltenname
+`hrv_rmssd` ist nur noch ein Altname (Umbenennen wäre eine Migration ohne
+Gewinn).
+
+**Die Schwellenwerte kommen aus eigenen Anfragen, nicht aus den Tageswerten**
+(`sync.hole_leistungswerte`, `mapping.ftp_watt` / `schwellenpace_laufen` /
+`schwellenpuls`). FTP, Laktatschwellentempo und Schwellenpuls fallen bei Garmin
+nicht je Tag an: Es gibt jeweils nur den zuletzt erkannten Stand, hinter je
+einem Endpunkt (`get_cycling_ftp`, `get_lactate_threshold`). Sie landen deshalb
+**nicht** in `WellnessDay`, sondern werden am Ende des Laufs eingesammelt und
+über `SyncErgebnis.leistungswerte` an die Profil-Nachführung durchgereicht — in
+*einem* Zug mit Gewicht und Ruhepuls, weil zwei Übernahmen je Abgleich zwei fast
+gleiche `ProfileHistory`-Einträge hinterließen. Am Ende, weil es die billigsten
+Anfragen des Laufs sind; und nur, wenn `profile_sync_enabled` gesetzt ist, sonst
+hätten die Werte keinen Empfänger. Jeder Wert wird gegen die Spanne aus
+`schemas.ProfileIn` geprüft: Diese Zahlen gehen am Pydantic-Schema vorbei direkt
+ins Modell, und weil `ProfileOut` dieselben Grenzen validiert, würde ein
+Ausreißer aus der undokumentierten Schnittstelle die Profilseite mit einem
+Fehler statt mit Daten beantworten. Die Tempo-Spanne prüft dabei vor allem die
+*Einheit* (m/s, nicht km/h). **Die kritische Schwimmgeschwindigkeit (CSS) fehlt
+bewusst**: Garmin führt sie nirgends — weder als Endpunkt noch in den
+Profileinstellungen —, und aus den Trainingsdaten wäre sie nur zu raten. Sie
+bleibt Handarbeit, und die Profilseite sagt das bei verbundenem Konto auch.
+
+**Bestzeiten kommen aus Garmin, aber nur fürs Laufen** (`mapping.bestzeiten`,
+`AthleteProfile.garmin_personal_bests`). `get_personal_record()` kostet eine
+Anfrage und läuft im selben Schritt wie die Schwellenwerte. Der Haken: Jeder
+Eintrag trägt nur eine Kennziffer (`typeId`) und einen nackten `value` — was die
+Zahl bedeutet, sagt Garmin nirgends. Bei den Streckenrekorden sind es Sekunden,
+beim längsten Lauf Meter, bei den Schrittrekorden Schritte. Deshalb dreifach
+abgesichert, statt der Kennziffer zu glauben: nur die sechs Laufstrecken, die
+Connect seit jeher als Bestzeiten führt; der Eintrag muss an einer `activityId`
+hängen (Schritt- und Streak-Rekorde tun das nicht); und der Wert muss als Zeit
+über seine Strecke ein menschenmögliches Tempo ergeben
+(`BESTZEIT_PACE_SPANNE`) — eine fehlgedeutete Zahl fällt so heraus, statt als
+absurde Bestzeit in den Prompt zu wandern. Rad- und Schwimmrekorde bleiben
+ungelesen, weil ihre Kennziffern nicht sicher zuzuordnen sind und eine falsch
+beschriftete Bestzeit schlechter ist als keine. Deshalb **zwei** Felder im
+Profil und zwei Schlüssel im Export: `bestzeiten` ist der Freitext des Athleten
+(Schwimmen, Rad, alte Wettkämpfe), `bestzeiten_aus_garmin` die erkannte Liste.
+Ein Abgleich ohne deutbaren Eintrag schreibt `None` statt einer leeren Liste —
+sonst löschte ein Fehlschlag der Gegenseite die bisherigen Bestzeiten.
+
+**Trainingserfahrung und Schlafstunden sind aus dem Profil verschwunden.** Beide
+waren Selbsteinschätzungen, die nichts trugen: Den Schlaf misst Garmin je Nacht
+(`fitnessdaten`, samt 7-gegen-28-Tage-Mittel und Schlafdefizit-Auffälligkeit),
+und ohne verbundenes Konto fragt ihn das Erfassungsformular je Einheit ab
+(`SessionLog.sleep_hours` — das bleibt). Die Trainingserfahrung in Jahren sagt
+über den nächsten Kurzblock nichts, was `wochenuebersicht`, ACWR und die
+Historie nicht genauer sagen; für die KI war sie vor allem eine Einladung, den
+Block an einer Zahl statt an der Belastungslage auszurichten. Die Spalten
+`experience_years` und `sleep_hours` stehen als Altlasten weiter im Modell
+(Entfernen wäre eine Migration ohne Gewinn), werden aber nirgends mehr gelesen
+oder geschrieben.
 
 **Schemaänderungen laufen jetzt über einen Migrationshelfer** (`database.py`,
 `_NACHGEREICHTE_SPALTEN`). `create_all()` legt fehlende *Tabellen* an, sieht aber
@@ -487,6 +540,26 @@ Abstand statt „alle drei pro Woche". Das Template wird mit `.format()` gefüll
 neue Platzhalter (`{tage}`, `{start}`, `{ende}`) müssen in `build_prompt()`
 mitversorgt werden.
 
+**Punkt 6 ist das Gegengewicht zu allen anderen.** Die Prinzipien 1 bis 4 sind
+Bremsen — sie beschreiben ausschließlich, wann zurückgenommen wird (ACWR, HRV,
+Trainingsreife, 48-h-Abstand). Ein Regelwerk, das nur bremst, liest sich für ein
+Sprachmodell als Auftrag zur Vorsicht: Es plante zuverlässig sichere
+Z2-Wochen und nie den Reiz, aus dem Anpassung entsteht. Punkt 6 dreht die
+Beweislast um — greift keine Bremse, ist Aufbau die Vorgabe, mit mindestens
+einem gezielten Reiz und bis zu ~10 % mehr Wochenlast. Weil ein Block nur wenige
+Tage weit reicht und jeder Export bei null anfängt, entsteht Progression nicht
+aus einem Zyklusplan, sondern allein daraus, dass jeder einzelne Block sie
+enthält.
+
+Punkt 6 spricht die **Zielschlüssel namentlich an** („Aufbau", „Bestzeit",
+„Wettkampfvorbereitung" verlangen einen Reiz; „Grundlagenausdauer",
+„Gesundheit", „Gewichtsreduktion", „Erstfinish", „Wiedereinstieg" stellen
+Regelmäßigkeit voran). Die Schlüssel stehen in `GOAL_OPTIONS`
+(`frontend/src/constants.ts`) und gehen unverändert als `trainingswunsch.ziel`
+in den Payload — ein neues Ziel oder ein umbenannter Schlüssel muss deshalb im
+Prompt mitgezogen werden, sonst fällt es dort stillschweigend in keine der
+beiden Gruppen.
+
 Punkt 2 der Prinzipien ist der Platzhalter `{fitnessregeln}` und existiert in
 zwei Fassungen (`FITNESSREGELN_MIT_DATEN` / `_OHNE_DATEN`) — welche eingesetzt
 wird, entscheidet `build_prompt()` daran, ob der Payload einen
@@ -505,14 +578,29 @@ Klammern müssten verdoppelt werden.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
   bleibt es beim Löschen der Datei. Die Tabelle `garmin_workout_links` legt
-  `create_all()` beim Start an, die zwei Zählwerke an `garmin_sync_jobs` kommen
-  über den Helfer.
+  `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs` und
+  `athlete_profiles.garmin_personal_bests` kommen über den Helfer.
 - Die genaue Form von `get_sleep_daily()` (Zeilen aus `individualStats`) ist
   nicht dokumentiert. Der Mapper liest sie über mehrere Pfade und fällt auf die
   Tagesantwort zurück; **beim ersten echten Rückblick prüfen**, ob Schlafdauer
   und -phasen für den älteren Teil des Zeitraums ankommen.
 - Der Rückblick über ein Jahr wurde bisher nur gegen die Nachbildung geprüft,
   nicht gegen ein echtes Konto.
+- Auch die Antwortform von `get_cycling_ftp()` und `get_lactate_threshold()` ist
+  nicht dokumentiert. Der Mapper liest beide über mehrere Pfade und verwirft,
+  was außerhalb der Profilspannen liegt; **beim ersten echten Abgleich prüfen**,
+  ob FTP, Schwellenpace und Schwellenpuls tatsächlich ankommen — bleiben sie
+  leer, steht der Grund als Hinweis in der Meldung des Laufs.
+- Die Kennziffern in `get_personal_record()` sind ebenfalls nirgends
+  dokumentiert; die Zuordnung in `BESTZEIT_STRECKEN` ist aus Garmin Connect
+  abgelesen und über die Tempo-Spanne abgesichert, nicht bestätigt. **Beim
+  ersten echten Abgleich prüfen**, ob die Strecken zu den Zeiten passen. Rad-
+  und Schwimmbestzeiten fehlen deshalb ganz — sie bleiben Freitext.
+- Die **kritische Schwimmgeschwindigkeit (CSS)** bleibt das einzige
+  Handarbeitsfeld unter den Leistungswerten: Garmin führt sie nicht. Aus den
+  Trainingsdaten ließe sie sich nur schätzen — die Dauer eines importierten
+  Trainings steht auf ganze Minuten gerundet in `SessionLog`, was für einen
+  200-m-Testabschnitt schon 10 % Fehler bedeutet.
 - Die Anmeldung schützt nichts: Jeder, der die App erreicht, kann jedes Konto
   wählen (bewusst — siehe „Anmeldung"). Der Schutz kommt vom Ingress davor.
 - Kein Löschen von Konten in der Oberfläche; ein Konto bleibt für immer in der

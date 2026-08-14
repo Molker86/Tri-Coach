@@ -105,7 +105,6 @@ def test_profile_and_zones(client, auth):
             "vo2max": 54.2,
             "hrv_rmssd": 68,
             "ftp_watts": 265,
-            "experience_years": 6,
             "current_weekly_hours": 7,
         },
     )

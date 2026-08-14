@@ -32,6 +32,13 @@ export interface HrZone {
   estimated_max_hr: boolean
 }
 
+export interface GarminBestzeit {
+  sportart: string
+  strecke: string
+  zeit: string
+  datum: string | null
+}
+
 export interface Profile {
   birth_date: string | null
   sex: 'female' | 'male' | 'diverse' | 'none' | null
@@ -49,12 +56,13 @@ export interface Profile {
   threshold_pace_run: string | null
   css_swim: string | null
 
-  experience_years: number | null
   current_weekly_hours: number | null
-  sleep_hours: number | null
   stress_level: number | null
   injuries: string | null
   personal_bests: string | null
+  // Aus Garmin erkannte Laufbestzeiten. Nur lesbar — das Backend kennt das Feld
+  // bewusst nicht als Eingabe.
+  garmin_personal_bests: GarminBestzeit[] | null
   notes: string | null
 
   updated_at: string | null
