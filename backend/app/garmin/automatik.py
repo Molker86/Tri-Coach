@@ -6,7 +6,9 @@ Uvicorn-Prozess, ein zweites Laufzeitteil wäre mehr Betrieb als Nutzen.
 Die Schleife wacht viertelstündlich auf und *prüft*, ob heute schon abgeglichen
 wurde, statt auf einen festen Zeitpunkt zu zielen. Das ist gegen Neustarts
 robust: Der letzte Lauf steht in der Datenbank, nicht in einem Wecker. War der
-Rechner um fünf Uhr aus, holt es der erste Aufwacher nach dem Start nach.
+Rechner um neun Uhr aus, holt es der erste Aufwacher nach dem Start nach.
+Gestartet wird deshalb ab `GARMIN_SYNC_HOUR`, nicht auf die Minute genau — der
+Lauf beginnt innerhalb der Viertelstunde danach.
 
 Der Abgleich läuft im Server, nicht im Browser — es muss niemand die Seite
 offen haben.

@@ -77,7 +77,7 @@ Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
 erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
 Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
 (`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
-`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 5).
+`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 9).
 
 ## Architekturentscheidungen (und warum)
 

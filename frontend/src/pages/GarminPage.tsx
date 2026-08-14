@@ -398,7 +398,7 @@ function VerbindungsKarte(props: {
           <span>
             Täglich automatisch abgleichen
             <span className="field-hint">
-              Läuft im Hintergrund — die App muss dafür nicht geöffnet sein.
+              Läuft ab 9 Uhr im Hintergrund — die App muss dafür nicht geöffnet sein.
             </span>
           </span>
         </label>
