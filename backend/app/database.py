@@ -64,6 +64,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
     },
+    # Bis wann Daten geholt wurden. Ohne den Wert holt der erste Abgleich nach
+    # dem Update einmal das volle Jahr — richtig so: Was vorher gedeckt war,
+    # weiß die bestehende Datenbank nicht.
+    "garmin_accounts": {
+        "synced_through": "DATE",
+    },
     # Zählwerke für die Gegenrichtung: geplante Einheiten nach Garmin schieben.
     "garmin_sync_jobs": {
         "workouts_pushed": "INTEGER NOT NULL DEFAULT 0",

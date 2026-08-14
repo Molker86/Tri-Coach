@@ -59,14 +59,22 @@ PAUSE_SEKUNDEN = 5.0
 # Fenster plus Puffer.
 TAGESSCHLEIFE_TAGE = 42
 
-# Überlappung beim laufenden Abgleich. Garmin trägt Schlaf- und Erholungswerte
-# teils Stunden später nach; ohne Überlappung bliebe die Lücke für immer. Der
-# Wert deckt bewusst das volle Rückblickfenster des KI-Exports ab (4 Wochen):
-# Was nachträglich in Garmin auftaucht oder beim letzten Lauf gefehlt hat, wird
-# so noch geholt, solange es die Planung überhaupt beeinflussen kann. Preis
-# dafür ist die Tagesschleife — sie läuft mit 5 s Pause je Tag entsprechend
-# länger.
-INKREMENT_TAGE = 28
+# Wie weit ein Abgleich zurückreicht, solange noch nichts geholt wurde. Ein Jahr
+# deckt einen vollen Saisonverlauf ab — der Athlet sieht seine Historie, und die
+# Wochenübersicht steht vom ersten Tag an auf echten Zahlen statt auf vier
+# Wochen. Es ist zugleich die Grenze, ab der ältere Werte für die Planung nichts
+# mehr tragen.
+RUECKBLICK_TAGE = 365
+
+# Überlappung beim laufenden Abgleich: die Tage, die *jeder* Lauf erneut holt.
+# Garmin trägt Schlaf-, Erholungs- und Trainingswerte teils Stunden später nach,
+# und wer erst abends synchronisiert, hat den Tag noch halb offen — ohne
+# Überlappung bliebe die Lücke für immer. Alles Ältere wird genau einmal geholt
+# und danach nicht wieder angefasst: Das kostet sonst je Tag vier Anfragen und
+# 5 s Pause an einer Gegenstelle mit Anfragegrenze, ohne dass sich an fertigen
+# Tagen noch etwas ändert. Preis der kurzen Überlappung: Was Garmin *später* als
+# fünf Tage nachträgt, kommt nur noch über einen ausdrücklichen Rückblick nach.
+AKTUALISIERUNGSFENSTER_TAGE = 5
 
 
 def _now() -> datetime:
@@ -707,14 +715,46 @@ def fuehre_sync_aus(
     return ergebnis
 
 
-def standard_zeitraum(kind: str, heute: date, backfill_von: date | None = None) -> tuple[date, date, date]:
+def standard_zeitraum(
+    kind: str,
+    heute: date,
+    backfill_von: date | None = None,
+    *,
+    gedeckt_von: date | None = None,
+    gedeckt_bis: date | None = None,
+) -> tuple[date, date, date]:
     """Zeitraum und Beginn der Tagesschleife für einen Lauf.
+
+    `gedeckt_von`/`gedeckt_bis` ist der bereits geholte Zeitraum des Kontos
+    (`GarminAccount.backfill_from` / `.synced_through`). Ein laufender Abgleich
+    holt daraus nur noch, was fehlt — der Rückblick reicht ein Jahr weit, aber
+    nur beim ersten Mal. Ein Backfill fragt bewusst nicht danach: Er ist der
+    Weg, einen Zeitraum *trotz* vorhandener Daten noch einmal zu holen.
 
     Rückgabe: (von, bis, tagesschleife_von).
     """
     if kind == "backfill":
-        von = backfill_von or (heute - timedelta(days=365))
+        von = backfill_von or (heute - timedelta(days=RUECKBLICK_TAGE))
     else:
-        von = heute - timedelta(days=INKREMENT_TAGE)
+        von = _offener_anfang(heute, gedeckt_von, gedeckt_bis)
     tagesschleife_von = max(von, heute - timedelta(days=TAGESSCHLEIFE_TAGE))
     return von, heute, tagesschleife_von
+
+
+def _offener_anfang(
+    heute: date, gedeckt_von: date | None, gedeckt_bis: date | None
+) -> date:
+    """Ab welchem Tag ein laufender Abgleich noch etwas zu holen hat.
+
+    Reicht das bisher Geholte nicht das volle Jahr zurück, beginnt der Lauf vor
+    einem Jahr — das ist der erste Abgleich eines Kontos und der einzige lange.
+    Sonst schließt er lückenlos an das zuletzt Geholte an: War die App drei
+    Wochen aus, sind es drei Wochen, nicht fünf Tage. Das Aktualisierungsfenster
+    ist dabei die Untergrenze, nie die Regel — die letzten Tage kommen immer
+    mit, auch wenn sie schon einmal geholt wurden.
+    """
+    jahresanfang = heute - timedelta(days=RUECKBLICK_TAGE)
+    fensteranfang = heute - timedelta(days=AKTUALISIERUNGSFENSTER_TAGE)
+    if gedeckt_von is None or gedeckt_bis is None or gedeckt_von > jahresanfang:
+        return jahresanfang
+    return max(jahresanfang, min(fensteranfang, gedeckt_bis + timedelta(days=1)))

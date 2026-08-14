@@ -7,12 +7,13 @@ Möglich ist das, weil der gesamte Zugriff durch zwei Funktionen in
 
 from datetime import date, timedelta
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.database import SessionLocal, engine
 from app.garmin import runner as runner_modul
 from app.garmin.errors import GarminAnmeldungFehlgeschlagen, GarminTokenUngueltig
-from app.models import GarminAccount, WellnessDay
+from app.garmin.sync import standard_zeitraum
+from app.models import GarminAccount, GarminSyncJob, WellnessDay
 
 from fakes import baue_aktivitaet
 
@@ -373,6 +374,138 @@ def test_dubletten_werden_benannt_nicht_geloescht(client, verbunden):
 
     # Nichts wurde ungefragt entfernt
     assert client.get(f"/api/logs/{manuell_id}", headers=verbunden).status_code == 200
+
+
+# --------------------------------------------------------------------------
+# Zuschnitt des Abgleichs
+#
+# Der Knopf „Jetzt synchronisieren" holt beim ersten Mal ein Jahr und danach nur
+# noch die letzten Tage. Was dazwischen liegt, steht schon in der Datenbank —
+# es erneut anzufragen kostete je Tag vier Anfragen an eine Gegenstelle mit
+# Anfragegrenze, ohne dass sich an fertigen Tagen noch etwas ändert.
+# --------------------------------------------------------------------------
+
+
+def _sync(client, auth) -> dict:
+    antwort = client.post("/api/garmin/sync", headers=auth)
+    assert antwort.status_code == 202, antwort.text
+    return client.get(f"/api/garmin/jobs/{antwort.json()['id']}", headers=auth).json()
+
+
+def _setze_gedeckt_bis(job_id: int, bis: date) -> None:
+    """Stellt das gedeckte Fenster eines Kontos zurück — der Weg über den Lauf,
+    weil die Tests die Kennung des Nutzers nicht kennen."""
+    with SessionLocal() as db:
+        job = db.get(GarminSyncJob, job_id)
+        konto = db.scalar(
+            select(GarminAccount).where(GarminAccount.user_id == job.user_id)
+        )
+        konto.synced_through = bis
+        db.commit()
+
+
+def test_erster_abgleich_holt_ein_jahr(client, verbunden):
+    lauf = _sync(client, verbunden)
+
+    assert lauf["state"] == "done", lauf["message"]
+    assert lauf["range_start"] == (HEUTE - timedelta(days=365)).isoformat()
+    assert lauf["range_end"] == HEUTE.isoformat()
+
+    konto = client.get("/api/garmin/status", headers=verbunden).json()["konto"]
+    assert konto["backfill_from"] == (HEUTE - timedelta(days=365)).isoformat()
+    assert konto["synced_through"] == HEUTE.isoformat()
+
+
+def test_zweiter_abgleich_holt_nur_die_letzten_tage(client, verbunden):
+    _sync(client, verbunden)
+    zweiter = _sync(client, verbunden)
+
+    assert zweiter["state"] == "done", zweiter["message"]
+    assert zweiter["range_start"] == (HEUTE - timedelta(days=5)).isoformat()
+    # Und die Tagesschleife wird nicht länger als der Zeitraum selbst.
+    assert zweiter["range_end"] == HEUTE.isoformat()
+
+
+def test_lange_pause_wird_lueckenlos_nachgeholt(client, verbunden):
+    """War die App drei Wochen aus, sind es drei Wochen — nicht fünf Tage."""
+    erster = _sync(client, verbunden)
+    _setze_gedeckt_bis(erster["id"], HEUTE - timedelta(days=20))
+
+    nach_der_pause = _sync(client, verbunden)
+    assert nach_der_pause["range_start"] == (HEUTE - timedelta(days=19)).isoformat()
+
+
+def test_gescheiterter_lauf_gilt_nicht_als_geholt(client, garmin_auth, fake):
+    """Sonst wäre der nie geschriebene Rest des Zeitraums für immer eine Lücke."""
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    fake._rate_limit_ab_tag = 3
+
+    gescheitert = _sync(client, garmin_auth)
+    assert gescheitert["state"] == "rate_limited"
+
+    konto = client.get("/api/garmin/status", headers=garmin_auth).json()["konto"]
+    assert konto["synced_through"] is None
+
+
+def test_automatischer_abgleich_schneidet_genauso_zu(client, verbunden):
+    """Die Nachtschicht holt nach denselben Regeln wie der Knopf."""
+    from datetime import datetime
+
+    from app.config import GARMIN_SYNC_HOUR
+    from app.garmin.automatik import starte_faellige_syncs
+
+    # Konten aus früheren Tests teilen sich die Datenbank; `starte_faellige_syncs`
+    # nimmt sich bewusst nur eines je Aufwachen. Ohne diese Zeilen wäre nicht
+    # bestimmt, welches.
+    with SessionLocal() as db:
+        eigenes = db.scalar(select(GarminAccount).order_by(GarminAccount.id.desc()))
+        for konto in db.scalars(select(GarminAccount)).all():
+            konto.auto_sync_enabled = konto.id == eigenes.id
+        db.commit()
+
+    jetzt = datetime.now().replace(hour=GARMIN_SYNC_HOUR, minute=0)
+    assert starte_faellige_syncs(jetzt) == 1
+
+    zustand = client.get("/api/garmin/status", headers=verbunden).json()
+    assert zustand["letzter_job"]["kind"] == "auto"
+    assert zustand["letzter_job"]["range_start"] == (
+        HEUTE - timedelta(days=365)
+    ).isoformat()
+    assert zustand["konto"]["synced_through"] == HEUTE.isoformat()
+
+    # Zweimal am selben Tag gibt es nichts mehr zu tun.
+    assert starte_faellige_syncs(jetzt) == 0
+
+
+def test_teilweise_gedeckt_holt_das_fehlende_jahr(client):
+    """Wer nur drei Monate hat, bekommt beim nächsten Lauf den Rest des Jahres."""
+    von, bis, tagesschleife = standard_zeitraum(
+        "incremental",
+        HEUTE,
+        gedeckt_von=HEUTE - timedelta(days=90),
+        gedeckt_bis=HEUTE,
+    )
+    assert von == HEUTE - timedelta(days=365)
+    assert bis == HEUTE
+    # Die Tagesschleife bleibt trotzdem bei sechs Wochen: Trainingsreife und
+    # Trainingsstatus sind Momentaufnahmen.
+    assert tagesschleife == HEUTE - timedelta(days=42)
+
+
+def test_rueckblick_holt_trotz_deckung_erneut(client):
+    """Der Rückblick ist der Weg, einen Zeitraum *trotz* vorhandener Daten zu holen."""
+    von, _, _ = standard_zeitraum(
+        "backfill",
+        HEUTE,
+        HEUTE - timedelta(days=200),
+        gedeckt_von=HEUTE - timedelta(days=365),
+        gedeckt_bis=HEUTE,
+    )
+    assert von == HEUTE - timedelta(days=200)
 
 
 # --------------------------------------------------------------------------

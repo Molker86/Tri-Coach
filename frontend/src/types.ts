@@ -244,6 +244,7 @@ export interface GarminAccount {
   connected_at: string
   last_sync_at: string | null
   backfill_from: string | null
+  synced_through: string | null
   rate_limited_until: string | null
   auto_sync_enabled: boolean
   profile_sync_enabled: boolean

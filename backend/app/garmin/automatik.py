@@ -70,7 +70,14 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
             if liegt_in_der_zukunft(konto.rate_limited_until):
                 continue
 
-            von, bis, tagesschleife = standard_zeitraum("incremental", heute)
+            # Derselbe Zuschnitt wie beim Knopf: ein Jahr beim ersten Mal,
+            # danach nur noch, was seither dazugekommen ist.
+            von, bis, tagesschleife = standard_zeitraum(
+                "incremental",
+                heute,
+                gedeckt_von=konto.backfill_from,
+                gedeckt_bis=konto.synced_through,
+            )
             runner.starte(konto.user_id, "auto", von, bis, tagesschleife)
             gestartet += 1
             # Nur ein Konto je Aufwachen: Zwei Läufe gleichzeitig sind ohnehin

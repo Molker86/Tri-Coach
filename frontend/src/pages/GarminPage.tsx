@@ -517,16 +517,22 @@ function AbgleichKarte(props: {
         >
           {props.busy ? 'Startet …' : 'Jetzt synchronisieren'}
         </button>
-        <span className="muted small">Holt die letzten vier Wochen nach.</span>
+        <span className="muted small">
+          {props.konto.synced_through
+            ? 'Holt die letzten fünf Tage nach — was älter ist, steht schon hier.'
+            : 'Holt beim ersten Mal das letzte Jahr. Das dauert einige Minuten.'}
+        </span>
       </div>
 
       <div className="divider" />
 
       <h3>Einmaliger Rückblick</h3>
       <p className="muted">
-        Holt deine Trainingshistorie aus Garmin. Für die Erholungswerte
-        (Trainingsreife, Stress) reichen die letzten sechs Wochen — sie sind
-        Momentaufnahmen und rückwirkend ohne Aussagekraft für die Planung.
+        Holt einen Zeitraum noch einmal — auch Tage, die schon geholt wurden.
+        Nötig ist das selten: Der Abgleich oben deckt das letzte Jahr von allein
+        ab. Für die Erholungswerte (Trainingsreife, Stress) reichen die letzten
+        sechs Wochen — sie sind Momentaufnahmen und rückwirkend ohne
+        Aussagekraft für die Planung.
       </p>
       <div className="row">
         <div className="field-slot">

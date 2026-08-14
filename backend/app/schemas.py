@@ -415,6 +415,7 @@ class GarminAccountOut(BaseModel):
     connected_at: datetime
     last_sync_at: datetime | None = None
     backfill_from: date | None = None
+    synced_through: date | None = None
     rate_limited_until: datetime | None = None
     auto_sync_enabled: bool
     profile_sync_enabled: bool

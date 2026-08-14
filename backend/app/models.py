@@ -307,7 +307,14 @@ class GarminAccount(Base):
 
     connected_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Der bereits geholte Zeitraum, als lückenloses Fenster: der früheste und
+    # der späteste Tag, für die Daten angefragt wurden. Daraus bestimmt
+    # `sync.standard_zeitraum()`, was ein Abgleich überhaupt noch holen muss —
+    # ohne das würde jeder Lauf dasselbe Jahr erneut abfragen. Beide werden nur
+    # nach einem *erfolgreichen* Lauf fortgeschrieben: Ein Anspruch auf Daten,
+    # die nie ankamen, wäre eine Lücke für immer.
     backfill_from: Mapped[date | None] = mapped_column(Date)
+    synced_through: Mapped[date | None] = mapped_column(Date)
     # Nach einem 429 gesetzt. Garmin sperrt bis zu 48 Stunden, und jeder weitere
     # Versuch verlängert die Sperre — deshalb wird sie hier festgehalten, statt
     # es einfach nochmal zu probieren.

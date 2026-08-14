@@ -52,7 +52,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 124 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 131 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -237,6 +237,29 @@ trägt keine Planungsentscheidung mehr. Zwischen zwei Tagen liegen 5 s Pause —
 pro Tag, nicht pro Anfrage. Alles ist ein Upsert über `(user_id, date)` bzw.
 `(user_id, garmin_activity_id)`, damit ein zweiter Lauf nichts verdoppelt und
 ein Wiederaufsetzen nach einer Sperre folgenlos bleibt.
+
+**Jeder Tag wird einmal geholt, die letzten fünf immer wieder**
+(`sync.standard_zeitraum`, `GarminAccount.backfill_from` /
+`synced_through`). „Jetzt synchronisieren" holt beim ersten Mal ein volles Jahr
+(`RUECKBLICK_TAGE` = 365) — die Historie ist der teuerste Teil des Exports und
+soll nicht an einem gesondert anzustoßenden Rückblick hängen. Danach holt
+derselbe Knopf nur noch das `AKTUALISIERUNGSFENSTER_TAGE` = 5 Tage breite
+Fenster: Garmin trägt Schlaf- und Erholungswerte Stunden später nach, und wer
+abends synchronisiert, hat den Tag halb offen — fertige Tage dagegen ändern sich
+nicht mehr und kosten in der Tagesschleife je vier Anfragen und 5 s. Das schon
+Geholte steht als **lückenloses Fenster** am Konto, nicht je Tag: Ein Tag ohne
+jeden Messwert hinterlässt keine `WellnessDay`-Zeile und würde sonst für immer
+neu angefragt. Der nächste Lauf setzt deshalb an `synced_through + 1` an,
+gedeckelt auf das Aktualisierungsfenster — war die App drei Wochen aus, sind es
+drei Wochen. Fortgeschrieben wird **nur nach einem erfolgreichen Lauf**: Ein
+Abbruch hat seinen Zeitraum nur teilweise geschrieben, und ein Anspruch auf
+Daten, die nie ankamen, wäre eine Lücke für immer. Der Preis der kurzen
+Überlappung: Was Garmin später als fünf Tage nachträgt, kommt nur noch über
+einen ausdrücklichen Rückblick nach — der fragt bewusst *nicht* nach dem
+gedeckten Fenster und ist damit der Weg, einen Zeitraum trotz vorhandener Daten
+erneut zu holen. Der automatische Abgleich (`automatik.py`) benutzt denselben
+Zuschnitt; für bestehende Datenbanken ist `synced_through` leer, der erste
+Abgleich nach dem Update holt also einmal das ganze Jahr.
 
 **Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
 `BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach
@@ -578,8 +601,14 @@ Klammern müssten verdoppelt werden.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
   bleibt es beim Löschen der Datei. Die Tabelle `garmin_workout_links` legt
-  `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs` und
-  `athlete_profiles.garmin_personal_bests` kommen über den Helfer.
+  `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
+  `athlete_profiles.garmin_personal_bests` und
+  `garmin_accounts.synced_through` kommen über den Helfer.
+- Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus
+  einem zweiten Gerät, korrigierter Schlaf), holt kein Abgleich mehr von
+  allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im
+  Zeitraum scheitert, nicht teilweise als geholt gelten: `synced_through` rückt
+  nur im Erfolgsfall vor, der nächste Lauf wiederholt den ganzen Zeitraum.
 - Die genaue Form von `get_sleep_daily()` (Zeilen aus `individualStats`) ist
   nicht dokumentiert. Der Mapper liest sie über mehrere Pfade und fällt auf die
   Tagesantwort zurück; **beim ersten echten Rückblick prüfen**, ob Schlafdauer

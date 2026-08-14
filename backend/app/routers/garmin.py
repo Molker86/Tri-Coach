@@ -261,11 +261,21 @@ def brich_ab(job_id: int, user: CurrentUser, db: DbSession) -> GarminSyncJob:
 
 @router.post("/sync", response_model=GarminJobOut, status_code=status.HTTP_202_ACCEPTED)
 def sync(user: CurrentUser, db: DbSession) -> GarminSyncJob:
-    """Holt die jüngsten Daten nach — der Knopf für den Alltag."""
+    """Holt nach, was fehlt — der Knopf für den Alltag.
+
+    Beim ersten Mal ist das ein volles Jahr, danach nur noch das
+    Aktualisierungsfenster; was dazwischen liegt, steht bereits in der
+    Datenbank (siehe `sync.standard_zeitraum`).
+    """
     konto = _konto_oder_fehler(db, user.id)
     _pruefe_startbar(db, konto)
 
-    von, bis, tagesschleife = standard_zeitraum("incremental", date.today())
+    von, bis, tagesschleife = standard_zeitraum(
+        "incremental",
+        date.today(),
+        gedeckt_von=konto.backfill_from,
+        gedeckt_bis=konto.synced_through,
+    )
     job_id = runner.starte(user.id, "incremental", von, bis, tagesschleife)
     return db.get(GarminSyncJob, job_id)
 

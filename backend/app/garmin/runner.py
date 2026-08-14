@@ -202,8 +202,15 @@ class SyncRunner:
             konto.status = "connected"
             konto.status_message = None
             konto.rate_limited_until = None
+            # Das gedeckte Fenster fortschreiben — **nur hier**, im Erfolgsfall.
+            # Ein abgebrochener oder gesperrter Lauf hat seinen Zeitraum nur
+            # teilweise geschrieben; würde er trotzdem als gedeckt gelten,
+            # bliebe der Rest für immer eine Lücke, weil der nächste Abgleich
+            # nur noch das Aktualisierungsfenster holte.
             if konto.backfill_from is None or von < konto.backfill_from:
                 konto.backfill_from = von
+            if konto.synced_through is None or bis > konto.synced_through:
+                konto.synced_through = bis
             db.commit()
 
             self._fuehre_profil_nach(db, konto, user_id, ergebnis.leistungswerte)
