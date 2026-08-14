@@ -52,7 +52,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 131 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 176 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -98,6 +98,43 @@ hart trainiert werden darf. Weil ein Block schnell ausläuft, weist das Dashboar
 darauf hin, sobald der aktive Block heute endet oder vorbei ist (`blockStatus()`
 in `Dashboard.tsx`) — sonst stünde der Nutzer mit einem abgelaufenen Plan da,
 ohne dass die App etwas dazu sagt.
+
+**Ein laufender Block darf jederzeit überbügelt werden** (`ai_export._ersatz_block`,
+`plan_aufraeumen.py`). „Neu planen ab heute" erzeugt einen frischen Block ab dem
+heutigen Tag, während der bisherige noch läuft — der Fall tritt häufiger ein als
+das Anhängen: Eine Erkältung, eine verschobene Dienstreise oder ein spontanes
+Rennen machen die Resttage wertlos, lange bevor der Block ausläuft. Der Fragebogen
+wird dafür nicht erneut ausgefüllt; der Export nimmt ohne `request_id` ohnehin den
+zuletzt gespeicherten. Technisch konnte die App das immer (jeder Import legt einen
+neuen Plan an und legt den bisherigen still) — gefehlt haben zwei Dinge.
+
+Erstens **weiß die KI sonst nichts davon**: Sie sähe unter
+`trainingshistorie.aktueller_plan` einen Block über dieselben Tage und schriebe
+ihn fort, statt neu zu entscheiden. Überschneiden sich die Zeiträume, trägt
+`planungszeitraum` deshalb `ersetzt_laufenden_block` samt der verworfenen
+Einheiten, und der Prompt bekommt über `{ersatzhinweis}` einen Absatz dazu —
+ausdrücklich als Kontext und **keine Vorgabe**, mit dem Zusatz, dass allein
+`trainingshistorie.einheiten` sagt, was tatsächlich stattgefunden hat (geplant
+ist nicht absolviert). Ohne Überschneidung fehlen Schlüssel und Absatz, denn beim
+Anhängen des nächsten Blocks wird nichts ersetzt.
+
+Zweitens **stapeln sich die abgelösten Blöcke**: Wer täglich neu plant, hätte nach
+einem Monat dreißig Pläne unter „Frühere Pläne", von denen neunundzwanzig nie eine
+Einheit getragen haben. `raeume_abgeloeste_plaene()` löscht deshalb, was der aktive
+Block überdeckt, in die Zukunft ragt und weder ein erfasstes Training noch eine
+Garmin-Übertragung trägt — ein abgeschlossener Block bleibt als Verlauf stehen,
+ein beiseitegelegter ohne Überschneidung ebenso. Die Garmin-Bedingung ist dabei
+zwingend und nicht bloß vorsichtig: Was in Garmin liegt, wird ausschließlich über
+`GarminWorkoutLink` wieder entfernt, und der stirbt mit dem Plan. Deshalb läuft
+dasselbe Aufräumen an **zwei** Stellen — beim Import und am Ende jedes
+Garmin-Laufs, wo `raeume_ersetzte_auf()` die Einheiten gerade aus dem fremden
+Kalender genommen hat und die Bedingung damit erfüllt ist.
+
+Im Frontend rechnet `planung.ts` beide Startdaten aus: heute für den Ersatz, der
+Tag nach dem Blockende fürs Anhängen — **nie rückwirkend**, ein vor einer Woche
+ausgelaufener Block startete sonst in der Vergangenheit. Datiert wird in Ortszeit,
+weil `toISOString()` hierzulande abends bereits den Folgetag liefert und ein Block
+„ab heute" dann einen Tag zu spät anfinge.
 
 **Anmeldung ohne Passwort, per Kontoauswahl.** `/api/auth/users` liefert alle
 Konten als `{id, username}`, `/api/auth/login` nimmt nur noch eine `user_id` und
@@ -794,6 +831,10 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 - Das Aufräumen vergangener Einheiten lässt sich nicht abschalten und hängt an
   einem Abgleich oder einer Übertragung; wer beides nie auslöst, behält seine
   alten Vorlagen.
+- Ein überbügelter Block, dessen Einheiten schon in Garmin liegen, bleibt bis
+  zum nächsten Garmin-Lauf in der Planliste stehen — vorher darf er nicht
+  gelöscht werden, sonst käme niemand mehr an seine Workouts heran. Wer nie
+  überträgt und nie abgleicht, behält ihn.
 - Wird ein Plan gelöscht, verschwindet nur die Zuordnung — was schon in Garmin
   steht, bleibt dort. Das Aufräumen erreicht diese Vorlagen nicht mehr: Es geht
   ausschließlich über `GarminWorkoutLink`, und der ist mit dem Plan gelöscht

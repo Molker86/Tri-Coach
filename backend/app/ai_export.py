@@ -225,6 +225,47 @@ def _history_block(
     return block
 
 
+def _ersatz_block(plan: Plan | None, start: date) -> dict[str, Any] | None:
+    """Was ein neuer Block verdrängt, wenn er in einen laufenden hineinplant.
+
+    Ein Block lässt sich jederzeit neu erzeugen — auch mitten in einem
+    laufenden, wenn die Woche anders kam als gedacht. Dann überlappen sich
+    `planungszeitraum` und `aktueller_plan`, und ohne diesen Block wüsste die KI
+    nicht, welcher von beiden gilt: Sie sähe einen Plan über dieselben Tage und
+    schriebe ihn fort, statt neu zu entscheiden.
+
+    Die verdrängten Einheiten stehen bewusst mit dabei. Sie sind keine Vorgabe,
+    sondern Kontext — die KI soll erkennen, welcher Reiz gerade ausfällt, und
+    ihn setzen, falls die Daten ihn tragen.
+
+    `None`, sobald sich nichts überschneidet: Beim Anhängen des nächsten Blocks
+    (Start nach dem Ende des laufenden) wird nichts ersetzt.
+    """
+    if plan is None or not plan.is_active or plan.end_date < start:
+        return None
+
+    verdraengt = sorted(
+        (s for s in plan.sessions if s.date >= start),
+        key=lambda s: (s.date, s.order_in_day),
+    )
+    return {
+        "titel": plan.title,
+        "bisheriges_ende": plan.end_date.isoformat(),
+        "verworfene_tage": sorted({s.date.isoformat() for s in verdraengt}),
+        "verworfene_einheiten": [
+            {
+                "datum": s.date.isoformat(),
+                "sportart": s.sport,
+                "typ": s.session_type,
+                "titel": s.title,
+                "dauer_min": s.duration_min,
+            }
+            for s in verdraengt
+            if s.sport != "rest"
+        ],
+    }
+
+
 def _stunden(sekunden: int | None) -> float | None:
     return None if sekunden is None else round(sekunden / 3600, 1)
 
@@ -364,6 +405,21 @@ def build_payload(
 
     fitness = _fitness_block(wellness or [], date.today())
 
+    zeitraum: dict[str, Any] = {
+        "startdatum": start.isoformat(),
+        "tage": days,
+        "enddatum": (start + timedelta(days=days - 1)).isoformat(),
+        # Gleiche Schreibweise wie `verfuegbare_tage`, damit die KI die
+        # Wochentagsregeln des Fragebogens direkt auf die Daten abbilden kann.
+        "wochentage": [
+            WEEKDAYS[(start + timedelta(days=i)).weekday()] for i in range(days)
+        ],
+    }
+
+    ersatz = _ersatz_block(plan, start)
+    if ersatz is not None:
+        zeitraum["ersetzt_laufenden_block"] = ersatz
+
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "erzeugt_am": date.today().isoformat(),
@@ -371,16 +427,7 @@ def build_payload(
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request),
         "trainingshistorie": _history_block(logs, profile, plan),
-        "planungszeitraum": {
-            "startdatum": start.isoformat(),
-            "tage": days,
-            "enddatum": (start + timedelta(days=days - 1)).isoformat(),
-            # Gleiche Schreibweise wie `verfuegbare_tage`, damit die KI die
-            # Wochentagsregeln des Fragebogens direkt auf die Daten abbilden kann.
-            "wochentage": [
-                WEEKDAYS[(start + timedelta(days=i)).weekday()] for i in range(days)
-            ],
-        },
+        "planungszeitraum": zeitraum,
     }
 
     # Nur aufnehmen, wenn wirklich Daten vorliegen: Sonst stünden im Prompt
@@ -452,7 +499,7 @@ Periodisierung über Monate. Die Athletendaten unten enthalten den tatsächliche
 Verlauf der letzten {historie_wochen} Wochen. Lies daraus ab, wo der Athlet gerade \
 steht, und setze diese {tage} Tage genau dort an. Der nächste Block wird später mit \
 frischen Daten erneut geplant — plane deshalb den bestmöglichen *nächsten Schritt*, \
-nicht einen vollständigen Trainingszyklus.
+nicht einen vollständigen Trainingszyklus.{ersatzhinweis}
 
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und \
@@ -579,14 +626,43 @@ HRV und Befinden aus `trainingshistorie.einheiten` — und plane im Zweifel die 
 konservativere Variante."""
 
 
+# Steht nur im Prompt, wenn der neue Block einen laufenden überlappt. Ohne den
+# Absatz sähe die KI zwei Pläne über dieselben Tage — `aktueller_plan` in der
+# Historie und den angeforderten Zeitraum — und schriebe den bestehenden fort,
+# statt neu zu entscheiden. Genau das ist beim Neuplanen aber der Punkt.
+ERSATZ_HINWEIS = """
+
+**Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor \
+(„{titel}", geplant bis {bisheriges_ende}). Der Athlet plant ihn bewusst neu, weil \
+Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab {start} \
+entfallen damit; sie stehen unter \
+`planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine \
+Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und \
+sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht \
+ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht \
+stattgefunden, auch wenn es im bisherigen Block stand."""
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
     hat_fitnessdaten = bool(payload.get("fitnessdaten"))
+    ersetzt = period.get("ersetzt_laufenden_block")
     return PROMPT_TEMPLATE.format(
         tage=period.get("tage", PLAN_DAYS_DEFAULT),
         start=period.get("startdatum", ""),
         ende=period.get("enddatum", ""),
         historie_wochen=HISTORY_WEEKS,
+        # `.format()` setzt Werte ein, ohne sie erneut zu formatieren — ein
+        # Plantitel mit geschweiften Klammern kann hier also nichts anrichten.
+        ersatzhinweis=(
+            ""
+            if not ersetzt
+            else ERSATZ_HINWEIS.format(
+                titel=ersetzt.get("titel", ""),
+                bisheriges_ende=ersetzt.get("bisheriges_ende", ""),
+                start=period.get("startdatum", ""),
+            )
+        ),
         fitnessregeln=(
             FITNESSREGELN_MIT_DATEN if hat_fitnessdaten else FITNESSREGELN_OHNE_DATEN
         ),

@@ -2,22 +2,18 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, Field, Loading } from '../components/ui'
-import type { AiExport, PlanImportResult } from '../types'
-
-/** Ein Block über wenige Tage beginnt normalerweise heute. */
-function today(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { PLAN_TAGE, heuteIso } from '../planung'
+import type { AiExport, ErsetzterBlock, PlanImportResult } from '../types'
 
 const DAY_OPTIONS = [2, 3, 4, 5, 6, 7]
-const DEFAULT_DAYS = 7
 
 export default function PlanExchange() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const requestId = params.get('request') ? Number(params.get('request')) : undefined
-  const paramStart = params.get('start') || today()
-  const paramDays = params.get('days') ? Number(params.get('days')) : DEFAULT_DAYS
+  // Ein Block über wenige Tage beginnt normalerweise heute.
+  const paramStart = params.get('start') || heuteIso()
+  const paramDays = params.get('days') ? Number(params.get('days')) : PLAN_TAGE
 
   const [startDate, setStartDate] = useState(paramStart)
   const [days, setDays] = useState(paramDays)
@@ -96,6 +92,11 @@ export default function PlanExchange() {
     }
   }
 
+  // Steht nur im Payload, wenn der gewählte Zeitraum einen laufenden Block
+  // überlappt — das Backend entscheidet das, nicht die Herkunft des Aufrufs.
+  const ersetzt: ErsetzterBlock | undefined =
+    exported?.payload.planungszeitraum?.ersetzt_laufenden_block
+
   return (
     <>
       <div className="page-header">
@@ -109,6 +110,8 @@ export default function PlanExchange() {
       </div>
 
       {error && <Alert kind="error">{error}</Alert>}
+
+      {ersetzt && <ErsatzHinweis block={ersetzt} start={startDate} />}
 
       <div className="card">
         <div className="card-title">
@@ -258,5 +261,31 @@ export default function PlanExchange() {
         </p>
       </div>
     </>
+  )
+}
+
+/** Was beim Neuplanen mitten im Block passiert — bevor es passiert.
+ *
+ * Der Nutzer sieht sonst erst nach dem Übernehmen, dass sein laufender Block
+ * verschwunden ist: Er wird stillgelegt und, wenn nie eine Einheit daran
+ * erfasst wurde, weggeräumt.
+ */
+function ErsatzHinweis({ block, start }: { block: ErsetzterBlock; start: string }) {
+  const tage = block.verworfene_tage.length
+  const einheiten = block.verworfene_einheiten.length
+
+  return (
+    <Alert kind="warning">
+      Dieser Block löst „{block.titel}“ ab. Ab dem{' '}
+      {new Date(start).toLocaleDateString('de-DE')} entfallen dort {tage}{' '}
+      {tage === 1 ? 'Tag' : 'Tage'} mit {einheiten}{' '}
+      {einheiten === 1 ? 'Einheit' : 'Einheiten'} — die KI bekommt sie als Kontext
+      mitgeschickt, ist aber nicht daran gebunden.
+      <p className="small mb-0 mt-1">
+        Erfasste Trainings bleiben im Verlauf. Bereits nach Garmin übertragene
+        Einheiten dieser Tage nimmt die App beim nächsten Übertragen oder Abgleich
+        aus dem Kalender.
+      </p>
+    </Alert>
   )
 }

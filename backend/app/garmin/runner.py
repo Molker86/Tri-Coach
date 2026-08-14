@@ -438,6 +438,7 @@ class SyncRunner:
         Ziel bereits erreicht. Nur die Anfragesperre wird festgehalten: Sie gilt
         für alles Folgende, und der Erfolgspfad hat sie gerade erst zurückgesetzt.
         """
+        from .. import plan_aufraeumen
         from . import uebertragung
 
         try:
@@ -452,6 +453,9 @@ class SyncRunner:
             )
             ergebnis.entfernt += ersetzt.entfernt
             ergebnis.fehler.extend(ersetzt.fehler)
+            # Jetzt erst: Ein abgelöster Block darf nur verschwinden, wenn nichts
+            # mehr von ihm in Garmin steht — die Zuordnung dorthin stirbt mit ihm.
+            plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
         except GarminRateLimit as exc:
             db.rollback()
             konto.status = "rate_limited"

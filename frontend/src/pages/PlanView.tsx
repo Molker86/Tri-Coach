@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
 import { INTENSITY_ZONE_COLOR, sessionTypeLabel, sportIcon, sportLabel } from '../constants'
+import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type {
   GarminJob,
   GarminPlanUebertragung,
@@ -15,7 +16,7 @@ import type {
 const DAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: 'long' }
 
 function isToday(iso: string): boolean {
-  return iso === new Date().toISOString().slice(0, 10)
+  return iso === heuteIso()
 }
 
 export default function PlanView() {
@@ -247,16 +248,26 @@ export default function PlanView() {
           </p>
         </div>
         <div className="row">
-          {plan.is_active && (() => {
-            const nextStart = new Date(plan.end_date)
-            nextStart.setDate(nextStart.getDate() + 1)
-            const nextStartStr = nextStart.toISOString().slice(0, 10)
-            return (
-              <Link className="btn btn-secondary" to={`/plan-erzeugen?start=${nextStartStr}&days=7`}>
-                Nächste 7 Tage planen
-              </Link>
-            )
-          })()}
+          {/* Zwei Wege in einen neuen Block, und der Unterschied muss am Knopf
+              ablesbar sein: „neu planen" wirft die Resttage weg und plant sie
+              anhand der aktuellen Lage neu, „nächste 7 Tage" hängt hinten an.
+              Läuft der Block nicht mehr, fallen beide zusammen — dann bleibt
+              nur einer stehen. */}
+          {plan.is_active && plan.end_date >= heuteIso() && (
+            <Link className="btn btn-primary" to={planErzeugenPfad(heuteIso())}>
+              Neu planen ab heute
+            </Link>
+          )}
+          {plan.is_active && (
+            <Link
+              className="btn btn-secondary"
+              to={planErzeugenPfad(naechsterBlockStart(plan.end_date))}
+            >
+              {plan.end_date >= heuteIso()
+                ? 'Nächste 7 Tage planen'
+                : 'Nächsten Block planen'}
+            </Link>
+          )}
           {!plan.is_active && (
             <button
               className="btn btn-secondary"
@@ -273,8 +284,10 @@ export default function PlanView() {
           <Link className="btn btn-secondary" to="/profil">
             Meine Daten anpassen
           </Link>
-          <Link className="btn btn-primary" to="/neues-training">
-            Neuen Plan erstellen
+          {/* Der Fragebogen ist nur nötig, wenn sich die Rahmenbedingungen
+              geändert haben — für einen frischen Block reicht der letzte. */}
+          <Link className="btn btn-secondary" to="/neues-training">
+            Fragebogen neu ausfüllen
           </Link>
           <button
             className="btn btn-danger"

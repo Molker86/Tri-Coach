@@ -225,9 +225,37 @@ export interface Stats {
   total_km: number
 }
 
+/** Was ein neuer Block verdrängt, wenn er in einen laufenden hineinplant.
+ *
+ * Steht nur im Payload, wenn sich die Zeiträume überschneiden — beim Anhängen
+ * des nächsten Blocks fehlt der Schlüssel (`ai_export._ersatz_block`).
+ */
+export interface ErsetzterBlock {
+  titel: string
+  bisheriges_ende: string
+  verworfene_tage: string[]
+  verworfene_einheiten: {
+    datum: string
+    sportart: string
+    typ: string
+    titel: string
+    dauer_min: number | null
+  }[]
+}
+
+export interface AiExportPayload {
+  planungszeitraum?: {
+    startdatum: string
+    tage: number
+    enddatum: string
+    ersetzt_laufenden_block?: ErsetzterBlock
+  }
+  [key: string]: unknown
+}
+
 export interface AiExport {
   prompt: string
-  payload: Record<string, unknown>
+  payload: AiExportPayload
   combined: string
 }
 

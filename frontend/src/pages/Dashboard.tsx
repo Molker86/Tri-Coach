@@ -3,11 +3,8 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { sessionTypeLabel, sportIcon, sportLabel } from '../constants'
+import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type { Plan, Profile, Stats, WellnessDay } from '../types'
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
@@ -173,7 +170,7 @@ export default function Dashboard() {
   if (loading) return <Loading />
   if (error) return <Alert kind="error">{error}</Alert>
 
-  const today = todayIso()
+  const today = heuteIso()
   const todaySessions = plan?.sessions.filter((s) => s.date === today) ?? []
   const upcoming =
     plan?.sessions
@@ -200,16 +197,19 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="row">
-          {plan?.is_active && (() => {
-            const nextStart = new Date(plan.end_date)
-            nextStart.setDate(nextStart.getDate() + 1)
-            const nextStartStr = nextStart.toISOString().slice(0, 10)
-            return (
-              <Link className="btn btn-secondary" to={`/plan-erzeugen?start=${nextStartStr}&days=7`}>
-                Nächste 7 Tage planen
-              </Link>
-            )
-          })()}
+          {/* Nur einer von beiden: Läuft der Block noch, ist die Frage „soll
+              der Rest so bleiben?" — ist er vorbei, gibt es nichts zu ersetzen.
+              Beide Wege nebeneinander stünden am Telefon in der dritten Zeile. */}
+          {plan?.is_active && (
+            <Link
+              className="btn btn-secondary"
+              to={planErzeugenPfad(
+                plan.end_date >= today ? today : naechsterBlockStart(plan.end_date),
+              )}
+            >
+              {plan.end_date >= today ? 'Neu planen ab heute' : 'Nächsten Block planen'}
+            </Link>
+          )}
           <Link className="btn btn-secondary" to="/training-erfassen">
             Training erfassen
           </Link>

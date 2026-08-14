@@ -540,6 +540,32 @@ def test_uebertragen_raeumt_den_vorigen_block_auf(client, verbunden, fake):
     assert len(fake._workouts) == 1
 
 
+def test_abgeloester_block_verschwindet_erst_nach_dem_aufraeumen(
+    client, verbunden, fake
+):
+    """Der stillgelegte Plan hält seine Garmin-Einheiten fest, bis sie weg sind.
+
+    Mit dem Plan verschwände die Zuordnung — und ohne sie fasst die App in
+    Garmin nichts mehr an. Ein sofort gelöschter Block ließe seine Einheiten
+    also für immer im fremden Kalender stehen, neben denen des neuen.
+    """
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    neu = _importiere_plan(client, verbunden)
+    assert len(client.get("/api/plans", headers=verbunden).json()) == 2
+
+    fertig = _uebertrage(client, verbunden)
+    assert fertig["state"] == "done", fertig["message"]
+
+    # Erst räumt der Lauf die abgelösten Einheiten aus Garmin, dann fällt der
+    # leere Block von selbst weg.
+    assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
+        neu["id"]
+    ]
+    assert len(fake._workouts) == 2
+
+
 def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)

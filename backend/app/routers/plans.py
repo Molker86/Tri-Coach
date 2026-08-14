@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.orm import selectinload
 
-from .. import ai_export, plan_import
+from .. import ai_export, plan_aufraeumen, plan_import
 from ..deps import CurrentUser, DbSession
 from ..models import (
     GarminWorkoutLink,
@@ -151,6 +151,11 @@ def import_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanImp
     db.add(plan)
     db.commit()
     db.refresh(plan)
+
+    # Wer mitten im Block neu plant, lässt einen stillgelegten zurück. Trug er
+    # nichts, verschwindet er hier; hängt Garmin daran, erst nach dem Aufräumen
+    # dort (siehe plan_aufraeumen).
+    plan_aufraeumen.raeume_abgeloeste_plaene(db, user.id)
 
     return PlanImportOut(plan=_to_plan_out(db, plan, user.id), warnings=warnings)
 
