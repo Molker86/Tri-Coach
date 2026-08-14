@@ -194,6 +194,41 @@ def test_erkannte_uebungen_tragen_die_katalogkennung():
     assert folge[2]["description"] == "3x12 Liegestütze"
 
 
+def test_uebungsschritt_hat_die_form_von_garmins_eigenen_workouts():
+    """Die Kennung allein genügt nicht — die Uhr braucht die ganze Form.
+
+    Abgelesen an Garmins „Ganzkörper-Mobilitäts-Warm-up“ (Workout 1336531040):
+    Dessen Schritte enden ebenfalls per Rundentaste, tragen dabei aber einen
+    Zahlenwert und die Gewichts-, Zug- und Materialfelder. Mit leerem
+    `endConditionValue` erkannte die Uhr den Schritt nicht als Übung.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="mobility",
+            duration_min=12,
+            structure="Katze-Kuh 10 Wiederholungen / Wadendehnung 2x30 s je Seite",
+        ),
+        zonen=ZONEN,
+    )
+    for schritt in schritte(plan):
+        assert schritt["endCondition"]["conditionTypeKey"] == "lap.button"
+        assert schritt["endConditionValue"] is not None
+        assert schritt["weightValue"] == -1.0
+        assert schritt["weightUnit"]["unitKey"] == "kilogram"
+        assert schritt["strokeType"]["strokeTypeId"] == 0
+        assert schritt["equipmentType"]["equipmentTypeId"] == 0
+
+
+def test_ausdauerschritt_bleibt_ohne_uebungsfelder():
+    """Ein Laufintervall ist keine Übung — die Felder haben dort nichts zu suchen."""
+    plan = workouts.baue_workout(
+        einheit(structure="60 min Dauerlauf Z2"), zonen=ZONEN
+    )
+    schritt = schritte(plan)[0]
+    assert "weightValue" not in schritt
+    assert "category" not in schritt
+
+
 def test_mobility_geht_als_mobility_und_nicht_als_yoga():
     """Der Übungskatalog hängt an der Sportart; Yoga hat einen eigenen."""
     plan = workouts.baue_workout(

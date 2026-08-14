@@ -409,6 +409,28 @@ ergibt Side Plank und nicht Plank, weil zwei Wörter mehr wiegen als eins. Die
 deutschen Entsprechungen in `SYNONYME` sind dabei nur ein zweiter Schlüssel auf
 denselben Eintrag, keine zweite Datenhaltung.
 
+**Die Kennung allein genügt nicht — die Uhr braucht die ganze Schrittform.**
+Das war der Fehlschlag beim ersten Versuch am echten Gerät: `category` und
+`exerciseName` standen korrekt in Connect (mit `get_workout_by_id`
+zurückgelesen), die Fenix zeigte trotzdem keine Animation. Der Vergleich mit
+einem Workout aus *Garmins eigener* Bibliothek („Ganzkörper-Mobilitäts-Warm-up“,
+Workout 1336531040) zeigte vier fehlende Felder je Schritt: `weightValue: -1`
+samt `weightUnit` (Garmins Marke für „ohne Zusatzgewicht“ — nicht 0, das wäre
+eine Hantel ohne Scheiben), `strokeType`, `equipmentType` und vor allem ein
+**nicht leerer `endConditionValue`**. Garmins eigene Schritte enden ebenfalls
+per Rundentaste, tragen dort aber durchweg die Zahl 10 — auch über einem
+Schritt, dessen Beschreibung „5 Brustöffner“ lautet. Der Wert ist also Beiwerk
+und keine Vorgabe; `None` dagegen ließ die Uhr den Schritt nicht als Übung
+erkennen. Wer die Schrittform anfasst, prüft sie gegen dieses Workout und nicht
+gegen die Vermutung.
+
+Derselbe Vergleich hat die Sportart bestätigt und den Katalog relativiert:
+`sportTypeId 11` wird angenommen und speichert die `WARM_UP`-Kennungen — unter
+`mobility` führt Garmin aber **mehr** Kategorien, als der Kraftkatalog kennt
+(`POSE`, `MOVE`, dazu `WARM_UP`-Einträge wie `CHEST_OPENERS`, die im Wähler des
+Krafteditors fehlen). Sie sind nirgends abrufbar; erreichbar ist nur, was in
+`garminconnect.exercises` steht.
+
 Zwei Regeln der Normalisierung sind gegen echte Pläne entstanden und stehen
 deshalb fest. **Verklebt wird vor dem Kürzen** (`_schluessel`): Im Deutschen ist
 die Wortgrenze Geschmackssache — der Plan schreibt „Quadrizeps-Dehnung“, das
@@ -846,9 +868,9 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
   darin. Garmin könnte mehr (`create_strength_set`, also Wiederholungsgruppe
   mit `endCondition: reps` und Satzpause), und die Übungskennung liegt jetzt
   vor — was fehlt, ist die Regel für „je Seite“: Sie verdoppelt die Sätze, und
-  eine Haltedauer („2x45 s“) ist keine Wiederholungszahl. Ob die Animation die
-  `reps`-Endbedingung überhaupt braucht, ist offen: **beim ersten echten
-  Versuch prüfen**, ob sie auch an einem Rundentasten-Schritt erscheint.
+  eine Haltedauer („2x45 s“) ist keine Wiederholungszahl. Die Animation hängt
+  *nicht* daran — Garmins eigene Übungsworkouts enden ebenfalls per
+  Rundentaste.
 - Die **Zuordnung zum Übungskatalog** deckt ab, was in Kraft- und
   Mobilityplänen für Ausdauersportler üblich ist, nicht den ganzen Katalog.
   Was `uebungen.finde()` nicht erkennt, bleibt ohne Animation — sichtbar wird
@@ -859,8 +881,10 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
   angemeldeten Connect-Editor und wird nirgends öffentlich ausgeliefert
   (`web-data/exercises/Yoga.json` ist ein 404). Deshalb laufen Mobility-
   Einheiten als Garmins „Mobility“ über den Kraftkatalog statt als Yoga.
-- Die **Sportart `mobility` (11) ist gegen ein echtes Konto ungeprüft**, ebenso
-  die Übungskennungen selbst. Beides wurde nur gegen die Nachbildung geprüft.
+- Die Sportart `mobility` (11) und die Übungskennungen sind am echten Konto
+  bestätigt (Garmin speichert und liefert beides zurück). **Offen bleibt, ob
+  die Animation auf dem Gerät erscheint** — die Schrittform wurde erst danach
+  an Garmins eigenes Workout angeglichen und ist am Gerät noch ungeprüft.
 - Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
   und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
 - Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren

@@ -72,6 +72,25 @@ UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
 POOL_LAENGE_M = 25.0
 _POOL_EINHEIT = {"unitId": 1, "unitKey": "meter", "factor": 100.0}
 
+# Vier Felder, die Garmins *eigene* Übungsworkouts an jedem Schritt tragen und
+# die dem unseren fehlten (abgelesen an „Ganzkörper-Mobilitäts-Warm-up“,
+# Workout 1336531040, aus Garmins Bibliothek). Ohne sie stand die Übungskennung
+# zwar in Connect, die Uhr zeigte aber keine Animation.
+#
+# `weightValue: -1` ist Garmins Marke für „ohne Zusatzgewicht“ — nicht 0, das
+# wäre eine Hantel ohne Scheiben.
+_OHNE_GEWICHT = -1.0
+_GEWICHT_EINHEIT = {"unitId": 8, "unitKey": "kilogram", "factor": 1000.0}
+_ZUG_UNBESTIMMT = {"strokeTypeId": 0, "displayOrder": 0}
+_MATERIAL_UNBESTIMMT = {"equipmentTypeId": 0, "displayOrder": 0}
+
+# Bei der Rundentaste erwartet Garmin trotzdem eine Zahl. Im Referenzworkout
+# steht dort durchweg 10 — auch über Schritten, deren Beschreibung „5
+# Brustöffner“ lautet. Der Wert ist also kein Vorgabewert, sondern Beiwerk;
+# maßgeblich bleibt die Beschreibung. `None` dagegen ließ die Uhr den Schritt
+# nicht als Übung erkennen.
+_RUNDENTASTE_PLATZHALTER = 10.0
+
 # Garmins Grenzen für die Textfelder. Ein zu langer Name wird nicht gekürzt,
 # sondern führt zur Ablehnung des ganzen Workouts.
 MAX_NAME = 80
@@ -568,17 +587,28 @@ def _schritt_json(
     }
     if schritt.text:
         eintrag["description"] = schritt.text[:512]
-    if schritt.uebung is not None:
-        # Erst diese beiden Felder machen aus dem Schritt eine benannte Übung,
-        # zu der die Uhr die Bewegungsanimation zeigt. Beide gehören zusammen:
-        # Garmin lehnt eine unbekannte Kategorie mit 400 ab, und zwar das ganze
-        # Workout — deshalb kommen sie nur aus dem Katalog und nie aus dem Text.
-        eintrag["category"] = schritt.uebung.kategorie
-        eintrag["exerciseName"] = schritt.uebung.name
     if sport == "swim":
         # Ohne Zug- und Materialangabe lehnt Garmin Schwimmschritte ab.
-        eintrag["strokeType"] = {"strokeTypeId": 0, "displayOrder": 0}
-        eintrag["equipmentType"] = {"equipmentTypeId": 0, "displayOrder": 0}
+        eintrag["strokeType"] = dict(_ZUG_UNBESTIMMT)
+        eintrag["equipmentType"] = dict(_MATERIAL_UNBESTIMMT)
+    if sport in UEBUNGSSPORTARTEN:
+        # Ein Übungsschritt in der Form, die Garmins eigene Workouts haben.
+        # Die Kennung allein genügt nicht: Ohne Gewichts-, Zug- und
+        # Materialfelder und mit leerem `endConditionValue` erkennt die Uhr den
+        # Schritt nicht als Übung und zeigt keine Animation.
+        if eintrag["endConditionValue"] is None:
+            eintrag["endConditionValue"] = _RUNDENTASTE_PLATZHALTER
+        eintrag["strokeType"] = dict(_ZUG_UNBESTIMMT)
+        eintrag["equipmentType"] = dict(_MATERIAL_UNBESTIMMT)
+        eintrag["weightValue"] = _OHNE_GEWICHT
+        eintrag["weightUnit"] = dict(_GEWICHT_EINHEIT)
+    if schritt.uebung is not None:
+        # Diese beiden Felder benennen die Übung und entscheiden, *welche*
+        # Animation läuft. Sie kommen nur aus dem Katalog und nie aus dem Text:
+        # Eine unbekannte Kategorie beantwortet Garmin mit 400, und zwar für
+        # das ganze Workout.
+        eintrag["category"] = schritt.uebung.kategorie
+        eintrag["exerciseName"] = schritt.uebung.name
     return eintrag
 
 
