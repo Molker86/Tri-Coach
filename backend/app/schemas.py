@@ -322,6 +322,14 @@ class PlanSummaryOut(BaseModel):
 class PlanImportOut(BaseModel):
     plan: PlanOut
     warnings: list[str] = []
+    # Die automatische Übertragung nach Garmin, falls sie angelaufen ist. Der
+    # Import wartet nicht auf sie — sie läuft als Job weiter, und die Kennung
+    # ist der Faden, an dem die Oberfläche ihren Fortschritt verfolgt.
+    garmin_job_id: int | None = None
+    # Warum sie *nicht* anlief, sofern es einen Grund gibt, den der Nutzer
+    # kennen muss (abgelaufene Anmeldung, Anfragesperre). Ein abgeschaltetes
+    # oder fehlendes Konto ist keiner.
+    garmin_hinweis: str | None = None
 
 
 # --------------------------------------------------------------------------
@@ -419,11 +427,13 @@ class GarminAccountOut(BaseModel):
     rate_limited_until: datetime | None = None
     auto_sync_enabled: bool
     profile_sync_enabled: bool
+    auto_push_enabled: bool
 
 
 class GarminSettingsIn(BaseModel):
     auto_sync_enabled: bool | None = None
     profile_sync_enabled: bool | None = None
+    auto_push_enabled: bool | None = None
 
 
 class GarminJobOut(BaseModel):

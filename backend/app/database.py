@@ -69,6 +69,9 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     # weiß die bestehende Datenbank nicht.
     "garmin_accounts": {
         "synced_through": "DATE",
+        # Bestehende Verbindungen bekommen die Automatik eingeschaltet — genau
+        # wie ein neu verbundenes Konto.
+        "auto_push_enabled": "BOOLEAN NOT NULL DEFAULT 1",
     },
     # Zählwerke für die Gegenrichtung: geplante Einheiten nach Garmin schieben.
     "garmin_sync_jobs": {

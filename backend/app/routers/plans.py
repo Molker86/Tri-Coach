@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from .. import ai_export, plan_aufraeumen, plan_import
 from ..deps import CurrentUser, DbSession
+from ..garmin import automatik
 from ..models import (
     GarminWorkoutLink,
     Plan,
@@ -157,7 +158,18 @@ def import_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanImp
     # dort (siehe plan_aufraeumen).
     plan_aufraeumen.raeume_abgeloeste_plaene(db, user.id)
 
-    return PlanImportOut(plan=_to_plan_out(db, plan, user.id), warnings=warnings)
+    # Und ab auf die Uhr — als Job, der auch den abgelösten Block aus dem
+    # Kalender nimmt. Die Antwort wartet nicht darauf: Ein halbes Dutzend
+    # Einheiten kostet eine halbe Minute gegen eine fremde Gegenstelle, und der
+    # Plan steht ja bereits.
+    job_id, hinweis = automatik.starte_uebertragung_fuer_neuen_plan(db, user.id, plan)
+
+    return PlanImportOut(
+        plan=_to_plan_out(db, plan, user.id),
+        warnings=warnings,
+        garmin_job_id=job_id,
+        garmin_hinweis=hinweis,
+    )
 
 
 @router.post("/validate", response_model=PlanImportOut)

@@ -183,7 +183,11 @@ export const api = {
       body: { pending_id: pendingId, code },
     }),
   garminDisconnect: () => request<void>('/garmin/connection', { method: 'DELETE' }),
-  garminSettings: (data: { auto_sync_enabled?: boolean; profile_sync_enabled?: boolean }) =>
+  garminSettings: (data: {
+    auto_sync_enabled?: boolean
+    profile_sync_enabled?: boolean
+    auto_push_enabled?: boolean
+  }) =>
     request<GarminStatus['konto']>('/garmin/settings', { method: 'PUT', body: data }),
   garminSync: () => request<GarminJob>('/garmin/sync', { method: 'POST' }),
   garminBackfill: (von?: string, tagesschleifeVoll = false) =>

@@ -322,6 +322,11 @@ class GarminAccount(Base):
 
     auto_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     profile_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Ob ein frisch übernommener Block von selbst auf die Uhr geht. Vorgabe an:
+    # Wer ein Konto verbindet, will seinen Plan dort haben — und ein Block über
+    # wenige Tage, der erst nach einem zusätzlichen Knopfdruck ankommt, ist bis
+    # dahin die Hälfte seiner Zeit schon vorbei.
+    auto_push_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
     user: Mapped[User] = relationship(back_populates="garmin_account")
 

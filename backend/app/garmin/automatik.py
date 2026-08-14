@@ -1,4 +1,8 @@
-"""Täglicher Abgleich ohne Zutun.
+"""Was ohne Zutun läuft: der tägliche Abgleich und der Weg auf die Uhr.
+
+Zwei Auslöser, ein Gedanke — der Athlet soll nichts anstoßen müssen, was die
+App selbst weiß. Der Abgleich hängt an der Uhrzeit, die Übertragung am
+Übernehmen eines Blocks (`starte_uebertragung_fuer_neuen_plan`).
 
 Kein Cron und kein Zeitplaner-Paket: Das Add-on ist ein einziger
 Uvicorn-Prozess, ein zweites Laufzeitteil wäre mehr Betrieb als Nutzen.
@@ -19,11 +23,13 @@ import logging
 from datetime import date, datetime
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..config import GARMIN_SYNC_HOUR
 from ..database import SessionLocal
-from ..models import GarminAccount
+from ..models import GarminAccount, Plan
 from ..zeit import liegt_in_der_zukunft
+from . import uebertragung
 from .runner import runner
 from .sync import standard_zeitraum
 
@@ -91,3 +97,58 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
 
 def _als_datum(zeitpunkt: datetime) -> date:
     return zeitpunkt.date()
+
+
+# --------------------------------------------------------------------------
+# Ein frisch übernommener Block geht von selbst auf die Uhr
+# --------------------------------------------------------------------------
+
+
+def starte_uebertragung_fuer_neuen_plan(
+    db: Session, user_id: int, plan: Plan
+) -> tuple[int | None, str | None]:
+    """Schiebt einen gerade übernommenen Block nach Garmin.
+
+    Der Knopf im Trainingsplan bleibt, aber er soll die Ausnahme sein: Ein Block
+    reicht nur wenige Tage weit, und einer, der erst nach einem zusätzlichen
+    Handgriff auf der Uhr landet, hat die erste Einheit oft schon hinter sich.
+
+    Der Lauf räumt dabei selbst auf — der abgelöste Block verlässt den Kalender,
+    bevor der neue hineingeht (`runner._raeume_ersetzte_vorab`). Deshalb genügt
+    hier ein einziger Anstoß für beides.
+
+    **Kein `runner.laeuft_gerade()`-Riegel wie beim Knopf.** Ein Nutzer, der
+    selbst drückt, kann warten und es gleich nochmal versuchen; ein Import, der
+    zufällig in den täglichen Abgleich fällt, hätte niemanden, der das
+    nachholt. Der Job wartet stattdessen im eigenen Faden auf das globale
+    Schloss und läuft danach — sichtbar als „in der Warteschlange".
+
+    Rückgabe: Job-Kennung und ein Hinweis, falls der Nutzer wissen muss, warum
+    nichts losging.
+    """
+    konto = db.scalar(select(GarminAccount).where(GarminAccount.user_id == user_id))
+    if konto is None or not konto.auto_push_enabled:
+        return None, None
+
+    if konto.status == "token_expired":
+        return None, (
+            konto.status_message
+            or "Die Anmeldung bei Garmin ist abgelaufen — der Block wurde nicht "
+            "auf die Uhr übertragen. Bitte verbinde dein Konto erneut."
+        )
+
+    if liegt_in_der_zukunft(konto.rate_limited_until):
+        return None, (
+            "Garmin hat die Verbindung vorerst gesperrt — der Block wurde noch "
+            "nicht auf die Uhr übertragen. Du kannst es später von Hand anstoßen."
+        )
+
+    # Ein Block, der nur aus Ruhetagen oder vergangenen Tagen besteht, hat
+    # nichts zu übertragen. Ohne diese Prüfung liefe ein Job an, der sofort mit
+    # „Es gab keine Einheit zu übertragen" endet.
+    if not uebertragung.planbare_einheiten(plan, date.today()):
+        return None, None
+
+    return runner.starte_uebertragung(
+        user_id, plan.id, "push", ab=date.today()
+    ), None

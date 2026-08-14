@@ -85,7 +85,13 @@ export default function PlanExchange() {
     setError(null)
     try {
       const result = await api.importPlan(raw, requestId, days)
-      navigate(`/plan/${result.plan.id}`)
+      // Der Hinweis wandert mit: Er entsteht beim Übernehmen (etwa eine
+      // Anfragesperre bei Garmin), zu sehen ist er aber erst im Plan, wo der
+      // Kalendereintrag fehlt. Hier stünde er nur für den Bruchteil einer
+      // Sekunde bis zum Seitenwechsel.
+      navigate(`/plan/${result.plan.id}`, {
+        state: result.garmin_hinweis ? { garminHinweis: result.garmin_hinweis } : null,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import fehlgeschlagen.')
       setBusy(false)
@@ -283,8 +289,8 @@ function ErsatzHinweis({ block, start }: { block: ErsetzterBlock; start: string 
       mitgeschickt, ist aber nicht daran gebunden.
       <p className="small mb-0 mt-1">
         Erfasste Trainings bleiben im Verlauf. Bereits nach Garmin übertragene
-        Einheiten dieser Tage nimmt die App beim nächsten Übertragen oder Abgleich
-        aus dem Kalender.
+        Einheiten dieser Tage nimmt die App aus dem Kalender, sobald der neue Block
+        dort ankommt — bei verbundenem Konto also gleich nach dem Übernehmen.
       </p>
     </Alert>
   )

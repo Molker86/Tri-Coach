@@ -18,11 +18,15 @@ Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
 nächsten Export ein. Die Formulare bleiben als Rückfallebene — für Einheiten
 ohne Uhr und für subjektive Werte, die kein Gerät misst.
 
-**Und der Weg zurück: Geplante Einheiten gehen als Workout auf die Uhr.** Ein
-Knopf im Trainingsplan legt jede Einheit des Blocks als strukturiertes Workout
-in Garmin an und terminiert sie im Kalender; beim nächsten Synchronisieren
-liegt sie auf dem Gerät und lässt sich dort starten. Die App bringt dafür einen
-eigenen Kalender mit — Monatsansicht, verschieben, aus Garmin löschen.
+**Und der Weg zurück: Geplante Einheiten gehen als Workout auf die Uhr.** Wer
+einen Block übernimmt, findet ihn ohne weiteres Zutun im Garmin-Kalender: Jede
+Einheit wird als strukturiertes Workout angelegt und terminiert, beim nächsten
+Synchronisieren liegt sie auf dem Gerät und lässt sich dort starten. Derselbe
+Lauf räumt den abgelösten Block weg, damit nicht zwei Vorgaben am selben Tag
+stehen. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
+(nachgeschobene Änderungen, ein früherer Block, ein abgeschaltetes Konto). Die
+App bringt dafür einen eigenen Kalender mit — Monatsansicht, verschieben, aus
+Garmin löschen.
 
 **Wichtig:** Die App ruft *keine* KI-API auf. Der Austausch läuft bewusst über
 Kopieren und Einfügen — so war die Anforderung. Ein späterer Direktaufruf wäre
@@ -52,7 +56,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 176 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 183 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -531,15 +535,44 @@ Einheiten übertragen" gemeldet zu werden; sonst legte jeder weitere Druck auf
 den Knopf einen zweiten Termin daneben. Der nächste Lauf heilt es von selbst:
 Der Bestandsabgleich findet den Termin im Kalender und trägt seine Kennung nach.
 
-**Ein abgelöster Block wird aus Garmin geräumt**
-(`uebertragung.raeume_ersetzte_auf`). Der nächste Block entsteht als *neuer*
-Plan, der bisherige wird nur stillgelegt — seine übertragenen Einheiten blieben
-aber stehen. Weil beide Blöcke dieselben Tage abdecken, stünden auf der Uhr zwei
-Trainings je Tag, und welches überholt ist, sähe der Athlet vor dem Start nicht.
-Geräumt wird nur, was in der Zukunft liegt und zu einem **inaktiven** Plan
-gehört; Vergangenes erledigt `raeume_vergangene_auf`. Ein *gelöschter* Plan
-bleibt davon unberührt — mit ihm sind die Zuordnungen weg, und ohne sie fasst
-diese App in Garmin nichts an.
+**Ein übernommener Block geht von selbst auf die Uhr**
+(`automatik.starte_uebertragung_fuer_neuen_plan`, ausgelöst am Ende von
+`POST /api/plans/import`). Ein Block reicht nur wenige Tage weit; einer, der
+erst nach einem zusätzlichen Handgriff im Kalender landet, hat seine erste
+Einheit oft schon hinter sich. Abschaltbar über `auto_push_enabled` am Konto,
+Vorgabe **an** — wer ein Garmin-Konto verbindet, will seinen Plan dort haben.
+Die Antwort wartet nicht auf den Lauf: Sie gibt seine `garmin_job_id` zurück,
+und die Planansicht hängt sich beim Laden an einen laufenden Übertragungsjob
+(`api.garminStatus()` in `PlanView.reload()`), damit der Fortschritt auch ohne
+Knopfdruck sichtbar wird. Anders als der Knopf prüft die Automatik **nicht**, ob
+gerade ein Lauf läuft: Wer selbst drückt, kann es gleich nochmal versuchen; ein
+Import, der zufällig in den täglichen Abgleich fällt, hätte niemanden, der das
+nachholt — der Job wartet stattdessen auf das globale Schloss. Was den Nutzer
+davon abhält (abgelaufene Anmeldung, Anfragesperre), kommt als `garmin_hinweis`
+mit der Import-Antwort und reist über den Router-Zustand in die Planansicht.
+
+**Ein abgelöster Block wird aus Garmin geräumt, bevor der neue hineingeht**
+(`uebertragung.raeume_ersetzte_auf`, gerufen aus `runner._raeume_ersetzte_vorab`).
+Der nächste Block entsteht als *neuer* Plan, der bisherige wird nur stillgelegt
+— seine übertragenen Einheiten blieben aber stehen. Weil beide Blöcke dieselben
+Tage abdecken, stünden auf der Uhr zwei Trainings je Tag, und welches überholt
+ist, sähe der Athlet vor dem Start nicht. **Die Reihenfolge ist Absicht:** Am
+Ende des Laufs geräumt (wie das Vergangene), bliebe nach einem Abbruch auf halbem
+Weg — eine Anfragesperre genügt — der alte Block neben dem halben neuen stehen.
+Vorher geräumt ist der schlimmste Fall ein Tag ohne Vorgabe: ärgerlich, aber
+nicht irreführend.
+
+Drei Grenzen dabei. Geräumt wird nur, was in der **Zukunft** liegt und zu einem
+**inaktiven** Plan gehört; Vergangenes erledigt `raeume_vergangene_auf`. Erst
+**ab dem Beginn des aktiven Blocks** — wer die Folgewoche plant, hat für den
+Rest dieser Woche weiterhin nur den alten Block, und dessen Einheiten aus dem
+Kalender zu werfen ließe ihn bis zum Blockbeginn ohne Vorgabe dastehen (dieselbe
+Grenze nennt der Hinweis beim Übernehmen: „ab dem <Datum> entfallen dort N
+Tage"). Und **nicht der Block, der gerade übertragen wird** (`ausser_plan_id`):
+Auch ein stillgelegter Plan lässt sich gezielt auf die Uhr legen, und ohne die
+Ausnahme löschte derselbe Lauf am Ende wieder, was er eben hochgeladen hat. Ein
+*gelöschter* Plan bleibt von alldem unberührt — mit ihm sind die Zuordnungen
+weg, und ohne sie fasst diese App in Garmin nichts an.
 
 **Verschieben im Kalender verschiebt die Planeinheit mit**
 (`verschiebe_kalendereintrag`). Wer dort einen Tag ändert, entscheidet über
@@ -760,8 +793,9 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
   eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
   bleibt es beim Löschen der Datei. Die Tabelle `garmin_workout_links` legt
   `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
-  `athlete_profiles.garmin_personal_bests` und
-  `garmin_accounts.synced_through` kommen über den Helfer.
+  `athlete_profiles.garmin_personal_bests` sowie
+  `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
+  kommen über den Helfer.
 - Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus
   einem zweiten Gerät, korrigierter Schlaf), holt kein Abgleich mehr von
   allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im
@@ -799,6 +833,11 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
   ein echtes Konto. Der Aufbau der Workout-JSON folgt den Modellen der
   Bibliothek; sollte Garmin eine Einheit ablehnen, steht die Meldung an der
   Einheit und die anderen gehen trotzdem durch.
+- Die **automatische Übertragung wartet nicht ab, sondern stellt sich an.** Wer
+  mehrere Blöcke hintereinander übernimmt, während ein Jahresrückblick läuft,
+  hat ebenso viele Fäden am globalen Schloss stehen. Bei einer Handvoll
+  Einheiten je Block ist das folgenlos; eine Warteschlange mit Zusammenfassen
+  gleicher Aufträge gibt es aber nicht.
 - Die **Bahnlänge für Schwimm-Workouts** liegt fest bei 25 m
   (`workouts.POOL_LAENGE_M`) — die App fragt sie nirgends ab. Im 50-m-Becken
   stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.

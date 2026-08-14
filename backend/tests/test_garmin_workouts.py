@@ -321,17 +321,38 @@ def test_gleicher_inhalt_gleicher_fingerabdruck():
 # --------------------------------------------------------------------------
 
 
-def _importiere_plan(client, auth, tage=3):
+def _autopush(client, auth, an: bool) -> None:
+    """Schaltet die Automatik beim Übernehmen eines Blocks ein oder aus.
+
+    Die meisten Tests hier prüfen den Knopf und zählen dabei Anfragen an Garmin.
+    Liefe die Automatik mit, wäre der Block schon übertragen, bevor der Knopf
+    gedrückt wird — jede Zählung läge um genau diesen Lauf daneben. Die
+    Automatik selbst hat weiter unten eigene Tests.
+    """
+    antwort = client.put(
+        "/api/garmin/settings", json={"auto_push_enabled": an}, headers=auth
+    )
+    assert antwort.status_code == 200, antwort.text
+
+
+def _importiere_plan(client, auth, tage=3, *, autopush=False, ab=None):
+    return _importiere(client, auth, tage, autopush=autopush, ab=ab)["plan"]
+
+
+def _importiere(client, auth, tage=3, *, autopush=False, ab=None):
+    """Wie `_importiere_plan`, gibt aber die ganze Antwort samt Job zurück."""
+    _autopush(client, auth, autopush)
+    beginn = ab or HEUTE
     plan = {
         "schema_version": "2.0",
         "plan": {
             "title": "Übertragungsblock",
             "summary": "kurz",
             "coaching_notes": "keine",
-            "start_date": HEUTE.isoformat(),
+            "start_date": beginn.isoformat(),
             "days": [
                 {
-                    "date": (HEUTE + timedelta(days=i)).isoformat(),
+                    "date": (beginn + timedelta(days=i)).isoformat(),
                     "sessions": [
                         {
                             "sport": ["run", "bike", "rest"][i % 3],
@@ -352,7 +373,7 @@ def _importiere_plan(client, auth, tage=3):
         headers=auth,
     )
     assert antwort.status_code == 201, antwort.text
-    return antwort.json()["plan"]
+    return antwort.json()
 
 
 def _uebertrage(client, auth):
@@ -453,6 +474,7 @@ def test_vergangene_tage_bleiben_liegen(client, verbunden, fake):
             ],
         },
     }
+    _autopush(client, verbunden, False)
     client.post(
         "/api/plans/import", json={"raw": json.dumps(plan)}, headers=verbunden
     )
@@ -951,3 +973,133 @@ def test_uebertragen_ohne_garmin_konto_meldet_409(client, garmin_auth):
     antwort = client.post("/api/garmin/workouts/uebertragen", json={}, headers=garmin_auth)
     assert antwort.status_code == 409
     assert "kein Garmin-Konto" in antwort.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# Die Automatik: Ein übernommener Block geht von selbst auf die Uhr
+# --------------------------------------------------------------------------
+
+
+def _wirft_429(workout_json):
+    from garminconnect import GarminConnectTooManyRequestsError
+
+    raise GarminConnectTooManyRequestsError("429 Too Many Requests")
+
+
+def _job(client, auth, job_id):
+    return client.get(f"/api/garmin/jobs/{job_id}", headers=auth).json()
+
+
+def test_uebernommener_block_geht_von_selbst_auf_die_uhr(client, verbunden, fake):
+    """Der Knopf bleibt, ist aber nicht mehr der Weg."""
+    antwort = _importiere(client, verbunden, autopush=True)
+
+    assert antwort["garmin_job_id"] is not None
+    assert antwort["garmin_hinweis"] is None
+
+    fertig = _job(client, verbunden, antwort["garmin_job_id"])
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_pushed"] == 2  # der Ruhetag bleibt außen vor
+    assert len(fake._workouts) == 2
+    assert len(fake._termine) == 2
+
+
+def test_abgeschaltete_automatik_laesst_den_kalender_unberuehrt(client, verbunden, fake):
+    antwort = _importiere(client, verbunden, autopush=False)
+
+    assert antwort["garmin_job_id"] is None
+    assert fake._workouts == {}
+    assert "upload_workout" not in fake.aufrufe
+
+
+def test_neuer_block_verdraengt_den_alten_aus_dem_kalender(client, verbunden, fake):
+    """Sonst stünden auf jedem Tag zwei Trainings, von denen eines überholt ist."""
+    _importiere(client, verbunden, autopush=True)
+    zuerst = set(fake._workouts)
+    assert len(zuerst) == 2
+
+    # Derselbe Zeitraum, neu geplant.
+    _importiere(client, verbunden, autopush=True)
+
+    assert len(fake._workouts) == 2
+    assert not zuerst & set(fake._workouts), "der abgelöste Block steht noch"
+    assert len(fake._termine) == 2
+
+    # Und der leere Vorgänger fällt weg, sobald nichts mehr von ihm in Garmin steht.
+    assert len(client.get("/api/plans", headers=verbunden).json()) == 1
+
+
+def test_folgeblock_laesst_die_restlichen_tage_stehen(client, verbunden, fake):
+    """Wer die nächste Woche plant, verliert nicht den Rest dieser Woche.
+
+    Abgelöst ist ein Tag erst, wenn der neue Block ihn beansprucht. Sonst stünde
+    der Athlet zwischen heute und dem Blockbeginn ohne Vorgabe auf der Uhr da —
+    obwohl er nichts weggeplant hat.
+    """
+    _importiere(client, verbunden, autopush=True)
+    laufend = set(fake._workouts)
+    assert len(laufend) == 2
+
+    # Der nächste Block hängt hinten an, statt die laufenden Tage zu ersetzen.
+    _importiere(client, verbunden, autopush=True, ab=HEUTE + timedelta(days=3))
+
+    assert laufend < set(fake._workouts), "die laufenden Tage wurden mit geräumt"
+    assert len(fake._workouts) == 4
+    assert len(fake._termine) == 4
+
+
+def test_abgeloester_block_geht_auch_bei_gescheiterter_uebertragung(
+    client, verbunden, fake
+):
+    """Erst räumen, dann legen.
+
+    Andersherum bliebe nach einem Abbruch mitten im Lauf der alte Block neben
+    dem halben neuen stehen — zwei Vorgaben am selben Tag, und welche gilt,
+    sieht der Athlet auf der Uhr nicht. Ein Tag ohne Vorgabe ist das kleinere
+    Übel.
+    """
+    _importiere(client, verbunden, autopush=True)
+    assert len(fake._workouts) == 2
+
+    fake.upload_workout = _wirft_429
+    antwort = _importiere(client, verbunden, autopush=True)
+
+    fertig = _job(client, verbunden, antwort["garmin_job_id"])
+    assert fertig["state"] == "rate_limited"
+    assert fake._workouts == {}
+    assert fake._termine == {}
+
+
+def test_gesperrte_verbindung_erklaert_den_leeren_kalender(client, verbunden, fake):
+    """Wer nichts auf der Uhr findet, soll den Grund beim Übernehmen lesen."""
+    _importiere_plan(client, verbunden)
+    fake.upload_workout = _wirft_429
+    assert _uebertrage(client, verbunden)["state"] == "rate_limited"
+
+    antwort = _importiere(client, verbunden, autopush=True)
+
+    assert antwort["garmin_job_id"] is None
+    assert "gesperrt" in antwort["garmin_hinweis"]
+
+
+def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(client, verbunden, fake):
+    """Ein stillgelegter Plan lässt sich gezielt übertragen — und überlebt es.
+
+    Ohne die Ausnahme in `raeume_ersetzte_auf` löschte derselbe Lauf am Ende
+    wieder, was er gerade hochgeladen hat: Der Block ist ja nicht mehr aktiv.
+    """
+    alt = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    _importiere_plan(client, verbunden)  # legt ihn still
+
+    antwort = client.post(
+        "/api/garmin/workouts/uebertragen",
+        json={"plan_id": alt["id"]},
+        headers=verbunden,
+    )
+    assert antwort.status_code == 202, antwort.text
+    fertig = _job(client, verbunden, antwort.json()["id"])
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_removed"] == 0
+    assert len(fake._workouts) == 2

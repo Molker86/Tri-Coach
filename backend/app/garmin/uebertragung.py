@@ -554,6 +554,7 @@ def raeume_ersetzte_auf(
     user_id: int,
     *,
     heute: date | None = None,
+    ausser_plan_id: int | None = None,
     pause_s: float | None = None,
 ) -> UebertragungsErgebnis:
     """Nimmt künftige Einheiten zurück, deren Block abgelöst wurde.
@@ -566,17 +567,42 @@ def raeume_ersetzte_auf(
 
     Nur was in der Zukunft liegt: Vergangenes räumt `raeume_vergangene_auf` weg,
     und ein bereits absolvierter Tag ist ohnehin kein Widerspruch mehr.
+
+    **Und erst ab dem Beginn des neuen Blocks.** „Abgelöst" ist ein Tag nicht
+    dadurch, dass sein Plan stillgelegt wurde, sondern dadurch, dass der neue
+    Block ihn beansprucht. Wer die *Folgewoche* plant, hat für den Rest dieser
+    Woche weiterhin nur den alten Block — dessen Einheiten aus dem Kalender zu
+    werfen, ließe den Athleten bis zum Blockbeginn ohne Vorgabe dastehen.
+    Dieselbe Grenze nennt der Hinweis beim Übernehmen („ab dem <Datum>
+    entfallen dort N Tage"), und sie hält beides zusammen.
+
+    `ausser_plan_id` nimmt den Block aus, der gerade übertragen wird. Nötig,
+    weil sich auch ein stillgelegter Plan von Hand auf die Uhr legen lässt (der
+    Trainingsplan zeigt frühere Blöcke mit an) — ohne die Ausnahme löschte der
+    Lauf genau das wieder, was er eben hochgeladen hat.
     """
     heute = heute or date.today()
+    aktiv = db.scalar(
+        select(Plan).where(Plan.user_id == user_id, Plan.is_active.is_(True))
+    )
+    if aktiv is None:
+        # Ohne aktiven Block gibt es keinen Nachfolger, der etwas ablösen
+        # könnte — dann ist auch nichts überholt.
+        return UebertragungsErgebnis()
+
+    bedingungen = [
+        GarminWorkoutLink.user_id == user_id,
+        GarminWorkoutLink.scheduled_date >= max(heute, aktiv.start_date),
+        Plan.is_active.is_(False),
+    ]
+    if ausser_plan_id is not None:
+        bedingungen.append(PlanSession.plan_id != ausser_plan_id)
+
     ersetzt = db.scalars(
         select(GarminWorkoutLink)
         .join(PlanSession, PlanSession.id == GarminWorkoutLink.plan_session_id)
         .join(Plan, Plan.id == PlanSession.plan_id)
-        .where(
-            GarminWorkoutLink.user_id == user_id,
-            GarminWorkoutLink.scheduled_date >= heute,
-            Plan.is_active.is_(False),
-        )
+        .where(*bedingungen)
         .order_by(GarminWorkoutLink.scheduled_date)
     ).all()
     return _entferne_reihe(db, api, list(ersetzt), pause_s=pause_s)

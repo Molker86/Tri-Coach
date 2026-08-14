@@ -148,6 +148,10 @@ export interface PlanSummary {
 export interface PlanImportResult {
   plan: Plan
   warnings: string[]
+  /** Die automatisch angestoßene Übertragung nach Garmin, falls sie anlief. */
+  garmin_job_id: number | null
+  /** Warum sie nicht anlief — nur gesetzt, wenn der Nutzer es wissen muss. */
+  garmin_hinweis: string | null
 }
 
 export interface SessionLog {
@@ -276,6 +280,7 @@ export interface GarminAccount {
   rate_limited_until: string | null
   auto_sync_enabled: boolean
   profile_sync_enabled: boolean
+  auto_push_enabled: boolean
 }
 
 export type GarminJobState =

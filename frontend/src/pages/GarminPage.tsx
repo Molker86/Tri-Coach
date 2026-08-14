@@ -354,7 +354,10 @@ function VerbindungsKarte(props: {
   busy: boolean
   laeuft: boolean
   onTrennen: () => void
-  onEinstellung: (feld: 'auto_sync_enabled' | 'profile_sync_enabled', wert: boolean) => void
+  onEinstellung: (
+    feld: 'auto_sync_enabled' | 'profile_sync_enabled' | 'auto_push_enabled',
+    wert: boolean,
+  ) => void
 }) {
   const konto = props.zustand.konto!
   const problem = konto.status !== 'connected'
@@ -399,6 +402,23 @@ function VerbindungsKarte(props: {
             Täglich automatisch abgleichen
             <span className="field-hint">
               Läuft ab 9 Uhr im Hintergrund — die App muss dafür nicht geöffnet sein.
+            </span>
+          </span>
+        </label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={konto.auto_push_enabled}
+            disabled={props.busy}
+            onChange={(e) => props.onEinstellung('auto_push_enabled', e.target.checked)}
+          />
+          <span>
+            Neue Trainingspläne sofort in den Garmin-Kalender legen
+            <span className="field-hint">
+              Sobald du einen Block übernimmst, wandern seine Einheiten als
+              Workouts auf die Uhr — und die Einheiten des abgelösten Blocks
+              verschwinden aus dem Kalender. Ohne den Haken bleibt es beim Knopf
+              im Trainingsplan.
             </span>
           </span>
         </label>

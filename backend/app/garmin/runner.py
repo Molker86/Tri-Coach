@@ -351,7 +351,13 @@ class SyncRunner:
         try:
             api = client_aus_token(entschluessle(konto.token_encrypted))
 
+            vorab_entfernt = 0
             if aktion == "push":
+                # Erst räumen, dann legen — die Reihenfolge trägt die
+                # Neuplanung (siehe `_raeume_ersetzte_vorab`).
+                vorab_entfernt = self._raeume_ersetzte_vorab(
+                    db, api, user_id, plan.id, fortschritt, pause_s
+                )
                 ergebnis = uebertragung.uebertrage_plan(
                     db, api, user_id, plan,
                     profil=konto.user.profile,
@@ -371,8 +377,10 @@ class SyncRunner:
             job.state = "failed" if ergebnis.fehler and not gelungen else "done"
             job.progress_pct = 100
             job.workouts_pushed = ergebnis.uebertragen
-            job.workouts_removed = ergebnis.entfernt
+            job.workouts_removed = ergebnis.entfernt + vorab_entfernt
             job.message = _uebertragungsmeldung(ergebnis, aktion)
+            if vorab_entfernt:
+                job.message = f"{job.message} {_ersatzmeldung(vorab_entfernt)}"
             job.finished_at = _now()
 
             # `last_sync_at` bleibt unberührt: Hier wurden keine Daten geholt,
@@ -391,10 +399,10 @@ class SyncRunner:
             # zurück.
             if aktion == "push" and (
                 aufgeraeumt := self._raeume_workouts_auf(
-                    db, konto, api, user_id, pause_s=pause_s
+                    db, konto, api, user_id, ausser_plan_id=plan.id, pause_s=pause_s
                 )
             ):
-                job.workouts_removed = aufgeraeumt
+                job.workouts_removed += aufgeraeumt
                 job.message = f"{job.message} {_aufraeummeldung(aufgeraeumt)}"
                 db.commit()
 
@@ -419,6 +427,50 @@ class SyncRunner:
                 _notiere_fehler(job, konto, exc, "Die Übertragung")
                 db.commit()
 
+    def _raeume_ersetzte_vorab(
+        self,
+        db,
+        api,
+        user_id: int,
+        plan_id: int,
+        fortschritt: Fortschritt,
+        pause_s: float | None,
+    ) -> int:
+        """Nimmt den abgelösten Block aus Garmin, **bevor** der neue hineingeht.
+
+        Warum vorher und nicht am Ende wie das Aufräumen vergangener Tage: Beide
+        Blöcke decken dieselben Tage ab. Bricht die Übertragung auf halbem Weg
+        ab — eine Anfragesperre genügt dafür —, stünden auf der Uhr zwei
+        Trainings am selben Tag, und welches davon überholt ist, sieht der
+        Athlet vor dem Start nicht. Andersherum ist der schlimmste Fall ein Tag
+        ohne Vorgabe: ärgerlich, aber nicht irreführend.
+
+        Ein Fehlschlag hält die Übertragung nicht auf — sie ist das eigentliche
+        Ziel des Laufs. Die Anfragesperre bleibt davon ausgenommen: Sie gilt für
+        alles Folgende, und weiterzumachen verlängerte sie nur.
+        """
+        from . import uebertragung
+
+        fortschritt.schritt(
+            "aufraeumen", 0, 1, "Der abgelöste Block wird aus Garmin genommen …"
+        )
+        try:
+            ergebnis = uebertragung.raeume_ersetzte_auf(
+                db, api, user_id, ausser_plan_id=plan_id, pause_s=pause_s
+            )
+        except GarminRateLimit:
+            # `_entferne_reihe` übersetzt auch die Form aus der Bibliothek
+            # bereits in diesen Fehler — hier reicht das Durchlassen.
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("Abgelösten Block nicht aufgeräumt", exc_info=True)
+            db.rollback()
+            return 0
+
+        if ergebnis.fehler:
+            logger.warning("Nicht aufgeräumt: %s", "; ".join(ergebnis.fehler[:5]))
+        return ergebnis.entfernt
+
     def _raeume_workouts_auf(
         self,
         db,
@@ -426,6 +478,7 @@ class SyncRunner:
         api,
         user_id: int,
         *,
+        ausser_plan_id: int | None = None,
         pause_s: float | None = None,
     ) -> int:
         """Löscht übertragene Einheiten, deren Tag vorbei ist. Gibt deren Zahl zurück.
@@ -447,9 +500,11 @@ class SyncRunner:
             )
             # Ein abgelöster Block ist auf der Uhr genauso Altpapier wie ein
             # vergangener Tag — nur fällt er mehr auf, weil er neben dem neuen
-            # Training auf demselben Tag steht.
+            # Training auf demselben Tag steht. Eine Übertragung hat ihn schon
+            # vorweg geräumt; hier greift es für den Abgleich, der ohne Knopf
+            # auskommt.
             ersetzt = uebertragung.raeume_ersetzte_auf(
-                db, api, user_id, pause_s=pause_s
+                db, api, user_id, ausser_plan_id=ausser_plan_id, pause_s=pause_s
             )
             ergebnis.entfernt += ersetzt.entfernt
             ergebnis.fehler.extend(ersetzt.fehler)
@@ -600,6 +655,18 @@ def _uebertragungsmeldung(ergebnis, aktion: str) -> str:
     if ergebnis.fehler:
         meldung += " Nicht geklappt hat es bei: " + "; ".join(ergebnis.fehler[:5])
     return meldung
+
+
+def _ersatzmeldung(anzahl: int) -> str:
+    """Was vom abgelösten Block aus dem Kalender genommen wurde.
+
+    Eigene Meldung statt `_aufraeummeldung`: Hier ging nichts *Vergangenes* weg,
+    sondern die überholte Vorgabe für dieselben Tage, die der neue Block gerade
+    belegt hat.
+    """
+    if anzahl == 1:
+        return "1 Einheit des abgelösten Blocks wurde aus dem Kalender genommen."
+    return f"{anzahl} Einheiten des abgelösten Blocks wurden aus dem Kalender genommen."
 
 
 def _aufraeummeldung(anzahl: int) -> str:

@@ -39,6 +39,11 @@ export default function PlanView() {
   const [garminJob, setGarminJob] = useState<GarminJob | null>(null)
   const [garminBusy, setGarminBusy] = useState(false)
   const abbrechenRef = useRef<(() => void) | null>(null)
+  // Warum der Block *nicht* automatisch nach Garmin ging. Der Satz entsteht
+  // beim Übernehmen und reist über den Router-Zustand hierher.
+  const [uebertragungsHinweis] = useState<string | null>(
+    () => (location.state as { garminHinweis?: string } | null)?.garminHinweis ?? null,
+  )
 
   const ladeGarmin = useCallback((forPlanId: number) => {
     api
@@ -47,6 +52,23 @@ export default function PlanView() {
       .catch(() => setGarmin(null))
   }, [])
 
+  /** Verfolgt einen Übertragungslauf, bis er fertig ist. */
+  const beobachte = useCallback(
+    (job: GarminJob, forPlanId: number) => {
+      setGarminJob(job)
+      abbrechenRef.current?.()
+      abbrechenRef.current = pollJob(
+        job.id,
+        (aktualisiert) => {
+          setGarminJob(aktualisiert)
+          if (!jobLaeuft(aktualisiert)) ladeGarmin(forPlanId)
+        },
+        (meldung) => setError(meldung),
+      )
+    },
+    [ladeGarmin],
+  )
+
   function reload(navigateTo?: string) {
     setLoading(true)
     const load = planId ? api.getPlan(Number(planId)) : api.activePlan()
@@ -54,8 +76,21 @@ export default function PlanView() {
       .then(([loaded, summaries]) => {
         setPlan(loaded)
         setPlans(summaries)
-        if (loaded) ladeGarmin(loaded.id)
-        else setGarmin(null)
+        if (loaded) {
+          ladeGarmin(loaded.id)
+          // Ein übernommener Block geht von selbst nach Garmin. Wer hier
+          // landet, hat dafür nichts gedrückt — der Fortschritt muss also von
+          // allein auftauchen, sonst wirkt die Seite untätig, während im
+          // Server gerade ein Dutzend Anfragen laufen.
+          api
+            .garminStatus()
+            .then(({ aktiver_job }) => {
+              if (aktiver_job?.kind.startsWith('workout')) {
+                beobachte(aktiver_job, loaded.id)
+              }
+            })
+            .catch(() => undefined)
+        } else setGarmin(null)
         if (navigateTo && navigateTo !== location.pathname) {
           navigate(navigateTo)
         }
@@ -75,18 +110,7 @@ export default function PlanView() {
     setError(null)
     api
       .garminWorkoutsUebertragen(plan.id)
-      .then((job) => {
-        setGarminJob(job)
-        abbrechenRef.current?.()
-        abbrechenRef.current = pollJob(
-          job.id,
-          (aktualisiert) => {
-            setGarminJob(aktualisiert)
-            if (!jobLaeuft(aktualisiert)) ladeGarmin(plan.id)
-          },
-          (meldung) => setError(meldung),
-        )
-      })
+      .then((job) => beobachte(job, plan.id))
       .catch((err) => setError(err.message))
       .finally(() => setGarminBusy(false))
   }
@@ -297,6 +321,11 @@ export default function PlanView() {
           </button>
         </div>
       </div>
+
+      {/* Kommt vom Übernehmen mit: Die App wollte den Block auf die Uhr legen
+          und kam nicht durch. Ohne diesen Satz stünde nur ein leerer Kalender
+          da, ohne Grund. */}
+      {uebertragungsHinweis && <Alert kind="warning">{uebertragungsHinweis}</Alert>}
 
       {garmin?.garmin_verbunden && (
         <GarminKarte
