@@ -90,6 +90,39 @@ export default function PlanView() {
       .finally(() => setGarminBusy(false))
   }
 
+  /**
+   * Löschen an einer Stelle, damit Kopfzeile und Tabelle nicht auseinanderlaufen.
+   * Beides gibt es, weil der Knopf in der Tabelle den einzigen Plan gar nicht
+   * erreicht — sie wird erst ab dem zweiten angezeigt.
+   */
+  function loeschePlan(id: number, titel: string) {
+    // Was in Garmin steht, bleibt dort: Mit dem Plan verschwindet nur die
+    // Zuordnung, und ohne sie fasst die App in Garmin nichts mehr an.
+    const inGarmin = id === plan?.id ? (garmin?.aktuell ?? 0) + (garmin?.geaendert ?? 0) : 0
+    const hinweis = inGarmin
+      ? `\n\nBereits übertragene Einheiten bleiben im Garmin-Kalender stehen — ` +
+        `dort lassen sie sich vorher entfernen.`
+      : ''
+    if (
+      !confirm(
+        `Plan „${titel}“ wirklich löschen?\n\n` +
+          `Erfasste Trainings bleiben im Verlauf erhalten.${hinweis}`,
+      )
+    )
+      return
+
+    api
+      .deletePlan(id)
+      .then(() => {
+        // Wer den gerade geöffneten Plan löscht, stünde sonst auf /plan/<id>
+        // und liefe beim Neuladen in ein 404. Der Wechsel der Route stößt über
+        // den Effekt auf [planId] das Neuladen selbst an.
+        if (planId && Number(planId) === id) navigate('/plan')
+        else reload()
+      })
+      .catch((err) => setError(err.message))
+  }
+
   /** Zustand je Einheit, damit die Karten ihn zeigen können. */
   const garminJeEinheit = useMemo(() => {
     const karte = new Map<number, GarminUebertragungsZustand>()
@@ -185,13 +218,7 @@ export default function PlanView() {
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
-                          onClick={() => {
-                            if (!confirm(`Plan „${entry.title}" wirklich löschen?`)) return
-                            api
-                              .deletePlan(entry.id)
-                              .then(() => reload())
-                              .catch((err) => setError(err.message))
-                          }}
+                          onClick={() => loeschePlan(entry.id, entry.title)}
                         >
                           Löschen
                         </button>
@@ -249,6 +276,12 @@ export default function PlanView() {
           <Link className="btn btn-primary" to="/neues-training">
             Neuen Plan erstellen
           </Link>
+          <button
+            className="btn btn-danger"
+            onClick={() => loeschePlan(plan.id, plan.title)}
+          >
+            Plan löschen
+          </button>
         </div>
       </div>
 
@@ -361,13 +394,7 @@ export default function PlanView() {
                       )}
                       <button
                         className="btn btn-ghost btn-sm"
-                        onClick={() => {
-                          if (!confirm(`Plan „${entry.title}" wirklich löschen?`)) return
-                          api
-                            .deletePlan(entry.id)
-                            .then(() => reload())
-                            .catch((err) => setError(err.message))
-                        }}
+                        onClick={() => loeschePlan(entry.id, entry.title)}
                       >
                         Löschen
                       </button>
