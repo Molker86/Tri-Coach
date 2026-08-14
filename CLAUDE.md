@@ -617,10 +617,18 @@ Tage weit reicht und jeder Export bei null anfängt, entsteht Progression nicht
 aus einem Zyklusplan, sondern allein daraus, dass jeder einzelne Block sie
 enthält.
 
-Punkt 6 spricht die **Zielschlüssel namentlich an** („Aufbau", „Bestzeit",
-„Wettkampfvorbereitung" verlangen einen Reiz; „Grundlagenausdauer",
+Punkt 6 spricht die **Zielschlüssel namentlich an** („Standardplan", „Aufbau",
+„Bestzeit", „Wettkampfvorbereitung" verlangen einen Reiz; „Grundlagenausdauer",
 „Gesundheit", „Gewichtsreduktion", „Erstfinish", „Wiedereinstieg" stellen
-Regelmäßigkeit voran). Die Schlüssel stehen in `GOAL_OPTIONS`
+Regelmäßigkeit voran). „Standardplan" hat zusätzlich einen eigenen Absatz, weil
+er das einzige Ziel ohne äußeren Bezugspunkt ist: kein Wettkampf, kein
+Schwerpunkt — Maßstab ist allein die Best Practice, und die Reizwahl kommt aus
+der Lücke in der Historie. Ohne diesen Absatz füllte das Modell die Leerstelle
+mit dem Sichersten, also Z2. Der Absatz zählt bewusst **keine Einheitentypen
+auf**: Eine Liste („Schwelle, VO2max, Z1 …") wäre wieder eine Vorgabe und würde
+genau die Ableitung ersetzen, die hier den Sinn des Ziels ausmacht. Und er sagt
+ausdrücklich, dass er kein Freibrief ist — „bestmöglich" ohne diesen Satz liest
+sich als Erlaubnis, die Bremsen aus Punkt 1 bis 4 zu übergehen. Die Schlüssel stehen in `GOAL_OPTIONS`
 (`frontend/src/constants.ts`) und gehen unverändert als `trainingswunsch.ziel`
 in den Payload — ein neues Ziel oder ein umbenannter Schlüssel muss deshalb im
 Prompt mitgezogen werden, sonst fällt es dort stillschweigend in keine der

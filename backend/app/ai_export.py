@@ -473,13 +473,25 @@ enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine
 Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber der letzten Woche \
 in `wochenuebersicht` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, \
 obwohl Erholungslage und ACWR ihn nicht verlangen, verschenkt die Zeit. Bei den Zielen \
-"Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz Pflicht — dort \
-geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in \
+"Standardplan", "Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz \
+Pflicht — dort geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in \
 `trainingshistorie.einheiten` nach, welcher Reiz zuletzt gefehlt hat (nichts \
 Intensives, keine lange Einheit, immer dieselbe Dauer) und setze ihn. Bei \
 "Grundlagenausdauer", "Gesundheit", "Gewichtsreduktion", "Erstfinish" und \
 "Wiedereinstieg" zählt Regelmäßigkeit mehr als Reiz — dort steigt zuerst der Umfang, \
 und Intensität bleibt die Ausnahme.
+   - Sonderfall "Standardplan": Es gibt kein äußeres Ziel und keinen Wettkampf, an dem \
+du den Block ausrichten könntest. Maßstab ist allein die trainingswissenschaftliche \
+Best Practice. Welche Einheiten das sind, gibt dir niemand vor: Kein Einheitentyp ist \
+gefordert und keiner ausgeschlossen. Leite die Zusammensetzung des Blocks aus \
+`trainingshistorie.einheiten` und `wochenuebersicht` ab — aus Dauer, Intensität und \
+Sportart der letzten Wochen ergibt sich, was zuletzt gefehlt hat und was den größten \
+Fortschritt bringt. Über mehrere Blöcke hinweg soll kein Reiztyp dauerhaft ausfallen. \
+Das ist ausdrücklich **kein Freibrief**: Die Bremsen aus den Punkten 1 bis 4 und die \
+Intensitätsverteilung aus Punkt 3 gelten unverändert. "Bestmöglich" heißt der stärkste \
+Reiz, den die aktuelle Erholungslage trägt, nicht der härteste denkbare. Begründe in \
+`summary`, woran du in der Historie erkannt hast, dass dieser Block jetzt so aussehen \
+muss.
 7. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
 Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf \
 welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.

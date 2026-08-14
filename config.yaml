@@ -3,7 +3,7 @@ description: Trainingsplanung für Ausdauersport
 # Der Store bietet ein Update erst an, wenn diese Zahl größer ist als die
 # installierte — bei einem lokal gebauten Add-on gibt es keinen anderen
 # Auslöser. Jeder Stand, der auf den Pi soll, braucht hier eine neue Version.
-version: 2.1.0
+version: 2.2.0
 slug: tricoach
 url: https://github.com/Molker86/Tri-Coach
 arch:

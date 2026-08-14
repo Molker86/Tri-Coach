@@ -90,6 +90,11 @@ export const SESSION_TYPE_LABEL: Record<string, string> = {
 // ändert oder ergänzt, muss den Prompt mitziehen.
 export const GOAL_OPTIONS = [
   {
+    key: 'Standardplan',
+    label: 'Standardplan — bestmögliche Entwicklung',
+    hint: 'Kein festes Ziel: Aus deinen letzten Wochen wird abgeleitet, was jetzt am meisten bringt — nach den Best-Practice-Methoden des Ausdauersports.',
+  },
+  {
     key: 'Wettkampfvorbereitung',
     label: 'Wettkampf vorbereiten',
     hint: 'Auf ein festes Datum hin — Form zum Wettkampf.',
