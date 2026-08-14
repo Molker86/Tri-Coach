@@ -429,15 +429,22 @@ function UebertragungsKarte(props: {
           </p>
 
           <div className="row">
+            {/* Auch bei „alles aktuell" anklickbar: Der Lauf sieht zuerst nach,
+                was wirklich in Garmin steht. Wäre der Knopf hier tot, käme der
+                Nutzer aus einem falschen Stand nicht mehr heraus — genau dann,
+                wenn er den Knopf braucht. */}
             <button
-              className="btn btn-primary"
+              className={offen === 0 ? 'btn btn-secondary' : 'btn btn-primary'}
               onClick={props.onUebertragen}
-              disabled={props.busy || offen === 0}
+              disabled={props.busy || uebertragbar === 0}
             >
-              Garmin Trainings übertragen
+              {offen === 0 ? 'Mit Garmin abgleichen' : 'Garmin Trainings übertragen'}
             </button>
             {offen === 0 ? (
-              <span className="muted small">Alles ist auf dem neuesten Stand.</span>
+              <span className="muted small">
+                Alles ist auf dem neuesten Stand. Der Abgleich prüft nach, ob es in
+                Garmin wirklich noch steht, und legt Fehlendes neu an.
+              </span>
             ) : (
               <span className="muted small">
                 {offen} {offen === 1 ? 'Einheit wartet' : 'Einheiten warten'} — sie

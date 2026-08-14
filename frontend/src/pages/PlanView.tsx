@@ -416,18 +416,27 @@ function GarminKarte({
       )}
 
       <div className="row">
+        {/* Bleibt anklickbar, wenn alles als aktuell gilt: Diese Seite fragt nur
+            den eigenen Stand ab, ohne Garmin dabei zu berühren. Erst der Lauf
+            selbst sieht nach — ein toter Knopf ließe den Nutzer in einem
+            falschen Stand sitzen. */}
         <button
-          className="btn btn-primary"
+          className={offen === 0 ? 'btn btn-secondary' : 'btn btn-primary'}
           onClick={onUebertragen}
-          disabled={busy || laeuft || offen === 0}
+          disabled={busy || laeuft || garmin.einheiten.length === 0}
         >
-          {laeuft ? 'Wird übertragen …' : 'Garmin Trainings übertragen'}
+          {laeuft
+            ? 'Wird übertragen …'
+            : offen === 0
+              ? 'Mit Garmin abgleichen'
+              : 'Garmin Trainings übertragen'}
         </button>
         <span className="muted small">
           {laeuft
             ? (job?.message ?? 'Die Einheiten wandern in den Garmin-Kalender …')
             : offen === 0
-              ? `Alle ${garmin.aktuell} Einheiten liegen im Garmin-Kalender.`
+              ? `Alle ${garmin.aktuell} Einheiten liegen im Garmin-Kalender — ` +
+                `der Abgleich prüft es nach.`
               : `${garmin.aktuell} von ${garmin.einheiten.length} übertragen — ` +
                 `${offen} ${offen === 1 ? 'Einheit wartet' : 'Einheiten warten'}.`}
         </span>

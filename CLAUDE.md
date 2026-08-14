@@ -403,7 +403,50 @@ die Trainingsdaten zu vernichten, aus denen diese App ihre Planung ableitet.
 Gelöscht werden nur geplante Workouts, und zwar in zwei Stufen — nur der Termin
 (die Vorlage bleibt zum erneuten Einplanen) oder beides. Vergangene Tage werden
 gar nicht erst übertragen: Ein Workout von gestern im Kalender ist Altpapier,
-das der Athlet von Hand wegräumen müsste.
+das der Athlet von Hand wegräumen müsste. Antwortet Garmin in einer Form, die
+`_rohliste()` nicht kennt, ist das ein **Fehler** und kein leerer Monat: Beides
+sähe sonst gleich aus — ein leerer Kalender ohne ein Wort dazu —, und der
+Bestandsabgleich schlösse aus dem Nichts, dass die eigenen Workouts weg sind.
+
+**`GarminWorkoutLink` ist eine Behauptung und wird nachgeprüft**
+(`uebertragung.gleiche_mit_garmin_ab`). Die Zuordnung sagt „liegt in Garmin",
+weil die App es einmal hingelegt hat — auch dann noch, wenn der Athlet es in
+Connect gelöscht hat oder es nie ankam. Ohne Nachprüfen stand im Plan „6 von 8
+Einheiten liegen in Garmin" neben einem leeren Kalender, und der Knopf half
+nicht: Diese sechs galten als aktuell und wurden übersprungen. Nachgeprüft wird
+an den beiden Stellen, an denen es nichts extra kostet — die Kalenderansicht hat
+ihren Monat ohnehin geholt und reicht ihn als `bekannt` durch, die Übertragung
+holt vorweg die ein bis zwei Monate ihres Blocks. Was der Kalender nicht
+erklärt, wird einzeln nachgefragt: **Nur ein 404 auf `get_workout_by_id` gilt
+als Beweis**, dass eine Vorlage weg ist. Jeder andere Fehlschlag lässt die
+Zuordnung stehen — sie fälschlich zu löschen legte beim nächsten Übertragen eine
+zweite Vorlage neben die erste. Aus demselben Grund bleibt der Knopf im
+Frontend anklickbar, wenn alles als aktuell gilt („Mit Garmin abgleichen"): Ein
+toter Knopf ließe den Nutzer genau dann sitzen, wenn der Stand falsch ist.
+
+**Ein Termin ohne Kennung ist kein Erfolg** (`_terminiere`). Gibt Garmin auf
+`schedule_workout` keine `workoutScheduleId` zurück, wurde der Termin zwar
+angelegt, ist für die App aber unerreichbar — weder verschiebbar noch
+zurücknehmbar. Das wandert deshalb als Fehler an die Einheit, statt als „N
+Einheiten übertragen" gemeldet zu werden; sonst legte jeder weitere Druck auf
+den Knopf einen zweiten Termin daneben. Der nächste Lauf heilt es von selbst:
+Der Bestandsabgleich findet den Termin im Kalender und trägt seine Kennung nach.
+
+**Ein abgelöster Block wird aus Garmin geräumt**
+(`uebertragung.raeume_ersetzte_auf`). Der nächste Block entsteht als *neuer*
+Plan, der bisherige wird nur stillgelegt — seine übertragenen Einheiten blieben
+aber stehen. Weil beide Blöcke dieselben Tage abdecken, stünden auf der Uhr zwei
+Trainings je Tag, und welches überholt ist, sähe der Athlet vor dem Start nicht.
+Geräumt wird nur, was in der Zukunft liegt und zu einem **inaktiven** Plan
+gehört; Vergangenes erledigt `raeume_vergangene_auf`. Ein *gelöschter* Plan
+bleibt davon unberührt — mit ihm sind die Zuordnungen weg, und ohne sie fasst
+diese App in Garmin nichts an.
+
+**Verschieben im Kalender verschiebt die Planeinheit mit**
+(`verschiebe_kalendereintrag`). Wer dort einen Tag ändert, entscheidet über
+seinen Plan und nicht bloß über einen Kalendereintrag. Bliebe `PlanSession.date`
+stehen, liefe beides auseinander: Die nächste Übertragung sähe einen
+abweichenden Termin und schöbe ihn wortlos auf den Plantag zurück.
 
 **Profilwerte kommen automatisch nach — außer dem Maximalpuls**
 (`profile_sync.py`). Gewicht, Körperfett, Ruhepuls, HRV und VO2max werden
@@ -663,5 +706,12 @@ Klammern müssten verdoppelt werden.
   ausschließlich über `GarminWorkoutLink`, und der ist mit dem Plan gelöscht
   worden. Ungefragt in einem fremden Konto zu löschen wäre
   übergriffig; der Kalender in der App zeigt es weiterhin zum Entfernen an.
+- Der Bestandsabgleich prüft nur die Monate, in denen die App ihre Einheiten
+  vermutet. Wer ein Workout in **Connect** auf einen anderen Monat schiebt, wird
+  dort nicht gefunden; die Vorlage besteht aber noch, also wird die Zuordnung
+  nicht gelöscht, sondern nur ihr Termin vergessen — die nächste Übertragung
+  legt einen zweiten Termin auf dem Plantag an, ohne den verschobenen zu
+  kennen. Innerhalb der App verschieben (Kalenderansicht) hat das Problem
+  nicht: Dort zieht die Planeinheit mit um.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).

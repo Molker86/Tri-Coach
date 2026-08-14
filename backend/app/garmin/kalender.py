@@ -12,8 +12,12 @@ Eintragsart anders, und undokumentiert ist alles.
 
 from typing import Any
 
-from .mapping import als_datum, als_ganzzahl, als_liste, als_zahl, erster_wert, hole
+from .errors import GarminFehler
+from .mapping import als_datum, als_ganzzahl, als_zahl, erster_wert, hole
 from .mapping import sport_aus_typkey
+
+# Unter welchem Schlüssel die Einträge eines Monats stehen können.
+_LISTEN_SCHLUESSEL = ("calendarItems", "items", "calendarItemList")
 
 # Garmins `itemType` auf die drei Fälle, die die Oberfläche unterscheidet.
 # Alles Unbekannte bleibt „sonstiges" und wird nur angezeigt, nie angefasst.
@@ -61,7 +65,10 @@ def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
     dauer_s = als_zahl(erster_wert(roh, ("duration",), ("estimatedDurationInSecs",)))
     distanz_m = als_zahl(erster_wert(roh, ("distance",), ("estimatedDistanceInMeters",)))
     workout_id = erster_wert(roh, ("workoutId",))
-    schedule_id = erster_wert(roh, ("id",), ("workoutScheduleId",))
+    # Der eindeutige Name zuerst, `id` nur als Rückfallebene: `id` trägt je nach
+    # Eintragsart Verschiedenes (bei Aktivitäten die Aktivitätskennung), und ein
+    # Löschen über die falsche Zahl träfe den falschen Eintrag.
+    schedule_id = erster_wert(roh, ("workoutScheduleId",), ("id",))
 
     return {
         "datum": tag,
@@ -90,10 +97,31 @@ def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _rohliste(roh: Any) -> list[Any]:
+    """Die Einträge aus Garmins Antwort — oder ein Fehler, wenn die Form fremd ist.
+
+    Bewusst **kein** stilles `[]` bei unbekannter Antwortform: Ein leerer Monat
+    und eine Antwort, die diese App nicht mehr versteht, sähen in der Oberfläche
+    sonst gleich aus — ein leerer Kalender ohne ein Wort dazu. Schlimmer noch:
+    Der Abgleich in `uebertragung.gleiche_mit_garmin_ab()` schließt aus einem
+    leeren Monat, dass die eigenen Workouts dort nicht mehr stehen. Diese
+    Unterscheidung muss deshalb belastbar sein.
+    """
+    if isinstance(roh, list):
+        return roh
+    if isinstance(roh, dict):
+        for name in _LISTEN_SCHLUESSEL:
+            if isinstance(roh.get(name), list):
+                return roh[name]
+    raise GarminFehler(
+        "Garmin hat den Kalender in einer unerwarteten Form geliefert. "
+        "Bitte versuche es später erneut."
+    )
+
+
 def hole_monat(api: Any, jahr: int, monat: int) -> list[dict[str, Any]]:
     """Alle Kalendereinträge eines Monats, nach Datum sortiert."""
-    roh = api.get_scheduled_workouts(jahr, monat)
-    eintraege = als_liste(roh, "calendarItems", "items", "calendarItemList")
+    eintraege = _rohliste(api.get_scheduled_workouts(jahr, monat))
 
     ergebnis: list[dict[str, Any]] = []
     for element in eintraege:

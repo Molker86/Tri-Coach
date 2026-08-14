@@ -338,7 +338,11 @@ class SyncRunner:
             job.step = schritt
             job.step_index = index
             job.step_total = gesamt
-            job.progress_pct = min(99, int((index - 1) / gesamt * 100)) if gesamt else 0
+            # `max(0, …)`: Der Bestandsabgleich meldet sich vor der ersten
+            # Einheit mit Index 0 und ergäbe sonst einen negativen Fortschritt.
+            job.progress_pct = (
+                max(0, min(99, int((index - 1) / gesamt * 100))) if gesamt else 0
+            )
             job.message = meldung or f"{schritt} …"
             db.commit()
 
@@ -440,6 +444,14 @@ class SyncRunner:
             ergebnis = uebertragung.raeume_vergangene_auf(
                 db, api, user_id, pause_s=pause_s
             )
+            # Ein abgelöster Block ist auf der Uhr genauso Altpapier wie ein
+            # vergangener Tag — nur fällt er mehr auf, weil er neben dem neuen
+            # Training auf demselben Tag steht.
+            ersetzt = uebertragung.raeume_ersetzte_auf(
+                db, api, user_id, pause_s=pause_s
+            )
+            ergebnis.entfernt += ersetzt.entfernt
+            ergebnis.fehler.extend(ersetzt.fehler)
         except GarminRateLimit as exc:
             db.rollback()
             konto.status = "rate_limited"
@@ -566,11 +578,14 @@ def _uebertragungsmeldung(ergebnis, aktion: str) -> str:
             teile.append(f"{ergebnis.aktualisiert} aktualisiert")
         if ergebnis.unveraendert:
             teile.append(f"{ergebnis.unveraendert} waren bereits aktuell")
-        meldung = (
-            "Im Garmin-Kalender steht alles: " + ", ".join(teile) + "."
-            if teile
-            else "Es gab keine Einheit zu übertragen."
-        )
+        if teile:
+            meldung = "Im Garmin-Kalender steht alles: " + ", ".join(teile) + "."
+        elif ergebnis.fehler:
+            # Ohne diesen Fall stünde „Es gab keine Einheit zu übertragen"
+            # direkt vor der Liste der Einheiten, bei denen es nicht klappte.
+            meldung = "Keine Einheit konnte übertragen werden."
+        else:
+            meldung = "Es gab keine Einheit zu übertragen."
     else:
         meldung = (
             f"{ergebnis.entfernt} Einheiten aus Garmin entfernt."

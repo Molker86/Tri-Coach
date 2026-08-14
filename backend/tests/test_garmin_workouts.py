@@ -643,6 +643,123 @@ def test_in_garmin_geloeschtes_workout_wird_neu_angelegt(client, verbunden, fake
     assert zustand["fehler"] == 0
 
 
+# --------------------------------------------------------------------------
+# Der Zustand der App gegen den Zustand in Garmin
+#
+# `GarminWorkoutLink` allein ist eine Behauptung: „liegt in Garmin", weil die
+# App es einmal hingelegt hat. Wird sie nicht nachgeprüft, zeigt die Oberfläche
+# einen leeren Kalender neben dem Satz „6 von 8 Einheiten liegen in Garmin" —
+# und der Knopf zum Übertragen überspringt genau die Einheiten, die fehlen.
+# --------------------------------------------------------------------------
+
+
+def test_kalender_deckt_auf_dass_workouts_in_garmin_fehlen(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    assert client.get("/api/garmin/workouts/status", headers=verbunden).json()["aktuell"] == 2
+
+    # Der Athlet räumt in Connect auf.
+    fake._workouts.clear()
+    fake._termine.clear()
+
+    kalender = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    ).json()
+    assert not [e for e in kalender["eintraege"] if e["aus_tri_coach"]]
+
+    # Der Monat lag ohnehin vor — die Zuordnungen sind damit berichtigt.
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert (zustand["aktuell"], zustand["offen"]) == (0, 2)
+
+
+def test_uebertragen_legt_in_garmin_geloeschte_einheiten_neu_an(client, verbunden, fake):
+    """Ohne den Abstecher zu Garmin übersprünge der Lauf genau das Fehlende."""
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    fake._workouts.clear()
+    fake._termine.clear()
+
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_pushed"] == 2
+    assert len(fake._workouts) == 2
+    assert len(fake._termine) == 2
+
+
+def test_termin_ohne_kennung_gilt_nicht_als_erfolg(client, verbunden, fake):
+    """Sonst meldete der Lauf Erfolg und jeder weitere Druck legte einen Termin daneben."""
+    echtes_planen = fake.schedule_workout
+    fake.schedule_workout = lambda workout_id, date_str: (
+        echtes_planen(workout_id, date_str) and {}
+    )
+
+    _importiere_plan(client, verbunden)
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "failed"
+    assert "keine Kennung" in fertig["message"]
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["fehler"] == 2
+
+    # Der zweite Lauf findet den Termin im Kalender und trägt seine Kennung
+    # nach, statt einen zweiten anzulegen.
+    fake.schedule_workout = echtes_planen
+    assert len(fake._termine) == 2
+    _uebertrage(client, verbunden)
+    assert len(fake._termine) == 2
+    assert client.get("/api/garmin/workouts/status", headers=verbunden).json()["fehler"] == 0
+
+
+def test_abgeloester_block_wird_aus_garmin_geraeumt(client, verbunden, fake):
+    """Zwei Blöcke auf denselben Tagen hießen zwei Trainings je Tag auf der Uhr."""
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    alte_vorlagen = set(fake._workouts)
+
+    # Der nächste Block: ein neuer Plan, der alte wird nur stillgelegt.
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    assert not (alte_vorlagen & set(fake._workouts)), "Der alte Block steht noch in Garmin"
+    assert len(fake._workouts) == 2
+    assert len(fake._termine) == 2
+
+
+def test_unbekannte_kalenderform_wird_gemeldet_statt_verschwiegen(client, verbunden, fake):
+    """Ein leerer Monat und eine unverstandene Antwort dürfen nicht gleich aussehen."""
+    fake.get_scheduled_workouts = lambda jahr, monat: {"unbekannt": []}
+
+    antwort = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    )
+    assert antwort.status_code == 502
+    assert "unerwarteten Form" in antwort.json()["detail"]
+
+
+def test_verschieben_nimmt_die_planeinheit_mit(client, verbunden, fake):
+    """Sonst schöbe die nächste Übertragung den Termin wortlos zurück."""
+    _importiere_plan(client, verbunden, tage=2)
+    _uebertrage(client, verbunden)
+
+    eintraege = client.get(
+        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
+    ).json()["eintraege"]
+    eigener = next(e for e in eintraege if e["aus_tri_coach"])
+    ziel = HEUTE + timedelta(days=4)
+
+    client.post(
+        f"/api/garmin/kalender/{eigener['schedule_id']}/verschieben",
+        json={"workout_id": eigener["workout_id"], "datum": ziel.isoformat()},
+        headers=verbunden,
+    )
+    _uebertrage(client, verbunden)
+
+    assert ziel.isoformat() in {tag for _, tag in fake._termine.values()}
+    plan = client.get("/api/plans/active", headers=verbunden).json()
+    assert ziel.isoformat() in {s["date"] for s in plan["sessions"]}
+
+
 def test_eine_abgelehnte_einheit_stoppt_die_anderen_nicht(client, verbunden, fake):
     """Garmin lehnt gelegentlich einzelne Workouts ab — das darf kein Alles-oder-Nichts sein."""
     _importiere_plan(client, verbunden)

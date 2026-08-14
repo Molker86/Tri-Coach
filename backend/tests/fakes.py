@@ -327,6 +327,13 @@ class FakeGarmin:
         self._workouts[self._workout_id] = dict(workout_json)
         return {"workoutId": self._workout_id}
 
+    def get_workout_by_id(self, workout_id):
+        self.aufrufe.append("get_workout_by_id")
+        vorlage = self._workouts.get(int(workout_id))
+        if vorlage is None:
+            raise RuntimeError("404 Not Found")
+        return dict(vorlage, workoutId=int(workout_id))
+
     def update_workout(self, workout_id, workout_json):
         self.aufrufe.append("update_workout")
         if int(workout_id) not in self._workouts:

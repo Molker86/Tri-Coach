@@ -523,6 +523,11 @@ def kalender(
     try:
         with garmin_sitzung(db, user.id) as api:
             eintraege = kalender_modul.hole_monat(api, jahr, monat)
+            # Der Monat liegt hier ohnehin vor: Damit lässt sich prüfen, ob die
+            # eigenen Zuordnungen noch stimmen — ohne eine weitere Anfrage. Ohne
+            # das zeigte diese Ansicht einen leeren Kalender, während der
+            # Trainingsplan daneben behauptete, alles liege auf der Uhr.
+            _gleiche_zuordnungen_ab(db, api, user.id, jahr, monat, eintraege)
     except GarminFehler as exc:
         raise als_http(exc) from exc
 
@@ -544,6 +549,34 @@ def kalender(
             )
         )
     return antwort
+
+
+def _gleiche_zuordnungen_ab(
+    db, api, user_id: int, jahr: int, monat: int, eintraege: list[dict]
+) -> None:
+    """Prüft die Zuordnungen dieses Monats gegen den frisch geholten Kalender.
+
+    Bewusst nur die Zuordnungen *dieses* Monats: Für die übrigen liegt hier
+    keine Auskunft vor, und sie deshalb anzufassen hieße raten.
+    """
+    verknuepft = db.scalars(
+        select(GarminWorkoutLink).where(
+            GarminWorkoutLink.user_id == user_id,
+            GarminWorkoutLink.scheduled_date >= date(jahr, monat, 1),
+            GarminWorkoutLink.scheduled_date
+            < date(jahr + monat // 12, monat % 12 + 1, 1),
+        )
+    ).all()
+    if not verknuepft:
+        return
+    try:
+        uebertragung.gleiche_mit_garmin_ab(
+            db, api, list(verknuepft), bekannt={(jahr, monat): eintraege}
+        )
+    except GarminRateLimit:
+        raise
+    except Exception:  # noqa: BLE001 — die Ansicht selbst ist schon fertig
+        db.rollback()
 
 
 @router.delete("/kalender/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -592,6 +625,12 @@ def verschiebe_kalendereintrag(
     angelegt. Die Vorlage bleibt dieselbe, am Inhalt ändert sich also nichts —
     und die Kennung der Vorlage bleibt gültig, weshalb die Zuordnung zur
     Planeinheit erhalten bleibt.
+
+    **Die Planeinheit zieht mit um.** Wer hier verschiebt, trainiert an einem
+    anderen Tag — das ist eine Entscheidung über den Plan, nicht nur über einen
+    Kalendereintrag. Bliebe die Einheit auf ihrem alten Tag stehen, liefe beides
+    auseinander: Die Übertragung sähe einen abweichenden Termin, schöbe ihn
+    zurück auf den Plantag und machte die Verschiebung wortlos rückgängig.
     """
     try:
         with garmin_sitzung(db, user.id) as api:
@@ -609,6 +648,9 @@ def verschiebe_kalendereintrag(
     if link is not None:
         link.garmin_schedule_id = neue_kennung
         link.scheduled_date = data.datum
+        einheit = db.get(PlanSession, link.plan_session_id)
+        if einheit is not None:
+            einheit.date = data.datum
         db.commit()
 
 
