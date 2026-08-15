@@ -8,6 +8,9 @@ import type {
   GarminKalender,
   GarminPlanUebertragung,
   GarminStatus,
+  KiJob,
+  KiSettings,
+  KiStatus,
   Plan,
   PlanImportResult,
   PlanSummary,
@@ -236,6 +239,23 @@ export const api = {
       method: 'POST',
       body: { workout_id: workoutId, datum },
     }),
+
+  // KI-Planung im Server — der Weg ohne Zwischenablage.
+  kiStatus: () => request<KiStatus>('/ki/status'),
+  kiSettings: (data: Partial<KiSettings>) =>
+    request<KiSettings>('/ki/settings', { method: 'PUT', body: data }),
+  kiPlanen: (startDate?: string, days?: number, requestId?: number) =>
+    request<KiJob>('/ki/planen', {
+      method: 'POST',
+      body: {
+        start_date: startDate ?? null,
+        days: days ?? 7,
+        request_id: requestId ?? null,
+      },
+    }),
+  kiJob: (id: number) => request<KiJob>(`/ki/jobs/${id}`),
+  kiAbbrechen: (id: number) =>
+    request<KiJob>(`/ki/jobs/${id}/abbrechen`, { method: 'POST' }),
 }
 
 /** Zustände, in denen ein Abgleich beendet ist. */
@@ -243,25 +263,32 @@ const JOB_ENDZUSTAENDE = new Set([
   'done', 'failed', 'cancelled', 'rate_limited', 'interrupted',
 ])
 
-export function jobLaeuft(job: GarminJob | null | undefined): boolean {
+/** Das Wenige, was jeder Job gemeinsam hat. */
+export type JobBasis = { id: number; state: string }
+
+export function jobLaeuft(job: JobBasis | null | undefined): boolean {
   return job != null && !JOB_ENDZUSTAENDE.has(job.state)
 }
 
-/** Fragt einen laufenden Abgleich ab, bis er beendet ist.
+/** Fragt einen laufenden Job ab, bis er beendet ist.
  *
  * Das erste Muster dieser Art in der App: Ein Backfill läuft Minuten und hat
- * deshalb seinen Zustand in der Datenbank statt in einer langen Antwort.
+ * deshalb seinen Zustand in der Datenbank statt in einer langen Antwort. Der
+ * Planungslauf der KI dauert ähnlich lange und wird genauso abgefragt —
+ * deshalb kommt der Abruf als Parameter herein, statt dass es einen zweiten,
+ * gleich gebauten Poller gäbe.
  *
- * Das Intervall ist bewusst träge — der Abgleich macht ohnehin nur alle paar
+ * Das Intervall ist bewusst träge — ein Abgleich macht ohnehin nur alle paar
  * Sekunden einen Schritt, häufigeres Fragen erzeugt nur Last auf einem
  * Raspberry Pi. Nach zwei Minuten wird es noch weiter gestreckt, weil ein
  * Jahresrückblick lange läuft und niemand solange zusieht.
  *
  * Gibt eine Abbruchfunktion zurück, die direkt in ein useEffect-Cleanup passt.
  */
-export function pollJob(
+export function pollJob<T extends JobBasis>(
   jobId: number,
-  onUpdate: (job: GarminJob) => void,
+  hole: (id: number) => Promise<T>,
+  onUpdate: (job: T) => void,
   onError?: (message: string) => void,
 ): () => void {
   let gestoppt = false
@@ -276,14 +303,14 @@ export function pollJob(
   async function frage() {
     if (gestoppt) return
     try {
-      const job = await api.garminJob(jobId)
+      const job = await hole(jobId)
       fehlversuche = 0
       if (gestoppt) return
       onUpdate(job)
       if (!jobLaeuft(job)) return
     } catch (err) {
-      // Ein Aussetzer im Netz ist kein Ende des Abgleichs — der läuft im
-      // Server weiter. Erst nach mehreren Fehlschlägen aufgeben.
+      // Ein Aussetzer im Netz ist kein Ende des Laufs — der geht im Server
+      // weiter. Erst nach mehreren Fehlschlägen aufgeben.
       fehlversuche += 1
       if (fehlversuche >= 3) {
         onError?.(err instanceof Error ? err.message : 'Verbindung unterbrochen.')

@@ -1,17 +1,14 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.orm import selectinload
 
-from .. import ai_export, plan_aufraeumen, plan_import
+from .. import ai_export, plan_import
 from ..deps import CurrentUser, DbSession
-from ..garmin import automatik
 from ..models import (
     GarminWorkoutLink,
     Plan,
     SessionLog,
-    TrainingRequest,
-    WellnessDay,
 )
 from ..schemas import (
     ExportOut,
@@ -89,44 +86,16 @@ def export_for_ai(
     ),
 ) -> ExportOut:
     """Stellt Prompt + Datenpaket zum Kopieren in eine KI bereit."""
-    if request_id is not None:
-        training_request = db.get(TrainingRequest, request_id)
-        if training_request is None or training_request.user_id != user.id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Fragebogen nicht gefunden.")
-    else:
-        training_request = (
-            db.query(TrainingRequest)
-            .filter(TrainingRequest.user_id == user.id)
-            .order_by(TrainingRequest.created_at.desc())
-            .first()
+    try:
+        export = ai_export.erzeuge_export(
+            db, user, request_id=request_id, start_date=start_date, days=days
         )
+    except ai_export.ExportFehler as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
-    logs = db.query(SessionLog).filter(SessionLog.user_id == user.id).all()
-
-    # Fitnessdaten aus Garmin, im selben Rückblickfenster wie die Historie.
-    # Ohne verbundenes Konto bleibt die Liste leer und der Block entfällt.
-    wellness = (
-        db.query(WellnessDay)
-        .filter(
-            WellnessDay.user_id == user.id,
-            WellnessDay.date >= date.today() - timedelta(weeks=ai_export.HISTORY_WEEKS),
-        )
-        .all()
+    return ExportOut(
+        prompt=export.prompt, payload=export.payload, combined=export.prompt
     )
-
-    payload = ai_export.build_payload(
-        user=user,
-        profile=user.profile,
-        request=training_request,
-        logs=logs,
-        plan=_active_plan(db, user.id),
-        wellness=wellness,
-        start_date=start_date,
-        days=days,
-    )
-    prompt = ai_export.build_prompt(payload)
-
-    return ExportOut(prompt=prompt, payload=payload, combined=prompt)
 
 
 # --------------------------------------------------------------------------
@@ -137,38 +106,17 @@ def export_for_ai(
 @router.post("/import", response_model=PlanImportOut, status_code=status.HTTP_201_CREATED)
 def import_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanImportOut:
     try:
-        body = plan_import.parse_ai_response(data.raw)
-        plan = plan_import.build_plan(body, user.id, data.request_id)
+        ergebnis = plan_import.uebernimm_plan(
+            db, user.id, data.raw, request_id=data.request_id, days=data.days
+        )
     except plan_import.PlanImportError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
-    warnings = plan_import.validate_coverage(body, data.days)
-
-    # Nur ein Plan ist gleichzeitig aktiv.
-    db.query(Plan).filter(Plan.user_id == user.id, Plan.is_active.is_(True)).update(
-        {"is_active": False}
-    )
-
-    db.add(plan)
-    db.commit()
-    db.refresh(plan)
-
-    # Wer mitten im Block neu plant, lässt einen stillgelegten zurück. Trug er
-    # nichts, verschwindet er hier; hängt Garmin daran, erst nach dem Aufräumen
-    # dort (siehe plan_aufraeumen).
-    plan_aufraeumen.raeume_abgeloeste_plaene(db, user.id)
-
-    # Und ab auf die Uhr — als Job, der auch den abgelösten Block aus dem
-    # Kalender nimmt. Die Antwort wartet nicht darauf: Ein halbes Dutzend
-    # Einheiten kostet eine halbe Minute gegen eine fremde Gegenstelle, und der
-    # Plan steht ja bereits.
-    job_id, hinweis = automatik.starte_uebertragung_fuer_neuen_plan(db, user.id, plan)
-
     return PlanImportOut(
-        plan=_to_plan_out(db, plan, user.id),
-        warnings=warnings,
-        garmin_job_id=job_id,
-        garmin_hinweis=hinweis,
+        plan=_to_plan_out(db, ergebnis.plan, user.id),
+        warnings=ergebnis.warnings,
+        garmin_job_id=ergebnis.garmin_job_id,
+        garmin_hinweis=ergebnis.garmin_hinweis,
     )
 
 

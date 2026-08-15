@@ -7,4 +7,6 @@ services:
       - ./data:/app/data
     environment:
       - TRI_SECRET_KEY=${TRI_SECRET_KEY}
+      # Leer gelassen entfällt die KI-Planung; die App läuft trotzdem.
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
     restart: unless-stopped

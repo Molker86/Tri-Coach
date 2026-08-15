@@ -65,6 +65,7 @@ export default function GarminPage() {
     if (!jobLaeuft(laufenderJob)) return
     abbrechenRef.current = pollJob(
       laufenderJob.id,
+      api.garminJob,
       (aktualisiert) => {
         setJob(aktualisiert)
         if (!jobLaeuft(aktualisiert)) void ladeZustand()

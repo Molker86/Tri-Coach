@@ -55,6 +55,9 @@ class User(Base):
     garmin_account: Mapped["GarminAccount | None"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+    ki_settings: Mapped["KiSettings | None"] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class AthleteProfile(Base):
@@ -477,3 +480,84 @@ class GarminWorkoutLink(Base):
     pushed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+# --------------------------------------------------------------------------
+# KI-Planung
+# --------------------------------------------------------------------------
+
+
+class KiSettings(Base):
+    """Einstellungen der KI-Planung, eine Zeile je Nutzer.
+
+    Eigene Tabelle statt Spalten an `AthleteProfile`: Das Profil trägt
+    Athletenwerte — Puls, Gewicht, Schwellen —, keine Einstellungen einer
+    Anbindung. Dieselbe Trennung wie bei `GarminAccount`.
+
+    Kein Token hier: Der Abo-Zugang gilt für das ganze Add-on und steht in der
+    Umgebung (`config.CLAUDE_OAUTH_TOKEN`), nicht je Nutzer.
+    """
+
+    __tablename__ = "ki_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+
+    # Ob täglich von selbst geplant wird, sobald der Block ausläuft.
+    auto_plan_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Leer heißt: die Vorgabe aus der Konfiguration.
+    model: Mapped[str] = mapped_column(String(48), default="")
+    effort: Mapped[str] = mapped_column(String(12), default="")
+    plan_days: Mapped[int] = mapped_column(Integer, default=7)
+
+    # Der Tag, an dem die Automatik zuletzt *angesetzt* hat — nicht der, an dem
+    # sie zuletzt erfolgreich war. Ein gescheiterter Lauf soll sich nicht alle
+    # fünfzehn Minuten wiederholen und das Kontingent des Abos aufbrauchen.
+    last_auto_plan_on: Mapped[date | None] = mapped_column(Date)
+
+    status: Mapped[str] = mapped_column(String(24), default="ready")
+    # ready | error | token_expired | rate_limited
+    status_message: Mapped[str | None] = mapped_column(Text)
+
+    user: Mapped[User] = relationship(back_populates="ki_settings")
+
+
+class KiJob(Base):
+    """Ein Planungslauf mit seinem Fortschritt.
+
+    Warum ein Job und keine lange HTTP-Antwort: Ein Lauf mit `--effort max`
+    dauert gemessen anderthalb Minuten. Hinter dem Home-Assistant-Ingress ist
+    eine minutenlange Antwort ein Risiko, und der Nutzer säße vor einem Balken
+    ohne Rückmeldung. Die Zustandsnamen sind dieselben wie bei `GarminSyncJob`,
+    damit die Abfrageschleife im Frontend für beide gilt.
+    """
+
+    __tablename__ = "ai_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="manual")  # manual | auto
+    state: Mapped[str] = mapped_column(String(16), default="queued")
+    # queued | running | done | failed | cancelled | interrupted
+
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    request_id: Mapped[int | None] = mapped_column(Integer)
+    start_date: Mapped[date | None] = mapped_column(Date)
+    days: Mapped[int] = mapped_column(Integer, default=7)
+
+    plan_id: Mapped[int | None] = mapped_column(Integer)
+    progress_pct: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Welches Modell tatsächlich geantwortet hat. Steht hier, weil kein stiller
+    # Rückfall eingebaut ist: Ein Block, den ein schwächeres Modell geschrieben
+    # hat, sähe sonst aus wie einer von Opus.
+    model_used: Mapped[str | None] = mapped_column(String(64))
+    # Listenpreis-Äquivalent des Laufs. Auf dem Abo wird nichts berechnet, aber
+    # es ist der einzige greifbare Anhaltspunkt für den Kontingentverbrauch.
+    cost_usd: Mapped[float | None] = mapped_column(Float)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+
+    message: Mapped[str | None] = mapped_column(Text)  # deutscher Klartext
+    error: Mapped[str | None] = mapped_column(Text)

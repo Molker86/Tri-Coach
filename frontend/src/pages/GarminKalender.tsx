@@ -102,6 +102,7 @@ export default function GarminKalender() {
       if (!jobLaeuft(laufender)) return
       abbrechenRef.current = pollJob(
         laufender.id,
+        api.garminJob,
         (aktualisiert) => {
           setJob(aktualisiert)
           if (!jobLaeuft(aktualisiert)) void ladeKalender()

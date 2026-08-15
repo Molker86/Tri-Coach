@@ -430,3 +430,51 @@ export interface GarminDublette {
   manual_duration_min: number | null
   garmin_duration_min: number | null
 }
+
+// --------------------------------------------------------------------------
+// KI-Planung im Server
+// --------------------------------------------------------------------------
+
+/** Dieselben Zustände wie beim Garmin-Job — die Abfrageschleife gilt für beide. */
+export type KiJobState =
+  | 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+
+export interface KiJob {
+  id: number
+  kind: 'manual' | 'auto'
+  state: KiJobState
+  started_at: string
+  finished_at: string | null
+  start_date: string | null
+  days: number
+  plan_id: number | null
+  progress_pct: number
+  /** Welches Modell tatsächlich geantwortet hat — es gibt keinen stillen Rückfall. */
+  model_used: string | null
+  /** Listenpreis-Äquivalent. Auf dem Abo wird nichts berechnet. */
+  cost_usd: number | null
+  duration_ms: number | null
+  message: string | null
+  error: string | null
+}
+
+export interface KiSettings {
+  auto_plan_enabled: boolean
+  /** Leer heißt: die Vorgabe aus der Konfiguration. */
+  model: string
+  effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  plan_days: number
+  last_auto_plan_on: string | null
+  status: 'ready' | 'error' | 'token_expired' | 'rate_limited'
+  status_message: string | null
+}
+
+export interface KiStatus {
+  /** Ohne Claude-Zugang bleibt nur der Weg über die Zwischenablage. */
+  verfuegbar: boolean
+  modell: string
+  effort: string
+  einstellungen: KiSettings | null
+  aktiver_job: KiJob | null
+  letzter_job: KiJob | null
+}

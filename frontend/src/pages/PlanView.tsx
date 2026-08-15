@@ -59,6 +59,7 @@ export default function PlanView() {
       abbrechenRef.current?.()
       abbrechenRef.current = pollJob(
         job.id,
+        api.garminJob,
         (aktualisiert) => {
           setGarminJob(aktualisiert)
           if (!jobLaeuft(aktualisiert)) ladeGarmin(forPlanId)

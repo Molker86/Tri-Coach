@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, Field, Loading } from '../components/ui'
 import { PLAN_TAGE, heuteIso } from '../planung'
-import type { AiExport, ErsetzterBlock, PlanImportResult } from '../types'
+import type {
+  AiExport,
+  ErsetzterBlock,
+  KiJob,
+  KiStatus,
+  PlanImportResult,
+} from '../types'
 
 const DAY_OPTIONS = [2, 3, 4, 5, 6, 7]
 
@@ -24,6 +30,10 @@ export default function PlanExchange() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const [kiStatus, setKiStatus] = useState<KiStatus | null>(null)
+  const [kiJob, setKiJob] = useState<KiJob | null>(null)
+  const abbrechenRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     setExported(null)
     api
@@ -31,6 +41,77 @@ export default function PlanExchange() {
       .then(setExported)
       .catch((err) => setError(err.message))
   }, [requestId, startDate, days])
+
+  /** Hängt sich an einen laufenden Lauf und geht am Ende zum fertigen Plan. */
+  const beobachte = useCallback(
+    (job: KiJob) => {
+      setKiJob(job)
+      abbrechenRef.current?.()
+      if (!jobLaeuft(job)) return
+      abbrechenRef.current = pollJob(
+        job.id,
+        api.kiJob,
+        (aktualisiert) => {
+          setKiJob(aktualisiert)
+          if (jobLaeuft(aktualisiert)) return
+          if (aktualisiert.state === 'done' && aktualisiert.plan_id) {
+            navigate(`/plan/${aktualisiert.plan_id}`)
+          } else if (aktualisiert.message) {
+            setError(aktualisiert.message)
+          }
+        },
+        (meldung) => setError(meldung),
+      )
+    },
+    [navigate],
+  )
+
+  useEffect(() => {
+    // Auch ein Lauf, den die Automatik angestoßen hat, soll hier sichtbar
+    // werden — sonst stünde die Seite still, während im Server geplant wird.
+    api
+      .kiStatus()
+      .then((status) => {
+        setKiStatus(status)
+        if (status.aktiver_job) beobachte(status.aktiver_job)
+      })
+      .catch(() => setKiStatus(null))
+    return () => abbrechenRef.current?.()
+  }, [beobachte])
+
+  async function planeMitKi() {
+    setError(null)
+    setBusy(true)
+    try {
+      beobachte(await api.kiPlanen(startDate, days, requestId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Der Lauf ließ sich nicht starten.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function brichAb() {
+    if (!kiJob) return
+    try {
+      setKiJob(await api.kiAbbrechen(kiJob.id))
+    } catch {
+      // Der Lauf endet ohnehin; eine Fehlermeldung hier hälfe niemandem.
+    }
+  }
+
+  async function aendereAutomatik(an: boolean) {
+    if (!kiStatus?.einstellungen) return
+    const vorher = kiStatus.einstellungen
+    setKiStatus({ ...kiStatus, einstellungen: { ...vorher, auto_plan_enabled: an } })
+    try {
+      const neu = await api.kiSettings({ auto_plan_enabled: an })
+      setKiStatus((stand) => (stand ? { ...stand, einstellungen: neu } : stand))
+    } catch (err) {
+      setKiStatus((stand) => (stand ? { ...stand, einstellungen: vorher } : stand))
+      setError(err instanceof Error ? err.message : 'Einstellung nicht gespeichert.')
+    }
+  }
 
   async function copyPrompt() {
     if (!exported) return
@@ -103,14 +184,43 @@ export default function PlanExchange() {
   const ersetzt: ErsetzterBlock | undefined =
     exported?.payload.planungszeitraum?.ersetzt_laufenden_block
 
+  const kiVerfuegbar = kiStatus?.verfuegbar === true
+  const laeuft = jobLaeuft(kiJob)
+
+  const zeitraum = (
+    <div className="row">
+      <div className="field-slot">
+        <Field label="Erster Tag">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div className="field-slot">
+        <Field label="Anzahl Tage">
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            {DAY_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option} Tage
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+    </div>
+  )
+
   return (
     <>
       <div className="page-header">
         <div>
           <h1>Nächste Trainingstage von der KI planen lassen</h1>
           <p>
-            Zwei Schritte: Text kopieren und an eine KI schicken, Antwort hier wieder
-            einfügen.
+            {kiVerfuegbar
+              ? 'Ein Knopf — die App holt den Plan selbst und übernimmt ihn.'
+              : 'Zwei Schritte: Text kopieren und an eine KI schicken, Antwort hier wieder einfügen.'}
           </p>
         </div>
       </div>
@@ -119,37 +229,197 @@ export default function PlanExchange() {
 
       {ersetzt && <ErsatzHinweis block={ersetzt} start={startDate} />}
 
+      {kiVerfuegbar && (
+        <div className="card">
+          <div className="card-title">
+            <h2>Von Claude planen lassen</h2>
+            {zeitraum}
+          </div>
+
+          {laeuft && kiJob ? (
+            <LaufKarte job={kiJob} onAbbrechen={brichAb} />
+          ) : (
+            <>
+              <p className="muted">
+                Die App schickt dasselbe Datenpaket an Claude, das du sonst von Hand
+                kopierst, und übernimmt die Antwort direkt. Der Lauf dauert je nach
+                Denktiefe zwei bis vier Minuten — du kannst die Seite dabei
+                verlassen.
+              </p>
+              <div className="row mb-1">
+                <button
+                  className="btn btn-primary"
+                  onClick={planeMitKi}
+                  disabled={busy || !exported}
+                >
+                  {busy ? 'Wird gestartet …' : 'Block jetzt planen'}
+                </button>
+                <span className="small faint">
+                  Modell: {kiStatus?.modell} · Denktiefe: {kiStatus?.effort}
+                </span>
+              </div>
+              {kiStatus?.letzter_job && !laeuft && (
+                <LetzterLauf job={kiStatus.letzter_job} />
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {kiVerfuegbar && kiStatus?.einstellungen && (
+        <div className="card">
+          <h3>Automatisch planen</h3>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={kiStatus.einstellungen.auto_plan_enabled}
+              onChange={(e) => aendereAutomatik(e.target.checked)}
+            />
+            <span>
+              Täglich planen, sobald der Block ausläuft
+              <span className="field-hint">
+                Läuft nach dem Garmin-Abgleich, damit die Trainingsdaten von heute
+                mit einfließen. Der fertige Block geht wie immer von selbst auf die
+                Uhr.
+              </span>
+            </span>
+          </label>
+          {kiStatus.einstellungen.last_auto_plan_on && (
+            <p className="small faint mb-0">
+              Zuletzt automatisch angesetzt am{' '}
+              {new Date(
+                kiStatus.einstellungen.last_auto_plan_on,
+              ).toLocaleDateString('de-DE')}
+              .
+            </p>
+          )}
+          {kiStatus.einstellungen.status !== 'ready' &&
+            kiStatus.einstellungen.status_message && (
+              <Alert kind="warning">{kiStatus.einstellungen.status_message}</Alert>
+            )}
+        </div>
+      )}
+
+      {!kiVerfuegbar && (
+        <Alert kind="info">
+          Es ist kein Claude-Zugang hinterlegt — der Plan entsteht deshalb über
+          Kopieren und Einfügen. Wer die App als Home-Assistant-Add-on betreibt,
+          erzeugt mit <code>claude setup-token</code> ein Token und trägt es in den
+          Add-on-Einstellungen ein; danach genügt hier ein Knopfdruck.
+        </Alert>
+      )}
+
+      <ManuellerWeg
+        aufgeklappt={!kiVerfuegbar}
+        zeitraum={kiVerfuegbar ? null : zeitraum}
+        exported={exported}
+        copied={copied}
+        onCopy={copyPrompt}
+        onDownload={downloadPrompt}
+        raw={raw}
+        onRaw={(wert) => {
+          setRaw(wert)
+          setPreview(null)
+        }}
+        preview={preview}
+        busy={busy}
+        onCheck={checkPlan}
+        onImport={importPlan}
+      />
+
+      <div className="card">
+        <h3>Hinweis zum Datenschutz</h3>
+        <p className="small muted mb-0">
+          Das Datenpaket enthält Gesundheitsdaten wie Ruhepuls, Gewicht und Angaben zu
+          Verletzungen. Was an eine KI geht, verlässt deinen Rechner und unterliegt den
+          Bedingungen des jeweiligen Anbieters — auch dann, wenn die App den Aufruf
+          selbst übernimmt.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/** Der Fortschritt eines Planungslaufs.
+ *
+ * Bewusst ohne Schrittfolge wie beim Garmin-Abgleich: Hier gibt es genau drei
+ * Abschnitte, und der längste davon ist das Warten auf die KI, das sich nicht
+ * unterteilen lässt.
+ */
+function LaufKarte({ job, onAbbrechen }: { job: KiJob; onAbbrechen: () => void }) {
+  return (
+    <>
+      <div className="wizard-progress">
+        <div
+          className="wizard-step-bar current"
+          style={{ flexGrow: Math.max(1, job.progress_pct) }}
+        />
+        <div
+          className="wizard-step-bar"
+          style={{ flexGrow: Math.max(1, 100 - job.progress_pct) }}
+        />
+      </div>
+      <p className="muted mb-0">{job.message ?? 'Der Lauf wird vorbereitet …'}</p>
+      <div className="row mt-1">
+        <span className="small faint">
+          {job.progress_pct}&nbsp;% — du kannst die Seite verlassen, der Lauf geht im
+          Hintergrund weiter.
+        </span>
+        <button className="btn btn-ghost btn-sm" onClick={onAbbrechen}>
+          Abbrechen
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Was der letzte Lauf ergeben hat — samt Modell, das tatsächlich geantwortet hat. */
+function LetzterLauf({ job }: { job: KiJob }) {
+  const wann = new Date(job.started_at).toLocaleString('de-DE', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  })
+  const teile = [wann, job.kind === 'auto' ? 'automatisch' : 'von Hand']
+  if (job.model_used) teile.push(job.model_used)
+  if (job.duration_ms) teile.push(`${Math.round(job.duration_ms / 1000)} s`)
+
+  return (
+    <p className="small faint mb-0">
+      Letzter Lauf: {teile.join(' · ')}
+      {job.message ? ` — ${job.message}` : ''}
+    </p>
+  )
+}
+
+/** Der Weg über die Zwischenablage.
+ *
+ * Bleibt vollständig erhalten, auch wenn die App den Aufruf selbst kann: Er ist
+ * die Rückfallebene, wenn der Zugang abgelaufen ist oder das Kontingent des
+ * Abos aufgebraucht — und die einzige Möglichkeit, eine andere KI zu benutzen.
+ */
+function ManuellerWeg(props: {
+  aufgeklappt: boolean
+  zeitraum: React.ReactNode
+  exported: AiExport | null
+  copied: boolean
+  onCopy: () => void
+  onDownload: () => void
+  raw: string
+  onRaw: (wert: string) => void
+  preview: PlanImportResult | null
+  busy: boolean
+  onCheck: () => void
+  onImport: () => void
+}) {
+  const inhalt = (
+    <>
       <div className="card">
         <div className="card-title">
           <h2>
             <span className="step-marker">1</span>
             Datenpaket kopieren
           </h2>
-          <div className="row">
-            <div className="field-slot">
-              <Field label="Erster Tag">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="field-slot">
-              <Field label="Anzahl Tage">
-                <select
-                  value={days}
-                  onChange={(e) => setDays(Number(e.target.value))}
-                >
-                  {DAY_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option} Tage
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-          </div>
+          {props.zeitraum}
         </div>
 
         <p className="muted">
@@ -160,24 +430,24 @@ export default function PlanExchange() {
           Abstand zur letzten Einheit je Sportart.
         </p>
 
-        {!exported ? (
+        {!props.exported ? (
           <Loading text="Datenpaket wird erstellt …" />
         ) : (
           <>
             <div className="row mb-1">
-              <button className="btn btn-primary" onClick={copyPrompt}>
-                {copied ? '✓ In die Zwischenablage kopiert' : 'Text kopieren'}
+              <button className="btn btn-primary" onClick={props.onCopy}>
+                {props.copied ? '✓ In die Zwischenablage kopiert' : 'Text kopieren'}
               </button>
-              <button className="btn btn-secondary" onClick={downloadPrompt}>
+              <button className="btn btn-secondary" onClick={props.onDownload}>
                 Als Datei herunterladen
               </button>
             </div>
 
             <details>
               <summary className="small muted" style={{ cursor: 'pointer' }}>
-                Text anzeigen ({Math.round(exported.combined.length / 1024)} KB)
+                Text anzeigen ({Math.round(props.exported.combined.length / 1024)} KB)
               </summary>
-              <div className="code-box mt-1">{exported.combined}</div>
+              <div className="code-box mt-1">{props.exported.combined}</div>
             </details>
           </>
         )}
@@ -195,38 +465,35 @@ export default function PlanExchange() {
 
         <textarea
           className="paste-area"
-          value={raw}
+          value={props.raw}
           placeholder='{"schema_version": "1.0", "plan": { … }}'
-          onChange={(e) => {
-            setRaw(e.target.value)
-            setPreview(null)
-          }}
+          onChange={(e) => props.onRaw(e.target.value)}
         />
 
         <div className="row mt-1">
           <button
             className="btn btn-secondary"
-            onClick={checkPlan}
-            disabled={!raw.trim() || busy}
+            onClick={props.onCheck}
+            disabled={!props.raw.trim() || props.busy}
           >
             Erst prüfen
           </button>
           <button
             className="btn btn-primary"
-            onClick={importPlan}
-            disabled={!raw.trim() || busy}
+            onClick={props.onImport}
+            disabled={!props.raw.trim() || props.busy}
           >
-            {busy ? 'Wird übernommen …' : 'Plan übernehmen'}
+            {props.busy ? 'Wird übernommen …' : 'Plan übernehmen'}
           </button>
         </div>
 
-        {preview && (
+        {props.preview && (
           <div className="mt-2">
-            {preview.warnings.length > 0 ? (
+            {props.preview.warnings.length > 0 ? (
               <Alert kind="warning">
                 Der Block ist lesbar, aber unvollständig:
                 <ul>
-                  {preview.warnings.map((warning) => (
+                  {props.preview.warnings.map((warning) => (
                     <li key={warning}>{warning}</li>
                   ))}
                 </ul>
@@ -238,35 +505,43 @@ export default function PlanExchange() {
             )}
 
             <div className="card">
-              <h3>{preview.plan.title}</h3>
-              {preview.plan.summary && <p className="muted">{preview.plan.summary}</p>}
+              <h3>{props.preview.plan.title}</h3>
+              {props.preview.plan.summary && (
+                <p className="muted">{props.preview.plan.summary}</p>
+              )}
               <div className="row small muted">
                 <span>
-                  {new Date(preview.plan.start_date).toLocaleDateString('de-DE')} –{' '}
-                  {new Date(preview.plan.end_date).toLocaleDateString('de-DE')}
+                  {new Date(props.preview.plan.start_date).toLocaleDateString('de-DE')} –{' '}
+                  {new Date(props.preview.plan.end_date).toLocaleDateString('de-DE')}
                 </span>
                 <span>·</span>
-                <span>{preview.plan.sessions.length} Einheiten</span>
+                <span>{props.preview.plan.sessions.length} Einheiten</span>
                 <span>·</span>
                 <span>
-                  {new Set(preview.plan.sessions.map((s) => s.date)).size} Tage
+                  {new Set(props.preview.plan.sessions.map((s) => s.date)).size} Tage
                 </span>
               </div>
             </div>
           </div>
         )}
       </div>
-
-      <div className="card">
-        <h3>Hinweis zum Datenschutz</h3>
-        <p className="small muted mb-0">
-          Das Datenpaket enthält Gesundheitsdaten wie Ruhepuls, Gewicht und Angaben zu
-          Verletzungen. Was du in eine KI kopierst, verlässt deinen Rechner und
-          unterliegt den Bedingungen des jeweiligen Anbieters. Prüfe vorher, ob du
-          damit einverstanden bist.
-        </p>
-      </div>
     </>
+  )
+
+  if (props.aufgeklappt) return inhalt
+
+  return (
+    <details className="card">
+      <summary style={{ cursor: 'pointer' }}>
+        Stattdessen von Hand: Text kopieren und Antwort einfügen
+      </summary>
+      <p className="small muted mt-1">
+        Der Weg über die Zwischenablage bleibt — für den Fall, dass der Zugang
+        abgelaufen ist, das Kontingent aufgebraucht, oder du eine andere KI benutzen
+        willst.
+      </p>
+      {inhalt}
+    </details>
   )
 }
 

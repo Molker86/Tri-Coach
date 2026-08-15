@@ -9,11 +9,13 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .config import CORS_ORIGINS, GARMIN_AUTOSYNC
+from .config import CORS_ORIGINS, GARMIN_AUTOSYNC, KI_AUTOPLAN
 from .database import init_db
 from .garmin.automatik import automatik_schleife
 from .garmin.runner import markiere_unterbrochene_jobs
-from .routers import auth, garmin, logs, plans, profile, questionnaire
+from .ki.automatik import planungs_schleife
+from .ki.runner import runner as ki_runner
+from .routers import auth, garmin, ki, logs, plans, profile, questionnaire
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +29,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     unterbrochen = markiere_unterbrochene_jobs()
     if unterbrochen:
         logger.info("%d unterbrochene Garmin-Abgleiche aufgeräumt", unterbrochen)
+    unterbrochen = ki_runner.markiere_unterbrochene_jobs()
+    if unterbrochen:
+        logger.info("%d unterbrochene Planungsläufe aufgeräumt", unterbrochen)
 
-    aufgabe = asyncio.create_task(automatik_schleife()) if GARMIN_AUTOSYNC else None
+    # Zwei getrennte Schleifen statt einer gemeinsamen: Die Planung wartet zwar
+    # auf den Abgleich, hängt aber nicht an ihm — und jede lässt sich für sich
+    # abschalten.
+    aufgaben = [
+        asyncio.create_task(schleife())
+        for schleife, an in (
+            (automatik_schleife, GARMIN_AUTOSYNC),
+            (planungs_schleife, KI_AUTOPLAN),
+        )
+        if an
+    ]
     try:
         yield
     finally:
-        if aufgabe is not None:
+        for aufgabe in aufgaben:
             aufgabe.cancel()
-            # Abwarten, damit ein laufender Abgleich sein Ende in die Datenbank
-            # schreiben kann, statt als Leiche zurückzubleiben.
-            await asyncio.gather(aufgabe, return_exceptions=True)
+        # Abwarten, damit ein laufender Abgleich sein Ende in die Datenbank
+        # schreiben kann, statt als Leiche zurückzubleiben.
+        await asyncio.gather(*aufgaben, return_exceptions=True)
 
 
 app = FastAPI(
@@ -60,6 +75,7 @@ app.include_router(questionnaire.router)
 app.include_router(plans.router)
 app.include_router(logs.router)
 app.include_router(garmin.router)
+app.include_router(ki.router)
 
 
 @app.get("/api/health")

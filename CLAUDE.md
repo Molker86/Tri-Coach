@@ -28,10 +28,14 @@ stehen. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
 App bringt dafür einen eigenen Kalender mit — Monatsansicht, verschieben, aus
 Garmin löschen.
 
-**Wichtig:** Die App ruft *keine* KI-API auf. Der Austausch läuft bewusst über
-Kopieren und Einfügen — so war die Anforderung. Ein späterer Direktaufruf wäre
-eine Erweiterung, kein Ersatz: Der Export-Endpunkt liefert bereits den fertigen
-Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
+**Und die Mitte läuft inzwischen auch von selbst: Die App fragt Claude direkt.**
+Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — oder gar
+nichts, weil die Automatik den nächsten Block anlegt, sobald der alte ausläuft.
+Aufgerufen wird **Claude Code headless** als Unterprozess, nicht die API mit
+Token-Abrechnung: Das Abo war da, und ein Aufruf am Tag kostet darüber nichts
+extra. Der Weg über die Zwischenablage bleibt vollständig erhalten — als
+Rückfallebene für einen abgelaufenen Zugang, ein aufgebrauchtes Kontingent oder
+eine andere KI.
 
 ## Ursprüngliche Anforderungen
 
@@ -56,7 +60,7 @@ Prompt, der Import-Endpunkt akzeptiert bereits rohen Antworttext.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 183 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 213 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -82,6 +86,15 @@ erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt ei
 Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
 (`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
 `TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 9).
+
+Für die KI-Planung: `CLAUDE_CODE_OAUTH_TOKEN` (der Abo-Zugang; den Namen gibt
+Claude Code vor, der Unterprozess liest genau diese Variable). Lokal genügt
+stattdessen eine angemeldete CLI — geprüft wird nicht die Variable, sondern
+`claude auth status`. Dazu `TRI_KI_CLI` (Pfad zum Programm, Vorgabe `claude`),
+`TRI_KI_MODELL` (Vorgabe `opus`), `TRI_KI_EFFORT` (Vorgabe `max`),
+`TRI_KI_TIMEOUT_S` (Vorgabe 900), `TRI_KI_AUTOPLAN` (`0` schaltet die
+automatische Planung ab; in Tests gesetzt) und `TRI_KI_PLAN_HOUR` (Vorgabe:
+eine Stunde nach `TRI_GARMIN_SYNC_HOUR`).
 
 ## Architekturentscheidungen (und warum)
 
@@ -806,6 +819,100 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
 `plan_import.py`.
 
+## Die KI im Server (`ki/`)
+
+**Claude Code als Unterprozess, nicht die API.** Der Haushalt hat ein Abo, und
+ein Aufruf am Tag trägt sich darüber ohne Abrechnung nach Token. Kein
+`claude-agent-sdk`: Es umhüllt dieselbe CLI, und ein Prompt hinein, ein Text
+heraus braucht keine zweite Abhängigkeit. Der Aufruf liegt an genau einer Stelle
+(`ki/client.py`), die Fehlerübersetzung ins Deutsche daneben (`ki/errors.py`) —
+derselbe Zuschnitt wie bei `garmin/`.
+
+**Vier Vorkehrungen, damit dort ein Trainingsplaner antwortet und kein
+Programmieragent** — alle am echten Programm geprüft (Version 2.1.233):
+`--tools ""` schaltet sämtliche Werkzeuge ab; `--safe-mode` nimmt CLAUDE.md,
+Skills, Plugins, Hooks und MCP aus dem Spiel **und lässt die Anmeldung
+unberührt**; der Systemprompt wird über `--system-prompt` *ersetzt* statt
+ergänzt (der Standardtext beschreibt einen Programmieragenten und kostete im
+Versuch allein 3049 Token); und gearbeitet wird in einem leeren
+Verzeichnis. **`--bare` sieht passend aus, ist aber eine Falle:** Es liest OAuth
+ausdrücklich *nie* und verlangt einen API-Schlüssel, den es hier nicht gibt.
+
+**Opus bei `--effort max`, und kein `--fallback-model`.** Die Antwort trägt den
+ganzen Block, deshalb die teuerste Einstellung. Ein stiller Rückfall auf ein
+schwächeres Modell wäre schlimmer als ein Fehlschlag: Der Block sähe genauso
+aus. Stattdessen hält `KiJob.model_used` fest, **welches Modell tatsächlich
+geantwortet hat**. Abgelesen wird das aus `modelUsage` über den **Preis**, nicht
+über die Tokenzahl — die CLI zieht nebenher ein Hilfsmodell heran, das im
+gemessenen Lauf mehr Eingabetoken verbrauchte als das eigentliche (21584 gegen
+2), aber ein Zwanzigstel kostete.
+
+**Die JSON-Hülle wird ausgewertet, bevor `result` weitergereicht wird.** Sonst
+landete eine Fehlermeldung im Planparser und käme als „unlesbares JSON" heraus.
+Geprüft werden `is_error`, `api_error_status` und `stop_reason` — ein
+`refusal` bekommt eine eigene Meldung.
+
+**Der Lauf ist ein Job mit eigenem Schloss.** Er dauerte in zwei Messungen 85 s
+und 211 s — der Unterschied kommt aus der Denkzeit, nicht aus der Prompt-Größe.
+Hinter dem Ingress wäre eine so lange HTTP-Antwort ein Risiko, und der Nutzer
+säße vor einem Balken ohne Rückmeldung. Aufbau und
+Zustandsnamen wie bei `GarminSyncJob`, damit `pollJob` im Frontend für beide
+gilt. Aber **nicht dasselbe Schloss** wie bei Garmin: Die beiden Gegenstellen
+haben nichts miteinander zu tun, ein Planungslauf dürfte nicht hinter einem
+Jahresrückblick warten — und der Import am Ende stößt seinerseits eine
+Garmin-Übertragung an, die sonst auf ein Schloss liefe, das der Planungslauf
+selbst noch hält.
+
+**Ein Weg für beide Auslöser.** `ai_export.erzeuge_export()` und
+`plan_import.uebernimm_plan()` sind aus den Routen herausgezogen und werden von
+Knopf, Automatik und Handweg gleichermaßen benutzt. Damit erbt der automatische
+Weg ohne eine Zeile Wiederholung, was am Übernehmen hängt: der abgelöste Block
+wird weggeräumt, und der neue geht über
+`automatik.starte_uebertragung_fuer_neuen_plan` von selbst auf die Uhr.
+
+**Kein `--json-schema`, obwohl die CLI es könnte.** `parse_ai_response` fängt
+Codefences, Begleittext und `weeks`-Ebenen bereits ab und ist getestet; im
+Versuch mit dem echten Prompt kam die Antwort ohne Fence und ohne Vorrede und
+lief mit **null Warnungen** durch. Ein striktes Schema wäre ein zweiter, eigener
+Fehlerpfad — und eine Fessel für genau das Modell, von dem hier die beste
+Antwort erwartet wird. Bleibt in der Hinterhand.
+
+**Die Automatik prüft, statt zu zielen** (`ki/automatik.py`). Eine zweite
+Viertelstundenschleife neben der von Garmin, kein Rückruf aus deren Runner: Ein
+Rückruf verkettete zwei Anbindungen, die sonst nichts voneinander wissen, und
+liefe bei jedem Abbruch ins Leere. Geplant wird, wenn alles zutrifft — Schalter
+global und je Nutzer an, Zugang vorhanden, Stunde erreicht, Fragebogen da, heute
+noch nicht geplant, **Garmin für heute durch** (sonst plante die KI auf den
+Daten von gestern) und der aktive Block ausgelaufen. Das Startdatum ist nie
+rückwirkend, dieselbe Regel wie `planung.ts` im Frontend.
+
+**`last_auto_plan_on` wird beim *Start* gesetzt, nicht bei Erfolg.** Sonst liefe
+ein scheiternder Lauf alle fünfzehn Minuten neu und fräße das Kontingent des
+Abos. Der Preis ist bewusst in Kauf genommen: Nach einem Fehlschlag gibt es
+heute keinen zweiten Versuch von selbst — der Fehler steht am Job, und der Knopf
+bleibt.
+
+**Die Umgebung des Unterprozesses wird zusammengestellt, nicht geerbt**
+(`_umgebung()`). Beim ersten Ende-zu-Ende-Lauf aufgefallen: Wer die App aus
+einer laufenden Claude-Code-Sitzung heraus startet — in der Entwicklung der
+Normalfall —, hat ein Dutzend `CLAUDE_CODE_*`-Variablen in der Umgebung,
+darunter Sitzungskennung und Meldungssocket. Vererbt hängt sich der
+Unterprozess daran und kehrt **nicht zurück**; der Lauf endete nach fünfzehn
+Minuten in der Zeitüberschreitung statt nach anderthalb in einer Antwort.
+Durchgereicht wird deshalb eine feste Liste. Zwei Einträge darin sind nicht
+offensichtlich: **`USER`** — ohne die Variable findet die CLI auf macOS ihre im
+Schlüsselbund abgelegte Anmeldung nicht und meldet „Not logged in", obwohl der
+Nutzer angemeldet ist — und die Proxy- und Zertifikatsvariablen, ohne die
+niemand hinter einem Firmenproxy hinauskäme. Ein herumliegender
+`ANTHROPIC_API_KEY` wird bewusst **nicht** durchgereicht: Gelten soll das Abo.
+
+**Verfügbarkeit wird am Programm geprüft, nicht an der Umgebung.**
+`ist_angemeldet()` ruft `claude auth status` auf, statt nachzusehen, ob eine
+Variable gesetzt ist. Im Add-on kommt der Zugang als Token, bei der lokalen
+Entwicklung aus der Anmeldung der CLI selbst — die Frage ist in beiden Fällen
+dieselbe, die Antwort steht nur an verschiedenen Orten. Das Ergebnis wird eine
+Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
+
 ## Bekannte Grenzen / mögliche nächste Schritte
 
 - Kein Bearbeiten erfasster Trainings im Frontend (die API kann es bereits:
@@ -912,3 +1019,32 @@ beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
   nicht: Dort zieht die Planeinheit mit um.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).
+- Das **Claude-Token liegt im Klartext** in `/data/options.json` und wandert
+  damit in jedes Home-Assistant-Backup — anders als das Garmin-Token, das genau
+  deshalb verschlüsselt wird (`crypto.py`). Bewusst so: Für Add-on-Optionen ist
+  das der übliche Weg, die Oberfläche maskiert das Feld (`password?`), und ein
+  zweiter Ablageort wäre ein zweiter Weg, die Anmeldung zu verlieren. Wer das
+  nicht will, lässt die Option leer und plant weiter über die Zwischenablage.
+- **Das Kontingent teilt sich mit der eigenen Claude-Nutzung.** Ein Lauf mit
+  Opus bei `max` verbraucht spürbar vom Fünf-Stunden-Fenster des Abos; ein Lauf
+  am Tag ist unkritisch, wer daneben viel mit Claude arbeitet, kann trotzdem ins
+  Limit laufen. Dann scheitert der Lauf mit deutscher Meldung, und der Block
+  fehlt an dem Tag.
+- **Der Zugang läuft irgendwann ab.** Die App kann das nur melden, nicht
+  erneuern — die Meldung nennt deshalb ausdrücklich `claude setup-token`.
+- Ein **gescheiterter Automatiklauf wird am selben Tag nicht wiederholt** (siehe
+  `last_auto_plan_on`). Der Knopf bleibt.
+- Die Zuordnung von Fehlertexten der CLI zu eigenen Fehlern (`_ordne_fehler_ein`)
+  geht über **Textbausteine**, weil es für Anmelde- und Kontingentfehler kein
+  maschinenlesbares Feld gibt — `api_error_status` bleibt leer, wenn die Anfrage
+  gar nicht erst hinausging. Ein unbekannter Fall landet als allgemeiner Fehler
+  **mit Originaltext** in der Meldung, statt still eingeordnet zu werden.
+- **Das Add-on-Abbild ist mit Claude Code ungeprüft**: Der native Installer
+  bedient laut Manifest `linux-arm64` und `linux-x64`, gebaut wurde er hier
+  aber nicht (kein Docker in der Entwicklungsumgebung). Das `claude --version`
+  am Ende der Docker-Stufe lässt den Build scheitern, statt ein Abbild ohne die
+  Funktion auszuliefern.
+- Der Planungslauf hängt an einem Abbild, das die CLI **zur Bauzeit aus dem Netz
+  holt** (`curl … | bash`). Ein Build ohne Netz schlägt fehl, und zwei Builds zu
+  verschiedenen Zeiten können verschiedene Versionen enthalten — dasselbe gilt
+  aber schon für `npm ci` im Frontend.

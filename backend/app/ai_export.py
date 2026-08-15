@@ -13,8 +13,11 @@ die dafür genau zur aktuellen Belastungslage passen.
 """
 
 import json
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+
+from sqlalchemy.orm import Session, selectinload
 
 from .models import AthleteProfile, Plan, SessionLog, TrainingRequest, User, WellnessDay
 from .schemas import WEEKDAYS
@@ -669,3 +672,79 @@ def build_prompt(payload: dict[str, Any]) -> str:
         schema=json.dumps(RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
     )
+
+
+# --------------------------------------------------------------------------
+# Ein Export für beide Wege
+# --------------------------------------------------------------------------
+
+
+class ExportFehler(ValueError):
+    """Der Export lässt sich nicht bauen — mit lesbarer deutscher Meldung."""
+
+
+@dataclass(slots=True)
+class Export:
+    payload: dict[str, Any]
+    prompt: str
+
+
+def erzeuge_export(
+    db: Session,
+    user: User,
+    *,
+    request_id: int | None = None,
+    start_date: date | None = None,
+    days: int = PLAN_DAYS_DEFAULT,
+) -> Export:
+    """Holt alles Nötige aus der Datenbank und baut Datenpaket und Prompt.
+
+    Eine Funktion für beide Auslöser: den Knopf, der den Text zum Kopieren
+    anzeigt, und den Lauf, der ihn selbst an die KI schickt. Zwei Fassungen
+    liefen mit dem ersten neuen Feld auseinander — und der automatische Weg
+    würde dann etwas anderes planen als der von Hand.
+    """
+    if request_id is not None:
+        training_request = db.get(TrainingRequest, request_id)
+        if training_request is None or training_request.user_id != user.id:
+            raise ExportFehler("Fragebogen nicht gefunden.")
+    else:
+        training_request = (
+            db.query(TrainingRequest)
+            .filter(TrainingRequest.user_id == user.id)
+            .order_by(TrainingRequest.created_at.desc())
+            .first()
+        )
+
+    logs = db.query(SessionLog).filter(SessionLog.user_id == user.id).all()
+
+    plan = (
+        db.query(Plan)
+        .options(selectinload(Plan.sessions))
+        .filter(Plan.user_id == user.id, Plan.is_active.is_(True))
+        .order_by(Plan.created_at.desc())
+        .first()
+    )
+
+    # Fitnessdaten aus Garmin, im selben Rückblickfenster wie die Historie.
+    # Ohne verbundenes Konto bleibt die Liste leer und der Block entfällt.
+    wellness = (
+        db.query(WellnessDay)
+        .filter(
+            WellnessDay.user_id == user.id,
+            WellnessDay.date >= date.today() - timedelta(weeks=HISTORY_WEEKS),
+        )
+        .all()
+    )
+
+    payload = build_payload(
+        user=user,
+        profile=user.profile,
+        request=training_request,
+        logs=logs,
+        plan=plan,
+        wellness=wellness,
+        start_date=start_date,
+        days=days,
+    )
+    return Export(payload=payload, prompt=build_prompt(payload))

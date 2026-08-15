@@ -55,3 +55,43 @@ GARMIN_AUTOSYNC = os.environ.get("TRI_GARMIN_AUTOSYNC", "1").strip() not in {
 # Uhr hat nach dem Aufstehen synchronisiert — vor dem Frühsport gilt der Tag bei
 # Garmin sonst noch als unvollständig.
 GARMIN_SYNC_HOUR = int(os.environ.get("TRI_GARMIN_SYNC_HOUR", "9"))
+
+
+# --------------------------------------------------------------------------
+# KI-Planung über Claude Code
+# --------------------------------------------------------------------------
+
+# Der Abo-Zugang. Den Namen gibt die CLI vor — der Unterprozess erwartet ihn
+# ohnehin so, ein eigener TRI_-Name wäre nur eine zweite Schreibweise für
+# dasselbe. Leer heißt: Die Funktion ist nicht verfügbar, die Oberfläche zeigt
+# weiterhin nur den Weg über die Zwischenablage.
+CLAUDE_OAUTH_TOKEN = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+
+# Pfad zum Binary. Als Variable, damit ein Test ihn auf `/bin/false` ziehen kann
+# und damit ein Add-on-Abbild die CLI woanders ablegen darf.
+KI_CLI = os.environ.get("TRI_KI_CLI", "claude").strip() or "claude"
+
+# Modell und Denktiefe. Opus bei `max`, weil die Antwort den ganzen Block trägt.
+# Beides ist zusätzlich je Nutzer einstellbar; hier steht nur die Vorgabe für
+# ein frisch angelegtes Konto.
+KI_MODELL = os.environ.get("TRI_KI_MODELL", "opus").strip() or "opus"
+KI_EFFORT = os.environ.get("TRI_KI_EFFORT", "max").strip() or "max"
+
+# Ein Lauf mit `max` dauerte in zwei Messungen 85 s und 211 s — der Unterschied
+# kommt aus der Denkzeit, nicht aus der Prompt-Größe. Fünfzehn Minuten Geduld
+# sind großzügig genug für einen langsamen Tag und kurz genug, dass ein
+# hängender Prozess nicht bis zum Neustart stehen bleibt.
+KI_TIMEOUT_S = int(os.environ.get("TRI_KI_TIMEOUT_S", "900"))
+
+# Automatisches Planen, sobald der Block ausläuft. Wie beim Garmin-Abgleich
+# global abschaltbar — in Tests gesetzt, weil die Schleife sonst mitliefe.
+KI_AUTOPLAN = os.environ.get("TRI_KI_AUTOPLAN", "1").strip() not in {
+    "0",
+    "false",
+    "no",
+}
+
+# Ortszeit-Stunde, ab der automatisch geplant werden darf. Eine Stunde nach dem
+# Garmin-Abgleich: Der soll durch sein, damit die KI auf den Daten von heute
+# plant und nicht auf denen von gestern.
+KI_PLAN_HOUR = int(os.environ.get("TRI_KI_PLAN_HOUR", str(GARMIN_SYNC_HOUR + 1)))

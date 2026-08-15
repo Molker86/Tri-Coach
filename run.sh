@@ -33,4 +33,15 @@ if [ -z "$TRI_DATABASE_URL" ] && [ -d /data ]; then
   export TRI_DATABASE_URL="sqlite:////data/tricoach.db"
 fi
 
+# Der Zugang zum Claude-Abo, mit dem die App den nächsten Block selbst plant.
+# Den Namen gibt Claude Code vor — der Unterprozess liest genau diese Variable.
+# Fehlt sie, entfällt die Funktion und es bleibt beim Weg über die
+# Zwischenablage; die App startet in jedem Fall.
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -f /data/options.json ]; then
+  TOKEN=$(python3 -c "import json;print(json.load(open('/data/options.json')).get('claude_oauth_token') or '')" 2>/dev/null || true)
+  if [ -n "$TOKEN" ]; then
+    export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN"
+  fi
+fi
+
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

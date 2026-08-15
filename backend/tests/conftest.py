@@ -17,6 +17,9 @@ os.environ.setdefault("TRI_SECRET_KEY", "test-key-nicht-fuer-produktion")
 # `TestClient(app)` als Kontextmanager löst den lifespan aus. Ohne diese Zeile
 # liefe der automatische Garmin-Sync in den Tests gegen die echte API.
 os.environ["TRI_GARMIN_AUTOSYNC"] = "0"
+# Dasselbe für die Planung: Ohne das startete die Schleife im Hintergrund und
+# riefe irgendwann Claude Code auf — mit dem Abo des Entwicklers.
+os.environ["TRI_KI_AUTOPLAN"] = "0"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

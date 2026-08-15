@@ -8,11 +8,14 @@ Fälle ab, bevor die Pydantic-Validierung greift.
 
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
+from . import plan_aufraeumen
 from .models import Plan, PlanSession
 from .schemas import AIPlanBody, AIPlanImport
 
@@ -226,3 +229,72 @@ def validate_coverage(
         warnings.append(f"{len(empty)} Tag(e) enthalten keine Einheit.")
 
     return warnings
+
+
+# --------------------------------------------------------------------------
+# Übernahme — ein Weg für Einfügen von Hand und Lauf im Server
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Uebernahme:
+    plan: Plan
+    warnings: list[str] = field(default_factory=list)
+    garmin_job_id: int | None = None
+    garmin_hinweis: str | None = None
+
+
+def uebernimm_plan(
+    db: Session,
+    user_id: int,
+    raw: str,
+    *,
+    request_id: int | None = None,
+    days: int | None = None,
+) -> Uebernahme:
+    """Macht aus einer KI-Antwort den aktiven Block — samt allem, was daran hängt.
+
+    Eine Funktion für beide Auslöser: den eingefügten Text und die Antwort, die
+    der Server selbst geholt hat. Damit erbt der automatische Weg ohne
+    Wiederholung, was am Übernehmen hängt — der abgelöste Block wird
+    weggeräumt, und der neue geht von selbst auf die Uhr.
+
+    Wirft `PlanImportError`, wenn die Antwort nicht zu lesen ist; dann bleibt
+    die Datenbank unberührt.
+    """
+    body = parse_ai_response(raw)
+    plan = build_plan(body, user_id, request_id)
+    warnings = validate_coverage(body, days)
+
+    # Nur ein Plan ist gleichzeitig aktiv.
+    db.query(Plan).filter(Plan.user_id == user_id, Plan.is_active.is_(True)).update(
+        {"is_active": False}
+    )
+
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    # Wer mitten im Block neu plant, lässt einen stillgelegten zurück. Trug er
+    # nichts, verschwindet er hier; hängt Garmin daran, erst nach dem Aufräumen
+    # dort (siehe plan_aufraeumen).
+    plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
+
+    # Und ab auf die Uhr — als Job, der auch den abgelösten Block aus dem
+    # Kalender nimmt. Die Antwort wartet nicht darauf: Ein halbes Dutzend
+    # Einheiten kostet eine halbe Minute gegen eine fremde Gegenstelle, und der
+    # Plan steht ja bereits.
+    #
+    # Erst hier importiert: `garmin.automatik` zieht den Runner und damit die
+    # halbe Garmin-Anbindung nach, die beim bloßen Parsen einer Antwort nichts
+    # zu suchen hat.
+    from .garmin import automatik
+
+    job_id, hinweis = automatik.starte_uebertragung_fuer_neuen_plan(db, user_id, plan)
+
+    return Uebernahme(
+        plan=plan,
+        warnings=warnings,
+        garmin_job_id=job_id,
+        garmin_hinweis=hinweis,
+    )

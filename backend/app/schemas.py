@@ -592,3 +592,68 @@ class ExportOut(BaseModel):
     prompt: str
     payload: dict[str, Any]
     combined: str  # Prompt + JSON, direkt zum Kopieren
+
+
+# --------------------------------------------------------------------------
+# KI-Planung im Server
+# --------------------------------------------------------------------------
+
+
+class KiJobOut(BaseModel):
+    # `protected_namespaces` leer: Pydantic warnt sonst bei `model_used`, weil
+    # der Name mit `model_` beginnt wie seine eigenen Methoden.
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    kind: str
+    state: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    start_date: date | None = None
+    days: int
+    plan_id: int | None = None
+    progress_pct: int
+    model_used: str | None = None
+    cost_usd: float | None = None
+    duration_ms: int | None = None
+    message: str | None = None
+    error: str | None = None
+
+
+class KiSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    auto_plan_enabled: bool
+    model: str
+    effort: str
+    plan_days: int
+    last_auto_plan_on: date | None = None
+    status: str
+    status_message: str | None = None
+
+
+class KiSettingsIn(BaseModel):
+    """Teil-Update: Ein Formular, das nur ein Feld schickt, löscht die anderen nicht."""
+
+    auto_plan_enabled: bool | None = None
+    # Leerer String heißt ausdrücklich „Vorgabe aus der Konfiguration".
+    model: str | None = Field(None, max_length=48)
+    effort: Literal["", "low", "medium", "high", "xhigh", "max"] | None = None
+    plan_days: int | None = Field(None, ge=1, le=14)
+
+
+class KiStatusOut(BaseModel):
+    # Ob überhaupt ein Claude-Zugang da ist. Ohne den blendet die Oberfläche den
+    # Knopf aus und zeigt weiter nur den Weg über die Zwischenablage.
+    verfuegbar: bool
+    modell: str
+    effort: str
+    einstellungen: KiSettingsOut | None = None
+    aktiver_job: KiJobOut | None = None
+    letzter_job: KiJobOut | None = None
+
+
+class KiPlanenIn(BaseModel):
+    request_id: int | None = None
+    start_date: date | None = None
+    days: int = Field(7, ge=1, le=14)

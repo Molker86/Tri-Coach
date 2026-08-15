@@ -3,7 +3,7 @@ description: Trainingsplanung für Ausdauersport
 # Der Store bietet ein Update erst an, wenn diese Zahl größer ist als die
 # installierte — bei einem lokal gebauten Add-on gibt es keinen anderen
 # Auslöser. Jeder Stand, der auf den Pi soll, braucht hier eine neue Version.
-version: 2.2.2
+version: 2.3.0
 slug: tricoach
 url: https://github.com/Molker86/Tri-Coach
 arch:
@@ -18,7 +18,19 @@ panel_title: Tri-Coach
 # Ohne Eintrag hier bliebe /data/options.json leer, und der Schlüssel ließe sich
 # in der Oberfläche nicht setzen — run.sh liest ihn von dort. Leer lassen ist
 # der Normalfall: Dann erzeugt run.sh einen und legt ihn unter /data ab.
+#
+# `claude_oauth_token` ist der Zugang zum Claude-Abo, mit dem die App den
+# nächsten Trainingsblock selbst planen lässt. Erzeugt wird er auf einem
+# Rechner mit Claude Code über `claude setup-token`. Bleibt er leer, entfällt
+# die Funktion und es bleibt beim Weg über die Zwischenablage — die App
+# funktioniert vollständig ohne ihn.
+#
+# `password?` statt `str?`: Die Oberfläche maskiert den Wert dann. Er liegt
+# trotzdem im Klartext in /data/options.json und wandert damit in jedes
+# Home-Assistant-Backup — siehe „Bekannte Grenzen“ in CLAUDE.md.
 options:
   secret_key: ""
+  claude_oauth_token: ""
 schema:
   secret_key: str?
+  claude_oauth_token: password?
