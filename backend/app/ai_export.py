@@ -473,8 +473,16 @@ RESPONSE_SCHEMA = {
                         "duration_min": 60,
                         "distance_km": 10.0,
                         "intensity_zone": "Z1 | Z2 | Z3 | Z4 | Z5 | gemischt",
-                        "target_hr_low": 130,
-                        "target_hr_high": 145,
+                        "target_hr_low": (
+                            "Zahl 40-230 – untere Grenze in bpm, z.B. 130. "
+                            "Bei strength, mobility und rest weglassen — "
+                            "0 ist kein gültiger Wert"
+                        ),
+                        "target_hr_high": (
+                            "Zahl 40-230 – obere Grenze in bpm, z.B. 145. "
+                            "Bei strength, mobility und rest weglassen — "
+                            "0 ist kein gültiger Wert"
+                        ),
                         "target_pace": (
                             "string – Laufen in min/km ('5:30-5:50 min/km'), "
                             "Schwimmen in min/100m ('1:50 min/100m'), "
@@ -561,7 +569,12 @@ durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deut
 auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
 Bewegungsanimation zur Übung erscheint.
 10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
-aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Das RPE in \
+aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Gilt eine \
+Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu \
+füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an \
+`strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
+Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
+gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Das RPE in \
 der Historie ist **geschätzt** und stammt nicht vom Athleten — er trägt nichts von Hand \
 ein, alle Einheiten kommen aus der Uhr. `rpe_quelle` nennt, woraus geschätzt wurde \
 ("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich deshalb stärker auf \
@@ -579,7 +592,9 @@ Regeln für die Ausgabe:
 - Ruhetage als Tag mit einer Session `"sport": "rest"`, `"type": "rest"`.
 - Mehrere Einheiten pro Tag sind erlaubt (Array `sessions`).
 - `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
-- Herzfrequenz-Zielbereiche aus den mitgelieferten `herzfrequenzzonen` ableiten.
+- Herzfrequenz-Zielbereiche aus den mitgelieferten `herzfrequenzzonen` ableiten, beide \
+Grenzen zwischen 40 und 230 bpm. Bei `strength`, `mobility` und `rest` beide Felder \
+weglassen statt 0 einzutragen.
 - `summary` begründet kurz, warum dieser Block so aussieht — mit Bezug auf die \
 Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 - Alle Texte auf Deutsch.

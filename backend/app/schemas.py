@@ -9,7 +9,14 @@ korrekter Plan nicht an Formalien scheitert.
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 # --------------------------------------------------------------------------
 # Normalisierung
@@ -198,6 +205,20 @@ class TrainingRequestOut(TrainingRequestIn):
 # KI-Import: erwartetes Antwortformat
 # --------------------------------------------------------------------------
 
+# Spanne eines brauchbaren Zielpulses. Steht als Konstante, weil sie an zwei
+# Stellen gilt: als Feldgrenze und in der Aufräumregel darunter.
+HF_MIN = 40
+HF_MAX = 230
+
+
+def _als_zielpuls(wert: Any) -> int | None:
+    """Gibt den Wert als Puls zurück — oder None, wenn er keiner sein kann."""
+    try:
+        zahl = int(round(float(wert)))
+    except (TypeError, ValueError):
+        return None
+    return zahl if HF_MIN <= zahl <= HF_MAX else None
+
 
 class AISessionIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -212,16 +233,55 @@ class AISessionIn(BaseModel):
     duration_min: int | None = Field(None, ge=0, le=1440)
     distance_km: float | None = Field(None, ge=0, le=500)
     intensity_zone: str | None = None
-    target_hr_low: int | None = Field(None, ge=40, le=230)
-    target_hr_high: int | None = Field(None, ge=40, le=230)
+    target_hr_low: int | None = Field(None, ge=HF_MIN, le=HF_MAX)
+    target_hr_high: int | None = Field(None, ge=HF_MIN, le=HF_MAX)
     target_pace: str | None = None
     target_power: str | None = None
     rpe_target: int | None = Field(None, ge=1, le=10)
+
+    # Was `_raeume_zielpuls` weggeworfen hat, in der Form "target_hr_low=0".
+    # Steht am Modell, damit `plan_import.validate_coverage()` es melden kann,
+    # und ist vom Dump ausgenommen: In `Plan.raw_json` gehört die KI-Antwort,
+    # nicht unsere Buchführung darüber.
+    verworfene_zielwerte: list[str] = Field(default_factory=list, exclude=True)
 
     @field_validator("sport")
     @classmethod
     def _norm_sport(cls, v: str) -> str:
         return normalize_sport(v)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _raeume_zielpuls(cls, data: Any) -> Any:
+        """Wirft unbrauchbare Zielpulse weg, statt den Block abzulehnen.
+
+        Der Prompt verlangt zu jeder Einheit konkrete Steuerungsgrößen, und bei
+        Kraft, Mobility oder Ruhe gibt es keinen sinnvollen Korridor — Modelle
+        füllen die Lücke dann mit einer 0. Als Feldgrenze allein wäre das ein
+        harter Fehler: Ein vollständiger Block stürbe an zwei Zahlen, die
+        ohnehin niemand liest (`workouts.py` überspringt eine 0 als falsy).
+        Deshalb dieselbe Linie wie bei fehlenden Tagen — Warnung statt
+        Ablehnung. Erfunden wird dabei nichts: Der Wert fällt weg, er wird
+        nicht auf die Spanne zurechtgebogen.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        bereinigt = dict(data)
+        verworfen: list[str] = []
+        for feld in ("target_hr_low", "target_hr_high"):
+            wert = bereinigt.get(feld)
+            if wert is None:
+                continue
+            puls = _als_zielpuls(wert)
+            if puls is None:
+                verworfen.append(f"{feld}={wert}")
+            bereinigt[feld] = puls
+
+        # Immer setzen, nie aus den Eingangsdaten übernehmen: Das Feld ist
+        # unsere Notiz und kein Teil des KI-Formats.
+        bereinigt["verworfene_zielwerte"] = verworfen
+        return bereinigt
 
 
 class AIDayIn(BaseModel):

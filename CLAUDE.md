@@ -225,6 +225,19 @@ brauchbar, ein abgelehnter Import frustrierend. Die erwartete Blocklänge kommt
 als `days` mit dem Import-Request mit; ohne sie wird nur der gelieferte Zeitraum
 auf Lücken geprüft.
 
+Dieselbe Linie gilt für **unbrauchbare Zielpulse** (`AISessionIn._raeume_zielpuls`).
+Der Prompt verlangt zu jeder Einheit Steuerungsgrößen; bei Kraft, Mobility und
+Ruhe gibt es keinen sinnvollen Korridor, und das Modell füllt die Lücke dann mit
+einer 0. Als bloße Feldgrenze (`ge=40`) war das ein harter Validierungsfehler:
+Ein vollständiger Block starb an zwei Zahlen, die ohnehin niemand liest —
+`workouts.py` überspringt eine 0 als falsy, es gäbe also so oder so keinen
+Korridor auf der Uhr. Über den KI-Knopf war das teuer, weil die Antwort nirgends
+gespeichert wird und der Lauf damit ganz verloren war. Jetzt fällt der Wert
+heraus und wird über `verworfene_zielwerte` als Hinweis gemeldet.
+**Zurechtgebogen wird nichts** — ein erfundener Korridor stünde ungeprüft auf der
+Uhr. Punkt 10 des Prompts und `RESPONSE_SCHEMA` sagen die Regel zusätzlich
+ausdrücklich; das senkt die Häufigkeit, ersetzt das Aufräumen aber nicht.
+
 **Kein UI-Framework.** `styles.css` ist ein kleines Designsystem mit
 CSS-Variablen und Hell/Dunkel-Umschaltung über `prefers-color-scheme`.
 

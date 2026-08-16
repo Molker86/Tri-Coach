@@ -275,6 +275,47 @@ def test_import_warns_about_gaps(client, auth):
     assert any("Ohne Eintrag geblieben" in w for w in warnings)
 
 
+def test_import_verwirft_unbrauchbaren_zielpuls_statt_abzulehnen(client, auth):
+    """Eine 0 im Zielpuls darf den Block nicht kippen.
+
+    Der Prompt verlangt zu jeder Einheit Steuerungsgrößen; bei Kraft und
+    Mobility gibt es keinen sinnvollen Korridor, und Modelle setzen dann eine 0.
+    Das kostete einen kompletten Planungslauf, obwohl der Wert nirgends gelesen
+    wird.
+    """
+    start = date.today() + timedelta(days=30)
+    plan = make_ai_plan(start, days=4)
+    # Zweite Einheit am ersten Tag — genau die Stelle, an der es in echt auffiel.
+    plan["plan"]["days"][0]["sessions"].append({
+        "sport": "strength",
+        "type": "strength",
+        "title": "Rumpfkraft",
+        "structure": "3x12 Liegestütze (Push-up)",
+        "duration_min": 30,
+        "target_hr_low": 0,
+        "target_hr_high": 130,
+    })
+    # Auch ein Wert, der gar keine Zahl ist, fällt nur heraus.
+    plan["plan"]["days"][2]["sessions"][0]["target_hr_high"] = "Z2"
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+
+    einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
+    kraft = einheiten[(start.isoformat(), "Rumpfkraft")]
+    assert kraft["target_hr_low"] is None
+    # Nur der unbrauchbare Wert fällt weg, der brauchbare bleibt stehen.
+    assert kraft["target_hr_high"] == 130
+
+    warnungen = " ".join(body["warnings"])
+    assert "Unbrauchbarer Zielpuls verworfen" in warnungen
+    assert "target_hr_low=0" in warnungen
+    assert "target_hr_high=Z2" in warnungen
+
+
 def test_import_accepts_old_week_format(client, auth):
     """KI-Antworten mit Wochenebene werden auf Tage heruntergezogen."""
     start = date.today() + timedelta(days=60)

@@ -228,6 +228,25 @@ def validate_coverage(
     if empty:
         warnings.append(f"{len(empty)} Tag(e) enthalten keine Einheit.")
 
+    # Unbrauchbare Zielpulse hat `AISessionIn` bereits weggeworfen, statt den
+    # Block abzulehnen. Stillschweigend darf das nicht passieren: Die Einheit
+    # geht dann ohne Herzfrequenzkorridor auf die Uhr, und wer den Plan liest,
+    # soll wissen warum.
+    verworfen = [
+        f"{tag.date.isoformat()} „{einheit.title}“ "
+        f"({', '.join(einheit.verworfene_zielwerte)})"
+        for tag in body.days
+        for einheit in tag.sessions
+        if einheit.verworfene_zielwerte
+    ]
+    if verworfen:
+        shown = "; ".join(verworfen[:3])
+        suffix = f" (und {len(verworfen) - 3} weitere)" if len(verworfen) > 3 else ""
+        warnings.append(
+            f"Unbrauchbarer Zielpuls verworfen: {shown}{suffix}. Diese Einheiten "
+            "gehen ohne Herzfrequenzkorridor auf die Uhr."
+        )
+
     return warnings
 
 
