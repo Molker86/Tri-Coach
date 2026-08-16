@@ -250,8 +250,24 @@ def test_multisport_wird_eine_koppeleinheit(client, garmin_auth, fake, monkeypat
     assert "Radfahren 40,0 km" in einheit["notes"]
 
 
-def test_geschaetztes_rpe_haelt_die_auswertung_am_leben(client, verbunden):
+def test_geschaetztes_rpe_haelt_die_auswertung_am_leben(client, verbunden, fake):
     """Ohne RPE fielen sRPE-Last und Belastungsverhältnis für Garmin-Daten aus."""
+    # Das Belastungsverhältnis vergleicht die letzte Woche gegen den
+    # Vier-Wochen-Schnitt und braucht dafür Last in **zwei** Kalenderwochen.
+    # Die Nachbildung legt ihre Einheiten 1, 3 und 5 Tage zurück — je nach
+    # Wochentag fallen alle drei in dieselbe Woche (montags in die vorige, am
+    # Wochenende in die laufende), und `acwr` wäre dann zu Recht `None`. Der
+    # Test hing damit am Kalendertag, an dem er lief; deshalb hier
+    # ausdrücklich über die Wochengrenze verteilt.
+    montag = HEUTE - timedelta(days=HEUTE.weekday())
+    fake._aktivitaeten = [
+        baue_aktivitaet(1001, montag),
+        baue_aktivitaet(1002, montag - timedelta(days=2), typkey="cycling"),
+        baue_aktivitaet(1003, montag - timedelta(days=4), typkey="lap_swimming"),
+        # Zählt wie in der Nachbildung nicht als Training.
+        baue_aktivitaet(1004, montag - timedelta(days=5), typkey="walking"),
+    ]
+
     _backfill(client, verbunden)
 
     stats = client.get("/api/logs/stats", headers=verbunden).json()
