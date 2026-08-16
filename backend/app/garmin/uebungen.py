@@ -119,6 +119,11 @@ SYNONYME: dict[str, str] = {
     "unterarmstutze": "Plank",
     "planke": "Plank",
     "bretthaltung": "Plank",
+    # Garmin führt den Unterarmstütz schlicht als „Plank“; „Front Plank“ und
+    # „Forearm Plank“ sind die geläufigen englischen Namen dafür und kommen
+    # deshalb aus der Klammer des Plans.
+    "front plank": "Plank",
+    "forearm plank": "Plank",
     "seitstutz": "Side Plank",
     "seitlicher unterarmstutz": "Side Plank",
     "seitliche planke": "Side Plank",
@@ -165,6 +170,18 @@ SYNONYME: dict[str, str] = {
     "schrittstellung": "Lunge",
     "gehende ausfallschritte": "Walking Lunge",
     "ausfallschritt gehend": "Walking Lunge",
+    # Einen nackten „Reverse Lunge“ führt der Katalog nicht — alle Einträge
+    # tragen Hantel, Kasten oder Zusatzbewegung. „Core Control Rear Lunge“ ist
+    # der einzige Rückwärtsausfallschritt ohne Gerät, und die Richtung ist der
+    # Unterschied, auf den es hier ankommt: Vorwärts wäre eine andere Bewegung.
+    "ruckwartiger ausfallschritt": "Core Control Rear Lunge",
+    "ausfallschritt ruckwarts": "Core Control Rear Lunge",
+    "ruckwartsausfallschritt": "Core Control Rear Lunge",
+    "reverse lunge": "Core Control Rear Lunge",
+    "rear lunge": "Core Control Rear Lunge",
+    "seitlicher ausfallschritt": "Side Lunge",
+    "seitliche ausfallschritte": "Side Lunge",
+    "ausfallschritt seitlich": "Side Lunge",
     "hufthebung": "Hip Raise",
     "huftbrucke": "Hip Raise",
     "beckenheben": "Hip Raise",
@@ -178,8 +195,16 @@ SYNONYME: dict[str, str] = {
     "muschelubung": "Clam Bridge",
     "clamshell": "Clam Bridge",
     "kreuzheben": "Deadlift",
+    "rumanisches kreuzheben": "Romanian Deadlift",
+    "gestrecktes kreuzheben": "Romanian Deadlift",
     "wadenheben": "Calf Raise",
     "wadenheber": "Calf Raise",
+    # Einbeinig ist eine andere Übung als beidbeinig — ohne eigenen Eintrag
+    # zeigte die Uhr das zweibeinige Wadenheben. „Standing“ ist Garmins
+    # Vorgabevariante; die gebeugte („Bent-knee“) steht so nie im Plan.
+    "einbeiniges wadenheben": "Single-leg Standing Calf Raise",
+    "wadenheben einbeinig": "Single-leg Standing Calf Raise",
+    "single leg calf raise": "Single-leg Standing Calf Raise",
     "stufensteigen": "Step-up",
     "aufstieg": "Step-up",
     "beinbeuger": "Leg Curl",
@@ -190,7 +215,16 @@ SYNONYME: dict[str, str] = {
     "monster walk": "Banded Lateral Band Walks",
     "monster walks": "Banded Lateral Band Walks",
     "seitliche bandgange": "Banded Lateral Band Walks",
+    "lateral band walk": "Banded Lateral Band Walks",
+    "seitschritte mit band": "Banded Lateral Band Walks",
+    "seitschritte mit miniband": "Banded Lateral Band Walks",
+    # „Hüftkreisen im Vierfüßler“ ist der Fire Hydrant und nicht das Hüftkreisen
+    # im Stand, das „huftkreisen“ allein trifft.
+    "fire hydrant": "Fire Hydrant Kicks",
+    "huftkreisen im vierfussler": "Fire Hydrant Kicks",
     "sprungkniebeuge": "Jump Squat",
+    "gobletkniebeuge": "Goblet Squat",
+    "goblet kniebeuge": "Goblet Squat",
     "kastensprung": "Box Jump",
     "seilspringen": "Jump Rope",
     "hampelmann": "Jumping Jacks",
@@ -212,6 +246,9 @@ SYNONYME: dict[str, str] = {
     "trizepsstrecken": "Triceps Extension",
     "trizepsdrucken": "Triceps Extension",
     "schulterheben": "Shrug",
+    "schulterblattzug": "Scapular Retraction",
+    "pike liegestutz": "Pike Push-up",
+    "hangendes knieheben": "Hanging Knee Raise",
     "koffertragen": "Farmer's Carry",
     "farmers walk": "Farmer's Carry",
     # Mobilität und Dehnung
@@ -246,6 +283,7 @@ SYNONYME: dict[str, str] = {
     "katzenbuckel": "Cat Camel",
     "kindshaltung": "Child's Pose Stretch",
     "kindeshaltung": "Child's Pose Stretch",
+    "kindhaltung": "Child's Pose Stretch",
     "stellung des kindes": "Child's Pose Stretch",
     "kobra": "Cobra Stretch",
     "taube": "Pigeon Pose Stretch",
@@ -253,6 +291,15 @@ SYNONYME: dict[str, str] = {
     "skorpion": "Scorpion Stretch",
     "leistendehnung": "Groiners",
     "brustdehnung": "Pectoral Stretch",
+    "brustoffner": "Pectoral Stretch",
+    # An der Wand hat Garmin einen eigenen Eintrag; drei Wörter schlagen das
+    # einzelne „brustoffner“, wenn der Plan die Wand nennt.
+    "brustoffner an der wand": "Wall Chest and Shoulder Stretch",
+    "wall chest stretch": "Wall Chest and Shoulder Stretch",
+    "hamstringdehnung im stand": "Standing Hamstring Stretch",
+    "knie zur brust": "Lying Knee-to-Chest Stretch",
+    "wirbelsaulendrehung im liegen": "Lying Spinal Twist Stretch",
+    "liegende wirbelsaulendrehung": "Lying Spinal Twist Stretch",
     "latissimusdehnung": "Lat Stretch",
     "schulterdehnung": "Shoulder Stretch",
     "nackendehnung": "Neck Stretch",
@@ -307,7 +354,22 @@ class Uebung:
     kategorie: str  # `category` — die Bewegungsgruppe
     name: str  # `exerciseName` — die genaue Variante
     anzeige: str  # Garmins Anzeigename, nur für Meldungen und Tests
-    grundform: bool = False  # trägt der Katalog die Gruppe selbst als Übung?
+    grundform: bool = False  # bloßer Name, der auch in längeren Namen steckt
+
+
+def _ist_grundform(eintrag: dict[str, str]) -> bool:
+    """Führt der Katalog diese Bewegung unter ihrem *bloßen* Namen?
+
+    Zwei Merkmale, und beide zählen. Das eine ist die Grundübung ihrer eigenen
+    Kategorie („Plank“ in PLANK, „Calf Raise“ in CALF_RAISE) — daran hing die
+    Prüfung einmal allein. Das andere ist der einwortige Name, auch wenn er zu
+    einer fremden Kategorie gehört: „Walk“ steht unter RUN, steckt aber in
+    „Lateral Band Walk“, und ohne Sperre bekam eine Bandübung im Plan die
+    Animation eines Spaziergangs. Zwanzig solcher Namen führt der Katalog
+    („Jog“, „Sprint“, „Burpee“, „Step-up“, „Kicks“ …) — dieselbe Falle, nur
+    ohne das erste Merkmal.
+    """
+    return eintrag["exercise"] == eintrag["category"] or len(eintrag["name"].split()) == 1
 
 
 @lru_cache(maxsize=1)
@@ -333,7 +395,7 @@ def _verzeichnis() -> dict[str, Uebung]:
                     eintrag["category"],
                     eintrag["exercise"],
                     eintrag["name"],
-                    grundform=eintrag["exercise"] == eintrag["category"],
+                    grundform=_ist_grundform(eintrag),
                 ),
             )
 
@@ -349,6 +411,21 @@ def _verzeichnis() -> dict[str, Uebung]:
             # und der Test schlägt an.
             continue
         merke(_woerter(deutsch), eintrag)
+
+    # Zuletzt die Dehnungsnamen ohne ihr angehängtes „Stretch“. Der Katalog
+    # hängt es an fast jede Dehnung („Child's Pose Stretch“, „Pigeon Pose
+    # Stretch“), die geläufige Bezeichnung kommt aber ohne aus — und genau die
+    # schreibt die KI in die Klammer, weil Punkt 9 des Prompts nach dem
+    # *geläufigen* englischen Namen fragt. Verlangt werden zwei verbleibende
+    # Wörter: „Hamstring Stretch“ fiele sonst auf „hamstring“ zusammen und
+    # zöge jede Zeile an sich, in der das Wort vorkommt.
+    #
+    # Zuletzt, weil `merke()` den ersten Eintrag behält: „Side Lunge Stretch“
+    # ergibt gekürzt „side lunge“, und das ist bereits eine eigene Übung.
+    for eintrag in katalog.EXERCISES:
+        woerter = _woerter(eintrag["name"])
+        if len(woerter) >= 3 and woerter[-1] == "stretch":
+            merke(woerter[:-1], eintrag)
 
     return verzeichnis
 
@@ -383,18 +460,13 @@ def _grundform_ok(woerter: tuple[str, ...], beginn: int, ende: int) -> bool:
     )
 
 
-def finde(text: str | None) -> Uebung | None:
-    """Die Übung aus einer Zeile des Aufbautexts, oder `None`.
+def _suche(woerter: tuple[str, ...]) -> tuple[int, Uebung] | None:
+    """Der längste Treffer in einer Wortfolge, mit seiner Länge.
 
     Gesucht wird das längste zusammenhängende Wortstück, das im Verzeichnis
     steht — „3x40 s Seitstütz je Seite“ ergibt „Side Plank“ und nicht „Plank“,
-    weil zwei Wörter mehr wiegen als eins. Steht nichts drin, ist das eine
-    Antwort und kein Fehler: Der Schritt bleibt dann eine Textzeile.
+    weil zwei Wörter mehr wiegen als eins.
     """
-    if not text:
-        return None
-
-    woerter = _woerter(text)
     if not woerter:
         return None
 
@@ -409,5 +481,38 @@ def finde(text: str | None) -> Uebung | None:
                 # Weitersuchen statt zurückgeben: Vielleicht steht an anderer
                 # Stelle der Zeile eine Übung, die für sich steht.
                 continue
-            return treffer
+            return laenge, treffer
     return None
+
+
+# Die Klammer trennt zwei Benennungen derselben Übung, keine zwei Wörter eines
+# Namens.
+_KLAMMER = re.compile(r"[()\[\]]")
+
+
+def finde(text: str | None) -> Uebung | None:
+    """Die Übung aus einer Zeile des Aufbautexts, oder `None`.
+
+    Gesucht wird je Klammerabschnitt getrennt, und das ist nicht bloß Kosmetik:
+    Punkt 9 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
+    englischen Namen in Klammern, und über die Klammergrenze hinweg gelesen
+    stand der eine direkt neben dem anderen. Für `_grundform_ok` sah
+    „Unterarmstütz (Front Plank)“ damit aus wie ein qualifizierter Unterarmstütz
+    — der Zusatz, der die Trefferquote erhöhen sollte, verhinderte genau den
+    Treffer. Getrennt gelesen steht „Unterarmstütz“ für sich, und der Plan
+    bekommt seine Animation.
+
+    Der längste Treffer über alle Abschnitte gewinnt; bei Gleichstand der erste,
+    also die deutsche Bezeichnung vor der englischen Klammer. Steht nirgends
+    etwas, ist das eine Antwort und kein Fehler: Der Schritt bleibt eine
+    Textzeile.
+    """
+    if not text:
+        return None
+
+    bester: tuple[int, Uebung] | None = None
+    for abschnitt in _KLAMMER.split(text):
+        treffer = _suche(_woerter(abschnitt))
+        if treffer is not None and (bester is None or treffer[0] > bester[0]):
+            bester = treffer
+    return bester[1] if bester is not None else None

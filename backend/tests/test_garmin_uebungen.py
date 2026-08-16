@@ -125,3 +125,73 @@ def test_gruppennamen_zaehlen_nicht_als_uebung():
     assert uebungen.finde("Core-Stabilisation 10 min") is None
     assert uebungen.finde("Warm-up 10 min") is None
     assert uebungen.finde("Cardio 20 min") is None
+
+
+def test_der_englische_name_in_klammern_blockiert_den_deutschen_nicht():
+    """Punkt 9 des Prompts verlangt die Klammer — sie darf nicht schaden.
+
+    Über die Klammergrenze hinweg gelesen stand „Unterarmstütz“ direkt neben
+    „Front“, und für `_grundform_ok` sah das aus wie ein qualifizierter
+    Unterarmstütz. Der Zusatz, der die Trefferquote erhöhen sollte, verhinderte
+    damit genau den Treffer.
+    """
+    assert uebungen.finde("3x45 s Unterarmstütz (Front Plank)").name == "PLANK"
+    assert uebungen.finde("3x12 Kniebeugen (Squat)").name == "SQUAT"
+    # Und die Klammer verklebt auch nichts, was nicht zusammengehört.
+    assert uebungen.finde("Copenhagen Plank (Adduktoren) 20 s je Seite") is None
+
+
+@pytest.mark.parametrize(
+    ("zeile", "erwartet"),
+    [
+        # Der Katalog hängt „Stretch“ an, die geläufige Bezeichnung nicht — und
+        # die schreibt die KI in die Klammer.
+        ("2x60 s Kindhaltung (Child's Pose)", "STRETCH_CHILDS_POSE"),
+        ("2x60 s je Seite Taube (Pigeon Pose)", "STRETCH_PIGEON_POSE"),
+        ("2x10 Katze-Kuh (Cat-Cow)", "STRETCH_CAT_COW"),
+        ("2x45 s Iliotibialband-Dehnung (Standing IT Band)", "STRETCH_STANDING_IT_BAND"),
+    ],
+)
+def test_dehnungsname_ohne_angehaengtes_stretch(zeile, erwartet):
+    treffer = uebungen.finde(zeile)
+    assert treffer is not None, zeile
+    assert treffer.name == erwartet
+
+
+def test_einwortiger_katalogname_aus_fremder_kategorie_ist_gesperrt():
+    """„Lateral Band Walk“ ist keine Runde um den Block.
+
+    Garmin führt „Walk“ unter RUN — die Kennung `exercise == category` greift
+    dort nicht, und ohne die zweite Bedingung bekam eine Bandübung im Plan die
+    Animation eines Spaziergangs.
+    """
+    treffer = uebungen.finde("3x12 Seitschritte mit Miniband (Lateral Band Walk)")
+    assert treffer.name == "LATERAL_BAND_WALKS"
+    assert uebungen.finde("3x15 Lateral Band Walk").name == "LATERAL_BAND_WALKS"
+    # Für sich allein bleibt die Grundform erreichbar.
+    assert uebungen.finde("20 min Walk").name == "WALK"
+
+
+@pytest.mark.parametrize(
+    ("zeile", "erwartet"),
+    [
+        # Die Richtung ist der Unterschied: vorwärts wäre eine andere Bewegung.
+        ("3x10 Rückwärtiger Ausfallschritt (Reverse Lunge)", "CORE_CONTROL_REAR_LUNGE"),
+        # Einbeinig darf nicht als zweibeinig auf der Uhr landen.
+        (
+            "3x15 Wadenheben einbeinig (Single-Leg Calf Raise) je Seite",
+            "SINGLE_LEG_STANDING_CALF_RAISE",
+        ),
+        (
+            "2x30 s je Seite Brustöffner an der Wand (Wall Chest Stretch)",
+            "STRETCH_WALL_CHEST_AND_SHOULDER",
+        ),
+        ("2x12 Hüftkreisen im Vierfüßler (Fire Hydrant)", "FIRE_HYDRANT_KICKS"),
+        ("3x10 Rumänisches Kreuzheben", "ROMANIAN_DEADLIFT"),
+    ],
+)
+def test_zeilen_aus_echten_ki_plaenen(zeile, erwartet):
+    """Wortlaut wie aus der Datenbank — hier fielen die Lücken auf."""
+    treffer = uebungen.finde(zeile)
+    assert treffer is not None, zeile
+    assert treffer.name == erwartet

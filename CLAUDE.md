@@ -500,12 +500,33 @@ die er vorher war; eine falsch zugeordnete Animation zeigte eine andere Bewegung
 als die geplante, und die wird ungeprüft nachgemacht. Daran hängen zwei Sperren.
 Die 24 Katalogzeilen, die eine Gruppe benennen statt einer Bewegung (`Core`,
 `Warm-up`, `Cardio` …), sind ausgeschlossen — zu einer Schublade gibt es keine
-Animation. Und die 47 Bewegungen, die der Katalog unter ihrem *bloßen* Namen
-führt („Plank“, „Squat“, „Row“), zählen nur, wenn sie für sich allein stehen
-(`_grundform_ok`): Steht direkt davor oder dahinter ein Wort, das keine
-Mengenangabe ist, gehört es mit einiger Wahrscheinlichkeit zum Übungsnamen.
-„Copenhagen Plank“ ist eine Adduktorenübung und kein Unterarmstütz, „Squat
-Jumps“ sind keine Kniebeugen — beide bekämen sonst die Animation der Grundform.
+Animation. Und die Bewegungen, die der Katalog unter ihrem *bloßen* Namen führt,
+zählen nur, wenn sie für sich allein stehen (`_grundform_ok`): Steht direkt davor
+oder dahinter ein Wort, das keine Mengenangabe ist, gehört es mit einiger
+Wahrscheinlichkeit zum Übungsnamen. „Copenhagen Plank“ ist eine Adduktorenübung
+und kein Unterarmstütz, „Squat Jumps“ sind keine Kniebeugen — beide bekämen sonst
+die Animation der Grundform. **Ein bloßer Name ist dabei zweierlei**
+(`_ist_grundform`): die Grundübung der eigenen Kategorie („Plank“ in `PLANK`,
+„Calf Raise“ in `CALF_RAISE`), *und* jeder einwortige Name, auch aus fremder
+Kategorie. Am zweiten hing ein echter Fehlgriff: „Walk“ steht unter `RUN`, steckt
+aber in „Lateral Band Walk“, und die Bandübung eines echten Plans bekam die
+Animation eines Spaziergangs. Zwanzig solcher Namen führt der Katalog („Jog“,
+„Sprint“, „Burpee“, „Step-up“ …).
+
+**Die Klammer trennt, sie verbindet nicht** (`_KLAMMER` in `finde()`). Punkt 9
+des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen englischen
+Namen in Klammern — über die Klammergrenze hinweg gelesen stand der eine
+unmittelbar neben dem anderen, und für `_grundform_ok` sah „Unterarmstütz (Front
+Plank)“ damit aus wie ein qualifizierter Unterarmstütz. Der Zusatz, der die
+Trefferquote erhöhen sollte, verhinderte genau den Treffer. Gesucht wird deshalb
+je Klammerabschnitt getrennt; der längste Treffer gewinnt, bei Gleichstand der
+erste — also die deutsche Bezeichnung vor der englischen Klammer. Aus demselben
+Grund kennt das Verzeichnis die Dehnungsnamen **auch ohne ihr angehängtes
+„Stretch“**: Der Katalog hängt es an fast jede Dehnung, die geläufige
+Bezeichnung kommt ohne aus, und genau die steht in der Klammer („Child's Pose“,
+„Pigeon Pose“). Zwei verbleibende Wörter sind Bedingung — „Hamstring Stretch“
+fiele sonst auf „hamstring“ zusammen und zöge jede Zeile an sich, in der das Wort
+vorkommt.
 
 **Mobility geht als Garmins „Mobility“, nicht mehr als Yoga**
 (`SPORT_ZU_GARMIN`, `SportType.MOBILITY` = 11). Der Übungskatalog hängt an der
@@ -1096,10 +1117,18 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   Rundentaste.
 - Die **Zuordnung zum Übungskatalog** deckt ab, was in Kraft- und
   Mobilityplänen für Ausdauersportler üblich ist, nicht den ganzen Katalog.
-  Was `uebungen.finde()` nicht erkennt, bleibt ohne Animation — sichtbar wird
+  Gemessen ist sie an den bis dahin erzeugten Blöcken: Alle 23 Übungen der
+  vier Kraft- und Mobility-Einheiten in der Datenbank werden zugeordnet. Was
+  `uebungen.finde()` nicht erkennt, bleibt ohne Animation — sichtbar wird
   das nur auf der Uhr, die App meldet es nirgends. Wer eine Lücke bemerkt,
   trägt sie in `SYNONYME` nach; `test_garmin_uebungen.py` prüft, dass jede
   Entsprechung im Katalog existiert.
+- Ein paar Bewegungen führt der Katalog **nur mit Gerät**, obwohl der Plan sie
+  ohne meint: Für „Single-Leg Romanian Deadlift“ gibt es keinen Eintrag ohne
+  Hantel oder Schlingen, weshalb dort das zweibeinige „Romanian Deadlift“
+  animiert wird — dieselbe Hüftbeuge, nur auf zwei Beinen. „Bulgarian Split
+  Squat“ und „Nordic Hamstring Curl“ bleiben aus demselben Grund ganz ohne
+  Animation.
 - **Yogaposen fehlen ganz.** Garmins Posenkatalog steckt hinter dem
   angemeldeten Connect-Editor und wird nirgends öffentlich ausgeliefert
   (`web-data/exercises/Yoga.json` ist ein 404). Deshalb laufen Mobility-
