@@ -193,16 +193,13 @@ def _history_block(
             "garmin_trainingslast": lg.garmin_training_load,
             "trainingseffekt_aerob": lg.garmin_aerobic_te,
             "trainingseffekt_anaerob": lg.garmin_anaerobic_te,
-            "befinden_1_5": lg.feeling,
-            "muskelkater_1_5": lg.soreness,
-            "schlaf_h": lg.sleep_hours,
-            "schlafqualitaet_1_5": lg.sleep_quality,
-            "morgenpuls": lg.morning_hr,
-            "morgen_hrv": lg.morning_hrv,
+            # Befinden, Muskelkater, Schlaf und Morgenpuls je Einheit gibt es
+            # nicht mehr — sie kamen aus dem Erfassungsformular. Denselben
+            # Zustand beschreibt der `fitnessdaten`-Block, gemessen statt
+            # erinnert und für jeden Tag, nicht nur für Trainingstage.
             "trimp": banister_trimp(
                 lg.duration_min, lg.avg_hr, resting_hr, max_hr, sex
             ),
-            "bedingungen": lg.conditions,
             "notiz": lg.notes,
         })
 
@@ -507,8 +504,9 @@ nicht einen vollständigen Trainingszyklus.{ersatzhinweis}
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und \
 `acute_chronic_workload_ratio` zeigen, wie viel zuletzt trainiert wurde. Eine ACWR \
-über 1.3, steigender Morgenpuls, fallende HRV, sinkendes Befinden oder hohes RPE bei \
-gleicher Leistung heißt: in diesem Block zurücknehmen. Eine ruhige oder ausgefallene \
+über 1.3 oder ein hohes RPE bei gleicher Leistung heißt: in diesem Block \
+zurücknehmen. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, \
+sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene \
 Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht \
 umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
 {fitnessregeln}
@@ -563,10 +561,11 @@ durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deut
 auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
 Bewegungsanimation zur Übung erscheint.
 10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
-aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Steht bei \
-einer Einheit `rpe_quelle` auf etwas anderem als "manual", stammt das RPE nicht vom \
-Athleten, sondern ist aus Herzfrequenzzonen oder Trainingseffekt geschätzt — stütze \
-dich dort stärker auf `hf_schnitt`, `trimp` und `garmin_trainingslast`.
+aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Das RPE in \
+der Historie ist **geschätzt** und stammt nicht vom Athleten — er trägt nichts von Hand \
+ein, alle Einheiten kommen aus der Uhr. `rpe_quelle` nennt, woraus geschätzt wurde \
+("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich deshalb stärker auf \
+`hf_schnitt`, `trimp` und `garmin_trainingslast` als auf die RPE-Zahl.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
@@ -623,10 +622,14 @@ mehreren Tagen heißt: Umfang halten, Intensität zurücknehmen.
    - Nenne in `summary` ausdrücklich, welcher dieser Werte deine Entscheidung \
 getragen hat."""
 
-FITNESSREGELN_OHNE_DATEN = """2. **Keine Gerätedaten vorhanden**: Für diesen Athleten liegen keine Schlaf-, HRV- \
-oder Erholungswerte vor. Steuere ausschließlich über RPE, Morgenpuls, morgendliche \
-HRV und Befinden aus `trainingshistorie.einheiten` — und plane im Zweifel die \
-konservativere Variante."""
+FITNESSREGELN_OHNE_DATEN = """2. **Keine Gerätedaten vorhanden**: Für diesen Athleten ist keine Uhr verbunden. Es \
+liegen weder Schlaf-, HRV- noch Erholungswerte vor, und `trainingshistorie.einheiten` \
+ist leer oder unvollständig — absolvierte Trainings kommen ausschließlich aus Garmin, \
+von Hand trägt der Athlet nichts nach. Stütze dich deshalb allein auf \
+`trainingswunsch`, `athlet` und die verfügbaren Wochentage, halte Umfang und Intensität \
+niedriger als bei bekannter Belastungslage und plane im Zweifel die konservativere \
+Variante. Nenne in `coaching_notes` ausdrücklich, dass der Block ohne Belastungsdaten \
+entstanden ist."""
 
 
 # Steht nur im Prompt, wenn der neue Block einen laufenden überlappt. Ohne den

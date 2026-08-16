@@ -8,7 +8,6 @@ import GarminPage from './pages/GarminPage'
 import History from './pages/History'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import LogSession from './pages/LogSession'
 import NewTraining from './pages/NewTraining'
 import PlanExchange from './pages/PlanExchange'
 import PlanView from './pages/PlanView'
@@ -42,11 +41,6 @@ export default function App() {
       <Route path="/plan-erzeugen" element={<Protected><PlanExchange /></Protected>} />
       <Route path="/plan" element={<Protected><PlanView /></Protected>} />
       <Route path="/plan/:planId" element={<Protected><PlanView /></Protected>} />
-      <Route path="/training-erfassen" element={<Protected><LogSession /></Protected>} />
-      <Route
-        path="/training-nachtragen"
-        element={<Protected><LogSession mode="backfill" /></Protected>}
-      />
       <Route path="/verlauf" element={<Protected><History /></Protected>} />
       <Route path="/profil" element={<Protected><ProfilePage /></Protected>} />
       <Route path="/garmin" element={<Protected><GarminPage /></Protected>} />

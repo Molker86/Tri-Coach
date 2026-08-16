@@ -5,16 +5,13 @@ import { useAuth } from '../auth/AuthContext'
 /** Die Kopfleiste am Schreibtisch.
  *
  * Sieben Einträge ist die Obergrenze — ein achter drückt die Leiste auf zwei
- * Zeilen. „Nachtragen" ist deshalb Garmin gewichen: Wer seine Trainings
- * automatisch bekommt, trägt kaum noch von Hand nach, und der Weg dorthin
- * bleibt über „Mehr" am Telefon, über den Verlauf und über die Erfassungsseite
- * erreichbar.
+ * Zeilen. „Training erfassen" ist entfallen, weil es keine Handeingabe mehr
+ * gibt: Absolvierte Einheiten kommen ausschließlich über den Garmin-Abgleich.
  */
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Übersicht' },
   { to: '/plan', label: 'Trainingsplan' },
   { to: '/neues-training', label: 'Neues Training' },
-  { to: '/training-erfassen', label: 'Training erfassen' },
   { to: '/verlauf', label: 'Verlauf' },
   { to: '/garmin', label: 'Garmin' },
   { to: '/profil', label: 'Meine Daten' },
@@ -24,21 +21,20 @@ const NAV_ITEMS = [
  *
  * Sieben gleichwertige Reiter nebeneinander sind auf einem Telefon weder
  * lesbar noch treffsicher. Unten stehen deshalb nur die vier Wege des
- * Trainingsalltags — nachsehen, was ansteht, und erfassen, was war. Der Rest
- * liegt hinter „Mehr“ und ist damit genau einen Tipp weiter weg.
+ * Trainingsalltags — nachsehen, was ansteht, und nachsehen, was war. Den Platz
+ * des früheren „Erfassen" nimmt Garmin ein: Von dort kommen die absolvierten
+ * Einheiten, also gehört der Abgleich in den Alltag und nicht hinter „Mehr“.
  */
 const MOBILE_PRIMARY = [
   { to: '/dashboard', label: 'Übersicht', icon: IconHome },
   { to: '/plan', label: 'Plan', icon: IconCalendar },
-  { to: '/training-erfassen', label: 'Erfassen', icon: IconPlus },
+  { to: '/garmin', label: 'Garmin', icon: IconWatch },
   { to: '/verlauf', label: 'Verlauf', icon: IconChart },
 ]
 
 const MOBILE_MORE = [
   { to: '/garmin-kalender', label: 'Garmin-Kalender' },
-  { to: '/garmin', label: 'Garmin Connect' },
   { to: '/neues-training', label: 'Neues Training' },
-  { to: '/training-nachtragen', label: 'Training nachtragen' },
   { to: '/profil', label: 'Meine Daten' },
 ]
 
@@ -178,11 +174,11 @@ function IconCalendar() {
   )
 }
 
-function IconPlus() {
+function IconWatch() {
   return (
     <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 8.5v7M8.5 12h7" />
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
+      <path d="M9 6.5V3.5h6v3M9 17.5v3h6v-3M12 9.5V12l2 1.5" />
     </svg>
   )
 }

@@ -250,16 +250,14 @@ class SessionLog(Base):
     elevation_gain_m: Mapped[int | None] = mapped_column(Integer)
     calories: Mapped[int | None] = mapped_column(Integer)
 
-    # Subjektive Marker — für die Steuerung mindestens so wichtig wie die Messwerte
+    # Der einzige verbliebene subjektive Marker — und selbst der wird geschätzt
+    # (`mapping.schaetze_rpe`), weil Garmin kein RPE liefert. Befinden,
+    # Muskelkater, Schlafqualität, Morgenpuls und Morgen-HRV kamen aus dem
+    # Erfassungsformular; mit ihm sind auch ihre Spalten weg
+    # (`database._ENTFALLENE_SPALTEN`). Was sie beschrieben, misst die Uhr
+    # ohnehin genauer und Nacht für Nacht — siehe `WellnessDay`.
     rpe: Mapped[int | None] = mapped_column(Integer)  # 1-10 (Borg CR10)
-    feeling: Mapped[int | None] = mapped_column(Integer)  # 1-5
-    soreness: Mapped[int | None] = mapped_column(Integer)  # 1-5
-    sleep_hours: Mapped[float | None] = mapped_column(Float)
-    sleep_quality: Mapped[int | None] = mapped_column(Integer)  # 1-5
-    morning_hr: Mapped[int | None] = mapped_column(Integer)
-    morning_hrv: Mapped[float | None] = mapped_column(Float)
 
-    conditions: Mapped[str | None] = mapped_column(String(255))  # Wetter/Terrain
     notes: Mapped[str | None] = mapped_column(Text)
 
     # Herkunft. `garmin_activity_id` trägt die Idempotenz des Imports: Ein
@@ -277,9 +275,10 @@ class SessionLog(Base):
     garmin_aerobic_te: Mapped[float | None] = mapped_column(Float)
     garmin_anaerobic_te: Mapped[float | None] = mapped_column(Float)
     # Woher `rpe` stammt. Garmin liefert kein RPE; ohne Schätzung fielen sRPE,
-    # ACWR und die Abstandsregel für intensive Einheiten aus. Die Quelle wird
-    # mitgeschrieben, damit ein selbst eingetragener Wert beim nächsten Sync
-    # nicht überschrieben wird und die KI die Belastbarkeit der Zahl kennt.
+    # ACWR und die Abstandsregel für intensive Einheiten aus. Die Quelle geht in
+    # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann.
+    # `manual` ist heute nur noch ein Altwert: Er steht an Einträgen aus der
+    # Zeit, als es ein Erfassungsformular gab.
     rpe_source: Mapped[str] = mapped_column(String(20), default="manual")
     # manual | hf_zonen | trainingseffekt | hf_schnitt
 

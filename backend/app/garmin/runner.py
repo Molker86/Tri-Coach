@@ -15,6 +15,7 @@ verschiedenen Konten im selben Haushalt.
 import logging
 import threading
 from datetime import date, datetime, timedelta, timezone
+from typing import NamedTuple
 
 from sqlalchemy import select
 
@@ -36,6 +37,38 @@ ENDZUSTAENDE = frozenset(
 # und lassen synchron laufen — sonst müsste jeder Test den Fortschritt abfragen
 # und wäre von der Zeit abhängig.
 IM_HINTERGRUND = True
+
+# Welche Job-Art zu welcher Aktion gehört. `cleanup` sendet nichts nach Garmin:
+# Der Lauf existiert nur, um den Kalender auf den Stand des aktiven Blocks zu
+# bringen — nötig, wenn ein neuer Block einen übertragenen ablöst, aber selbst
+# nicht auf die Uhr geht (automatische Übertragung abgeschaltet, oder der Block
+# besteht nur aus Ruhetagen).
+JOBARTEN = {
+    "push": "workout_push",
+    "remove": "workout_remove",
+    "cleanup": "workout_cleanup",
+}
+
+
+class Aufraeumbilanz(NamedTuple):
+    """Was ein Nachlauf aus Garmin genommen hat — nach Grund getrennt.
+
+    Getrennt gezählt, weil beide Fälle verschieden klingen müssen: Ein
+    vergangener Tag ist Altpapier, ein abgelöster Block stand dem neuen im Weg.
+    Eine gemeinsame Zahl hätte die eine Hälfte unter der Überschrift der anderen
+    gemeldet.
+    """
+
+    vergangen: int = 0
+    ersetzt: int = 0
+    # Ob der Nachlauf gar nicht durchkam. Für einen Abgleich oder eine
+    # Übertragung ist das eine Randnotiz — deren Ziel war ein anderes. Ein
+    # reiner Aufräumlauf hat dagegen nichts erreicht und muss das melden.
+    fehlgeschlagen: bool = False
+
+    @property
+    def gesamt(self) -> int:
+        return self.vergangen + self.ersetzt
 
 
 def _now() -> datetime:
@@ -217,9 +250,10 @@ class SyncRunner:
 
             # Der tägliche Abgleich ist der Zeitpunkt, an dem sich „vorbei"
             # ändert — und der Zugang steht hier ohnehin schon.
-            if aufgeraeumt := self._raeume_workouts_auf(db, konto, api, user_id):
-                job.workouts_removed = aufgeraeumt
-                job.message = f"{job.message} {_aufraeummeldung(aufgeraeumt)}"
+            bilanz = self._raeume_workouts_auf(db, konto, api, user_id)
+            if bilanz.gesamt:
+                job.workouts_removed = bilanz.gesamt
+                job.message = f"{job.message} {_aufraeummeldung(bilanz)}"
                 db.commit()
 
         except SyncAbbruch:
@@ -254,7 +288,9 @@ class SyncRunner:
         im_hintergrund: bool | None = None,
         pause_s: float | None = None,
     ) -> int:
-        """Schiebt einen Plan nach Garmin (`aktion="push"`) oder holt ihn zurück.
+        """Schiebt einen Plan nach Garmin, holt ihn zurück oder räumt nur auf.
+
+        `aktion`: „push", „remove" oder „cleanup" (siehe `JOBARTEN`).
 
         Läuft durch dasselbe Schloss wie der Abgleich: Zwei Zugriffe auf Garmin
         gleichzeitig sind genau die Anfragedichte, gegen die sich die Sperre
@@ -264,13 +300,13 @@ class SyncRunner:
         with SessionLocal() as db:
             job = GarminSyncJob(
                 user_id=user_id,
-                kind="workout_push" if aktion == "push" else "workout_remove",
+                kind=JOBARTEN[aktion],
                 state="queued",
-                message=(
-                    "Die Übertragung wird vorbereitet …"
-                    if aktion == "push"
-                    else "Das Entfernen wird vorbereitet …"
-                ),
+                message={
+                    "push": "Die Übertragung wird vorbereitet …",
+                    "remove": "Das Entfernen wird vorbereitet …",
+                    "cleanup": "Der Garmin-Kalender wird aufgeräumt …",
+                }[aktion],
             )
             db.add(job)
             db.commit()
@@ -365,6 +401,10 @@ class SyncRunner:
                     fortschritt=fortschritt,
                     pause_s=pause_s,
                 )
+            elif aktion == "cleanup":
+                # Hier geht nichts nach Garmin: Der Lauf besteht allein aus dem
+                # Nachlauf unten, der Vergangenes und Abgelöstes wegnimmt.
+                ergebnis = uebertragung.UebertragungsErgebnis()
             else:
                 ergebnis = uebertragung.entferne_plan(
                     db, api, plan, fortschritt=fortschritt, pause_s=pause_s
@@ -397,13 +437,19 @@ class SyncRunner:
             # Bewusst **nach** dem Festschreiben: Läuft das Aufräumen in die
             # Anfragesperre, setzten die Zeilen darüber sie sonst gleich wieder
             # zurück.
-            if aktion == "push" and (
-                aufgeraeumt := self._raeume_workouts_auf(
+            if aktion in ("push", "cleanup"):
+                bilanz = self._raeume_workouts_auf(
                     db, konto, api, user_id, ausser_plan_id=plan.id, pause_s=pause_s
                 )
-            ):
-                job.workouts_removed += aufgeraeumt
-                job.message = f"{job.message} {_aufraeummeldung(aufgeraeumt)}"
+                job.workouts_removed += bilanz.gesamt
+                if aktion == "cleanup":
+                    # Der Nachlauf *ist* dieser Job — also berichtet allein er,
+                    # und ein Fehlschlag darf hier nicht als „done" durchgehen.
+                    job.message = _aufraeumlauf_meldung(bilanz)
+                    if bilanz.fehlgeschlagen:
+                        job.state = "failed"
+                elif bilanz.gesamt:
+                    job.message = f"{job.message} {_aufraeummeldung(bilanz)}"
                 db.commit()
 
         except SyncAbbruch:
@@ -480,8 +526,8 @@ class SyncRunner:
         *,
         ausser_plan_id: int | None = None,
         pause_s: float | None = None,
-    ) -> int:
-        """Löscht übertragene Einheiten, deren Tag vorbei ist. Gibt deren Zahl zurück.
+    ) -> Aufraeumbilanz:
+        """Löscht Einheiten, deren Tag vorbei ist oder deren Block abgelöst wurde.
 
         Am Ende eines Laufs statt als eigener Job: Der Zugang steht, das Schloss
         ist gehalten, und ein Fortschrittsbalken für eine Handvoll Löschungen
@@ -506,7 +552,6 @@ class SyncRunner:
             ersetzt = uebertragung.raeume_ersetzte_auf(
                 db, api, user_id, ausser_plan_id=ausser_plan_id, pause_s=pause_s
             )
-            ergebnis.entfernt += ersetzt.entfernt
             ergebnis.fehler.extend(ersetzt.fehler)
             # Jetzt erst: Ein abgelöster Block darf nur verschwinden, wenn nichts
             # mehr von ihm in Garmin steht — die Zuordnung dorthin stirbt mit ihm.
@@ -517,17 +562,17 @@ class SyncRunner:
             konto.status_message = exc.meldung
             konto.rate_limited_until = _now() + timedelta(hours=1)
             db.commit()
-            return 0
+            return Aufraeumbilanz(fehlgeschlagen=True)
         except Exception:  # noqa: BLE001 — der Lauf selbst war erfolgreich
             logger.exception("Aufräumen vergangener Workouts fehlgeschlagen")
             db.rollback()
-            return 0
+            return Aufraeumbilanz(fehlgeschlagen=True)
 
         if ergebnis.fehler:
             logger.warning(
                 "Nicht aufgeräumt: %s", "; ".join(ergebnis.fehler[:5])
             )
-        return ergebnis.entfernt
+        return Aufraeumbilanz(vergangen=ergebnis.entfernt, ersetzt=ersetzt.entfernt)
 
     def _fuehre_profil_nach(
         self,
@@ -645,6 +690,10 @@ def _uebertragungsmeldung(ergebnis, aktion: str) -> str:
             meldung = "Keine Einheit konnte übertragen werden."
         else:
             meldung = "Es gab keine Einheit zu übertragen."
+    elif aktion == "cleanup":
+        # Ein Aufräumlauf sendet nichts; was er geleistet hat, weiß erst der
+        # Nachlauf. `_aufraeumlauf_meldung` überschreibt diesen Platzhalter.
+        meldung = "Der Garmin-Kalender wird geprüft …"
     else:
         meldung = (
             f"{ergebnis.entfernt} Einheiten aus Garmin entfernt."
@@ -669,10 +718,40 @@ def _ersatzmeldung(anzahl: int) -> str:
     return f"{anzahl} Einheiten des abgelösten Blocks wurden aus dem Kalender genommen."
 
 
-def _aufraeummeldung(anzahl: int) -> str:
-    if anzahl == 1:
-        return "1 vergangenes Training wurde aus Garmin aufgeräumt."
-    return f"{anzahl} vergangene Trainings wurden aus Garmin aufgeräumt."
+def _aufraeummeldung(bilanz: Aufraeumbilanz) -> str:
+    """Was der Nachlauf weggenommen hat — nach Grund getrennt benannt.
+
+    Beides in einer Zahl zusammenzufassen hieße, den abgelösten Block als
+    „vergangenes Training" zu melden. Er liegt aber in der Zukunft, und wer die
+    Meldung liest, will genau das unterscheiden können.
+    """
+    teile: list[str] = []
+    if bilanz.vergangen:
+        teile.append(
+            "1 vergangenes Training wurde aus Garmin aufgeräumt."
+            if bilanz.vergangen == 1
+            else f"{bilanz.vergangen} vergangene Trainings wurden aus Garmin aufgeräumt."
+        )
+    if bilanz.ersetzt:
+        teile.append(_ersatzmeldung(bilanz.ersetzt))
+    return " ".join(teile)
+
+
+def _aufraeumlauf_meldung(bilanz: Aufraeumbilanz) -> str:
+    """Die Meldung eines Laufs, der *nur* aufräumt.
+
+    Er hat kein zweites Ziel, hinter dem ein Fehlschlag verschwinden dürfte:
+    Kommt er nicht durch, steht der abgelöste Block weiter im Kalender — und
+    genau das muss dort stehen, statt einer Erfolgsmeldung über nichts.
+    """
+    if bilanz.fehlgeschlagen:
+        return (
+            "Der Garmin-Kalender ließ sich nicht aufräumen — der abgelöste Block "
+            "steht dort weiter. Der nächste Abgleich holt es nach."
+        )
+    if not bilanz.gesamt:
+        return "Im Garmin-Kalender stand nichts Überholtes."
+    return _aufraeummeldung(bilanz)
 
 
 def markiere_unterbrochene_jobs() -> int:

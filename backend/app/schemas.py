@@ -332,12 +332,37 @@ class PlanImportOut(BaseModel):
     garmin_hinweis: str | None = None
 
 
+class PlanDeleteOut(BaseModel):
+    """Was das Löschen eines Plans in Garmin bewirkt hat.
+
+    Das Löschen gibt eine Antwort statt eines leeren 204, weil es die
+    Gegenstelle anfasst: Wie viele Einheiten dabei aus dem Kalender genommen
+    wurden, gehört in die Rückmeldung — sonst bliebe für den Nutzer offen, ob
+    seine Uhr noch die Vorgaben eines Plans trägt, den es nicht mehr gibt.
+    """
+
+    garmin_entfernt: int = 0
+    # Einzelne Einheiten, bei denen Garmin nicht mitspielte. Der Plan ist
+    # trotzdem weg — hier steht, was in Connect von Hand nachzuräumen bleibt.
+    garmin_fehler: list[str] = []
+
+
 # --------------------------------------------------------------------------
 # Trainings-Logging
+#
+# Nur ein Ausgabeschema: Trainings entstehen ausschließlich beim
+# Garmin-Abgleich, es gibt keinen Anfragekörper mehr, der hier hereinkäme. Die
+# Spannen bleiben trotzdem stehen — `model_validate()` prüft sie auch beim
+# Lesen, und ein Wert außerhalb ist dann ein Fehler im Mapper und keine stille
+# Falschanzeige.
 # --------------------------------------------------------------------------
 
 
-class SessionLogIn(BaseModel):
+class SessionLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
     plan_session_id: int | None = None
     date: date
     sport: str
@@ -353,34 +378,12 @@ class SessionLogIn(BaseModel):
     elevation_gain_m: int | None = Field(None, ge=0, le=15000)
     calories: int | None = Field(None, ge=0, le=20000)
 
+    # Immer geschätzt: Garmin liefert kein RPE (`mapping.schaetze_rpe`).
     rpe: int | None = Field(None, ge=1, le=10)
-    feeling: int | None = Field(None, ge=1, le=5)
-    soreness: int | None = Field(None, ge=1, le=5)
-    sleep_hours: float | None = Field(None, ge=0, le=16)
-    sleep_quality: int | None = Field(None, ge=1, le=5)
-    morning_hr: int | None = Field(None, ge=25, le=120)
-    morning_hrv: float | None = Field(None, ge=1, le=250)
-
-    conditions: str | None = None
     notes: str | None = None
 
-    @field_validator("sport")
-    @classmethod
-    def _norm_sport(cls, v: str) -> str:
-        return normalize_sport(v)
-
-
-class SessionLogOut(SessionLogIn):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    created_at: datetime
     trimp: float | None = None
 
-    # Bewusst nur hier und nicht in `SessionLogIn`: `update_log` überschreibt
-    # mit `model_dump()` *ohne* `exclude_unset` alle Eingabefelder. Stünde die
-    # Herkunft dort, würde ein Bearbeiten im Frontend sie auf die Vorgabewerte
-    # zurücksetzen — und der nächste Sync legte die Einheit ein zweites Mal an.
     source: str = "manual"
     garmin_activity_id: str | None = None
     garmin_activity_type: str | None = None
@@ -388,6 +391,11 @@ class SessionLogOut(SessionLogIn):
     garmin_aerobic_te: float | None = None
     garmin_anaerobic_te: float | None = None
     rpe_source: str = "manual"
+
+    @field_validator("sport")
+    @classmethod
+    def _norm_sport(cls, v: str) -> str:
+        return normalize_sport(v)
 
 
 # --------------------------------------------------------------------------

@@ -139,23 +139,19 @@ def test_neuer_block_raeumt_den_abgeloesten_weg(client, auth):
     assert plaene[0]["is_active"] is True
 
 
-def test_abgeloester_block_mit_erfasstem_training_bleibt(client, auth):
+def test_abgeloester_block_mit_erfasstem_training_bleibt(client, auth, erfasse):
     """Ein Block, an dem ein Training hängt, ist Verlauf und kein Müll."""
     alt = _importiere(client, auth, start=HEUTE, tage=7, titel="Alter Block")
     einheit = next(s for s in alt["sessions"] if s["sport"] != "rest")
 
-    erfasst = client.post(
-        "/api/logs",
-        headers=auth,
-        json={
-            "plan_session_id": einheit["id"],
-            "date": einheit["date"],
-            "sport": einheit["sport"],
-            "duration_min": 55,
-            "rpe": 5,
-        },
+    erfasse(
+        auth,
+        plan_session_id=einheit["id"],
+        date=date.fromisoformat(einheit["date"]),
+        sport=einheit["sport"],
+        duration_min=55,
+        rpe=5,
     )
-    assert erfasst.status_code == 201, erfasst.text
 
     _importiere(client, auth, start=HEUTE, tage=7, titel="Neuer Block")
 
@@ -177,3 +173,31 @@ def test_beiseitegelegter_block_bleibt_stehen(client, auth):
     _importiere(client, auth, start=HEUTE, tage=7, titel="Jetzt")
 
     assert {p["title"] for p in _plaene(client, auth)} == {"Später", "Jetzt"}
+
+
+def test_loeschen_ohne_garmin_kostet_keine_anfrage(client, auth, erfasse):
+    """Ohne verbundenes Konto bleibt das Löschen, was es war.
+
+    Der Weg über Garmin hängt an vorhandenen Zuordnungen; ohne sie wird nichts
+    aufgebaut und nichts angefragt. Erfasste Trainings überleben den Plan, sie
+    verlieren nur ihre Verknüpfung.
+    """
+    plan = _importiere(client, auth, start=HEUTE, tage=7, titel="Zum Löschen")
+    einheit = next(s for s in plan["sessions"] if s["sport"] != "rest")
+    erfasse(
+        auth,
+        plan_session_id=einheit["id"],
+        date=date.fromisoformat(einheit["date"]),
+        sport=einheit["sport"],
+        duration_min=55,
+        rpe=5,
+    )
+
+    antwort = client.delete(f"/api/plans/{plan['id']}", headers=auth)
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json() == {"garmin_entfernt": 0, "garmin_fehler": []}
+
+    assert _plaene(client, auth) == []
+    verlauf = client.get("/api/logs", headers=auth).json()
+    assert len(verlauf) == 1
+    assert verlauf[0]["plan_session_id"] is None

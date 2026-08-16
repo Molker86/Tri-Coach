@@ -210,9 +210,6 @@ export default function Dashboard() {
               {plan.end_date >= today ? 'Neu planen ab heute' : 'Nächsten Block planen'}
             </Link>
           )}
-          <Link className="btn btn-secondary" to="/training-erfassen">
-            Training erfassen
-          </Link>
           <Link className="btn btn-primary" to="/neues-training">
             Neues Training
           </Link>
@@ -330,11 +327,8 @@ export default function Dashboard() {
                 </div>
               ))}
 
-              {todaySessions.some((s) => !s.logged && s.sport !== 'rest') && (
-                <Link className="btn btn-primary mt-1" to="/training-erfassen">
-                  Training erfassen
-                </Link>
-              )}
+              {/* Kein Knopf zum Erfassen mehr: Die Einheit gilt als absolviert,
+                  sobald sie der Garmin-Abgleich als Aktivität hereinholt. */}
             </div>
           )}
         </div>

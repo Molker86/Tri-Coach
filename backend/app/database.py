@@ -1,3 +1,4 @@
+import sqlite3
 from collections.abc import Generator
 
 from sqlalchemy import Connection, create_engine, event
@@ -80,6 +81,43 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     },
 }
 
+# Das Gegenstück: Spalten, die aus dem Modell verschwunden sind. Sie einfach
+# stehen zu lassen wäre der bequeme Weg — SQLAlchemy stört sich nicht an einer
+# Spalte, die es nicht kennt. Es sind hier aber Gesundheitsdaten, und
+# `/data/tricoach.db` wandert in jedes Home-Assistant-Backup und von dort auf
+# NAS oder USB-Stick. Was niemand mehr liest und niemand mehr füllen kann, hat
+# dort nichts verloren.
+#
+# `DROP COLUMN` beherrscht SQLite seit 3.35 (2021) und nur, solange die Spalte
+# in keinem Index und in keiner Bedingung steht — beides trifft hier zu. Auf
+# einem älteren SQLite bleiben die Spalten liegen, statt den Start scheitern zu
+# lassen: Sie stören dort, aber sie brechen nichts.
+_ENTFALLENE_SPALTEN: dict[str, tuple[str, ...]] = {
+    # Die subjektiven Marker aus dem Erfassungsformular. Mit ihm haben sie keine
+    # Quelle mehr: Garmin liefert nichts davon, und eintragen kann sie niemand.
+    "session_logs": (
+        "feeling",
+        "soreness",
+        "sleep_hours",
+        "sleep_quality",
+        "morning_hr",
+        "morning_hrv",
+        "conditions",
+    ),
+}
+
+_KANN_SPALTEN_LOESCHEN = sqlite3.sqlite_version_info >= (3, 35)
+
+# Eine Spalte in beiden Listen liefe bei jedem Start hin und her: erst ergänzt,
+# dann gelöscht, und beim nächsten Mal wieder von vorn.
+for _tabelle, _spalten in _ENTFALLENE_SPALTEN.items():
+    _doppelt = set(_spalten) & set(_NACHGEREICHTE_SPALTEN.get(_tabelle, {}))
+    if _doppelt:
+        raise RuntimeError(
+            f"{_tabelle}: {sorted(_doppelt)} steht in _NACHGEREICHTE_SPALTEN "
+            "und in _ENTFALLENE_SPALTEN"
+        )
+
 _NACHGEREICHTE_INDIZES: tuple[str, ...] = (
     # Trägt die Idempotenz des Garmin-Imports. Der Teilindex (WHERE ... NOT
     # NULL) hält ihn klein und macht die Absicht deutlich — SQLite behandelt
@@ -120,11 +158,37 @@ def _ergaenze_spalten(connection: Connection) -> list[str]:
     return ergaenzt
 
 
+def _entferne_spalten(connection: Connection) -> list[str]:
+    """Löscht entfallene Spalten. Idempotent — läuft bei jedem Start mit.
+
+    Gibt die tatsächlich entfernten Spalten zurück (für Protokoll und Test).
+    """
+    if not _KANN_SPALTEN_LOESCHEN:
+        return []
+
+    entfernt: list[str] = []
+    for tabelle, spalten in _ENTFALLENE_SPALTEN.items():
+        vorhanden = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                f"PRAGMA table_info({tabelle})"
+            ).fetchall()
+        }
+        for name in spalten:
+            if name in vorhanden:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {tabelle} DROP COLUMN {name}"
+                )
+                entfernt.append(f"{tabelle}.{name}")
+    return entfernt
+
+
 def init_db() -> None:
     from . import models  # noqa: F401  -- Modelle registrieren
 
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
         _ergaenze_spalten(connection)
+        _entferne_spalten(connection)
         for ddl in _NACHGEREICHTE_INDIZES:
             connection.exec_driver_sql(ddl)

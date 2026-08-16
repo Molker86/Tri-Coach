@@ -80,11 +80,8 @@ export default function History() {
             <option value={12}>Letzte 12 Wochen</option>
             <option value={52}>Letztes Jahr</option>
           </select>
-          <Link className="btn btn-secondary" to="/training-nachtragen">
-            Nachtragen
-          </Link>
-          <Link className="btn btn-primary" to="/training-erfassen">
-            Training erfassen
+          <Link className="btn btn-primary" to="/garmin">
+            Mit Garmin abgleichen
           </Link>
         </div>
       </div>
@@ -92,17 +89,15 @@ export default function History() {
       {ansicht === 'fitness' ? (
         <FitnessTabelle tage={wellness} />
       ) : logs.length === 0 ? (
-        <EmptyState icon="📝" title="Noch keine Trainings erfasst">
+        <EmptyState icon="⌚" title="Noch keine Trainings">
           <p>
-            Nach der ersten Einheit siehst du hier deinen Verlauf. Bereits absolvierte
-            Trainings kannst du nachtragen — sie zählen in den letzten vier Wochen mit.
+            Deine absolvierten Einheiten kommen aus Garmin Connect. Verbinde dein Konto
+            und gleiche ab — danach steht hier dein Verlauf, und die letzten vier Wochen
+            steuern deinen nächsten Plan.
           </p>
           <div className="row row-center">
-            <Link className="btn btn-secondary" to="/training-nachtragen">
-              Training nachtragen
-            </Link>
-            <Link className="btn btn-primary" to="/training-erfassen">
-              Erstes Training erfassen
+            <Link className="btn btn-primary" to="/garmin">
+              Garmin verbinden
             </Link>
           </div>
         </EmptyState>
@@ -228,13 +223,9 @@ export default function History() {
                   }
                   unit="/ 10"
                 />
-                <DetailRow label="Befinden" value={selected.feeling} unit="/ 5" />
-                <DetailRow label="Muskelkater" value={selected.soreness} unit="/ 5" />
-                <DetailRow label="Schlaf" value={selected.sleep_hours} unit="h" />
-                <DetailRow label="Schlafqualität" value={selected.sleep_quality} unit="/ 5" />
-                <DetailRow label="Morgenpuls" value={selected.morning_hr} unit="bpm" />
-                <DetailRow label="Morgen-HRV" value={selected.morning_hrv} unit="ms" />
-                <DetailRow label="Bedingungen" value={selected.conditions} />
+                {/* Befinden, Schlaf und Morgenpuls stehen nicht mehr an der
+                    Einheit: Sie kamen aus dem Erfassungsformular. Gemessen und
+                    je Tag stehen sie in der Fitnessdaten-Ansicht. */}
                 <DetailRow label="Notizen" value={selected.notes} />
               </tbody>
             </table>

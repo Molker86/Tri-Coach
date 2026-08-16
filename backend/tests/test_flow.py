@@ -308,47 +308,43 @@ def test_import_accepts_old_week_format(client, auth):
     assert {s["week_number"] for s in plan["sessions"]} == {1, 2}
 
 
-def test_log_session_and_stats(client, auth):
+def test_trainings_lassen_sich_nicht_von_hand_eintragen(client, auth):
+    """Die einzige Quelle für absolvierte Trainings ist Garmin.
+
+    Ein Formular gäbe es zwei — und jede Einheit zählte in Umsetzungsquote,
+    sRPE-Last und Belastungsverhältnis doppelt, sobald sie auch aus der Uhr
+    käme. Anlegen und Bearbeiten sind deshalb weg, Lesen und Löschen bleiben.
+    """
+    heute = date.today().isoformat()
+    angelegt = client.post(
+        "/api/logs", headers=auth, json={"date": heute, "sport": "run"}
+    )
+    assert angelegt.status_code == 405
+
+    assert client.get("/api/logs", headers=auth).status_code == 200
+
+
+def test_log_session_and_stats(client, auth, erfasse):
     plan = client.get("/api/plans/active", headers=auth).json()
     target = next(s for s in plan["sessions"] if s["sport"] == "run")
 
-    response = client.post(
-        "/api/logs",
-        headers=auth,
-        json={
-            "plan_session_id": target["id"],
-            "date": date.today().isoformat(),
-            "sport": "Laufen",
-            "status": "completed",
-            "duration_min": 62,
-            "distance_km": 11.4,
-            "avg_hr": 152,
-            "max_hr": 178,
-            "avg_pace": "5:26",
-            "rpe": 6,
-            "feeling": 4,
-            "sleep_hours": 7.5,
-            "morning_hr": 49,
-            "morning_hrv": 65,
-            "notes": "Lief rund.",
-        },
+    erfasse(
+        auth,
+        plan_session_id=target["id"],
+        date=date.today(),
+        sport="run",
+        duration_min=62,
+        distance_km=11.4,
+        avg_hr=152,
+        max_hr=178,
+        avg_pace="5:26",
+        rpe=6,
+        notes="Lief rund.",
     )
-    assert response.status_code == 201, response.text
-    log = response.json()
-    assert log["sport"] == "run"  # normalisiert
-    assert log["trimp"] is not None and log["trimp"] > 0
 
-    # Dieselbe Planeinheit darf nicht doppelt erfasst werden
-    duplicate = client.post(
-        "/api/logs",
-        headers=auth,
-        json={
-            "plan_session_id": target["id"],
-            "date": date.today().isoformat(),
-            "sport": "run",
-        },
-    )
-    assert duplicate.status_code == 409
+    logs = client.get("/api/logs", headers=auth).json()
+    assert len(logs) == 1
+    assert logs[0]["trimp"] is not None and logs[0]["trimp"] > 0
 
     stats = client.get("/api/logs/stats", headers=auth).json()
     assert stats["total_sessions"] == 1
@@ -383,7 +379,7 @@ def test_export_includes_history_after_logging(client, auth):
     assert weekly[-1]["total_minutes"] == 62  # laufende Woche
 
 
-def test_compliance_for_running_plan(client, auth):
+def test_compliance_for_running_plan(client, auth, erfasse):
     """Plan, der vor zwei Wochen begonnen hat: Umsetzungsquote muss zählen."""
     start = date.today() - timedelta(days=14)
     response = client.post(
@@ -392,26 +388,22 @@ def test_compliance_for_running_plan(client, auth):
     assert response.status_code == 201, response.text
     plan = response.json()["plan"]
 
-    # Zwei bereits fällige Einheiten erfassen (Ruhetage zählen nicht mit)
+    # Zwei bereits fällige Einheiten sind absolviert (Ruhetage zählen nicht mit)
     due = [
         s for s in plan["sessions"]
         if date.fromisoformat(s["date"]) <= date.today() and s["sport"] != "rest"
     ]
     assert len(due) >= 2
     for session in due[:2]:
-        created = client.post(
-            "/api/logs",
-            headers=auth,
-            json={
-                "plan_session_id": session["id"],
-                "date": session["date"],
-                "sport": session["sport"],
-                "duration_min": session["duration_min"] or 45,
-                "avg_hr": 148,
-                "rpe": 5,
-            },
+        erfasse(
+            auth,
+            plan_session_id=session["id"],
+            date=date.fromisoformat(session["date"]),
+            sport=session["sport"],
+            duration_min=session["duration_min"] or 45,
+            avg_hr=148,
+            rpe=5,
         )
-        assert created.status_code == 201, created.text
 
     stats = client.get("/api/logs/stats", headers=auth).json()
     assert stats["compliance"]["planned_past"] == len(due)
@@ -419,28 +411,25 @@ def test_compliance_for_running_plan(client, auth):
     assert stats["compliance"]["rate_pct"] == round(100 * 2 / len(due))
 
 
-def test_backfilled_session_counts_in_four_week_window(client, auth):
-    """Nachgetragenes Training ohne Planbezug muss die Auswertung mitsteuern."""
+def test_session_ohne_planbezug_zaehlt_im_vierwochenfenster(client, auth, erfasse):
+    """Eine Einheit ohne Planbezug muss die Auswertung mitsteuern.
+
+    Der Abgleich holt auch Tage, für die nie etwas geplant war — ein spontanes
+    Schwimmen zählt in Umfang, Abständen und Export genauso mit.
+    """
     before = client.get("/api/logs/stats", headers=auth).json()
 
     day = date.today() - timedelta(days=10)
-    created = client.post(
-        "/api/logs",
-        headers=auth,
-        json={
-            "date": day.isoformat(),
-            "sport": "Schwimmen",  # frei wählbar, unabhängig vom Plan
-            "status": "completed",
-            "duration_min": 50,
-            "distance_km": 2.0,
-            "avg_hr": 141,
-            "rpe": 8,
-            "notes": "Nachgetragen.",
-        },
+    erfasse(
+        auth,
+        date=day,
+        sport="swim",
+        duration_min=50,
+        distance_km=2.0,
+        avg_hr=141,
+        rpe=8,
+        notes="Aus Garmin.",
     )
-    assert created.status_code == 201, created.text
-    assert created.json()["plan_session_id"] is None
-    assert created.json()["sport"] == "swim"
 
     after = client.get("/api/logs/stats", headers=auth).json()
     assert after["total_sessions"] == before["total_sessions"] + 1
@@ -457,21 +446,12 @@ def test_backfilled_session_counts_in_four_week_window(client, auth):
     history = client.get("/api/plans/export", headers=auth).json()["payload"][
         "trainingshistorie"
     ]
-    assert any(e["notiz"] == "Nachgetragen." for e in history["einheiten"])
+    assert any(e["notiz"] == "Aus Garmin." for e in history["einheiten"])
     assert history["tage_seit_letzter_einheit_je_sportart"]["swim"] == 10
     assert history["tage_seit_letzter_intensiver_einheit"] == 10  # RPE 8
 
     # Älter als vier Wochen: bleibt im Verlauf, zählt aber nicht mehr mit
-    old = client.post(
-        "/api/logs",
-        headers=auth,
-        json={
-            "date": (date.today() - timedelta(days=40)).isoformat(),
-            "sport": "run",
-            "duration_min": 70,
-        },
-    )
-    assert old.status_code == 201, old.text
+    erfasse(auth, date=date.today() - timedelta(days=40), sport="run", duration_min=70)
     assert client.get("/api/logs/stats", headers=auth).json()["total_minutes"] == (
         after["total_minutes"]
     )

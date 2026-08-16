@@ -49,6 +49,33 @@ def registriere(client):
 
 
 @pytest.fixture(scope="module")
+def erfasse(client):
+    """Legt ein absolviertes Training an — direkt in der Datenbank.
+
+    Es gibt keinen Weg mehr, ein Training über die API einzutragen: Einheiten
+    entstehen ausschließlich im Garmin-Abgleich (`garmin/sync.py`). Wer nur
+    Auswertung, Export oder Umsetzungsquote prüfen will, braucht dafür aber
+    keinen kompletten Abgleich samt Nachbildung — deshalb dieser kurze Weg.
+    Was er schreibt, entspricht dem, was der Abgleich schriebe.
+    """
+    from app.database import SessionLocal
+    from app.models import SessionLog
+
+    def _erfasse(headers: dict[str, str], **felder) -> int:
+        user = client.get("/api/auth/me", headers=headers).json()
+        felder.setdefault("source", "garmin")
+        felder.setdefault("status", "completed")
+        felder.setdefault("rpe_source", "hf_zonen")
+        with SessionLocal() as db:
+            log = SessionLog(user_id=user["id"], **felder)
+            db.add(log)
+            db.commit()
+            return log.id
+
+    return _erfasse
+
+
+@pytest.fixture(scope="module")
 def auth(registriere):
     """Der Athlet des Ablauftests.
 

@@ -154,6 +154,13 @@ export interface PlanImportResult {
   garmin_hinweis: string | null
 }
 
+export interface PlanDeleteResult {
+  /** Wie viele Einheiten des Plans dabei aus dem Garmin-Kalender gingen. */
+  garmin_entfernt: number
+  /** Einheiten, die Garmin nicht hergab — der Plan ist trotzdem weg. */
+  garmin_fehler: string[]
+}
+
 export interface SessionLog {
   id: number
   created_at: string
@@ -172,19 +179,13 @@ export interface SessionLog {
   elevation_gain_m: number | null
   calories: number | null
 
+  /** Immer geschätzt — Garmin liefert kein RPE. Woraus, sagt `rpe_source`. */
   rpe: number | null
-  feeling: number | null
-  soreness: number | null
-  sleep_hours: number | null
-  sleep_quality: number | null
-  morning_hr: number | null
-  morning_hrv: number | null
-
-  conditions: string | null
   notes: string | null
   trimp: number | null
 
-  /** Herkunft des Eintrags. Garmin-Einträge werden in der Oberfläche markiert. */
+  /** Herkunft des Eintrags. `manual` tragen nur noch Einträge aus der Zeit, als
+   *  es ein Erfassungsformular gab — neue Einheiten kommen alle aus Garmin. */
   source: 'manual' | 'garmin'
   garmin_activity_id: string | null
   garmin_activity_type: string | null
@@ -194,19 +195,6 @@ export interface SessionLog {
   /** Woher `rpe` stammt — bei Garmin-Einheiten ist es geschätzt. */
   rpe_source: 'manual' | 'hf_zonen' | 'trainingseffekt' | 'hf_schnitt'
 }
-
-/** Was ein Formular schicken darf.
- *
- * Die Garmin-Felder fehlen bewusst: Das Backend nimmt sie beim Speichern nicht
- * entgegen (`SessionLogIn`), damit ein Bearbeiten die Herkunft nicht löscht.
- */
-export type SessionLogInput = Omit<
-  SessionLog,
-  | 'id' | 'created_at' | 'trimp'
-  | 'source' | 'garmin_activity_id' | 'garmin_activity_type'
-  | 'garmin_training_load' | 'garmin_aerobic_te' | 'garmin_anaerobic_te'
-  | 'rpe_source'
->
 
 export interface WeeklyBucket {
   week_start: string

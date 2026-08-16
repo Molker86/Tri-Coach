@@ -107,7 +107,7 @@ def _als_datum(zeitpunkt: datetime) -> date:
 def starte_uebertragung_fuer_neuen_plan(
     db: Session, user_id: int, plan: Plan
 ) -> tuple[int | None, str | None]:
-    """Schiebt einen gerade übernommenen Block nach Garmin.
+    """Schiebt einen gerade übernommenen Block nach Garmin — und räumt den alten weg.
 
     Der Knopf im Trainingsplan bleibt, aber er soll die Ausnahme sein: Ein Block
     reicht nur wenige Tage weit, und einer, der erst nach einem zusätzlichen
@@ -116,6 +116,15 @@ def starte_uebertragung_fuer_neuen_plan(
     Der Lauf räumt dabei selbst auf — der abgelöste Block verlässt den Kalender,
     bevor der neue hineingeht (`runner._raeume_ersetzte_vorab`). Deshalb genügt
     hier ein einziger Anstoß für beides.
+
+    **Aufgeräumt wird auch dann, wenn nichts hinausgeht** (`aktion="cleanup"`).
+    Wer die automatische Übertragung abgeschaltet hat oder einen Block aus lauter
+    Ruhetagen übernimmt, hätte sonst den *alten* Block allein im Kalender stehen
+    — die überholte Vorgabe ohne die neue daneben, also genau der irreführende
+    Zustand, den das Aufräumen verhindern soll. Dass der neue Block nicht von
+    selbst auf die Uhr geht, ist eine Entscheidung über das Hinlegen; das
+    Wegräumen dessen, was diese App selbst einmal hingelegt hat, hängt nicht
+    daran.
 
     **Kein `runner.laeuft_gerade()`-Riegel wie beim Knopf.** Ein Nutzer, der
     selbst drückt, kann warten und es gleich nochmal versuchen; ein Import, der
@@ -127,28 +136,41 @@ def starte_uebertragung_fuer_neuen_plan(
     nichts losging.
     """
     konto = db.scalar(select(GarminAccount).where(GarminAccount.user_id == user_id))
-    if konto is None or not konto.auto_push_enabled:
+    if konto is None:
         return None, None
-
-    if konto.status == "token_expired":
-        return None, (
-            konto.status_message
-            or "Die Anmeldung bei Garmin ist abgelaufen — der Block wurde nicht "
-            "auf die Uhr übertragen. Bitte verbinde dein Konto erneut."
-        )
-
-    if liegt_in_der_zukunft(konto.rate_limited_until):
-        return None, (
-            "Garmin hat die Verbindung vorerst gesperrt — der Block wurde noch "
-            "nicht auf die Uhr übertragen. Du kannst es später von Hand anstoßen."
-        )
 
     # Ein Block, der nur aus Ruhetagen oder vergangenen Tagen besteht, hat
     # nichts zu übertragen. Ohne diese Prüfung liefe ein Job an, der sofort mit
     # „Es gab keine Einheit zu übertragen" endet.
-    if not uebertragung.planbare_einheiten(plan, date.today()):
+    uebertragen = bool(konto.auto_push_enabled) and bool(
+        uebertragung.planbare_einheiten(plan, date.today())
+    )
+    # Kostet keine Anfrage an Garmin: Die Frage beantwortet die eigene
+    # Zuordnungstabelle. Erst damit lässt sich der Lauf auf die Fälle
+    # beschränken, in denen er etwas bewirkt.
+    aufzuraeumen = bool(
+        uebertragung.ersetzte_links(db, user_id, ausser_plan_id=plan.id)
+    )
+    if not uebertragen and not aufzuraeumen:
         return None, None
 
+    was = "der Block wurde nicht auf die Uhr übertragen" if uebertragen else (
+        "der abgelöste Block steht noch im Kalender"
+    )
+
+    if konto.status == "token_expired":
+        return None, (
+            konto.status_message
+            or f"Die Anmeldung bei Garmin ist abgelaufen — {was}. "
+            "Bitte verbinde dein Konto erneut."
+        )
+
+    if liegt_in_der_zukunft(konto.rate_limited_until):
+        return None, (
+            f"Garmin hat die Verbindung vorerst gesperrt — {was}. "
+            "Du kannst es später von Hand anstoßen."
+        )
+
     return runner.starte_uebertragung(
-        user_id, plan.id, "push", ab=date.today()
+        user_id, plan.id, "push" if uebertragen else "cleanup", ab=date.today()
     ), None

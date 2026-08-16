@@ -53,18 +53,25 @@ def schritte(workout, segment=0):
 # --------------------------------------------------------------------------
 
 
-def test_intervalltext_wird_zu_wiederholungsgruppe():
+def test_intervalltext_wird_runde_fuer_runde_ausgeschrieben():
+    """Fünf Wiederholungen sind zehn Abschnitte auf der Uhr, nicht ein Block.
+
+    Garmin könnte das zusammenfassen (`RepeatGroupDTO`), und die Uhr arbeitete
+    es auch fünfmal ab — sichtbar wäre in der Liste aber nur eine Zeile. Wer
+    vor dem Start durchsieht, was ansteht, soll jede Runde einzeln finden.
+    """
     plan = workouts.baue_workout(
         einheit(structure="15 min Einlaufen Z1-Z2, 5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen"),
         zonen=ZONEN,
     )
     folge = schritte(plan)
 
-    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
-    gruppe = folge[1]
-    assert gruppe["numberOfIterations"] == 5
-    belastung, pause = gruppe["workoutSteps"]
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == (
+        ["warmup"] + ["interval", "recovery"] * 5 + ["cooldown"]
+    )
+    assert all(s["type"] == "ExecutableStepDTO" for s in folge)
 
+    belastung, pause = folge[1], folge[2]
     assert belastung["endConditionValue"] == 180.0
     assert belastung["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
     assert (belastung["targetValueOne"], belastung["targetValueTwo"]) == (155.0, 170.0)
@@ -74,9 +81,14 @@ def test_intervalltext_wird_zu_wiederholungsgruppe():
     assert pause["stepType"]["stepTypeKey"] == "recovery"
     assert pause["targetType"]["workoutTargetTypeKey"] == "no.target"
 
-    # Die Schrittnummern laufen über die Verschachtelung hinweg durch.
-    assert [s["stepOrder"] for s in folge] == [1, 2, 5]
-    assert [s["stepOrder"] for s in gruppe["workoutSteps"]] == [3, 4]
+    # Jede Runde trägt ihre Nummer, sonst stünden fünfmal dieselben zwei Zeilen
+    # da und niemand wüsste, wo im Block er gerade ist.
+    assert belastung["description"].endswith("(1/5)")
+    assert folge[9]["description"].endswith("(5/5)")
+
+    # Die Schrittnummern laufen ohne Verschachtelung durch.
+    assert [s["stepOrder"] for s in folge] == list(range(1, 13))
+    assert all(s["childStepId"] is None for s in folge)
 
 
 def test_streckenintervalle_enden_nach_distanz():
@@ -84,11 +96,13 @@ def test_streckenintervalle_enden_nach_distanz():
         einheit(structure="20 min einlaufen, 6x800m (3:45/km) mit 400m Trabpause, 15 min auslaufen"),
         zonen=ZONEN,
     )
-    belastung = schritte(plan)[1]["workoutSteps"][0]
+    belastung = schritte(plan)[1]
     assert belastung["endCondition"]["conditionTypeKey"] == "distance"
     assert belastung["endConditionValue"] == 800.0
     # Die Tempoangabe in der Klammer darf nicht als Dauer von 3:45 durchgehen.
     assert belastung["endConditionValue"] != 225.0
+    # Sechs Belastungen und sechs Trabpausen, jede als eigener Abschnitt.
+    assert sum(1 for s in schritte(plan) if s["endConditionValue"] == 800.0) == 6
 
 
 def test_unverstandener_text_wird_ein_einziger_schritt():
@@ -308,6 +322,75 @@ def test_laufpace_wird_zu_geschwindigkeit_in_meter_pro_sekunde():
     assert 3.6 < schritt["targetValueOne"] < schritt["targetValueTwo"] < 3.8
 
 
+def test_mehrere_einfache_bloecke_werden_zu_einzelnen_schritten():
+    """Mehrere einfache Wiederholungen ohne innere Struktur (z.B. „3x 3 min Z4" zweimal)
+    sollten als einzelne Schritte dargestellt werden, nicht als Wiederholungsgruppen.
+    Garmin zeigt Wiederholungsgruppen nicht ideal an — als einzelne Schritte ist
+    es auf der Uhr klarer: sechs Schritte statt zwei Gruppen."""
+    plan = workouts.baue_workout(
+        einheit(
+            structure="10 min Einlaufen Z2, 3x 3 min Z4, 3x 2 min Z4, 10 min Auslaufen"
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    # Struktur: Einlaufen, 3 Schritte (3 min Z4), 3 Schritte (2 min Z4), Auslaufen
+    # = 8 einzelne Schritte insgesamt
+    assert len(folge) == 8
+    assert folge[0]["stepType"]["stepTypeKey"] == "warmup"
+    assert folge[-1]["stepType"]["stepTypeKey"] == "cooldown"
+    # Die sechs Intervalle sollten einzelne Schritte sein, nicht Wiederholungsgruppen.
+    intervalle = [s for s in folge[1:-1] if s["stepType"]["stepTypeKey"] == "interval"]
+    assert len(intervalle) == 6
+    # Alle Intervalle sind flache Schritte, nicht verschachtelte Wiederholungsgruppen.
+    assert all(s["type"] == "ExecutableStepDTO" for s in intervalle)
+    # Die ersten drei sind 3 min (180s), die nächsten drei sind 2 min (120s).
+    assert intervalle[0]["endConditionValue"] == 180.0  # 3 min
+    assert intervalle[1]["endConditionValue"] == 180.0  # 3 min
+    assert intervalle[2]["endConditionValue"] == 180.0  # 3 min
+    assert intervalle[3]["endConditionValue"] == 120.0  # 2 min
+    assert intervalle[4]["endConditionValue"] == 120.0  # 2 min
+    assert intervalle[5]["endConditionValue"] == 120.0  # 2 min
+
+
+def test_block_mit_innerer_struktur_wird_ebenfalls_ausgeschrieben():
+    """„4 × (3 min hart / 2 min locker)" sind acht Abschnitte in Laufreihenfolge."""
+    plan = workouts.baue_workout(
+        einheit(structure="15 min Einlaufen Z1-Z2, 4x (3 min Z4 mit 2 min Z2), 10 min Auslaufen"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == (
+        ["warmup"] + ["interval", "recovery"] * 4 + ["cooldown"]
+    )
+    # Belastung und Pause wechseln sich ab, jede Runde mit ihrer eigenen Dauer.
+    assert [s["endConditionValue"] for s in folge[1:-1]] == [180.0, 120.0] * 4
+    assert [s["description"][-5:] for s in folge[1:-1]] == [
+        "(1/4)", "(1/4)", "(2/4)", "(2/4)", "(3/4)", "(3/4)", "(4/4)", "(4/4)"
+    ]
+
+
+def test_sehr_lange_serie_bleibt_zusammengefasst():
+    """Ausgeschrieben wäre die Liste länger, als ein Gerät sicher trägt.
+
+    Wie viele Schritte Garmin annimmt, ist nirgends zugesagt. Über der Grenze
+    ist die zusammengefasste Gruppe das kleinere Übel: schlechter zu lesen,
+    aber sie kommt an.
+    """
+    plan = workouts.baue_workout(
+        einheit(structure="15 min einlaufen, 30x400m mit 200m Trabpause, 10 min auslaufen"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
+    assert folge[1]["numberOfIterations"] == 30
+    # Und die Verschachtelung ist dann wieder vollständig aufgebaut.
+    assert [s["stepOrder"] for s in folge] == [1, 2, 5]
+    assert [s["stepOrder"] for s in folge[1]["workoutSteps"]] == [3, 4]
+
+
 def test_schwimmeinheit_bekommt_bahnlaenge_und_zugart():
     plan = workouts.baue_workout(
         einheit(sport="swim", structure="400m Einschwimmen, 8x100m Kraul P30s, 200m Ausschwimmen"),
@@ -339,6 +422,27 @@ def test_koppeleinheit_ohne_erkennbare_teilung_weist_die_schaetzung_aus():
 def test_ruhetag_laesst_sich_nicht_bauen():
     with pytest.raises(ValueError):
         workouts.baue_workout(einheit(sport="rest"), zonen=ZONEN)
+
+
+def test_name_traegt_kein_datum():
+    """Den Tag trägt der Kalendereintrag, an dem die Einheit hängt.
+
+    Das Datum stand einmal voran, um die Workout-Bibliothek sortierbar zu
+    halten. Ziel ist aber der Kalender, und dort steht der Tag schon in der
+    Spalte — „16.08. Lockerer Dauerlauf“ am 16.08. las sich wie ein Fehler.
+    """
+    plan = workouts.baue_workout(einheit(title="Lockerer Dauerlauf"), zonen=ZONEN)
+    assert plan["workoutName"] == "Lockerer Dauerlauf"
+
+
+def test_name_faellt_nie_leer_aus():
+    """Garmin lehnt ein Workout ohne Namen ab.
+
+    Bis zum Wegfall des Datums war der Name zwangsläufig nicht leer; ohne den
+    Rückfall hinge das jetzt am Titel aus der KI-Antwort.
+    """
+    plan = workouts.baue_workout(einheit(title="   "), zonen=ZONEN)
+    assert plan["workoutName"] == "Training"
 
 
 def test_gleicher_inhalt_gleicher_fingerabdruck():
@@ -416,6 +520,29 @@ def _uebertrage(client, auth):
     assert antwort.status_code == 202, antwort.text
     job_id = antwort.json()["id"]
     return client.get(f"/api/garmin/jobs/{job_id}", headers=auth).json()
+
+
+def _entsperre(client, auth) -> None:
+    """Hebt die nach einem 429 gesetzte Anfragesperre wieder auf.
+
+    Sie gilt eine Stunde und blockierte sonst jeden folgenden Lauf im selben
+    Test — gewollt im Betrieb, im Test nur die Uhr, auf die niemand warten will.
+    """
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import GarminAccount, User
+
+    email = client.get("/api/auth/me", headers=auth).json()["email"]
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == email))
+        konto = db.scalar(
+            select(GarminAccount).where(GarminAccount.user_id == user.id)
+        )
+        konto.rate_limited_until = None
+        konto.status = "connected"
+        konto.status_message = None
+        db.commit()
 
 
 def test_uebertragung_legt_workouts_an_und_terminiert_sie(client, verbunden, fake):
@@ -597,6 +724,40 @@ def test_uebertragen_raeumt_den_vorigen_block_auf(client, verbunden, fake):
     assert len(fake._workouts) == 1
 
 
+def test_neuplanung_raeumt_den_kalender_auch_ohne_uebertragung(
+    client, verbunden, fake
+):
+    """Wer die Automatik abgeschaltet hat, behält trotzdem keinen alten Block.
+
+    Ohne diesen Lauf stünde nach dem Neuplanen der *überholte* Block allein im
+    Kalender — die neue Vorgabe geht nicht hin, die alte bleibt liegen und gilt
+    auf der Uhr weiter. Dass ein Block nicht von selbst auf die Uhr geht, ist
+    eine Entscheidung über das Hinlegen; das Wegräumen dessen, was diese App
+    selbst einmal hingelegt hat, hängt nicht daran.
+    """
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    assert len(fake._workouts) == 2
+
+    antwort = _importiere(client, verbunden)  # autopush aus
+    neu = antwort["plan"]
+
+    fertig = _job(client, verbunden, antwort["garmin_job_id"])
+    assert fertig["kind"] == "workout_cleanup"
+    assert fertig["state"] == "done", fertig["message"]
+    assert fertig["workouts_pushed"] == 0, "es sollte nichts hineingehen"
+    assert fertig["workouts_removed"] == 2
+    assert "abgelösten Block" in fertig["message"]
+
+    # Der Kalender ist leer, nicht doppelt belegt — und der leere Vorgänger
+    # fällt weg, sobald nichts mehr von ihm in Garmin steht.
+    assert fake._workouts == {}
+    assert fake._termine == {}
+    assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
+        neu["id"]
+    ]
+
+
 def test_abgeloester_block_verschwindet_erst_nach_dem_aufraeumen(
     client, verbunden, fake
 ):
@@ -604,14 +765,32 @@ def test_abgeloester_block_verschwindet_erst_nach_dem_aufraeumen(
 
     Mit dem Plan verschwände die Zuordnung — und ohne sie fasst die App in
     Garmin nichts mehr an. Ein sofort gelöschter Block ließe seine Einheiten
-    also für immer im fremden Kalender stehen, neben denen des neuen.
+    also für immer im fremden Kalender stehen, neben denen des neuen. Deshalb
+    hier der Fall, in dem das Aufräumen scheitert: Der Block muss stehen
+    bleiben, damit ein späterer Lauf ihn noch erreicht.
     """
-    _importiere_plan(client, verbunden)
+    alt = _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
-    neu = _importiere_plan(client, verbunden)
-    assert len(client.get("/api/plans", headers=verbunden).json()) == 2
+    fake.unschedule_workout = _wirft_429
+    antwort = _importiere(client, verbunden)
+    neu = antwort["plan"]
 
+    # Der Aufräumlauf hat sein einziges Ziel verfehlt und sagt das auch — als
+    # „done" durchgewunken stünde eine Erfolgsmeldung über einem vollen Kalender.
+    fertig = _job(client, verbunden, antwort["garmin_job_id"])
+    assert fertig["state"] == "failed"
+    assert "steht dort weiter" in fertig["message"]
+
+    # Nichts ging weg, also bleiben beide Pläne — samt ihrer Zuordnungen.
+    assert len(fake._workouts) == 2
+    assert {p["id"] for p in client.get("/api/plans", headers=verbunden).json()} == {
+        alt["id"],
+        neu["id"],
+    }
+
+    del fake.unschedule_workout
+    _entsperre(client, verbunden)
     fertig = _uebertrage(client, verbunden)
     assert fertig["state"] == "done", fertig["message"]
 
@@ -640,6 +819,58 @@ def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
 
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     assert zustand["offen"] == 2
+
+
+def test_plan_loeschen_nimmt_seine_einheiten_aus_garmin(client, verbunden, fake):
+    """Ein gelöschter Plan darf nichts auf der Uhr zurücklassen.
+
+    Vorher verschwand nur die Zuordnung — und damit der einzige Weg, die
+    Einheiten je wieder zu entfernen. Im Kalender stand dann eine Vorgabe, die
+    es in der App gar nicht mehr gibt.
+    """
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    assert len(fake._workouts) == 2
+
+    antwort = client.delete(f"/api/plans/{plan['id']}", headers=verbunden)
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json() == {"garmin_entfernt": 2, "garmin_fehler": []}
+
+    assert fake._workouts == {}
+    assert fake._termine == {}
+    assert client.get("/api/plans", headers=verbunden).json() == []
+
+
+def test_plan_loeschen_wartet_auf_garmin_statt_karteileichen_zu_hinterlassen(
+    client, verbunden, fake
+):
+    """Scheitert der Zugang, bleibt der Plan stehen — sonst wäre er unerreichbar.
+
+    Ein Plan ist schnell noch einmal gelöscht; ein Workout in einem fremden
+    Kalender, zu dem keine Zuordnung mehr führt, nie mehr. Wer trotzdem
+    darauf besteht, sagt es ausdrücklich.
+    """
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    fake.unschedule_workout = _wirft_429
+
+    antwort = client.delete(f"/api/plans/{plan['id']}", headers=verbunden)
+    assert antwort.status_code == 429, antwort.text
+    assert "nicht gelöscht" in antwort.json()["detail"]
+    assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
+        plan["id"]
+    ]
+    assert len(fake._workouts) == 2
+
+    # Der ausdrückliche Weg daran vorbei — die Einheiten bleiben dann in Garmin
+    # stehen und lassen sich nur noch im Kalender der App entfernen.
+    antwort = client.delete(
+        f"/api/plans/{plan['id']}?garmin_uebergehen=true", headers=verbunden
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["garmin_entfernt"] == 0
+    assert client.get("/api/plans", headers=verbunden).json() == []
+    assert len(fake._workouts) == 2
 
 
 def test_einzelne_einheit_geht_ohne_job(client, verbunden, fake):
@@ -1117,15 +1348,28 @@ def test_gesperrte_verbindung_erklaert_den_leeren_kalender(client, verbunden, fa
     assert "gesperrt" in antwort["garmin_hinweis"]
 
 
-def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(client, verbunden, fake):
+def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(
+    client, verbunden, fake, erfasse
+):
     """Ein stillgelegter Plan lässt sich gezielt übertragen — und überlebt es.
 
     Ohne die Ausnahme in `raeume_ersetzte_auf` löschte derselbe Lauf am Ende
     wieder, was er gerade hochgeladen hat: Der Block ist ja nicht mehr aktiv.
+
+    Das erfasste Training hält den alten Block am Leben: Ohne eine absolvierte
+    Einheit räumt ihn die Neuplanung weg, sobald nichts mehr von ihm in Garmin
+    steht — dann gäbe es nichts mehr, was sich von Hand übertragen ließe.
     """
     alt = _importiere_plan(client, verbunden)
+    erfasse(
+        verbunden,
+        plan_session_id=alt["sessions"][0]["id"],
+        date=date.fromisoformat(alt["sessions"][0]["date"]),
+        sport=alt["sessions"][0]["sport"],
+        duration_min=60,
+    )
     _uebertrage(client, verbunden)
-    _importiere_plan(client, verbunden)  # legt ihn still
+    _importiere_plan(client, verbunden)  # legt ihn still und räumt ihn aus Garmin
 
     antwort = client.post(
         "/api/garmin/workouts/uebertragen",

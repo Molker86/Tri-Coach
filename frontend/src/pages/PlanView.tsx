@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, jobLaeuft, pollJob } from '../api/client'
+import { ApiError, api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
 import { INTENSITY_ZONE_COLOR, sessionTypeLabel, sportIcon, sportLabel } from '../constants'
 import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
@@ -9,11 +9,17 @@ import type {
   GarminPlanUebertragung,
   GarminUebertragungsZustand,
   Plan,
+  PlanDeleteResult,
   PlanSession,
   PlanSummary,
 } from '../types'
 
 const DAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: 'long' }
+
+// Antwortcodes, mit denen das Löschen daran scheitert, dass Garmin nicht
+// mitspielt (abgelaufene Anmeldung, Anfragesperre, sonstiger Fehlschlag). Nur
+// dabei lohnt die Rückfrage, ob trotzdem gelöscht werden soll.
+const GARMIN_HAKT = [409, 429, 502]
 
 function isToday(iso: string): boolean {
   return iso === heuteIso()
@@ -38,6 +44,10 @@ export default function PlanView() {
   const [garmin, setGarmin] = useState<GarminPlanUebertragung | null>(null)
   const [garminJob, setGarminJob] = useState<GarminJob | null>(null)
   const [garminBusy, setGarminBusy] = useState(false)
+  // Welcher Plan gerade gelöscht wird. Das dauert, sobald Einheiten in Garmin
+  // stehen: Jede kostet zwei Anfragen, und ohne sichtbaren Zustand wirkte der
+  // Knopf sekundenlang, als hätte ihn niemand gedrückt.
+  const [loeschen, setLoeschen] = useState<number | null>(null)
   const abbrechenRef = useRef<(() => void) | null>(null)
   // Warum der Block *nicht* automatisch nach Garmin ging. Der Satz entsteht
   // beim Übernehmen und reist über den Router-Zustand hierher.
@@ -122,12 +132,11 @@ export default function PlanView() {
    * erreicht — sie wird erst ab dem zweiten angezeigt.
    */
   function loeschePlan(id: number, titel: string) {
-    // Was in Garmin steht, bleibt dort: Mit dem Plan verschwindet nur die
-    // Zuordnung, und ohne sie fasst die App in Garmin nichts mehr an.
+    // Bereits übertragene Einheiten nimmt der Server aus Garmin, bevor er den
+    // Plan löscht — danach käme er nicht mehr an sie heran.
     const inGarmin = id === plan?.id ? (garmin?.aktuell ?? 0) + (garmin?.geaendert ?? 0) : 0
     const hinweis = inGarmin
-      ? `\n\nBereits übertragene Einheiten bleiben im Garmin-Kalender stehen — ` +
-        `dort lassen sie sich vorher entfernen.`
+      ? `\n\nDie übertragenen Einheiten werden dabei aus dem Garmin-Kalender genommen.`
       : ''
     if (
       !confirm(
@@ -137,16 +146,41 @@ export default function PlanView() {
     )
       return
 
+    setLoeschen(id)
     api
       .deletePlan(id)
-      .then(() => {
-        // Wer den gerade geöffneten Plan löscht, stünde sonst auf /plan/<id>
-        // und liefe beim Neuladen in ein 404. Der Wechsel der Route stößt über
-        // den Effekt auf [planId] das Neuladen selbst an.
-        if (planId && Number(planId) === id) navigate('/plan')
-        else reload()
+      .then(fertig)
+      .catch((err) => {
+        // Der Server hat nicht gelöscht, weil er die Einheiten nicht aus Garmin
+        // bekam — sie wären danach unerreichbar. Das ist eine Entscheidung des
+        // Nutzers, keine Fehlermeldung: Er darf darauf bestehen. Nur bei genau
+        // diesem Grund, sonst stünde „Trotzdem löschen?" auch unter einem Plan,
+        // den es gar nicht mehr gibt.
+        if (!(err instanceof ApiError) || !GARMIN_HAKT.includes(err.status)) throw err
+        if (!confirm(`${err.message}\n\nTrotzdem löschen?`)) throw err
+        return api.deletePlan(id, { garminUebergehen: true }).then(fertig)
       })
       .catch((err) => setError(err.message))
+      .finally(() => setLoeschen(null))
+
+    function fertig(ergebnis: PlanDeleteResult) {
+      // Einzelne Einheiten, die Garmin nicht hergab: Der Plan ist weg, sie
+      // stehen aber noch im fremden Kalender. Als Dialog statt als Meldung auf
+      // der Seite — die wird gleich neu geladen und nähme den Satz mit.
+      if (ergebnis.garmin_fehler.length) {
+        alert(
+          'Diese Einheiten konnten nicht aus dem Garmin-Kalender genommen ' +
+            'werden und stehen dort weiter:\n\n' +
+            ergebnis.garmin_fehler.join('\n') +
+            '\n\nIm Kalender dieser App lassen sie sich von Hand entfernen.',
+        )
+      }
+      // Wer den gerade geöffneten Plan löscht, stünde sonst auf /plan/<id>
+      // und liefe beim Neuladen in ein 404. Der Wechsel der Route stößt über
+      // den Effekt auf [planId] das Neuladen selbst an.
+      if (planId && Number(planId) === id) navigate('/plan')
+      else reload()
+    }
   }
 
   /** Zustand je Einheit, damit die Karten ihn zeigen können. */
@@ -244,9 +278,10 @@ export default function PlanView() {
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
+                          disabled={loeschen !== null}
                           onClick={() => loeschePlan(entry.id, entry.title)}
                         >
-                          Löschen
+                          {loeschen === entry.id ? 'Wird gelöscht …' : 'Löschen'}
                         </button>
                       </td>
                     </tr>
@@ -316,9 +351,10 @@ export default function PlanView() {
           </Link>
           <button
             className="btn btn-danger"
+            disabled={loeschen !== null}
             onClick={() => loeschePlan(plan.id, plan.title)}
           >
-            Plan löschen
+            {loeschen === plan.id ? 'Wird gelöscht …' : 'Plan löschen'}
           </button>
         </div>
       </div>
@@ -437,9 +473,10 @@ export default function PlanView() {
                       )}
                       <button
                         className="btn btn-ghost btn-sm"
+                        disabled={loeschen !== null}
                         onClick={() => loeschePlan(entry.id, entry.title)}
                       >
-                        Löschen
+                        {loeschen === entry.id ? 'Wird gelöscht …' : 'Löschen'}
                       </button>
                     </td>
                   </tr>
@@ -664,16 +701,16 @@ function SessionDetail({
         </table>
       </div>
 
+      {/* Kein Weg zum Erfassen mehr: Die Einheit wird als absolviert markiert,
+          sobald der Garmin-Abgleich eine passende Aktivität findet
+          (`garmin/matching.py` über Tag und Sportart). */}
       <div className="row row-end mt-2">
         {session.logged ? (
           <span className="badge badge-success">Training bereits erfasst</span>
         ) : (
-          <Link
-            className="btn btn-primary"
-            to={`/training-erfassen?session=${session.id}`}
-          >
-            Training erfassen
-          </Link>
+          <span className="small muted">
+            Wird als absolviert markiert, sobald die Einheit aus Garmin kommt.
+          </span>
         )}
       </div>
     </Modal>

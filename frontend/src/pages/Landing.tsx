@@ -17,9 +17,9 @@ const FEATURES = [
     text: 'Kein Plan auf Monate hinaus, sondern der nächste kurze Block — jede Einheit mit Aufbau, Zielpuls, Pace und Trainingswirkung.',
   },
   {
-    icon: '📈',
-    title: 'Training erfassen',
-    text: 'Puls, Strecke, Zeit, Watt, RPE und Befinden nach jeder Einheit. Daraus entsteht die Grundlage für den nächsten Block.',
+    icon: '⌚',
+    title: 'Trainings aus Garmin',
+    text: 'Puls, Strecke, Zeit und Watt kommen von deiner Uhr — nichts von Hand eintragen. Daraus entsteht die Grundlage für den nächsten Block.',
   },
   {
     icon: '❤️',
@@ -60,8 +60,8 @@ export default function Landing() {
         <p className="landing-lead">
           Beantworte einmal die Fragen zu Ziel, Zeit und Leistungswerten. Tri-Coach
           erzeugt daraus ein Datenpaket für die KI und verwandelt deren Antwort in
-          die konkreten nächsten Trainingstage — die mit jedem erfassten Training
-          besser werden.
+          die konkreten nächsten Trainingstage — die mit jedem Training auf deiner
+          Uhr besser werden.
         </p>
         <div className="row">
           <Link className="btn btn-primary btn-lg" to="/registrieren">

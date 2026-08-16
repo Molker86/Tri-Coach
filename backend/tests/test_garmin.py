@@ -206,44 +206,20 @@ def test_geaenderte_dauer_wird_nachgezogen(client, verbunden, fake):
     assert lauf["duration_min"] == 30
 
 
-def test_eigene_eintraege_ueberleben_den_abgleich(client, verbunden):
-    """Was der Nutzer selbst eingetragen hat, darf ein Sync nie überschreiben."""
+def test_eintraege_lassen_sich_nicht_bearbeiten(client, verbunden):
+    """Garmin ist die einzige Quelle — es gibt keinen Weg, daran zu drehen."""
     _backfill(client, verbunden)
     logs = client.get("/api/logs?weeks=4", headers=verbunden).json()
     lauf = next(lg for lg in logs if lg["garmin_activity_id"] == "1001")
 
-    eigene_werte = {
-        **{k: v for k, v in lauf.items() if k in _EINGABEFELDER},
-        "rpe": 9,
-        "feeling": 2,
-        "soreness": 4,
-        "notes": "Beine schwer, Abbruch erwogen",
-    }
     antwort = client.put(
-        f"/api/logs/{lauf['id']}", json=eigene_werte, headers=verbunden
+        f"/api/logs/{lauf['id']}", json={**lauf, "rpe": 9}, headers=verbunden
     )
-    assert antwort.status_code == 200, antwort.text
-    # Das Bearbeiten darf die Herkunft nicht zurücksetzen
-    assert antwort.json()["source"] == "garmin"
-    assert antwort.json()["garmin_activity_id"] == "1001"
+    assert antwort.status_code == 405
 
-    _backfill(client, verbunden)
-
-    nachher = client.get(f"/api/logs/{lauf['id']}", headers=verbunden).json()
-    assert nachher["rpe"] == 9
-    assert nachher["feeling"] == 2
-    assert nachher["soreness"] == 4
-    assert "Beine schwer" in nachher["notes"]
-    # Messwerte kommen weiterhin von Garmin
-    assert nachher["duration_min"] == 60
-
-
-_EINGABEFELDER = {
-    "plan_session_id", "date", "sport", "status", "duration_min", "distance_km",
-    "avg_hr", "max_hr", "avg_pace", "avg_power", "avg_cadence",
-    "elevation_gain_m", "calories", "rpe", "feeling", "soreness", "sleep_hours",
-    "sleep_quality", "morning_hr", "morning_hrv", "conditions", "notes",
-}
+    # Löschen bleibt: Ein falsch importierter Eintrag muss weg können.
+    assert client.delete(f"/api/logs/{lauf['id']}", headers=verbunden).status_code == 204
+    assert client.get(f"/api/logs/{lauf['id']}", headers=verbunden).status_code == 404
 
 
 def test_multisport_wird_eine_koppeleinheit(client, garmin_auth, fake, monkeypatch):
@@ -353,16 +329,23 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     assert stats["compliance"]["logged"] == 1
 
 
-def test_dubletten_werden_benannt_nicht_geloescht(client, verbunden):
-    """Wer vor der Anbindung von Hand nachgetragen hat, soll das erfahren."""
+def test_dubletten_werden_benannt_nicht_geloescht(client, verbunden, erfasse):
+    """Wer früher von Hand nachgetragen hat, soll die Dubletten sehen.
+
+    Seit dem Wegfall des Erfassungsformulars entstehen keine neuen manuellen
+    Einträge mehr — die aus der Zeit davor stehen aber weiter in der Datenbank
+    und zählen doppelt, sobald dieselbe Einheit aus Garmin kommt.
+    """
     tag = HEUTE - timedelta(days=1)
-    antwort = client.post(
-        "/api/logs",
-        json={"date": tag.isoformat(), "sport": "run", "duration_min": 58, "rpe": 6},
-        headers=verbunden,
+    manuell_id = erfasse(
+        verbunden,
+        date=tag,
+        sport="run",
+        duration_min=58,
+        rpe=6,
+        source="manual",
+        rpe_source="manual",
     )
-    assert antwort.status_code == 201
-    manuell_id = antwort.json()["id"]
 
     _backfill(client, verbunden)
 
@@ -852,3 +835,66 @@ def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
     # Zweiter Lauf darf nichts tun und nichts brechen.
     with alt.begin() as verbindung:
         assert _ergaenze_spalten(verbindung) == []
+
+
+def test_migration_entfernt_die_spalten_des_erfassungsformulars(tmp_path):
+    """Was aus dem Modell fällt, muss auch aus bestehenden Datenbanken heraus.
+
+    Es sind Gesundheitsdaten, und die Datei wandert in jedes
+    Home-Assistant-Backup — stehen lassen wäre der bequeme, nicht der richtige
+    Weg.
+    """
+    import sqlalchemy as sa
+
+    from app.database import _ENTFALLENE_SPALTEN, _entferne_spalten
+
+    pfad = tmp_path / "mit_formular.db"
+    alt = sa.create_engine(f"sqlite:///{pfad}")
+    with alt.begin() as verbindung:
+        verbindung.exec_driver_sql(
+            """
+            CREATE TABLE session_logs (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                date DATE NOT NULL,
+                sport VARCHAR(32) NOT NULL,
+                duration_min INTEGER,
+                rpe INTEGER,
+                feeling INTEGER,
+                soreness INTEGER,
+                sleep_hours FLOAT,
+                sleep_quality INTEGER,
+                morning_hr INTEGER,
+                morning_hrv FLOAT,
+                conditions VARCHAR(255),
+                notes TEXT
+            )
+            """
+        )
+        verbindung.exec_driver_sql(
+            "INSERT INTO session_logs (id, user_id, date, sport, duration_min, rpe,"
+            " feeling, morning_hr, notes) VALUES (1, 1, '2026-01-01', 'run', 60, 6,"
+            " 4, 48, 'Lief rund.')"
+        )
+
+    with alt.begin() as verbindung:
+        entfernt = _entferne_spalten(verbindung)
+
+    assert len(entfernt) == len(_ENTFALLENE_SPALTEN["session_logs"])
+
+    with alt.connect() as verbindung:
+        spalten = {
+            r[1] for r in verbindung.exec_driver_sql("PRAGMA table_info(session_logs)")
+        }
+        assert spalten.isdisjoint(_ENTFALLENE_SPALTEN["session_logs"])
+
+        # Was bleiben soll, bleibt — samt Inhalt.
+        assert {"rpe", "notes", "duration_min"} <= spalten
+        zeile = verbindung.exec_driver_sql(
+            "SELECT rpe, duration_min, notes FROM session_logs WHERE id = 1"
+        ).fetchone()
+        assert zeile == (6, 60, "Lief rund.")
+
+    # Zweiter Lauf darf nichts tun und nichts brechen.
+    with alt.begin() as verbindung:
+        assert _entferne_spalten(verbindung) == []

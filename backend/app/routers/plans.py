@@ -5,6 +5,9 @@ from sqlalchemy.orm import selectinload
 
 from .. import ai_export, plan_import
 from ..deps import CurrentUser, DbSession
+from ..garmin import uebertragung
+from ..garmin.errors import GarminFehler, GarminNichtVerbunden
+from ..garmin.verbindung import als_http, garmin_sitzung
 from ..models import (
     GarminWorkoutLink,
     Plan,
@@ -12,6 +15,7 @@ from ..models import (
 )
 from ..schemas import (
     ExportOut,
+    PlanDeleteOut,
     PlanImportIn,
     PlanImportOut,
     PlanOut,
@@ -212,20 +216,77 @@ def activate_plan(plan_id: int, user: CurrentUser, db: DbSession) -> PlanOut:
     return _to_plan_out(db, plan, user.id)
 
 
-@router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_plan(plan_id: int, user: CurrentUser, db: DbSession) -> None:
+@router.delete("/{plan_id}", response_model=PlanDeleteOut)
+def delete_plan(
+    plan_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    garmin_uebergehen: bool = Query(
+        False,
+        description=(
+            "Den Plan auch dann löschen, wenn seine Einheiten nicht aus Garmin "
+            "genommen werden konnten. Sie bleiben dann dort stehen."
+        ),
+    ),
+) -> PlanDeleteOut:
     plan = _owned_plan(db, plan_id, user.id)
+    entfernt, fehler = _nimm_aus_garmin(db, user.id, plan, uebergehen=garmin_uebergehen)
+
     einheiten = [s.id for s in plan.sessions] or [-1]
     # Logs überleben den Plan — die Referenz wird gelöst, nicht der Verlauf.
     db.query(SessionLog).filter(
         SessionLog.plan_session_id.in_(einheiten)
     ).update({"plan_session_id": None}, synchronize_session=False)
-    # Die Zuordnung zu Garmin dagegen wird wertlos: Ohne Einheit gibt es nichts
-    # mehr abzugleichen. Was bereits in Garmin steht, bleibt dort stehen — es
-    # ungefragt aus einem fremden Konto zu löschen wäre übergriffig, und der
-    # Kalender dieser App zeigt es weiterhin zum Entfernen an.
+    # Was oben nicht wegging, geht hier für immer verloren: Angefasst wird in
+    # Garmin ausschließlich über `GarminWorkoutLink`. Deshalb bleibt nur der
+    # ausdrücklich übergangene Fall übrig — der Kalender dieser App zeigt solche
+    # Reste weiterhin zum Entfernen an.
     db.query(GarminWorkoutLink).filter(
         GarminWorkoutLink.plan_session_id.in_(einheiten)
     ).delete(synchronize_session=False)
     db.delete(plan)
     db.commit()
+
+    return PlanDeleteOut(garmin_entfernt=entfernt, garmin_fehler=fehler)
+
+
+def _nimm_aus_garmin(
+    db, user_id: int, plan: Plan, *, uebergehen: bool
+) -> tuple[int, list[str]]:
+    """Räumt Vorlagen und Termine des Plans aus Garmin — **vor** dem Löschen.
+
+    Die Reihenfolge ist die ganze Pointe: In Garmin fasst diese App nur an, was
+    in `GarminWorkoutLink` steht, und der stirbt mit der Planeinheit. Wer den
+    Plan zuerst löschte, ließe seine Einheiten für immer im fremden Kalender
+    stehen — und dort gälte dann eine Vorgabe weiter, die es in der App gar
+    nicht mehr gibt.
+
+    Anders als eine Übertragung läuft das hier **im Anfrage-Thread** statt als
+    Job: Es sind zwei Anfragen je Einheit und höchstens eine Handvoll Einheiten
+    (Vergangenes hat der letzte Abgleich schon geräumt), und ein Löschen, das
+    erst später wirkt, wäre schwerer zu verstehen als eines, das ein paar
+    Sekunden dauert.
+
+    Scheitert der Zugang, wird **nicht** gelöscht: Ein Plan ist schnell noch
+    einmal gelöscht, eine Karteileiche in einem fremden Konto nie mehr. Der
+    Nutzer bekommt den Grund und kann mit `garmin_uebergehen` darauf bestehen.
+    """
+    if not uebertragung.links_zum_plan(db, plan) or uebergehen:
+        return 0, []
+
+    try:
+        with garmin_sitzung(db, user_id) as api:
+            ergebnis = uebertragung.entferne_plan(db, api, plan)
+    except GarminNichtVerbunden:
+        # Ohne Konto führt kein Weg mehr dorthin, und die Zuordnung ist ohnehin
+        # wertlos. Das Löschen daran zu hindern, hülfe niemandem.
+        return 0, []
+    except GarminFehler as exc:
+        antwort = als_http(exc)
+        raise HTTPException(
+            antwort.status_code,
+            f"{antwort.detail} Der Plan wurde deshalb nicht gelöscht — seine "
+            "Einheiten stünden sonst für immer im Garmin-Kalender.",
+        ) from exc
+
+    return ergebnis.entfernt, ergebnis.fehler

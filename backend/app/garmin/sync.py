@@ -226,12 +226,6 @@ def importiere_aktivitaeten(
         db.commit()
 
 
-# Felder, die dem Nutzer gehören: Sie werden beim erneuten Abgleich nie
-# überschrieben. Wer ein RPE selbst eingetragen oder eine Notiz ergänzt hat,
-# soll das nicht beim nächsten Knopfdruck verlieren.
-_NUTZERFELDER = ("feeling", "soreness", "sleep_quality", "conditions")
-
-
 def _speichere_aktivitaet(
     db: Session, user_id: int, felder: dict[str, Any], ergebnis: SyncErgebnis
 ) -> None:
@@ -251,10 +245,12 @@ def _speichere_aktivitaet(
         try:
             db.flush()
         except IntegrityError:
-            # Der Nutzer hat dieselbe Planeinheit parallel von Hand erfasst.
-            # Die Verknüpfung ist verzichtbar, der Trainingseintrag nicht — also
-            # ohne sie erneut anlegen. Der Aufrufer schreibt je Training einzeln
-            # fest, sodass hier nur dieses eine verworfen wird.
+            # Zwei Aktivitäten desselben Tages und derselben Sportart treffen
+            # auf dieselbe offene Planeinheit — die trägt aber nur einen Log
+            # (`uq_log_plan_session`). Die Verknüpfung ist verzichtbar, der
+            # Trainingseintrag nicht, also ohne sie erneut anlegen. Der Aufrufer
+            # schreibt je Training einzeln fest, sodass hier nur dieses eine
+            # verworfen wird.
             db.rollback()
             log = SessionLog(user_id=user_id, **felder)
             db.add(log)
@@ -262,21 +258,15 @@ def _speichere_aktivitaet(
         ergebnis.aktivitaeten_neu += 1
         return
 
-    # Aktualisieren: Messwerte kommen von Garmin, Empfindungen vom Nutzer.
+    # Aktualisieren: Was Garmin liefert, gewinnt — es ist die einzige Quelle.
     geaendert = False
     for feld, wert in felder.items():
-        if feld in _NUTZERFELDER:
-            continue
-        if feld == "rpe" and vorhanden.rpe_source == "manual" and vorhanden.rpe is not None:
-            continue  # selbst eingetragenes RPE hat Vorrang vor der Schätzung
-        if feld == "rpe_source" and vorhanden.rpe_source == "manual" and vorhanden.rpe is not None:
-            continue
         if feld == "notes" and vorhanden.notes:
-            # Eine vorhandene Notiz bleibt stehen — auch bei einer
-            # Garmin-Einheit. Beim Import steht dort nur der Aktivitätsname;
-            # was jetzt drinsteht, kann der Nutzer geschrieben haben, und das
-            # ist ungleich mehr wert. Der Preis: Wird eine Aktivität in Garmin
-            # umbenannt, zieht der Name hier nicht nach.
+            # Eine vorhandene Notiz bleibt stehen. Bei einer Koppeleinheit
+            # steht dort die aus den Teildisziplinen zusammengesetzte Zeile
+            # (`mapping.teile_multisport`); käme der nackte Aktivitätsname
+            # darüber, wäre die Aufteilung weg. Der Preis: Wird eine Aktivität
+            # in Garmin umbenannt, zieht der Name hier nicht nach.
             continue
         if wert is not None and getattr(vorhanden, feld) != wert:
             setattr(vorhanden, feld, wert)

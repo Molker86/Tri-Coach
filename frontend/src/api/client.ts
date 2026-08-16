@@ -12,12 +12,12 @@ import type {
   KiSettings,
   KiStatus,
   Plan,
+  PlanDeleteResult,
   PlanImportResult,
   PlanSummary,
   Profile,
   ProfileHistoryEntry,
   SessionLog,
-  SessionLogInput,
   Stats,
   TrainingRequest,
   TrainingRequestInput,
@@ -164,13 +164,19 @@ export const api = {
   activePlan: () => request<Plan | null>('/plans/active'),
   getPlan: (id: number) => request<Plan>(`/plans/${id}`),
   activatePlan: (id: number) => request<Plan>(`/plans/${id}/activate`, { method: 'POST' }),
-  deletePlan: (id: number) => request<void>(`/plans/${id}`, { method: 'DELETE' }),
+  // Löscht den Plan **und** nimmt seine Einheiten aus dem Garmin-Kalender —
+  // danach käme der Server nicht mehr an sie heran. Klappt das nicht, wird gar
+  // nicht gelöscht; `garminUebergehen` ist der ausdrückliche Weg daran vorbei.
+  deletePlan: (id: number, opt?: { garminUebergehen?: boolean }) =>
+    request<PlanDeleteResult>(
+      `/plans/${id}${opt?.garminUebergehen ? '?garmin_uebergehen=true' : ''}`,
+      { method: 'DELETE' },
+    ),
 
+  // Absolvierte Trainings kommen ausschließlich aus dem Garmin-Abgleich; es
+  // gibt kein Anlegen und kein Bearbeiten mehr. Löschen bleibt, damit ein
+  // falsch importierter Eintrag wieder verschwinden kann.
   listLogs: (weeks = 4) => request<SessionLog[]>(`/logs?weeks=${weeks}`),
-  createLog: (data: SessionLogInput) =>
-    request<SessionLog>('/logs', { method: 'POST', body: data }),
-  updateLog: (id: number, data: SessionLogInput) =>
-    request<SessionLog>(`/logs/${id}`, { method: 'PUT', body: data }),
   deleteLog: (id: number) => request<void>(`/logs/${id}`, { method: 'DELETE' }),
   stats: () => request<Stats>('/logs/stats'),
 

@@ -12,18 +12,20 @@ Trainings werden erfasst und fließen in den nächsten Export ein.
 (Vorgabe 7, einstellbar 1–14 über `days` am Export). Das ist eine bewusste
 Entscheidung — siehe „Planungshorizont".
 
-**Trainings- und Fitnessdaten kommen aus Garmin Connect.** Wer ein Konto
-verbindet, muss nichts mehr von Hand nachtragen: Trainings, Schlaf, HRV,
-Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
-nächsten Export ein. Die Formulare bleiben als Rückfallebene — für Einheiten
-ohne Uhr und für subjektive Werte, die kein Gerät misst.
+**Trainings- und Fitnessdaten kommen aus Garmin Connect — und nur von dort.**
+Wer ein Konto verbindet, trägt nichts mehr von Hand nach: Trainings, Schlaf,
+HRV, Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
+nächsten Export ein. Die Formulare zum Erfassen und Nachtragen gibt es **nicht
+mehr** — siehe „Garmin ist die einzige Quelle".
 
 **Und der Weg zurück: Geplante Einheiten gehen als Workout auf die Uhr.** Wer
 einen Block übernimmt, findet ihn ohne weiteres Zutun im Garmin-Kalender: Jede
 Einheit wird als strukturiertes Workout angelegt und terminiert, beim nächsten
 Synchronisieren liegt sie auf dem Gerät und lässt sich dort starten. Derselbe
 Lauf räumt den abgelösten Block weg, damit nicht zwei Vorgaben am selben Tag
-stehen. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
+stehen — und das auch dann, wenn gar nichts hineingeht: **Im Kalender steht
+immer nur der aktive Block.** Wer einen Plan löscht, nimmt seine Einheiten
+ebenso mit. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
 (nachgeschobene Änderungen, ein früherer Block, ein abgeschaltetes Konto). Die
 App bringt dafür einen eigenen Kalender mit — Monatsansicht, verschieben, aus
 Garmin löschen.
@@ -49,7 +51,9 @@ eine andere KI.
 - Physiologische Werte: Ruhepuls, Maximalpuls, VO2max, HRV, Größe, Gewicht, Alter.
 - Alle Angaben als JSON zum Kopieren; KI-Antwort als JSON wieder einfügbar.
 - Stammdaten jederzeit änderbar.
-- Nach dem Training Werte erfassen (Puls, Strecke, Zeit …).
+- Nach dem Training Werte erfassen (Puls, Strecke, Zeit …). **Überholt:** Diese
+  Werte kommen inzwischen ausschließlich aus Garmin, die Formulare sind
+  entfallen — siehe „Garmin ist die einzige Quelle".
 - Immer die letzten 4 Wochen plus die Wunschdaten steuern die nächste Planung.
 - Geplant wird jeweils nur der nächste kurze Block (Nachforderung, ersetzt den
   ursprünglichen Vier-Wochen-Plan). Ein aktiver Plan kann per Knopfdruck um
@@ -60,7 +64,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 213 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 226 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -169,17 +173,33 @@ Alembic bestehende Datenbanken bräche. Das zuletzt genutzte Konto merkt sich
 erfolgreicher An- oder Neuanmeldung, gelesen von `Login.tsx`) und ist beim
 nächsten Mal vorausgewählt — steht es nicht mehr in der Liste, das erste Konto.
 
-**Nachtragen ist derselbe Bildschirm, nicht ein zweites Formular.**
-`/training-nachtragen` rendert `LogSession` mit `mode="backfill"` — gleiche Felder,
-gleiche Validierung, nur andere Voreinstellungen: Datum auf gestern statt heute,
-Obergrenze heute, Sportart frei wählbar (sie hängt nie am Plan). Zwei Formulare
-würden bei jeder neuen Messgröße auseinanderlaufen. Die Auswertung braucht dafür
-nichts Eigenes: `list_logs`, `/logs/stats` und `_history_block()` filtern rein
-über `SessionLog.date`, ein nachgetragener Eintrag zählt also automatisch mit,
-sobald er ins Vierwochenfenster fällt — liegt er davor, sagt die Oberfläche das
-(`outsideHistoryWindow`), statt ihn stillschweigend wirkungslos zu speichern.
-Offene Planeinheiten werden beim Nachtragen 28 statt 14 Tage weit zur
-Verknüpfung angeboten, damit die Umsetzungsquote nicht löchrig bleibt.
+**Garmin ist die einzige Quelle für absolvierte Trainings** (`routers/logs.py`).
+Es gibt keinen Weg mehr, eine Einheit von Hand einzutragen oder zu bearbeiten:
+Die Seite `LogSession` samt `/training-erfassen` und `/training-nachtragen` ist
+weg, `POST /api/logs` und `PUT /api/logs/{id}` ebenso. Angelegt werden Einheiten
+ausschließlich in `garmin/sync.py`. Der Grund ist nicht Aufräumen, sondern
+Zählbarkeit: Bei zwei Quellen steht dieselbe Einheit zweimal in der Datenbank —
+einmal von Hand, einmal aus der Uhr —, und sie zählt dann doppelt in
+Wochenübersicht, sRPE-Last, ACWR und Umsetzungsquote. Genau dafür gab es
+`/api/garmin/dubletten`, das die Doppelten nur benennen konnte, weil sie
+automatisch zu löschen übergriffig gewesen wäre. Der Endpunkt **bleibt**: Was
+vor dieser Entscheidung von Hand eingetragen wurde, steht weiter in der
+Datenbank, und `DELETE /api/logs/{id}` ist der Weg, es loszuwerden.
+
+Was daran hängt: Die **subjektiven Felder** (`feeling`, `soreness`,
+`sleep_quality`, `morning_hr`, `morning_hrv`, `conditions`, `sleep_hours`) kann
+niemand mehr füllen — Garmin liefert sie nicht. Sie sind deshalb **ganz weg**,
+Spalte samt Feld: Was sie beschrieben, misst die Uhr Nacht für Nacht und für
+jeden Tag statt nur für Trainingstage (`WellnessDay`, im Export der
+`fitnessdaten`-Block). Eine leere Spalte mit Gesundheitsdaten in jedem
+Home-Assistant-Backup liegen zu lassen, wäre der bequeme und nicht der richtige
+Weg — das Löschen übernimmt `database._ENTFALLENE_SPALTEN`. Das
+RPE ist damit **immer geschätzt** (`mapping.schaetze_rpe`); `rpe_source` behält
+seinen Wert `manual` nur noch als Altwert, und die Schutzregeln im Abgleich, die
+eine Handeingabe vor dem Überschreiben bewahrten, sind mit ihr entfallen. Ein
+Ausweichen aufs Formular gibt es nicht mehr — **ohne verbundene Uhr hat die App
+keine Trainingshistorie**, und der Prompt sagt das der KI ausdrücklich
+(`FITNESSREGELN_OHNE_DATEN`).
 
 **FastAPI statt Django.** Der Kern der App ist Schema-Arbeit: Ein- und Ausgabe
 gegenüber der KI müssen streng validiert werden. Pydantic macht das direkt zum
@@ -225,13 +245,15 @@ aufgelöst würden. Wer im Frontend eine Adresse selbst zusammenbaut, muss
 `BASE_PATH` mitnehmen — Router-`Link`s und `navigate()` erledigen das von allein,
 `window.location` dagegen nicht (deshalb `useLocation()` in `PlanView.tsx`).
 
-**Am Telefon trägt die Navigation unten, nicht oben.** Die Kopfleiste mit sieben
+**Am Telefon trägt die Navigation unten, nicht oben.** Die Kopfleiste mit sechs
 Wegen nebeneinander funktioniert am Schreibtisch; auf einem Telefon bräuchte sie
 drei Zeilen und stünde bei jedem Scrollen im Weg. Unterhalb von 860 px entfällt
 sie deshalb ganz (`.topbar-app`), stattdessen blendet `Layout.tsx` eine feste
-Leiste am unteren Rand ein: Übersicht, Plan, Erfassen, Verlauf und „Mehr“ —
-hinter „Mehr“ liegt ein Blatt mit Neues Training, Nachtragen, Meine Daten und
-Abmelden. Orientierung geht dabei nicht verloren, weil jede Seite ihre
+Leiste am unteren Rand ein: Übersicht, Plan, Garmin, Verlauf und „Mehr“ —
+hinter „Mehr“ liegt ein Blatt mit Garmin-Kalender, Neues Training, Meine Daten
+und Abmelden. Den Platz, an dem einmal „Erfassen“ stand, hat Garmin bekommen:
+Von dort kommen die absolvierten Einheiten, also gehört der Abgleich in den
+Alltag und nicht hinter „Mehr“. Orientierung geht dabei nicht verloren, weil jede Seite ihre
 Überschrift selbst trägt. Zwei Dinge hängen daran: `.page` braucht unten Platz
 für die Leiste samt `env(safe-area-inset-bottom)` — dafür steht
 `viewport-fit=cover` in der `index.html`, ohne das der Wert auf iOS 0 bleibt —
@@ -333,14 +355,15 @@ Garmin liefert kein RPE, aber `weekly_summary`, `acute_chronic_ratio` und
 `_days_since_hard_session` rechnen alle damit — ohne Schätzung fiele die halbe
 Steuerung für importierte Trainings aus. Geschätzt wird aus der Zeitverteilung
 über die Herzfrequenzzonen, ersatzweise aus dem Trainingseffekt oder dem
-Durchschnittspuls; `rpe_source` hält fest, woher der Wert stammt, und ein selbst
-eingetragenes RPE wird beim nächsten Abgleich nicht überschrieben (`logs.py`
-setzt `rpe_source` auf `manual`, sobald der Nutzer den Wert ändert). Garmins
-`activityTrainingLoad` läuft nur *zusätzlich* mit (`total_garmin_load`) und
-ersetzt die sRPE-Last **nicht**: Beide sind unterschiedlich skaliert, und eine
-Übergangswoche aus manuellen und importierten Einheiten ergäbe sonst Unsinn.
-Eine einheitliche Skala über den Übergang ist mehr wert als die theoretisch
-bessere Metrik.
+Durchschnittspuls; `rpe_source` hält fest, woher der Wert stammt, und geht so
+in den Export, damit die KI die Belastbarkeit der Zahl einordnen kann. Seit dem
+Wegfall der Handeingabe ist **jedes** RPE geschätzt — `manual` steht dort nur
+noch an Alteinträgen, und der Abgleich nimmt darauf keine Rücksicht mehr.
+Garmins `activityTrainingLoad` läuft nur *zusätzlich* mit (`total_garmin_load`)
+und ersetzt die sRPE-Last **nicht**: Beide sind unterschiedlich skaliert, und
+eine Übergangswoche aus alten manuellen und importierten Einheiten ergäbe sonst
+Unsinn. Eine einheitliche Skala über den Übergang ist mehr wert als die
+theoretisch bessere Metrik.
 
 **Ein Triathlon ist eine Koppeleinheit, keine drei Einheiten**
 (`mapping.teile_multisport`). Drei Kindeinträge an einem Tag würden die
@@ -366,7 +389,8 @@ vier Fragen hat: `aktuell`, `mittelwerte` (7 gegen 28 Tage), `auffaelligkeiten`
 `tage`. Vorverdichtet, weil Sprachmodelle beim Mitteln von Zahlenreihen
 unzuverlässig sind. Die Regeln dazu stehen als Punkt 2 der Trainingsprinzipien
 und existieren in **zwei** Fassungen: Ohne verbundenes Konto entfällt der Block,
-und der Prompt verweist stattdessen ausdrücklich auf RPE und Morgenpuls — Regeln
+und der Prompt sagt stattdessen ausdrücklich, dass auch die Trainingshistorie
+leer ist und der Block allein aus Fragebogen und Profil entsteht — Regeln
 zu Daten, die es nicht gibt, laden zum Erfinden ein. Die Schwellen in
 `wellness_auffaelligkeiten` und die Zahlen im Prompt müssen zusammen geändert
 werden.
@@ -377,8 +401,9 @@ Gerät. Nur ein Workout mit Schrittliste *leitet* die Uhr an — Schrittwechsel,
 Zielkorridor, Signal beim Verlassen. Deshalb wird `PlanSession.structure`, ein
 Fließtext aus der KI, in Garmins Schritte zerlegt: „15 min Einlaufen Z1-Z2,
 5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen“ wird zu Aufwärmschritt,
-Wiederholungsgruppe und Auslaufen, jeweils mit Herzfrequenzkorridor aus den
-Karvonen-Zonen des Profils. **Der Parser rät nicht**: Erkennt er nichts, wird
+zehn Intervall- und Pausenschritten und Auslaufen, jeweils mit
+Herzfrequenzkorridor aus den Karvonen-Zonen des Profils. **Der Parser rät
+nicht**: Erkennt er nichts, wird
 die Einheit *ein* Schritt über die geplante Dauer, und der ganze Aufbautext
 steht in der Beschreibung. Ein falsch geratenes Intervalltraining auf der Uhr
 ist schlimmer als ein grobes, weil es ungeprüft absolviert wird. Zwei Regeln
@@ -388,6 +413,24 @@ Zielkorridor (ein Alarm in der Erholung triebe genau den Puls hoch, der sinken
 soll). Die Kennungen für Sport-, Schritt- und Zieltypen kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen — zwei Quellen dafür liefen
 auseinander.
+
+**Wiederholungen werden ausgeschrieben, nicht zusammengefasst**
+(`_schreibe_wiederholungen_aus`). Garmin kennt mit `RepeatGroupDTO` eine
+Wiederholungsgruppe, und die Uhr arbeitet sie auch N-mal ab — in der
+Schrittliste steht davon aber nur *eine* zusammengeklappte Zeile. Bei zwei
+verschiedenen Serien hintereinander („3 × 3 min Z4“, dann „3 × 2 min Z4“) sah
+der Athlet dort zwei Einträge, obwohl sechs Belastungen anstehen. Deshalb wird
+**jeder** Block ausgeschrieben, auch der mit innerer Struktur: Aus
+„4 × (3 min hart / 2 min locker)“ werden acht Schritte in Laufreihenfolge. Was
+die Gruppe von sich aus mitbrachte, holt eine Beschriftung zurück — jede Runde
+trägt „(2/4)“ am Ende ihres Texts, sonst stünden vier gleichlautende Zeilen
+ohne Anhalt da. Die eine Grenze ist `MAX_SCHRITTE`: Wie viele Schritte ein
+Workout tragen darf, sagt Garmin nirgends zu, und ein ausgeschriebenes
+„20 × 400 m mit Trabpause“ wären vierzig statt zwei Schritte. Darüber bleibt es
+bei den Gruppen — schlechter zu lesen, aber es kommt an. Und zwar alles oder
+nichts: Eine halb ausgeschriebene Liste wäre schwerer zu lesen als beide reinen
+Formen. Die Zahl ist **nicht abgelesen**, sondern vorsichtig gewählt; wer sie
+anfasst, prüft gegen ein echtes Gerät.
 
 **Zwei Grammatiken, weil derselbe Text Verschiedenes bedeutet**
 (`zerlege_uebungsliste()` neben `zerlege_struktur()`). Bei Kraft und Mobility
@@ -491,6 +534,20 @@ liegt eine zweite Anfrage: Ginge die Kennung dazwischen verloren, entstünden
 bei jedem Versuch neue Karteileichen in einem fremden Konto. Wer eine Vorlage
 in Connect von Hand löscht, bekommt sie neu — ein 404 löst die Zuordnung, statt
 für immer gegen eine tote Kennung zu laufen (`verbindung.verschwunden`).
+
+**Der Kalender ist das Ziel, die Bibliothek nur der Weg dorthin**
+(`workouts.name_der_einheit`). Deshalb trägt der Workout-Name **kein Datum**: Im
+Kalender steht der Tag schon in der Spalte, in der die Einheit hängt, und
+„16.08. Lockerer Dauerlauf“ am 16.08. las sich dort wie ein Fehler. Das Datum
+stand einmal voran, um die Bibliothek sortierbar zu halten — das war der Blick
+auf den falschen Ort, denn dort liegen ohnehin nur die noch anstehenden Tage
+des laufenden Blocks (`raeume_vergangene_auf`). Was am Datum hing, muss der
+Rückfall auf „Training“ jetzt selbst leisten: Garmin lehnt ein Workout ohne
+Namen ab, und bis hierher war der Name durch den Datumsteil zwangsläufig nicht
+leer. **Ganz ohne Bibliothekseintrag geht es nicht** — `schedule_workout` nimmt
+eine `workoutId` und sonst nichts, einen Termin mit eingebettetem Inhalt kennt
+Garmin nicht. Ein Löschen der Vorlage nähme den Termin mit (genau das tut
+`entferne_link`).
 
 **Was vorbei ist, wird weggeräumt** (`uebertragung.raeume_vergangene_auf`).
 Weil ein Kalendertermin ohne Vorlage nicht existieren kann, legt jede übertragene
@@ -605,9 +662,37 @@ Kalender zu werfen ließe ihn bis zum Blockbeginn ohne Vorgabe dastehen (dieselb
 Grenze nennt der Hinweis beim Übernehmen: „ab dem <Datum> entfallen dort N
 Tage"). Und **nicht der Block, der gerade übertragen wird** (`ausser_plan_id`):
 Auch ein stillgelegter Plan lässt sich gezielt auf die Uhr legen, und ohne die
-Ausnahme löschte derselbe Lauf am Ende wieder, was er eben hochgeladen hat. Ein
-*gelöschter* Plan bleibt von alldem unberührt — mit ihm sind die Zuordnungen
-weg, und ohne sie fasst diese App in Garmin nichts an.
+Ausnahme löschte derselbe Lauf am Ende wieder, was er eben hochgeladen hat.
+
+**Im Kalender darf nur der aktive Block stehen — auch wenn nichts hineingeht**
+(`runner.starte_uebertragung(…, "cleanup")`). Das Aufräumen hing bisher an einer
+Übertragung oder einem Abgleich; wer die automatische Übertragung abgeschaltet
+hatte, behielt nach dem Neuplanen den *überholten* Block allein im Kalender —
+die neue Vorgabe ging nicht hin, die alte blieb liegen und galt auf der Uhr
+weiter. Deshalb stößt `automatik.starte_uebertragung_fuer_neuen_plan` jetzt in
+beiden Fällen einen Lauf an: `push`, wenn etwas zu senden ist, sonst `cleanup` —
+ein Job, der nichts hochlädt und nur aus dem Nachlauf besteht. Dass ein Block
+nicht von selbst auf die Uhr geht, ist eine Entscheidung über das *Hinlegen*;
+das Wegräumen dessen, was diese App selbst einmal hingelegt hat, hängt nicht
+daran. Ob sich der Lauf lohnt, beantwortet `uebertragung.ersetzte_links()` ohne
+eine einzige Anfrage an Garmin. Und weil dieser Job kein zweites Ziel hat,
+hinter dem ein Fehlschlag verschwinden dürfte, meldet er ihn: Ein Nachlauf, der
+nicht durchkommt, macht ihn `failed` statt „done" (`Aufraeumbilanz`).
+
+**Ein gelöschter Plan nimmt seine Einheiten mit** (`plans._nimm_aus_garmin`).
+Die Reihenfolge ist die ganze Pointe: In Garmin fasst diese App nur an, was in
+`GarminWorkoutLink` steht, und der stirbt mit der Planeinheit. Wer den Plan
+zuerst löschte — so war es —, ließ seine Einheiten für immer im fremden
+Kalender stehen, und dort galt dann eine Vorgabe weiter, die es in der App gar
+nicht mehr gibt. Deshalb läuft das Entfernen **vor** dem Löschen, und zwar im
+Anfrage-Thread statt als Job: Es sind zwei Anfragen je Einheit und höchstens
+eine Handvoll (Vergangenes hat der letzte Abgleich schon geräumt), und ein
+Löschen, das erst später wirkt, wäre schwerer zu verstehen als eines, das ein
+paar Sekunden dauert. **Scheitert der Zugang, wird nicht gelöscht:** Ein Plan
+ist schnell noch einmal gelöscht, eine Karteileiche in einem fremden Konto nie
+mehr — der Nutzer bekommt den Grund und darf mit `garmin_uebergehen` darauf
+bestehen. Ohne verbundenes Konto und ohne Zuordnungen bleibt alles wie zuvor:
+kein Aufbau, keine Anfrage.
 
 **Verschieben im Kalender verschiebt die Planeinheit mit**
 (`verschiebe_kalendereintrag`). Wer dort einen Tag ändert, entscheidet über
@@ -672,8 +757,8 @@ sonst löschte ein Fehlschlag der Gegenseite die bisherigen Bestzeiten.
 **Trainingserfahrung und Schlafstunden sind aus dem Profil verschwunden.** Beide
 waren Selbsteinschätzungen, die nichts trugen: Den Schlaf misst Garmin je Nacht
 (`fitnessdaten`, samt 7-gegen-28-Tage-Mittel und Schlafdefizit-Auffälligkeit),
-und ohne verbundenes Konto fragt ihn das Erfassungsformular je Einheit ab
-(`SessionLog.sleep_hours` — das bleibt). Die Trainingserfahrung in Jahren sagt
+und `SessionLog.sleep_hours` je Einheit ist mit dem Erfassungsformular
+verschwunden. Die Trainingserfahrung in Jahren sagt
 über den nächsten Kurzblock nichts, was `wochenuebersicht`, ACWR und die
 Historie nicht genauer sagen; für die KI war sie vor allem eine Einladung, den
 Block an einer Zahl statt an der Belastungslage auszurichten. Die Spalten
@@ -689,6 +774,18 @@ mit Anfragegrenze kostet und Passwort samt Bestätigungscode erneut verlangt. Ei
 paar Zeilen `ALTER TABLE ADD COLUMN`, idempotent bei jedem Start, sind billiger
 als Alembic. Neue Spalten gehören dort eingetragen, sonst brechen bestehende
 Datenbanken.
+
+**Und in die Gegenrichtung: `_ENTFALLENE_SPALTEN`.** Eine Spalte, die aus dem
+Modell fällt, könnte in der Datei liegen bleiben — SQLAlchemy stört sich nicht
+an etwas, das es nicht kennt. Bei Gesundheitsdaten ist das keine Option: Die
+Datei wandert in jedes Home-Assistant-Backup und von dort auf NAS oder
+USB-Stick, und was niemand mehr liest und niemand mehr füllen kann, hat dort
+nichts verloren. `DROP COLUMN` beherrscht SQLite seit 3.35 (2021) und nur,
+solange die Spalte in keinem Index und keiner Bedingung steht — trifft beides
+zu; ein älteres SQLite lässt sie liegen, statt den Start scheitern zu lassen.
+**Eine Spalte darf nie in beiden Listen stehen**: Sie würde bei jedem Start
+ergänzt und wieder gelöscht, deshalb bricht `database.py` beim Import ab, wenn
+sich die Listen überschneiden.
 
 **Der Fortschritt wird abgefragt, nicht geschoben** (`api/client.ts`,
 `pollJob`). Erstes Muster dieser Art in der App. Das Intervall ist bewusst träge
@@ -734,10 +831,9 @@ Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
 - Änderungen an Gewicht, Ruhepuls, HRV, VO2max, Maximalpuls oder FTP schreiben
   automatisch einen Eintrag in `ProfileHistory` — über
   `profile_sync.uebernehme_profilwerte()`, gleich ob von Hand oder aus Garmin.
-- Neue Felder auf `SessionLog`, die *nicht* vom Nutzer kommen, gehören nur an
-  `SessionLogOut` und nicht an `SessionLogIn`: `PUT /api/logs/{id}` überschreibt
-  mit `model_dump()` ohne `exclude_unset` alle Eingabefelder und würde die
-  Herkunft sonst beim Bearbeiten zurücksetzen.
+- `SessionLog` hat nur noch ein Schema, `SessionLogOut`: Es gibt keinen
+  Anfragekörper mehr, aus dem eine Einheit entstünde. Ein neues Feld gehört
+  dorthin *und* in `mapping.aktivitaet_zu_log()` — sonst bleibt die Spalte leer.
 - Jeder Zugriff auf Garmin-JSON läuft über `mapping.hole()` / `erster_wert()` /
   `als_liste()`, nie über `d["a"]["b"]`: Die API ist undokumentiert, ändert
   Feldnamen ohne Vorwarnung, und ihre Typangaben stimmen nicht (`get_activities`
@@ -915,12 +1011,26 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
 
 ## Bekannte Grenzen / mögliche nächste Schritte
 
-- Kein Bearbeiten erfasster Trainings im Frontend (die API kann es bereits:
-  `PUT /api/logs/{id}`).
+- **Ohne Garmin gibt es keine Trainingshistorie.** Die App kann eine Einheit
+  weder erfassen noch nachtragen; wer keine Uhr verbindet, bekommt Blöcke
+  allein aus Fragebogen und Profil. Ebenso fehlt jede Möglichkeit, eine
+  importierte Einheit zu korrigieren — was Garmin falsch liefert, wird in
+  Connect berichtigt und beim nächsten Abgleich nachgezogen, oder der Eintrag
+  wird im Verlauf gelöscht.
+- Die **subjektiven Werte** (Befinden, Muskelkater, Schlafqualität, Morgenpuls,
+  Morgen-HRV, Bedingungen, Schlaf je Einheit) haben damit keine Quelle mehr und
+  sind ersatzlos aus Modell, Schema, Export und Datenbank entfernt. Das RPE
+  bleibt als einziger und wird geschätzt. Wer eines dieser Felder je
+  zurückholen will, braucht wieder ein Formular — die Spalte ist weg, die
+  Historie damit auch.
+- Was ein Athlet **vor** dieser Umstellung von Hand eingetragen hat, bleibt
+  liegen und zählt weiter mit. `/api/garmin/dubletten` zeigt, was dabei doppelt
+  ist; entfernt wird es über den Verlauf, einzeln und von Hand.
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
-  eingetragen und beim Start ergänzt; für Umbenennungen oder Typänderungen
-  bleibt es beim Löschen der Datei. Die Tabelle `garmin_workout_links` legt
+  eingetragen und beim Start ergänzt, entfallene über `_ENTFALLENE_SPALTEN`
+  beim Start gelöscht; für Umbenennungen oder Typänderungen bleibt es beim
+  Löschen der Datei. Die Tabelle `garmin_workout_links` legt
   `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
   `athlete_profiles.garmin_personal_bests` sowie
   `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
@@ -1001,15 +1111,22 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
 - Das Aufräumen vergangener Einheiten lässt sich nicht abschalten und hängt an
   einem Abgleich oder einer Übertragung; wer beides nie auslöst, behält seine
   alten Vorlagen.
-- Ein überbügelter Block, dessen Einheiten schon in Garmin liegen, bleibt bis
-  zum nächsten Garmin-Lauf in der Planliste stehen — vorher darf er nicht
-  gelöscht werden, sonst käme niemand mehr an seine Workouts heran. Wer nie
-  überträgt und nie abgleicht, behält ihn.
-- Wird ein Plan gelöscht, verschwindet nur die Zuordnung — was schon in Garmin
-  steht, bleibt dort. Das Aufräumen erreicht diese Vorlagen nicht mehr: Es geht
-  ausschließlich über `GarminWorkoutLink`, und der ist mit dem Plan gelöscht
-  worden. Ungefragt in einem fremden Konto zu löschen wäre
-  übergriffig; der Kalender in der App zeigt es weiterhin zum Entfernen an.
+- Ein überbügelter Block, dessen Einheiten schon in Garmin liegen, bleibt so
+  lange in der Planliste stehen, bis das Aufräumen dort **durchgekommen** ist —
+  vorher darf er nicht gelöscht werden, sonst käme niemand mehr an seine
+  Workouts heran. Im Normalfall ist das derselbe Handgriff (der Aufräumlauf
+  hängt am Übernehmen); scheitert er an einer Anfragesperre, bleibt der Block
+  bis zum nächsten Lauf sichtbar.
+- Das **Löschen eines Plans wartet auf Garmin** und läuft dabei im
+  Anfrage-Thread, nicht als Job: Bei einem Block mit vielen übertragenen
+  Einheiten dauert die Antwort entsprechend (je Einheit zwei Anfragen und eine
+  Sekunde Pause). Es hält auch **nicht das globale Schloss** des Runners —
+  derselbe Zuschnitt wie beim Löschen einer einzelnen Einheit, aber mit mehr
+  Anfragen dahinter.
+- Wer beim Löschen `garmin_uebergehen` setzt (die Rückfrage „Trotzdem
+  löschen?"), behält verwaiste Workouts in Garmin: Mit dem Plan stirbt die
+  Zuordnung, und ohne sie fasst die App dort nichts mehr an. Der Kalender in
+  der App zeigt sie weiterhin zum Entfernen an — das ist dann der einzige Weg.
 - Der Bestandsabgleich prüft nur die Monate, in denen die App ihre Einheiten
   vermutet. Wer ein Workout in **Connect** auf einen anderen Monat schiebt, wird
   dort nicht gefunden; die Vorlage besteht aber noch, also wird die Zuordnung

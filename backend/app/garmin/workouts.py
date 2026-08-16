@@ -11,6 +11,12 @@ vorsichtig: Was er nicht sicher erkennt, wird **ein** Schritt über die geplante
 Dauer und nie ein geratener Intervallblock. Ein falsch geratenes Training auf
 der Uhr ist schlimmer als ein grobes, denn es wird ungeprüft absolviert.
 
+Erkannte Wiederholungen werden anschließend *ausgeschrieben*: Aus „5 × 3 min Z4
+mit 2 min Trabpause“ werden zehn Schritte und nicht eine Gruppe mit zwei
+Kindern. Garmin könnte beides, und abgearbeitet wird beides gleich — sichtbar
+ist in der Schrittliste aber nur die ausgeschriebene Form. Siehe
+`_schreibe_wiederholungen_aus()`.
+
 Zwei Grammatiken, nicht eine: Bei Ausdauereinheiten beschreibt der Aufbautext
 einen Zeitverlauf („15 min Z2, 5 x 3 min Z4“), bei Kraft und Mobility eine
 Übungsliste („3x15 Leg Raise je Seite / 2x45 s Dehnung je Seite“). Dieselben
@@ -32,7 +38,7 @@ und zwei Quellen dafür liefen unweigerlich auseinander.
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from garminconnect.workout import ConditionType, SportType, StepType, TargetType
@@ -95,6 +101,13 @@ _RUNDENTASTE_PLATZHALTER = 10.0
 # sondern führt zur Ablehnung des ganzen Workouts.
 MAX_NAME = 80
 MAX_BESCHREIBUNG = 1024
+
+# Obergrenze für die ausgeschriebene Schrittliste. Wie viele Schritte ein
+# Workout tragen darf, sagt Garmin nirgends zu — die Zahl ist deshalb **nicht**
+# abgelesen, sondern bewusst vorsichtig gewählt. Sie greift erst bei
+# Intervallserien, die auch auf dem Papier ungewöhnlich lang sind
+# („20 × 400 m mit Trabpause"); darunter bleibt die ausgeschriebene Form.
+MAX_SCHRITTE = 50
 
 _SCHRITT_TYPEN: dict[str, tuple[int, str]] = {
     "warmup": (StepType.WARMUP, "warmup"),
@@ -655,6 +668,58 @@ def _block_json(
     return gruppe, naechste
 
 
+def _runden_beschriftung(schritt: Schritt, runde: int, von: int) -> Schritt:
+    """Hängt „(2/4)" an den Text, damit jede Runde für sich erkennbar bleibt.
+
+    Der einzige Nachteil des Ausschreibens: Vier gleichlautende Schritte
+    „3 min Z4" hintereinander sagen dem Athleten nicht, wo im Block er steht.
+    Die Nummer holt zurück, was die Wiederholungsgruppe von sich aus mitbrachte.
+    """
+    zusatz = f"({runde}/{von})"
+    text = f"{schritt.text} {zusatz}" if schritt.text else zusatz
+    return replace(schritt, text=text)
+
+
+def _schreibe_wiederholungen_aus(elemente: list[Element]) -> list[Element]:
+    """Löst Wiederholungsgruppen in einzelne Schritte auf.
+
+    Garmin *kann* Wiederholungen zusammengefasst (`RepeatGroupDTO`), und die Uhr
+    arbeitet sie auch N-mal ab. Sichtbar ist auf dem Gerät wie in Connect aber
+    zunächst nur die zusammengeklappte Gruppe — bei zwei verschiedenen Blöcken
+    („3 × 3 min Z4" und danach „3 × 2 min Z4") stehen dort zwei Zeilen, obwohl
+    sechs Belastungen zu absolvieren sind. Ausgeschrieben steht jede Runde als
+    eigener Abschnitt in der Liste, und die Uhr zählt sie einzeln durch.
+
+    Ausgeschrieben wird deshalb **jeder** Block, auch der mit innerer Struktur:
+    Aus „4 × (3 min hart / 2 min locker)" werden acht Schritte in genau der
+    Reihenfolge, in der sie zu laufen sind.
+
+    Eine Grenze bleibt: Für die Zahl der Schritte je Workout sagt Garmin nichts
+    zu, und ein ausgeschriebenes „20 × 400 m mit Trabpause" wären vierzig statt
+    zwei. Über `MAX_SCHRITTE` bleibt es deshalb bei den Gruppen — die
+    zusammengefasste Darstellung ist besser als ein Workout, das das Gerät nicht
+    mehr annimmt. Alles oder nichts, denn eine halb ausgeschriebene Liste wäre
+    schwerer zu lesen als beide reinen Formen.
+    """
+    ausgeschrieben: list[Element] = []
+    for element in elemente:
+        if not isinstance(element, Block):
+            ausgeschrieben.append(element)
+        elif element.anzahl <= 1:
+            # „1 ×" ist keine Wiederholung, sondern nur eine Schreibweise.
+            ausgeschrieben.extend(element.schritte)
+        else:
+            for runde in range(1, element.anzahl + 1):
+                ausgeschrieben.extend(
+                    _runden_beschriftung(schritt, runde, element.anzahl)
+                    for schritt in element.schritte
+                )
+
+    if len(ausgeschrieben) > MAX_SCHRITTE:
+        return elemente
+    return ausgeschrieben
+
+
 def _ersatz_elemente(session: Any) -> list[Element]:
     """Ein einzelner Schritt, wenn der Aufbautext nichts hergab.
 
@@ -740,6 +805,7 @@ def baue_workout(
         else zerlege_struktur
     )
     elemente = zerlegen(session.structure) or _ersatz_elemente(session)
+    elemente = _schreibe_wiederholungen_aus(elemente)
 
     hinweis: str | None = None
     if session.sport == "brick":
@@ -795,12 +861,20 @@ def baue_workout(
 
 
 def name_der_einheit(session: Any) -> str:
-    """Datum voran, damit die Workout-Bibliothek in Garmin sortierbar bleibt.
+    """Nur der Titel — den Tag trägt der Kalendereintrag.
 
-    Ohne das stünden dort nach ein paar Blöcken fünf Einträge namens
-    „Lockerer Dauerlauf“ nebeneinander, ununterscheidbar.
+    Früher stand das Datum voran, damit die Workout-Bibliothek sortierbar
+    blieb. Das war der Blick auf den falschen Ort: Die Bibliothek ist hier
+    bloße Durchgangsstation (ohne Vorlage kennt Garmin keinen Termin) und wird
+    laufend leergeräumt, während der Kalender das Ziel ist — und dort steht der
+    Tag ohnehin schon in der Spalte, in der die Einheit hängt. „16.08. Lockerer
+    Dauerlauf“ am 16.08. las sich dort wie ein Fehler.
+
+    Der Rückfall auf „Training“ ist keine Zierde: Garmin lehnt ein Workout ohne
+    Namen ab, und bis hierher war der Name durch das vorangestellte Datum
+    zwangsläufig nicht leer.
     """
-    return f"{session.date.strftime('%d.%m.')} {session.title}"[:MAX_NAME]
+    return (session.title or "Training").strip()[:MAX_NAME] or "Training"
 
 
 def _geschaetzte_dauer(session: Any, segmente: list[dict[str, Any]]) -> int:

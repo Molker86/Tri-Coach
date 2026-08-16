@@ -548,22 +548,19 @@ def raeume_vergangene_auf(
     return _entferne_reihe(db, api, list(alte), pause_s=pause_s)
 
 
-def raeume_ersetzte_auf(
+def ersetzte_links(
     db: Session,
-    api: Any,
     user_id: int,
     *,
     heute: date | None = None,
     ausser_plan_id: int | None = None,
-    pause_s: float | None = None,
-) -> UebertragungsErgebnis:
-    """Nimmt künftige Einheiten zurück, deren Block abgelöst wurde.
+) -> list[GarminWorkoutLink]:
+    """Die künftigen Einheiten in Garmin, deren Block abgelöst wurde.
 
-    Ein neuer Block entsteht als **neuer** Plan; der bisherige wird nur
-    stillgelegt. Seine bereits übertragenen Einheiten blieben aber in Garmin
-    stehen — und weil beide Blöcke dieselben Tage abdecken, stünden auf der Uhr
-    zwei Trainings je Tag, von denen eines überholt ist. Welches, könnte der
-    Athlet vor dem Start nicht erkennen.
+    Getrennt von `raeume_ersetzte_auf`, weil die Frage „steht da noch etwas
+    Überholtes?" ohne eine einzige Anfrage an Garmin zu beantworten ist. Die
+    Automatik beim Übernehmen eines Blocks braucht genau das: Sie muss vorher
+    wissen, ob sich ein Lauf überhaupt lohnt.
 
     Nur was in der Zukunft liegt: Vergangenes räumt `raeume_vergangene_auf` weg,
     und ein bereits absolvierter Tag ist ohnehin kein Widerspruch mehr.
@@ -588,7 +585,7 @@ def raeume_ersetzte_auf(
     if aktiv is None:
         # Ohne aktiven Block gibt es keinen Nachfolger, der etwas ablösen
         # könnte — dann ist auch nichts überholt.
-        return UebertragungsErgebnis()
+        return []
 
     bedingungen = [
         GarminWorkoutLink.user_id == user_id,
@@ -598,14 +595,41 @@ def raeume_ersetzte_auf(
     if ausser_plan_id is not None:
         bedingungen.append(PlanSession.plan_id != ausser_plan_id)
 
-    ersetzt = db.scalars(
-        select(GarminWorkoutLink)
-        .join(PlanSession, PlanSession.id == GarminWorkoutLink.plan_session_id)
-        .join(Plan, Plan.id == PlanSession.plan_id)
-        .where(*bedingungen)
-        .order_by(GarminWorkoutLink.scheduled_date)
-    ).all()
-    return _entferne_reihe(db, api, list(ersetzt), pause_s=pause_s)
+    return list(
+        db.scalars(
+            select(GarminWorkoutLink)
+            .join(PlanSession, PlanSession.id == GarminWorkoutLink.plan_session_id)
+            .join(Plan, Plan.id == PlanSession.plan_id)
+            .where(*bedingungen)
+            .order_by(GarminWorkoutLink.scheduled_date)
+        ).all()
+    )
+
+
+def raeume_ersetzte_auf(
+    db: Session,
+    api: Any,
+    user_id: int,
+    *,
+    heute: date | None = None,
+    ausser_plan_id: int | None = None,
+    pause_s: float | None = None,
+) -> UebertragungsErgebnis:
+    """Nimmt künftige Einheiten zurück, deren Block abgelöst wurde.
+
+    Ein neuer Block entsteht als **neuer** Plan; der bisherige wird nur
+    stillgelegt. Seine bereits übertragenen Einheiten blieben aber in Garmin
+    stehen — und weil beide Blöcke dieselben Tage abdecken, stünden auf der Uhr
+    zwei Trainings je Tag, von denen eines überholt ist. Welches, könnte der
+    Athlet vor dem Start nicht erkennen.
+
+    Welche Einheiten das sind und warum die Auswahl so zugeschnitten ist, steht
+    bei `ersetzte_links`.
+    """
+    ersetzt = ersetzte_links(
+        db, user_id, heute=heute, ausser_plan_id=ausser_plan_id
+    )
+    return _entferne_reihe(db, api, ersetzt, pause_s=pause_s)
 
 
 def _entferne_reihe(

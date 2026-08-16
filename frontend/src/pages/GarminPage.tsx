@@ -179,9 +179,9 @@ export default function GarminPage() {
         <div>
           <h1>Garmin Connect</h1>
           <p className="muted">
-            Trainings und Fitnessdaten kommen von deiner Uhr — Nachtragen von Hand
-            ist damit nur noch die Ausnahme. Und der Weg zurück: Geplante Einheiten
-            wandern als Workout in den Garmin-Kalender.
+            Trainings und Fitnessdaten kommen von deiner Uhr — und nur von dort:
+            Absolvierte Einheiten lassen sich nicht von Hand eintragen. Der Weg
+            zurück: Geplante Einheiten wandern als Workout in den Garmin-Kalender.
           </p>
         </div>
         {konto !== null && (
