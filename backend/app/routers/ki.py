@@ -96,8 +96,8 @@ def planen(data: KiPlanenIn, user: CurrentUser, db: DbSession) -> KiJob:
             "Token ein.",
         )
 
-    # Anders als die Automatik hat der Knopf einen Riegel: Wer selbst drückt,
-    # kann warten und es gleich noch einmal versuchen.
+    # Ein Riegel gegen den zweiten Druck: Wer selbst drückt, kann warten und es
+    # gleich noch einmal versuchen.
     if runner.laeuft_gerade() is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

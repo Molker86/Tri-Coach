@@ -1,4 +1,4 @@
-"""Die KI plant den Block selbst — Lauf, Fehlerfälle und Automatik.
+"""Die KI plant den Block selbst — Lauf, Fehlerfälle und Einstellungen.
 
 Kein Test ruft Claude Code auf. Ersetzt wird an genau einer Stelle
 (`ki.client.rufe_claude`); die Auswertung der JSON-Hülle bekommt eigene Tests
@@ -6,8 +6,9 @@ gegen einen nachgebildeten Unterprozess, weil dort die Grenze zum fremden
 Programm liegt und ein Fehlschlag sonst erst am echten Konto auffiele.
 """
 
+import importlib
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import pytest
 
@@ -36,9 +37,6 @@ def synchron(monkeypatch):
     import app.routers.ki as ki_router
 
     monkeypatch.setattr(ki_router, "ist_angemeldet", lambda erzwinge=False: True)
-    import app.ki.automatik as automatik_modul
-
-    monkeypatch.setattr(automatik_modul, "ist_angemeldet", lambda erzwinge=False: True)
 
 
 def antwort_json(start: date, tage: int = 7, titel: str = "Blockplan") -> str:
@@ -229,167 +227,38 @@ def test_ohne_zugang_kein_lauf(client, auth, monkeypatch):
 
 def test_einstellungen_sind_teil_updates(client, auth):
     zustand = client.get("/api/ki/status", headers=auth).json()
-    assert zustand["einstellungen"]["auto_plan_enabled"] is True
     assert zustand["modell"] == "opus"
     assert zustand["effort"] == "max"
 
-    client.put("/api/ki/settings", headers=auth, json={"plan_days": 5})
+    client.put("/api/ki/settings", headers=auth, json={"model": "sonnet"})
     geaendert = client.put(
-        "/api/ki/settings", headers=auth, json={"auto_plan_enabled": False}
+        "/api/ki/settings", headers=auth, json={"effort": "high"}
     ).json()
 
-    # Die Blocklänge darf durch das zweite Formular nicht verloren gehen.
-    assert geaendert["plan_days"] == 5
-    assert geaendert["auto_plan_enabled"] is False
+    # Das Modell darf durch das zweite Formular nicht verloren gehen.
+    assert geaendert["model"] == "sonnet"
+    assert geaendert["effort"] == "high"
+    # Und der Lauf nimmt beides auf.
+    zustand = client.get("/api/ki/status", headers=auth).json()
+    assert zustand["modell"] == "sonnet"
+    assert zustand["effort"] == "high"
 
 
 # --------------------------------------------------------------------------
-# Automatik
+# Kein Lauf ohne Knopfdruck
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def automatik(client, auth, monkeypatch):
-    """Die Automatik mit eingeschaltetem Schalter — global ist sie in Tests aus.
+def test_es_gibt_keine_automatische_planung():
+    """Die Entscheidung als Test: Ein Block entsteht nur, wenn jemand ihn anstößt.
 
-    Und mit genau einem in Frage kommenden Nutzer: Die Schleife geht über alle
-    Konten und bricht nach dem ersten fälligen ab. In der geteilten
-    Testdatenbank liegen die Konten der anderen Tests daneben, und ohne das
-    Stilllegen plante sie für eines davon — der Test bekäme eine 1, die nichts
-    mit ihm zu tun hat.
+    Nirgends sonst ließe sich das nachprüfen — eine Schleife, die wieder
+    einzöge, fiele erst am aufgebrauchten Kontingent des Abos auf, und dann an
+    einem Tag ohne Plan.
     """
-    import app.ki.automatik as modul
-    from app.database import SessionLocal
-    from app.models import KiSettings, User
+    from app import config
 
-    monkeypatch.setattr(modul, "KI_AUTOPLAN", True)
-    monkeypatch.setattr(modul, "KI_PLAN_HOUR", 0)
-
-    meine_id = client.get("/api/auth/me", headers=auth).json()["id"]
-    with SessionLocal() as db:
-        for user in db.query(User).filter(User.id != meine_id).all():
-            einstellungen = (
-                db.query(KiSettings).filter_by(user_id=user.id).one_or_none()
-            )
-            if einstellungen is None:
-                db.add(KiSettings(user_id=user.id, auto_plan_enabled=False))
-            else:
-                einstellungen.auto_plan_enabled = False
-        db.commit()
-
-    return modul
-
-
-@pytest.fixture
-def meine_nutzer_id(client, auth) -> int:
-    return client.get("/api/auth/me", headers=auth).json()["id"]
-
-
-def _nachmittag() -> datetime:
-    return datetime.combine(HEUTE, datetime.min.time()).replace(hour=12)
-
-
-def test_automatik_plant_wenn_der_block_ausgelaufen_ist(
-    client, auth, monkeypatch, automatik
-):
-    lege_fragebogen_an(client, auth)
-    # Ein Block, der gestern endete.
-    ki_antwortet(monkeypatch, antwort_json(HEUTE - timedelta(days=7), titel="Alt"))
-    client.post("/api/ki/planen", headers=auth, json={"days": 7})
-
-    ki_antwortet(monkeypatch, antwort_json(HEUTE, titel="Neu"))
-    assert automatik.starte_faellige_planung(_nachmittag()) == 1
-
-    assert client.get("/api/plans/active", headers=auth).json()["title"] == "Neu"
-
-    # Ein zweiter Anlauf am selben Tag darf nichts tun — sonst liefe ein
-    # scheiternder Lauf alle fünfzehn Minuten neu.
-    assert automatik.starte_faellige_planung(_nachmittag()) == 0
-
-
-def test_automatik_laesst_laufenden_block_in_ruhe(client, auth, monkeypatch, automatik):
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE, titel="Laeuft noch"))
-    client.post("/api/ki/planen", headers=auth, json={"days": 7})
-
-    assert automatik.starte_faellige_planung(_nachmittag()) == 0
-    assert client.get("/api/plans/active", headers=auth).json()["title"] == "Laeuft noch"
-
-
-def test_automatik_wartet_die_stunde_ab(client, auth, monkeypatch, automatik):
-    lege_fragebogen_an(client, auth)
-    monkeypatch.setattr(automatik, "KI_PLAN_HOUR", 10)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-
-    frueh = datetime.combine(HEUTE, datetime.min.time()).replace(hour=7)
-    assert automatik.starte_faellige_planung(frueh) == 0
-
-
-def test_automatik_laesst_sich_abschalten(client, auth, monkeypatch, automatik):
-    lege_fragebogen_an(client, auth)
-    client.put("/api/ki/settings", headers=auth, json={"auto_plan_enabled": False})
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-
-    assert automatik.starte_faellige_planung(_nachmittag()) == 0
-
-
-def test_globaler_schalter_schlaegt_alles(client, auth, monkeypatch, automatik):
-    lege_fragebogen_an(client, auth)
-    monkeypatch.setattr(automatik, "KI_AUTOPLAN", False)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-
-    assert automatik.starte_faellige_planung(_nachmittag()) == 0
-
-
-def test_automatik_wartet_auf_den_garmin_abgleich(
-    client, auth, monkeypatch, automatik, meine_nutzer_id
-):
-    """Ohne frische Trainingsdaten plante die KI auf dem Stand von gestern."""
-    from datetime import timezone
-
-    from app.database import SessionLocal
-    from app.models import GarminAccount
-
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-
-    with SessionLocal() as db:
-        db.add(
-            GarminAccount(
-                user_id=meine_nutzer_id,
-                email="x@example.com",
-                token_encrypted="",
-                auto_sync_enabled=True,
-                last_sync_at=datetime.now(timezone.utc) - timedelta(days=2),
-            )
-        )
-        db.commit()
-
-    assert automatik.starte_faellige_planung(_nachmittag()) == 0
-
-    # Nach dem Abgleich von heute ist der Weg frei.
-    with SessionLocal() as db:
-        konto = db.query(GarminAccount).filter_by(user_id=meine_nutzer_id).one()
-        konto.last_sync_at = datetime.now(timezone.utc)
-        db.commit()
-
-    assert automatik.starte_faellige_planung(_nachmittag()) == 1
-
-
-def test_startdatum_ist_nie_rueckwirkend(client, auth, monkeypatch, automatik):
-    """Ein vor Wochen ausgelaufener Block ergäbe sonst einen Start in der Vergangenheit."""
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(
-        monkeypatch, antwort_json(HEUTE - timedelta(days=30), titel="Lange her")
-    )
-    client.post("/api/ki/planen", headers=auth, json={"days": 7})
-
-    gesehen = {}
-
-    def _ruf(prompt, **kwargs):
-        gesehen["prompt"] = prompt
-        return ki_client.Antwort(text=antwort_json(HEUTE), modell="claude-opus-5")
-
-    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
-    assert automatik.starte_faellige_planung(_nachmittag()) == 1
-    assert HEUTE.isoformat() in gesehen["prompt"]
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("app.ki.automatik")
+    assert not hasattr(config, "KI_AUTOPLAN")
+    assert not hasattr(config, "KI_PLAN_HOUR")

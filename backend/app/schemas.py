@@ -631,11 +631,8 @@ class KiJobOut(BaseModel):
 class KiSettingsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    auto_plan_enabled: bool
     model: str
     effort: str
-    plan_days: int
-    last_auto_plan_on: date | None = None
     status: str
     status_message: str | None = None
 
@@ -643,11 +640,9 @@ class KiSettingsOut(BaseModel):
 class KiSettingsIn(BaseModel):
     """Teil-Update: Ein Formular, das nur ein Feld schickt, löscht die anderen nicht."""
 
-    auto_plan_enabled: bool | None = None
     # Leerer String heißt ausdrücklich „Vorgabe aus der Konfiguration".
     model: str | None = Field(None, max_length=48)
     effort: Literal["", "low", "medium", "high", "xhigh", "max"] | None = None
-    plan_days: int | None = Field(None, ge=1, le=14)
 
 
 class KiStatusOut(BaseModel):

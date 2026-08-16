@@ -67,8 +67,9 @@ export default function PlanExchange() {
   )
 
   useEffect(() => {
-    // Auch ein Lauf, den die Automatik angestoßen hat, soll hier sichtbar
-    // werden — sonst stünde die Seite still, während im Server geplant wird.
+    // Auch ein Lauf, der in einem anderen Fenster angestoßen wurde, soll hier
+    // sichtbar werden — sonst stünde die Seite still, während im Server geplant
+    // wird.
     api
       .kiStatus()
       .then((status) => {
@@ -97,19 +98,6 @@ export default function PlanExchange() {
       setKiJob(await api.kiAbbrechen(kiJob.id))
     } catch {
       // Der Lauf endet ohnehin; eine Fehlermeldung hier hälfe niemandem.
-    }
-  }
-
-  async function aendereAutomatik(an: boolean) {
-    if (!kiStatus?.einstellungen) return
-    const vorher = kiStatus.einstellungen
-    setKiStatus({ ...kiStatus, einstellungen: { ...vorher, auto_plan_enabled: an } })
-    try {
-      const neu = await api.kiSettings({ auto_plan_enabled: an })
-      setKiStatus((stand) => (stand ? { ...stand, einstellungen: neu } : stand))
-    } catch (err) {
-      setKiStatus((stand) => (stand ? { ...stand, einstellungen: vorher } : stand))
-      setError(err instanceof Error ? err.message : 'Einstellung nicht gespeichert.')
     }
   }
 
@@ -236,6 +224,15 @@ export default function PlanExchange() {
             {zeitraum}
           </div>
 
+          {/* Ein abgelaufener Zugang oder ein aufgebrauchtes Kontingent gehört
+              an den Knopf: Sonst erführe man den Grund erst, wenn der nächste
+              Druck gleich wieder scheitert. */}
+          {kiStatus?.einstellungen &&
+            kiStatus.einstellungen.status !== 'ready' &&
+            kiStatus.einstellungen.status_message && (
+              <Alert kind="warning">{kiStatus.einstellungen.status_message}</Alert>
+            )}
+
           {laeuft && kiJob ? (
             <LaufKarte job={kiJob} onAbbrechen={brichAb} />
           ) : (
@@ -263,40 +260,6 @@ export default function PlanExchange() {
               )}
             </>
           )}
-        </div>
-      )}
-
-      {kiVerfuegbar && kiStatus?.einstellungen && (
-        <div className="card">
-          <h3>Automatisch planen</h3>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={kiStatus.einstellungen.auto_plan_enabled}
-              onChange={(e) => aendereAutomatik(e.target.checked)}
-            />
-            <span>
-              Täglich planen, sobald der Block ausläuft
-              <span className="field-hint">
-                Läuft nach dem Garmin-Abgleich, damit die Trainingsdaten von heute
-                mit einfließen. Der fertige Block geht wie immer von selbst auf die
-                Uhr.
-              </span>
-            </span>
-          </label>
-          {kiStatus.einstellungen.last_auto_plan_on && (
-            <p className="small faint mb-0">
-              Zuletzt automatisch angesetzt am{' '}
-              {new Date(
-                kiStatus.einstellungen.last_auto_plan_on,
-              ).toLocaleDateString('de-DE')}
-              .
-            </p>
-          )}
-          {kiStatus.einstellungen.status !== 'ready' &&
-            kiStatus.einstellungen.status_message && (
-              <Alert kind="warning">{kiStatus.einstellungen.status_message}</Alert>
-            )}
         </div>
       )}
 
@@ -379,7 +342,10 @@ function LetzterLauf({ job }: { job: KiJob }) {
     dateStyle: 'short',
     timeStyle: 'short',
   })
-  const teile = [wann, job.kind === 'auto' ? 'automatisch' : 'von Hand']
+  const teile = [wann]
+  // „automatisch" steht nur noch an Läufen aus der Zeit vor dem Wegfall der
+  // Automatik. Bei allen neuen wäre „von Hand" eine Selbstverständlichkeit.
+  if (job.kind === 'auto') teile.push('automatisch')
   if (job.model_used) teile.push(job.model_used)
   if (job.duration_ms) teile.push(`${Math.round(job.duration_ms / 1000)} s`)
 

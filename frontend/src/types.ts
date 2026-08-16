@@ -429,6 +429,7 @@ export type KiJobState =
 
 export interface KiJob {
   id: number
+  /** 'auto' nur noch an Läufen von vor dem Wegfall der automatischen Planung. */
   kind: 'manual' | 'auto'
   state: KiJobState
   started_at: string
@@ -447,12 +448,9 @@ export interface KiJob {
 }
 
 export interface KiSettings {
-  auto_plan_enabled: boolean
   /** Leer heißt: die Vorgabe aus der Konfiguration. */
   model: string
   effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-  plan_days: number
-  last_auto_plan_on: string | null
   status: 'ready' | 'error' | 'token_expired' | 'rate_limited'
   status_message: string | null
 }

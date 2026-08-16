@@ -83,15 +83,6 @@ KI_EFFORT = os.environ.get("TRI_KI_EFFORT", "max").strip() or "max"
 # hängender Prozess nicht bis zum Neustart stehen bleibt.
 KI_TIMEOUT_S = int(os.environ.get("TRI_KI_TIMEOUT_S", "900"))
 
-# Automatisches Planen, sobald der Block ausläuft. Wie beim Garmin-Abgleich
-# global abschaltbar — in Tests gesetzt, weil die Schleife sonst mitliefe.
-KI_AUTOPLAN = os.environ.get("TRI_KI_AUTOPLAN", "1").strip() not in {
-    "0",
-    "false",
-    "no",
-}
-
-# Ortszeit-Stunde, ab der automatisch geplant werden darf. Eine Stunde nach dem
-# Garmin-Abgleich: Der soll durch sein, damit die KI auf den Daten von heute
-# plant und nicht auf denen von gestern.
-KI_PLAN_HOUR = int(os.environ.get("TRI_KI_PLAN_HOUR", str(GARMIN_SYNC_HOUR + 1)))
+# Kein Schalter für automatisches Planen: Es gibt keins. Ein Block entsteht nur,
+# wenn jemand ihn anstößt — anders als der Garmin-Abgleich, der von selbst läuft
+# und deshalb `TRI_GARMIN_AUTOSYNC` hat.

@@ -502,16 +502,17 @@ class KiSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
 
-    # Ob täglich von selbst geplant wird, sobald der Block ausläuft.
-    auto_plan_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Leer heißt: die Vorgabe aus der Konfiguration.
     model: Mapped[str] = mapped_column(String(48), default="")
     effort: Mapped[str] = mapped_column(String(12), default="")
-    plan_days: Mapped[int] = mapped_column(Integer, default=7)
 
-    # Der Tag, an dem die Automatik zuletzt *angesetzt* hat — nicht der, an dem
-    # sie zuletzt erfolgreich war. Ein gescheiterter Lauf soll sich nicht alle
-    # fünfzehn Minuten wiederholen und das Kontingent des Abos aufbrauchen.
+    # Altlasten der entfallenen Automatik. Sie stehen hier, weil sie in
+    # bestehenden Datenbanken NOT NULL sind: Aus dem Modell entfernt, ohne die
+    # Spalte zu löschen, schlüge das Anlegen einer Einstellungszeile fehl —
+    # SQLAlchemy schriebe sie nicht mehr mit, und einen Vorgabewert kennt die
+    # Datei nicht. Gelesen wird nichts davon mehr.
+    auto_plan_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    plan_days: Mapped[int] = mapped_column(Integer, default=7)
     last_auto_plan_on: Mapped[date | None] = mapped_column(Date)
 
     status: Mapped[str] = mapped_column(String(24), default="ready")
@@ -535,7 +536,9 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(16), default="manual")  # manual | auto
+    # manual — „auto" steht nur noch an Läufen aus der Zeit vor dem Wegfall
+    # der Automatik.
+    kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
     # queued | running | done | failed | cancelled | interrupted
 

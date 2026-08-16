@@ -30,9 +30,10 @@ ebenso mit. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
 App bringt dafür einen eigenen Kalender mit — Monatsansicht, verschieben, aus
 Garmin löschen.
 
-**Und die Mitte läuft inzwischen auch von selbst: Die App fragt Claude direkt.**
-Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — oder gar
-nichts, weil die Automatik den nächsten Block anlegt, sobald der alte ausläuft.
+**Und die Mitte kann die App inzwischen selbst: Sie fragt Claude direkt.**
+Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — aber
+**immer erst auf Knopfdruck**: Von selbst entsteht kein Block, siehe „Geplant
+wird nur auf Zuruf".
 Aufgerufen wird **Claude Code headless** als Unterprozess, nicht die API mit
 Token-Abrechnung: Das Abo war da, und ein Aufruf am Tag kostet darüber nichts
 extra. Der Weg über die Zwischenablage bleibt vollständig erhalten — als
@@ -64,7 +65,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 226 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 220 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -95,10 +96,9 @@ Für die KI-Planung: `CLAUDE_CODE_OAUTH_TOKEN` (der Abo-Zugang; den Namen gibt
 Claude Code vor, der Unterprozess liest genau diese Variable). Lokal genügt
 stattdessen eine angemeldete CLI — geprüft wird nicht die Variable, sondern
 `claude auth status`. Dazu `TRI_KI_CLI` (Pfad zum Programm, Vorgabe `claude`),
-`TRI_KI_MODELL` (Vorgabe `opus`), `TRI_KI_EFFORT` (Vorgabe `max`),
-`TRI_KI_TIMEOUT_S` (Vorgabe 900), `TRI_KI_AUTOPLAN` (`0` schaltet die
-automatische Planung ab; in Tests gesetzt) und `TRI_KI_PLAN_HOUR` (Vorgabe:
-eine Stunde nach `TRI_GARMIN_SYNC_HOUR`).
+`TRI_KI_MODELL` (Vorgabe `opus`), `TRI_KI_EFFORT` (Vorgabe `max`) und
+`TRI_KI_TIMEOUT_S` (Vorgabe 900). Ein Gegenstück zu `TRI_GARMIN_AUTOSYNC` gibt
+es hier **nicht**: Die Planung hat keine Schleife, die man abschalten müsste.
 
 ## Architekturentscheidungen (und warum)
 
@@ -960,11 +960,11 @@ Garmin-Übertragung an, die sonst auf ein Schloss liefe, das der Planungslauf
 selbst noch hält.
 
 **Ein Weg für beide Auslöser.** `ai_export.erzeuge_export()` und
-`plan_import.uebernimm_plan()` sind aus den Routen herausgezogen und werden von
-Knopf, Automatik und Handweg gleichermaßen benutzt. Damit erbt der automatische
-Weg ohne eine Zeile Wiederholung, was am Übernehmen hängt: der abgelöste Block
-wird weggeräumt, und der neue geht über
-`automatik.starte_uebertragung_fuer_neuen_plan` von selbst auf die Uhr.
+`plan_import.uebernimm_plan()` sind aus den Routen herausgezogen und werden vom
+Knopf wie vom Handweg über die Zwischenablage gleichermaßen benutzt. Damit erbt
+der Knopf ohne eine Zeile Wiederholung, was am Übernehmen hängt: der abgelöste
+Block wird weggeräumt, und der neue geht über
+`garmin.automatik.starte_uebertragung_fuer_neuen_plan` von selbst auf die Uhr.
 
 **Kein `--json-schema`, obwohl die CLI es könnte.** `parse_ai_response` fängt
 Codefences, Begleittext und `weeks`-Ebenen bereits ab und ist getestet; im
@@ -973,20 +973,26 @@ lief mit **null Warnungen** durch. Ein striktes Schema wäre ein zweiter, eigene
 Fehlerpfad — und eine Fessel für genau das Modell, von dem hier die beste
 Antwort erwartet wird. Bleibt in der Hinterhand.
 
-**Die Automatik prüft, statt zu zielen** (`ki/automatik.py`). Eine zweite
-Viertelstundenschleife neben der von Garmin, kein Rückruf aus deren Runner: Ein
-Rückruf verkettete zwei Anbindungen, die sonst nichts voneinander wissen, und
-liefe bei jedem Abbruch ins Leere. Geplant wird, wenn alles zutrifft — Schalter
-global und je Nutzer an, Zugang vorhanden, Stunde erreicht, Fragebogen da, heute
-noch nicht geplant, **Garmin für heute durch** (sonst plante die KI auf den
-Daten von gestern) und der aktive Block ausgelaufen. Das Startdatum ist nie
-rückwirkend, dieselbe Regel wie `planung.ts` im Frontend.
+**Geplant wird nur auf Zuruf.** Es gab hier einmal eine Automatik: eine zweite
+Viertelstundenschleife neben der von Garmin (`ki/automatik.py`), die den
+nächsten Block anlegte, sobald der alte auslief. Sie ist **ganz entfernt** —
+Schleife, `TRI_KI_AUTOPLAN`, `TRI_KI_PLAN_HOUR`, der Schalter je Nutzer und
+seine Tests. Der Grund ist nicht technisch: Ein Trainingsblock ist eine
+Entscheidung, und ein Plan, der über Nacht von selbst entsteht, steht am Morgen
+auf der Uhr, ohne dass ihn jemand bestellt hätte — und hat dabei stillschweigend
+vom Kontingent des Abos genommen, das man daneben selbst braucht. Geblieben sind
+der Knopf („Block jetzt planen") und der Weg über die Zwischenablage. Der Preis
+ist ausdrücklich in Kauf genommen: **Läuft ein Block aus, geschieht nichts.**
+Das Dashboard weist darauf hin (`blockStatus()`), mehr nicht.
 
-**`last_auto_plan_on` wird beim *Start* gesetzt, nicht bei Erfolg.** Sonst liefe
-ein scheiternder Lauf alle fünfzehn Minuten neu und fräße das Kontingent des
-Abos. Der Preis ist bewusst in Kauf genommen: Nach einem Fehlschlag gibt es
-heute keinen zweiten Versuch von selbst — der Fehler steht am Job, und der Knopf
-bleibt.
+Was davon in der Datenbank bleibt, ist Absicht: `auto_plan_enabled`,
+`plan_days` und `last_auto_plan_on` stehen weiter an `KiSettings`, weil sie in
+bestehenden Datenbanken NOT NULL sind — aus dem Modell entfernt, ohne die Spalte
+zu löschen, schlüge das Anlegen einer Einstellungszeile fehl. Gelesen wird
+nichts davon mehr, und aus `KiSettingsOut`/`KiSettingsIn` sind sie heraus.
+`test_es_gibt_keine_automatische_planung` schreibt die Regel fest: Der Test
+verlangt, dass sich `app.ki.automatik` nicht importieren lässt — eine Schleife,
+die wieder einzöge, fiele sonst erst am aufgebrauchten Kontingent auf.
 
 **Die Umgebung des Unterprozesses wird zusammengestellt, nicht geerbt**
 (`_umgebung()`). Beim ersten Ende-zu-Ende-Lauf aufgefallen: Wer die App aus
@@ -1149,8 +1155,10 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   fehlt an dem Tag.
 - **Der Zugang läuft irgendwann ab.** Die App kann das nur melden, nicht
   erneuern — die Meldung nennt deshalb ausdrücklich `claude setup-token`.
-- Ein **gescheiterter Automatiklauf wird am selben Tag nicht wiederholt** (siehe
-  `last_auto_plan_on`). Der Knopf bleibt.
+- **Ein ausgelaufener Block bleibt ausgelaufen.** Seit dem Wegfall der Automatik
+  entsteht der nächste erst, wenn jemand plant — bis dahin steht auf der Uhr
+  nichts Neues, und im Kalender bleibt der letzte übertragene Block liegen, bis
+  ein Abgleich seine vergangenen Tage abräumt.
 - Die Zuordnung von Fehlertexten der CLI zu eigenen Fehlern (`_ordne_fehler_ein`)
   geht über **Textbausteine**, weil es für Anmelde- und Kontingentfehler kein
   maschinenlesbares Feld gibt — `api_error_status` bleibt leer, wenn die Anfrage

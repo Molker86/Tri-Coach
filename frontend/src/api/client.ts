@@ -248,6 +248,8 @@ export const api = {
 
   // KI-Planung im Server — der Weg ohne Zwischenablage.
   kiStatus: () => request<KiStatus>('/ki/status'),
+  // Modell und Denktiefe je Nutzer. Ohne Oberfläche — wer sie von der Vorgabe
+  // wegstellen will, ruft die API selbst auf.
   kiSettings: (data: Partial<KiSettings>) =>
     request<KiSettings>('/ki/settings', { method: 'PUT', body: data }),
   kiPlanen: (startDate?: string, days?: number, requestId?: number) =>

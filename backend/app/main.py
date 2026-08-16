@@ -9,11 +9,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .config import CORS_ORIGINS, GARMIN_AUTOSYNC, KI_AUTOPLAN
+from .config import CORS_ORIGINS, GARMIN_AUTOSYNC
 from .database import init_db
 from .garmin.automatik import automatik_schleife
 from .garmin.runner import markiere_unterbrochene_jobs
-from .ki.automatik import planungs_schleife
 from .ki.runner import runner as ki_runner
 from .routers import auth, garmin, ki, logs, plans, profile, questionnaire
 
@@ -33,17 +32,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if unterbrochen:
         logger.info("%d unterbrochene Planungsläufe aufgeräumt", unterbrochen)
 
-    # Zwei getrennte Schleifen statt einer gemeinsamen: Die Planung wartet zwar
-    # auf den Abgleich, hängt aber nicht an ihm — und jede lässt sich für sich
-    # abschalten.
-    aufgaben = [
-        asyncio.create_task(schleife())
-        for schleife, an in (
-            (automatik_schleife, GARMIN_AUTOSYNC),
-            (planungs_schleife, KI_AUTOPLAN),
-        )
-        if an
-    ]
+    # Nur der Garmin-Abgleich läuft von selbst. Die KI-Planung hat bewusst
+    # keine Schleife: Ein Block entsteht ausschließlich auf Knopfdruck.
+    aufgaben = [asyncio.create_task(automatik_schleife())] if GARMIN_AUTOSYNC else []
     try:
         yield
     finally:
