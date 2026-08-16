@@ -53,12 +53,12 @@ def schritte(workout, segment=0):
 # --------------------------------------------------------------------------
 
 
-def test_intervalltext_wird_runde_fuer_runde_ausgeschrieben():
-    """Fünf Wiederholungen sind zehn Abschnitte auf der Uhr, nicht ein Block.
+def test_intervalltext_wird_eine_wiederholungsgruppe():
+    """Fünf Wiederholungen sind ein Block, den die Uhr fünfmal abarbeitet.
 
-    Garmin könnte das zusammenfassen (`RepeatGroupDTO`), und die Uhr arbeitete
-    es auch fünfmal ab — sichtbar wäre in der Liste aber nur eine Zeile. Wer
-    vor dem Start durchsieht, was ansteht, soll jede Runde einzeln finden.
+    Genau die Form, in der Garmin selbst eine Serie führt: eine Zeile
+    „Wiederholen 5×" mit Belastung und Pause darunter, statt zehn Zeilen
+    hintereinander.
     """
     plan = workouts.baue_workout(
         einheit(structure="15 min Einlaufen Z1-Z2, 5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen"),
@@ -66,29 +66,32 @@ def test_intervalltext_wird_runde_fuer_runde_ausgeschrieben():
     )
     folge = schritte(plan)
 
-    assert [s["stepType"]["stepTypeKey"] for s in folge] == (
-        ["warmup"] + ["interval", "recovery"] * 5 + ["cooldown"]
-    )
-    assert all(s["type"] == "ExecutableStepDTO" for s in folge)
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
+    gruppe = folge[1]
+    assert gruppe["type"] == "RepeatGroupDTO"
+    assert gruppe["numberOfIterations"] == 5
+    assert gruppe["endConditionValue"] == 5.0
+    assert [s["stepType"]["stepTypeKey"] for s in gruppe["workoutSteps"]] == [
+        "interval",
+        "recovery",
+    ]
 
-    belastung, pause = folge[1], folge[2]
+    belastung, pause = gruppe["workoutSteps"]
     assert belastung["endConditionValue"] == 180.0
     assert belastung["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
     assert (belastung["targetValueOne"], belastung["targetValueTwo"]) == (155.0, 170.0)
 
     # Die Pause bleibt ohne Zielkorridor: Ein Alarm in der Erholung triebe
     # genau die Herzfrequenz hoch, die gerade sinken soll.
-    assert pause["stepType"]["stepTypeKey"] == "recovery"
     assert pause["targetType"]["workoutTargetTypeKey"] == "no.target"
 
-    # Jede Runde trägt ihre Nummer, sonst stünden fünfmal dieselben zwei Zeilen
-    # da und niemand wüsste, wo im Block er gerade ist.
-    assert belastung["description"].endswith("(1/5)")
-    assert folge[9]["description"].endswith("(5/5)")
-
-    # Die Schrittnummern laufen ohne Verschachtelung durch.
-    assert [s["stepOrder"] for s in folge] == list(range(1, 13))
-    assert all(s["childStepId"] is None for s in folge)
+    # Die Nummerierung läuft durch die Gruppe hindurch, und die Kinder tragen
+    # deren `childStepId` — daran erkennt Garmin, wozu sie gehören.
+    assert [s["stepOrder"] for s in folge] == [1, 2, 5]
+    assert [s["stepOrder"] for s in gruppe["workoutSteps"]] == [3, 4]
+    assert gruppe["childStepId"] == 1
+    assert all(s["childStepId"] == 1 for s in gruppe["workoutSteps"])
+    assert folge[0]["childStepId"] is None and folge[2]["childStepId"] is None
 
 
 def test_streckenintervalle_enden_nach_distanz():
@@ -96,13 +99,14 @@ def test_streckenintervalle_enden_nach_distanz():
         einheit(structure="20 min einlaufen, 6x800m (3:45/km) mit 400m Trabpause, 15 min auslaufen"),
         zonen=ZONEN,
     )
-    belastung = schritte(plan)[1]
+    gruppe = schritte(plan)[1]
+    assert gruppe["numberOfIterations"] == 6
+    belastung, pause = gruppe["workoutSteps"]
     assert belastung["endCondition"]["conditionTypeKey"] == "distance"
     assert belastung["endConditionValue"] == 800.0
     # Die Tempoangabe in der Klammer darf nicht als Dauer von 3:45 durchgehen.
     assert belastung["endConditionValue"] != 225.0
-    # Sechs Belastungen und sechs Trabpausen, jede als eigener Abschnitt.
-    assert sum(1 for s in schritte(plan) if s["endConditionValue"] == 800.0) == 6
+    assert pause["endConditionValue"] == 400.0
 
 
 def test_unverstandener_text_wird_ein_einziger_schritt():
@@ -322,11 +326,13 @@ def test_laufpace_wird_zu_geschwindigkeit_in_meter_pro_sekunde():
     assert 3.6 < schritt["targetValueOne"] < schritt["targetValueTwo"] < 3.8
 
 
-def test_mehrere_einfache_bloecke_werden_zu_einzelnen_schritten():
-    """Mehrere einfache Wiederholungen ohne innere Struktur (z.B. „3x 3 min Z4" zweimal)
-    sollten als einzelne Schritte dargestellt werden, nicht als Wiederholungsgruppen.
-    Garmin zeigt Wiederholungsgruppen nicht ideal an — als einzelne Schritte ist
-    es auf der Uhr klarer: sechs Schritte statt zwei Gruppen."""
+def test_zwei_serien_bleiben_zwei_gruppen():
+    """„3x 3 min Z4" und danach „3x 2 min Z4" sind zwei Blöcke, nicht einer.
+
+    Beide Gruppen brauchen eine eigene `childStepId`: Daran hängt Garmin die
+    Kinder an ihre Gruppe, und zwei Blöcke unter derselben Nummer liefen
+    ineinander.
+    """
     plan = workouts.baue_workout(
         einheit(
             structure="10 min Einlaufen Z2, 3x 3 min Z4, 3x 2 min Z4, 10 min Auslaufen"
@@ -334,61 +340,168 @@ def test_mehrere_einfache_bloecke_werden_zu_einzelnen_schritten():
         zonen=ZONEN,
     )
     folge = schritte(plan)
-    # Struktur: Einlaufen, 3 Schritte (3 min Z4), 3 Schritte (2 min Z4), Auslaufen
-    # = 8 einzelne Schritte insgesamt
-    assert len(folge) == 8
-    assert folge[0]["stepType"]["stepTypeKey"] == "warmup"
-    assert folge[-1]["stepType"]["stepTypeKey"] == "cooldown"
-    # Die sechs Intervalle sollten einzelne Schritte sein, nicht Wiederholungsgruppen.
-    intervalle = [s for s in folge[1:-1] if s["stepType"]["stepTypeKey"] == "interval"]
-    assert len(intervalle) == 6
-    # Alle Intervalle sind flache Schritte, nicht verschachtelte Wiederholungsgruppen.
-    assert all(s["type"] == "ExecutableStepDTO" for s in intervalle)
-    # Die ersten drei sind 3 min (180s), die nächsten drei sind 2 min (120s).
-    assert intervalle[0]["endConditionValue"] == 180.0  # 3 min
-    assert intervalle[1]["endConditionValue"] == 180.0  # 3 min
-    assert intervalle[2]["endConditionValue"] == 180.0  # 3 min
-    assert intervalle[3]["endConditionValue"] == 120.0  # 2 min
-    assert intervalle[4]["endConditionValue"] == 120.0  # 2 min
-    assert intervalle[5]["endConditionValue"] == 120.0  # 2 min
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == [
+        "warmup",
+        "repeat",
+        "repeat",
+        "cooldown",
+    ]
+    erste, zweite = folge[1], folge[2]
+    assert (erste["numberOfIterations"], zweite["numberOfIterations"]) == (3, 3)
+    assert erste["workoutSteps"][0]["endConditionValue"] == 180.0
+    assert zweite["workoutSteps"][0]["endConditionValue"] == 120.0
+    assert erste["childStepId"] != zweite["childStepId"]
+    assert zweite["workoutSteps"][0]["childStepId"] == zweite["childStepId"]
+
+    # Die Schrittnummern laufen quer durch beide Gruppen weiter.
+    assert [s["stepOrder"] for s in folge] == [1, 2, 4, 6]
 
 
-def test_block_mit_innerer_struktur_wird_ebenfalls_ausgeschrieben():
-    """„4 × (3 min hart / 2 min locker)" sind acht Abschnitte in Laufreihenfolge."""
+def test_block_mit_innerer_struktur_behaelt_belastung_und_pause():
+    """„4 × (3 min hart / 2 min locker)" — der zweite Teil ist die Erholung."""
     plan = workouts.baue_workout(
         einheit(structure="15 min Einlaufen Z1-Z2, 4x (3 min Z4 mit 2 min Z2), 10 min Auslaufen"),
         zonen=ZONEN,
     )
-    folge = schritte(plan)
+    gruppe = schritte(plan)[1]
 
-    assert [s["stepType"]["stepTypeKey"] for s in folge] == (
-        ["warmup"] + ["interval", "recovery"] * 4 + ["cooldown"]
-    )
-    # Belastung und Pause wechseln sich ab, jede Runde mit ihrer eigenen Dauer.
-    assert [s["endConditionValue"] for s in folge[1:-1]] == [180.0, 120.0] * 4
-    assert [s["description"][-5:] for s in folge[1:-1]] == [
-        "(1/4)", "(1/4)", "(2/4)", "(2/4)", "(3/4)", "(3/4)", "(4/4)", "(4/4)"
+    assert gruppe["numberOfIterations"] == 4
+    assert [s["stepType"]["stepTypeKey"] for s in gruppe["workoutSteps"]] == [
+        "interval",
+        "recovery",
     ]
+    assert [s["endConditionValue"] for s in gruppe["workoutSteps"]] == [180.0, 120.0]
 
 
-def test_sehr_lange_serie_bleibt_zusammengefasst():
-    """Ausgeschrieben wäre die Liste länger, als ein Gerät sicher trägt.
+def test_einfache_wiederholung_bleibt_ein_schritt():
+    """„1 ד ist keine Serie, sondern eine Schreibweise."""
+    plan = workouts.baue_workout(
+        einheit(structure="1x 20 min Z3"), zonen=ZONEN
+    )
+    folge = schritte(plan)
+    assert len(folge) == 1
+    assert folge[0]["type"] == "ExecutableStepDTO"
+    assert folge[0]["endConditionValue"] == 1200.0
 
-    Wie viele Schritte Garmin annimmt, ist nirgends zugesagt. Über der Grenze
-    ist die zusammengefasste Gruppe das kleinere Übel: schlechter zu lesen,
-    aber sie kommt an.
+
+def test_smarttrainer_einheit_kommt_vollstaendig_auf_die_uhr():
+    """Der Fall, an dem drei Fehler zugleich sichtbar wurden.
+
+    Auf dem Gerät stand: 15 min Einrollen, *ein* Intervall über 6 min, 3 min
+    Kurbeln, Ausrollen — alles vier mit Herzfrequenzkorridor. Gemeint waren vier
+    Runden, und auf dem Smarttrainer steuert die Leistung, nicht der Puls.
+
+    Drei Ursachen: Die Zahl der Wiederholungen stand hinter einem Schrägstrich
+    und wurde nur am Abschnittsanfang gesucht; die Serienpause stand hinter dem
+    Komma und damit im nächsten Abschnitt; und Watt las der Bauplan nur aus dem
+    Feld `target_power`, nie aus dem Aufbautext.
     """
     plan = workouts.baue_workout(
-        einheit(structure="15 min einlaufen, 30x400m mit 200m Trabpause, 10 min auslaufen"),
+        einheit(
+            sport="bike",
+            duration_min=60,
+            target_hr_low=162,
+            target_hr_high=175,
+            structure=(
+                "15 min Einrollen Z1-Z2 inkl. 3x30 s Trittfrequenz 105"
+                " / 4x6 min bei 195-210 W (HF 162-172),"
+                " dazwischen 3 min lockeres Kurbeln bei 110-130 W"
+                " / 10 min Ausrollen Z1"
+            ),
+        ),
         zonen=ZONEN,
     )
     folge = schritte(plan)
 
     assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
-    assert folge[1]["numberOfIterations"] == 30
-    # Und die Verschachtelung ist dann wieder vollständig aufgebaut.
-    assert [s["stepOrder"] for s in folge] == [1, 2, 5]
-    assert [s["stepOrder"] for s in folge[1]["workoutSteps"]] == [3, 4]
+
+    gruppe = folge[1]
+    assert gruppe["numberOfIterations"] == 4
+    belastung, pause = gruppe["workoutSteps"]
+    assert (belastung["endConditionValue"], pause["endConditionValue"]) == (360.0, 180.0)
+    assert pause["stepType"]["stepTypeKey"] == "recovery"
+
+    # Beide Schritte werden über Watt gesteuert, jeder mit seinem eigenen
+    # Korridor — auch die Erholung, denn dort ist die Zahl eine Anweisung an
+    # die Rolle und kein Alarm.
+    assert belastung["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (belastung["targetValueOne"], belastung["targetValueTwo"]) == (195.0, 210.0)
+    assert pause["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (pause["targetValueOne"], pause["targetValueTwo"]) == (110.0, 130.0)
+
+    # Ein- und Ausrollen nennen keine Watt und bleiben deshalb bei ihrer Zone.
+    assert folge[0]["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+    assert folge[2]["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+
+
+def test_ausrollen_nach_einer_serie_bleibt_draussen():
+    """Nur eine Pause wandert in die Gruppe, nicht der nächstbeste Schritt."""
+    plan = workouts.baue_workout(
+        einheit(sport="bike", structure="4x6 min Z4 / 10 min Ausrollen Z1"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["repeat", "cooldown"]
+    assert len(folge[0]["workoutSteps"]) == 1
+
+
+def test_zweite_pause_wandert_nicht_auch_noch_in_die_serie():
+    """Hat die Gruppe ihre Pause, ist sie zu."""
+    plan = workouts.baue_workout(
+        einheit(structure="5x 3 min Z4 mit 2 min Trabpause, danach 5 min Gehpause"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["repeat", "recovery"]
+    assert len(folge[0]["workoutSteps"]) == 2
+
+
+def test_wattangabe_im_schritt_schlaegt_die_herzfrequenzvorgabe():
+    """Auf dem Rad steuert die Leistung — die Herzfrequenz zieht nur nach."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="bike",
+            structure="40 min bei 200-220 W",
+            target_hr_low=150,
+            target_hr_high=165,
+        ),
+        zonen=ZONEN,
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (schritt["targetValueOne"], schritt["targetValueTwo"]) == (200.0, 220.0)
+
+
+def test_beim_laufen_bleibt_watt_im_text_unbeachtet():
+    """`_leistung_im_schritt` gilt nur dem Rad — beim Laufen führt die Pace."""
+    plan = workouts.baue_workout(
+        einheit(structure="30 min Dauerlauf", target_hr_low=140, target_hr_high=155),
+        zonen=ZONEN,
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+
+
+def test_prozentangabe_im_schritt_zaehlt_nur_mit_ftp_daneben():
+    """Ein Prozentwert im Fließtext kann auch „% HFmax" meinen.
+
+    Im Feld `target_power` steht nichts als die Vorgabe, dort genügt das
+    Prozentzeichen. Im Aufbautext muss „FTP" danebenstehen.
+    """
+    mit_ftp = workouts.baue_workout(
+        einheit(sport="bike", structure="20 min bei 95-100% FTP"), zonen={}, ftp=250
+    )
+    schritt = schritte(mit_ftp)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (schritt["targetValueOne"], schritt["targetValueTwo"]) == (237.5, 250.0)
+
+    ohne_ftp = workouts.baue_workout(
+        einheit(sport="bike", structure="20 min bei 85-90% der maximalen Herzfrequenz"),
+        zonen={},
+        ftp=250,
+    )
+    assert schritte(ohne_ftp)[0]["targetType"]["workoutTargetTypeKey"] == "no.target"
 
 
 def test_schwimmeinheit_bekommt_bahnlaenge_und_zugart():

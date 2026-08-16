@@ -11,11 +11,9 @@ vorsichtig: Was er nicht sicher erkennt, wird **ein** Schritt über die geplante
 Dauer und nie ein geratener Intervallblock. Ein falsch geratenes Training auf
 der Uhr ist schlimmer als ein grobes, denn es wird ungeprüft absolviert.
 
-Erkannte Wiederholungen werden anschließend *ausgeschrieben*: Aus „5 × 3 min Z4
-mit 2 min Trabpause“ werden zehn Schritte und nicht eine Gruppe mit zwei
-Kindern. Garmin könnte beides, und abgearbeitet wird beides gleich — sichtbar
-ist in der Schrittliste aber nur die ausgeschriebene Form. Siehe
-`_schreibe_wiederholungen_aus()`.
+Erkannte Wiederholungen bleiben eine Gruppe: Aus „5 × 3 min Z4 mit 2 min
+Trabpause“ wird ein `RepeatGroupDTO` mit zwei Kindern und der Anzahl 5 — genau
+die Form, in der Garmin selbst eine Serie führt. Siehe `_als_block()`.
 
 Zwei Grammatiken, nicht eine: Bei Ausdauereinheiten beschreibt der Aufbautext
 einen Zeitverlauf („15 min Z2, 5 x 3 min Z4“), bei Kraft und Mobility eine
@@ -38,7 +36,7 @@ und zwei Quellen dafür liefen unweigerlich auseinander.
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from garminconnect.workout import ConditionType, SportType, StepType, TargetType
@@ -101,13 +99,6 @@ _RUNDENTASTE_PLATZHALTER = 10.0
 # sondern führt zur Ablehnung des ganzen Workouts.
 MAX_NAME = 80
 MAX_BESCHREIBUNG = 1024
-
-# Obergrenze für die ausgeschriebene Schrittliste. Wie viele Schritte ein
-# Workout tragen darf, sagt Garmin nirgends zu — die Zahl ist deshalb **nicht**
-# abgelesen, sondern bewusst vorsichtig gewählt. Sie greift erst bei
-# Intervallserien, die auch auf dem Papier ungewöhnlich lang sind
-# („20 × 400 m mit Trabpause"); darunter bleibt die ausgeschriebene Form.
-MAX_SCHRITTE = 50
 
 _SCHRITT_TYPEN: dict[str, tuple[int, str]] = {
     "warmup": (StepType.WARMUP, "warmup"),
@@ -248,8 +239,12 @@ _ART_SCHLUESSELWOERTER: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("rest", ("standpause", "stehpause", "vollpause", "ruhe")),
     (
         "recovery",
+        # „dazwischen“ ist das verlässlichste Wort für eine Serienpause: Es
+        # steht nie über einer Belastung, und gerade auf dem Rad heißt die
+        # Pause selten „Pause“, sondern „lockeres Kurbeln bei 110-130 W“.
         ("pause", "trabpause", "gehpause", "serienpause", "erholung", "trabend",
-         "locker traben", "recovery", "abtrab"),
+         "locker traben", "recovery", "abtrab", "dazwischen", "locker kurbeln",
+         "lockeres kurbeln", "locker rollen", "lockeres rollen"),
     ),
 )
 
@@ -352,8 +347,59 @@ def _zweiter_teil_ist_pause(schritte: list[Schritt]) -> None:
         schritte[1].art = "recovery"
 
 
+def _als_block(text: str) -> Block | None:
+    """„4 × 6 min bei 195-210 W“ als Wiederholungsgruppe — sonst None.
+
+    Ein „1 ד ist keine Wiederholung, sondern eine Schreibweise, und wird
+    deshalb abgelehnt: Der Aufrufer liest die Zeile dann als einfachen Schritt.
+    """
+    treffer = _WIEDERHOLUNG.match(text)
+    if not treffer:
+        return None
+    anzahl = int(treffer.group(1))
+    if not 2 <= anzahl <= 60:
+        return None
+
+    rumpf = treffer.group(2).strip()
+    # „4 x (4 min hart / 3 min locker)“ — die äußeren Klammern gehören zur
+    # Schreibweise, nicht zum Inhalt.
+    if rumpf.startswith("(") and rumpf.endswith(")"):
+        rumpf = rumpf[1:-1]
+
+    schritte = [
+        schritt
+        for teil in _TEIL_TRENNER.split(rumpf)
+        if (schritt := _baue_schritt(teil)) is not None
+    ]
+    if not schritte:
+        # Nicht erkannt: lieber gar keinen Block als einen falschen.
+        return None
+    if any(s.art in ("warmup", "cooldown") for s in schritte):
+        # „4x6 min Z4 / 10 min Ausrollen Z1“ — das Ausrollen steht *nach* der
+        # Serie und nicht in ihr; viermal ausrollen ergibt keine Einheit. Die
+        # Zeile wird deshalb ganz abgelehnt: Der Aufrufer liest sie dann Teil
+        # für Teil und findet die Wiederholung im ersten davon wieder.
+        return None
+    _zweiter_teil_ist_pause(schritte)
+    return Block(anzahl=anzahl, schritte=schritte)
+
+
 def zerlege_struktur(struktur: str | None) -> list[Element]:
     """Zerlegt den Aufbautext in Schritte und Wiederholungsblöcke.
+
+    Nach der Zahl der Wiederholungen wird an **zwei** Stellen gesucht: am Anfang
+    eines Abschnitts und am Anfang jedes Teils darin. Der Grund steht in echten
+    Plänen — „15 min Einrollen Z1-Z2 / 4x6 min bei 195-210 W“ trägt die Serie
+    hinter einem Schrägstrich, und geprüft wurde bisher nur der Abschnittsanfang.
+    Der Multiplikator fiel dann still weg: Auf der Uhr stand eine einzelne
+    Belastung, wo vier gemeint waren.
+
+    Ebenso steht die Serienpause oft *hinter* dem Komma und damit im nächsten
+    Abschnitt („4x6 min bei 195-210 W, dazwischen 3 min bei 110-130 W“). Sie
+    wandert deshalb in die zuletzt eröffnete Gruppe hinein statt dahinter —
+    aber nur, solange diese erst einen Schritt hat und die Zeile sich selbst als
+    Pause zu erkennen gibt. Alles andere schließt die Gruppe: Ein „10 min
+    Ausrollen“ nach einer Serie gehört nicht in sie hinein.
 
     Gibt eine leere Liste zurück, wenn nichts sicher zu erkennen war — der
     Aufrufer baut dann einen einzigen Schritt über die geplante Dauer.
@@ -363,34 +409,38 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
 
     text = _PAUSE_KURZ.sub("mit Pause ", struktur)
     elemente: list[Element] = []
+    offen: Block | None = None  # zuletzt eröffnete Serie, noch ohne Pause
 
     for segment in _SEGMENT_TRENNER.split(text):
         segment = (segment or "").strip(" .\t")
         if not segment:
             continue
 
-        treffer = _WIEDERHOLUNG.match(segment)
-        if treffer:
-            anzahl = int(treffer.group(1))
-            rumpf = treffer.group(2).strip()
-            # „4 x (4 min hart / 3 min locker)“ — die äußeren Klammern gehören
-            # zur Schreibweise, nicht zum Inhalt.
-            if rumpf.startswith("(") and rumpf.endswith(")"):
-                rumpf = rumpf[1:-1]
-            schritte = [
-                schritt
-                for teil in _TEIL_TRENNER.split(rumpf)
-                if (schritt := _baue_schritt(teil)) is not None
-            ]
-            if 1 <= anzahl <= 60 and schritte:
-                _zweiter_teil_ist_pause(schritte)
-                elemente.append(Block(anzahl=anzahl, schritte=schritte))
-                continue
-            # Nicht erkannt: lieber gar keinen Block als einen falschen.
+        if (block := _als_block(segment)) is not None:
+            elemente.append(block)
+            offen = block
+            continue
 
         for teil in _TEIL_TRENNER.split(segment):
-            if (schritt := _baue_schritt(teil)) is not None:
-                elemente.append(schritt)
+            if (block := _als_block(teil)) is not None:
+                elemente.append(block)
+                offen = block
+                continue
+
+            if (schritt := _baue_schritt(teil)) is None:
+                continue
+
+            if (
+                offen is not None
+                and len(offen.schritte) == 1
+                and schritt.art in ("recovery", "rest")
+            ):
+                offen.schritte.append(schritt)
+                offen = None
+                continue
+
+            elemente.append(schritt)
+            offen = None
 
     return elemente
 
@@ -454,7 +504,6 @@ def zonen_aus_profil(profil: Any) -> dict[str, tuple[int, int]]:
     return {z["zone"]: (z["low_bpm"], z["high_bpm"]) for z in zonen}
 
 
-_HF_BEREICH = re.compile(r"(\d{2,3})\s*[-–bis]{1,3}\s*(\d{2,3})")
 _WATT = re.compile(r"(\d{2,4})\s*(?:[-–]\s*(\d{2,4}))?\s*(?:w\b|watt)", re.IGNORECASE)
 _PROZENT_FTP = re.compile(r"(\d{2,3})\s*(?:[-–]\s*(\d{2,3}))?\s*%", re.IGNORECASE)
 _TEMPO_WERT = re.compile(r"(\d{1,2}):(\d{2})")
@@ -491,17 +540,47 @@ def _tempo_in_m_pro_s(sport: str, text: str | None) -> tuple[float, float] | Non
     return strecke / langsam, strecke / schnell
 
 
+def _watt_bereich(text: str) -> tuple[float, float] | None:
+    treffer = _WATT.search(text)
+    if not treffer:
+        return None
+    unten = _zahl(treffer.group(1))
+    oben = _zahl(treffer.group(2)) if treffer.group(2) else unten * 1.04
+    return min(unten, oben), max(unten, oben)
+
+
+def _ftp_bereich(text: str, ftp: int) -> tuple[float, float] | None:
+    treffer = _PROZENT_FTP.search(text)
+    if not treffer:
+        return None
+    unten = _zahl(treffer.group(1)) / 100 * ftp
+    oben = (_zahl(treffer.group(2)) / 100 * ftp) if treffer.group(2) else unten * 1.04
+    return min(unten, oben), max(unten, oben)
+
+
 def _leistung_in_watt(text: str | None, ftp: int | None) -> tuple[float, float] | None:
+    """Leistungsvorgabe aus dem Feld `target_power` der Einheit."""
     if not text:
         return None
-    if treffer := _WATT.search(text):
-        unten = _zahl(treffer.group(1))
-        oben = _zahl(treffer.group(2)) if treffer.group(2) else unten * 1.04
-        return min(unten, oben), max(unten, oben)
-    if ftp and (treffer := _PROZENT_FTP.search(text)):
-        unten = _zahl(treffer.group(1)) / 100 * ftp
-        oben = (_zahl(treffer.group(2)) / 100 * ftp) if treffer.group(2) else unten * 1.04
-        return min(unten, oben), max(unten, oben)
+    if (bereich := _watt_bereich(text)) is not None:
+        return bereich
+    return _ftp_bereich(text, ftp) if ftp else None
+
+
+def _leistung_im_schritt(text: str | None, ftp: int | None) -> tuple[float, float] | None:
+    """Leistungsvorgabe aus dem Text eines einzelnen Schritts.
+
+    Im Feld `target_power` steht nichts als die Vorgabe, hier dagegen ein
+    Fließtext, in dem ein Prozentwert auch „% HFmax“ oder „% der Maximalkraft“
+    heißen kann. Er zählt deshalb nur, wenn „FTP“ danebensteht; eine Wattzahl
+    ist dagegen eindeutig.
+    """
+    if not text:
+        return None
+    if (bereich := _watt_bereich(text)) is not None:
+        return bereich
+    if ftp and "ftp" in text.lower():
+        return _ftp_bereich(text, ftp)
     return None
 
 
@@ -517,7 +596,27 @@ def _ziel(
     Vorrang hat immer die Zone aus dem Aufbautext — sie ist die feinste Angabe.
     Danach die Herzfrequenzvorgabe der Einheit, dann Watt, dann Tempo. Mehr als
     ein Ziel je Schritt kennt Garmin nicht.
+
+    **Auf dem Rad steht die Leistung davor.** Wer auf dem Smarttrainer fährt,
+    wird über Watt gesteuert — Garmin regelt das Gerät danach —, und im Freien
+    ist die Leistung die Größe, die sofort anzeigt, ob das Tempo stimmt; die
+    Herzfrequenz zieht Minuten später nach. Zuerst zählt dabei die Angabe im
+    Schritttext, denn Belastung und Erholung haben je einen eigenen Korridor
+    („4x6 min bei 195-210 W, dazwischen 3 min bei 110-130 W“). Eben deshalb gilt
+    sie **auch über einer Pause**, anders als die Herzfrequenz weiter unten: Ein
+    Wattkorridor in der Erholung ist eine Anweisung an die Rolle und kein Alarm,
+    der den Puls hochtriebe.
     """
+    if sport == "bike":
+        if watt := _leistung_im_schritt(schritt.text, ftp):
+            return _ZIEL_LEISTUNG, watt[0], watt[1]
+        # Die Vorgabe der Einheit gilt nur der Arbeit: Auf das Einrollen
+        # gelegt stünden dort die Intervallwatt.
+        if schritt.art == "interval" and (
+            watt := _leistung_in_watt(session.target_power, ftp)
+        ):
+            return _ZIEL_LEISTUNG, watt[0], watt[1]
+
     if schritt.zone_von and zonen:
         unten = zonen.get(f"Z{schritt.zone_von}")
         oben = zonen.get(f"Z{schritt.zone_bis or schritt.zone_von}")
@@ -541,9 +640,6 @@ def _ziel(
     if session.intensity_zone and zonen.get(session.intensity_zone):
         unten, oben = zonen[session.intensity_zone]
         return _ZIEL_HF, float(unten), float(oben)
-
-    if sport == "bike" and (watt := _leistung_in_watt(session.target_power, ftp)):
-        return _ZIEL_LEISTUNG, watt[0], watt[1]
 
     if tempo := _tempo_in_m_pro_s(sport, session.target_pace):
         return _ZIEL_TEMPO, tempo[0], tempo[1]
@@ -668,58 +764,6 @@ def _block_json(
     return gruppe, naechste
 
 
-def _runden_beschriftung(schritt: Schritt, runde: int, von: int) -> Schritt:
-    """Hängt „(2/4)" an den Text, damit jede Runde für sich erkennbar bleibt.
-
-    Der einzige Nachteil des Ausschreibens: Vier gleichlautende Schritte
-    „3 min Z4" hintereinander sagen dem Athleten nicht, wo im Block er steht.
-    Die Nummer holt zurück, was die Wiederholungsgruppe von sich aus mitbrachte.
-    """
-    zusatz = f"({runde}/{von})"
-    text = f"{schritt.text} {zusatz}" if schritt.text else zusatz
-    return replace(schritt, text=text)
-
-
-def _schreibe_wiederholungen_aus(elemente: list[Element]) -> list[Element]:
-    """Löst Wiederholungsgruppen in einzelne Schritte auf.
-
-    Garmin *kann* Wiederholungen zusammengefasst (`RepeatGroupDTO`), und die Uhr
-    arbeitet sie auch N-mal ab. Sichtbar ist auf dem Gerät wie in Connect aber
-    zunächst nur die zusammengeklappte Gruppe — bei zwei verschiedenen Blöcken
-    („3 × 3 min Z4" und danach „3 × 2 min Z4") stehen dort zwei Zeilen, obwohl
-    sechs Belastungen zu absolvieren sind. Ausgeschrieben steht jede Runde als
-    eigener Abschnitt in der Liste, und die Uhr zählt sie einzeln durch.
-
-    Ausgeschrieben wird deshalb **jeder** Block, auch der mit innerer Struktur:
-    Aus „4 × (3 min hart / 2 min locker)" werden acht Schritte in genau der
-    Reihenfolge, in der sie zu laufen sind.
-
-    Eine Grenze bleibt: Für die Zahl der Schritte je Workout sagt Garmin nichts
-    zu, und ein ausgeschriebenes „20 × 400 m mit Trabpause" wären vierzig statt
-    zwei. Über `MAX_SCHRITTE` bleibt es deshalb bei den Gruppen — die
-    zusammengefasste Darstellung ist besser als ein Workout, das das Gerät nicht
-    mehr annimmt. Alles oder nichts, denn eine halb ausgeschriebene Liste wäre
-    schwerer zu lesen als beide reinen Formen.
-    """
-    ausgeschrieben: list[Element] = []
-    for element in elemente:
-        if not isinstance(element, Block):
-            ausgeschrieben.append(element)
-        elif element.anzahl <= 1:
-            # „1 ×" ist keine Wiederholung, sondern nur eine Schreibweise.
-            ausgeschrieben.extend(element.schritte)
-        else:
-            for runde in range(1, element.anzahl + 1):
-                ausgeschrieben.extend(
-                    _runden_beschriftung(schritt, runde, element.anzahl)
-                    for schritt in element.schritte
-                )
-
-    if len(ausgeschrieben) > MAX_SCHRITTE:
-        return elemente
-    return ausgeschrieben
-
-
 def _ersatz_elemente(session: Any) -> list[Element]:
     """Ein einzelner Schritt, wenn der Aufbautext nichts hergab.
 
@@ -805,7 +849,6 @@ def baue_workout(
         else zerlege_struktur
     )
     elemente = zerlegen(session.structure) or _ersatz_elemente(session)
-    elemente = _schreibe_wiederholungen_aus(elemente)
 
     hinweis: str | None = None
     if session.sport == "brick":

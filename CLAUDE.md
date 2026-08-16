@@ -423,7 +423,7 @@ Gerät. Nur ein Workout mit Schrittliste *leitet* die Uhr an — Schrittwechsel,
 Zielkorridor, Signal beim Verlassen. Deshalb wird `PlanSession.structure`, ein
 Fließtext aus der KI, in Garmins Schritte zerlegt: „15 min Einlaufen Z1-Z2,
 5 x 3 min Z4 mit je 2 min Trabpause, 10 min Auslaufen“ wird zu Aufwärmschritt,
-zehn Intervall- und Pausenschritten und Auslaufen, jeweils mit
+einer Wiederholungsgruppe aus Belastung und Pause und Auslaufen, jeweils mit
 Herzfrequenzkorridor aus den Karvonen-Zonen des Profils. **Der Parser rät
 nicht**: Erkennt er nichts, wird
 die Einheit *ein* Schritt über die geplante Dauer, und der ganze Aufbautext
@@ -436,23 +436,45 @@ soll). Die Kennungen für Sport-, Schritt- und Zieltypen kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen — zwei Quellen dafür liefen
 auseinander.
 
-**Wiederholungen werden ausgeschrieben, nicht zusammengefasst**
-(`_schreibe_wiederholungen_aus`). Garmin kennt mit `RepeatGroupDTO` eine
-Wiederholungsgruppe, und die Uhr arbeitet sie auch N-mal ab — in der
-Schrittliste steht davon aber nur *eine* zusammengeklappte Zeile. Bei zwei
-verschiedenen Serien hintereinander („3 × 3 min Z4“, dann „3 × 2 min Z4“) sah
-der Athlet dort zwei Einträge, obwohl sechs Belastungen anstehen. Deshalb wird
-**jeder** Block ausgeschrieben, auch der mit innerer Struktur: Aus
-„4 × (3 min hart / 2 min locker)“ werden acht Schritte in Laufreihenfolge. Was
-die Gruppe von sich aus mitbrachte, holt eine Beschriftung zurück — jede Runde
-trägt „(2/4)“ am Ende ihres Texts, sonst stünden vier gleichlautende Zeilen
-ohne Anhalt da. Die eine Grenze ist `MAX_SCHRITTE`: Wie viele Schritte ein
-Workout tragen darf, sagt Garmin nirgends zu, und ein ausgeschriebenes
-„20 × 400 m mit Trabpause“ wären vierzig statt zwei Schritte. Darüber bleibt es
-bei den Gruppen — schlechter zu lesen, aber es kommt an. Und zwar alles oder
-nichts: Eine halb ausgeschriebene Liste wäre schwerer zu lesen als beide reinen
-Formen. Die Zahl ist **nicht abgelesen**, sondern vorsichtig gewählt; wer sie
-anfasst, prüft gegen ein echtes Gerät.
+**Eine Serie bleibt eine Wiederholungsgruppe** (`_als_block`). Garmin führt sie
+als `RepeatGroupDTO` — eine Zeile „Wiederholen 4ד mit Belastung und Pause
+darunter —, und genau so steht sie auch in der App. Es gab hier einmal den
+umgekehrten Weg: Jede Runde wurde ausgeschrieben, damit in der Schrittliste
+nicht eine zusammengeklappte Zeile für vier Belastungen steht. Das ist
+zurückgenommen; die Gruppe ist die Form, die der Athlet aus Connect kennt, und
+sie bleibt bei zwanzig Wiederholungen genauso lesbar wie bei drei. Damit
+entfällt auch `MAX_SCHRITTE`, die Obergrenze, die nur das Ausschreiben brauchte.
+
+**Die Zahl der Wiederholungen wird an zwei Stellen gesucht** — am Anfang eines
+Abschnitts *und* am Anfang jedes Teils darin. Geprüft wurde einmal nur der
+Abschnittsanfang, und ein echter Plan brachte das zum Einsturz: „15 min
+Einrollen Z1-Z2 / 4x6 min bei 195-210 W, dazwischen 3 min bei 110-130 W /
+10 min Ausrollen Z1“. Die Serie steht dort hinter einem Schrägstrich, also fiel
+das „4ד still weg — auf der Uhr stand *eine* Belastung, wo vier gemeint waren,
+und der Athlet hätte nach dem ersten Intervall ausgerollt.
+
+Zwei Regeln halten die Gruppe zusammen. Die **Serienpause steht oft hinter dem
+Komma** und damit im nächsten Abschnitt („…, dazwischen 3 min bei 110-130 W“);
+sie wandert deshalb in die zuletzt eröffnete Gruppe *hinein* statt dahinter —
+aber nur, solange diese erst einen Schritt hat und die Zeile sich selbst als
+Pause zu erkennen gibt. Dafür kennt `_ART_SCHLUESSELWOERTER` „dazwischen“ und
+„lockeres Kurbeln“: Auf dem Rad heißt die Pause selten „Pause“. Und **Ein- und
+Ausrollen gehören nie in eine Serie**: Enthält der Rumpf einen Warmup- oder
+Cooldown-Schritt („4x6 min Z4 / 10 min Ausrollen Z1“), wird die Zeile als Block
+ganz abgelehnt und Teil für Teil neu gelesen — viermal ausrollen ergibt keine
+Einheit.
+
+**Auf dem Rad steuert die Leistung, nicht der Puls** (`_leistung_im_schritt`).
+Bei `bike` gewinnt Watt vor jeder Herzfrequenzvorgabe: Auf dem Smarttrainer
+regelt Garmin das Gerät danach, und im Freien zeigt die Leistung sofort an, ob
+das Tempo stimmt, während der Puls Minuten hinterherzieht. Zuerst zählt die
+Angabe im **Schritttext**, denn Belastung und Erholung haben je einen eigenen
+Korridor; erst danach das Feld `target_power`, und das nur über Arbeitsschritten
+— auf das Einrollen gelegt stünden dort die Intervallwatt. Eben weil ein
+Wattkorridor eine Anweisung an die Rolle ist und kein Alarm, gilt er **auch über
+einer Pause** und ist damit die eine Ausnahme von „Pausen ohne Zielkorridor“.
+Ein Prozentwert im Fließtext zählt nur, wenn „FTP“ danebensteht — dort kann er
+auch „% HFmax“ meinen, im Feld `target_power` dagegen nicht.
 
 **Zwei Grammatiken, weil derselbe Text Verschiedenes bedeutet**
 (`zerlege_uebungsliste()` neben `zerlege_struktur()`). Bei Kraft und Mobility
