@@ -489,7 +489,10 @@ RESPONSE_SCHEMA = {
                             "Radfahren in km/h ('30-33 km/h')"
                         ),
                         "target_power": "string – z.B. '210-230 W'",
-                        "rpe_target": 4,
+                        "rpe_target": (
+                            "Zahl 1-10 – geplante Anstrengung, z.B. 4. "
+                            "Bei rest weglassen — 0 ist kein gültiger Wert"
+                        ),
                     }
                 ],
             }
@@ -574,7 +577,8 @@ Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzh
 füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an \
 `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
 Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
-gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Das RPE in \
+gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
+`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen. Das RPE in \
 der Historie ist **geschätzt** und stammt nicht vom Athleten — er trägt nichts von Hand \
 ein, alle Einheiten kommen aus der Uhr. `rpe_quelle` nennt, woraus geschätzt wurde \
 ("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich deshalb stärker auf \
@@ -595,6 +599,7 @@ Regeln für die Ausgabe:
 - Herzfrequenz-Zielbereiche aus den mitgelieferten `herzfrequenzzonen` ableiten, beide \
 Grenzen zwischen 40 und 230 bpm. Bei `strength`, `mobility` und `rest` beide Felder \
 weglassen statt 0 einzutragen.
+- `rpe_target` zwischen 1 und 10, bei `rest` weglassen statt 0 einzutragen.
 - `summary` begründet kurz, warum dieser Block so aussieht — mit Bezug auf die \
 Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 - Alle Texte auf Deutsch.

@@ -311,9 +311,43 @@ def test_import_verwirft_unbrauchbaren_zielpuls_statt_abzulehnen(client, auth):
     assert kraft["target_hr_high"] == 130
 
     warnungen = " ".join(body["warnings"])
-    assert "Unbrauchbarer Zielpuls verworfen" in warnungen
+    assert "Unbrauchbare Steuerungsgröße verworfen" in warnungen
     assert "target_hr_low=0" in warnungen
     assert "target_hr_high=Z2" in warnungen
+
+
+def test_import_verwirft_unbrauchbares_rpe_statt_abzulehnen(client, auth):
+    """Dieselbe Regel für `rpe_target`: 0 an einer Ruheeinheit kippt nichts.
+
+    Der Prompt verlangt Steuerungsgrößen zu *jeder* Einheit; wer dort einen
+    Zielpuls auf 0 setzt, setzt aus demselben Grund auch die geplante
+    Anstrengung auf 0. Als Feldgrenze (`ge=1`) wäre das derselbe harte Fehler.
+    """
+    start = date.today() + timedelta(days=30)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][1]["sessions"] = [{
+        "sport": "rest",
+        "type": "rest",
+        "title": "Ruhetag",
+        "duration_min": 0,
+        "rpe_target": 0,
+    }]
+    # Auch oberhalb der Spanne fällt der Wert nur heraus.
+    plan["plan"]["days"][3]["sessions"][0]["rpe_target"] = 15
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+
+    einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
+    ruhe = einheiten[((start + timedelta(days=1)).isoformat(), "Ruhetag")]
+    assert ruhe["rpe_target"] is None
+
+    warnungen = " ".join(body["warnings"])
+    assert "rpe_target=0" in warnungen
+    assert "rpe_target=15" in warnungen
 
 
 def test_import_accepts_old_week_format(client, auth):

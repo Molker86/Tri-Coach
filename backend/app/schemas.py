@@ -205,19 +205,31 @@ class TrainingRequestOut(TrainingRequestIn):
 # KI-Import: erwartetes Antwortformat
 # --------------------------------------------------------------------------
 
-# Spanne eines brauchbaren Zielpulses. Steht als Konstante, weil sie an zwei
-# Stellen gilt: als Feldgrenze und in der Aufräumregel darunter.
+# Spannen der ganzzahligen Steuerungsgrößen. Stehen als Konstanten, weil sie an
+# zwei Stellen gelten: als Feldgrenze und in der Aufräumregel darunter.
 HF_MIN = 40
 HF_MAX = 230
+RPE_MIN = 1
+RPE_MAX = 10
+
+# Welches Feld welche Spanne hat. Die Aufräumregel läuft über genau diese
+# Felder — Dauer und Distanz gehören bewusst nicht dazu: Dort ist 0 ein
+# zulässiger Wert, und eine fehlende Dauer nähme dem Workout auf der Uhr den
+# einzigen Anhaltspunkt für seine Länge.
+_ZIELWERT_SPANNEN = {
+    "target_hr_low": (HF_MIN, HF_MAX),
+    "target_hr_high": (HF_MIN, HF_MAX),
+    "rpe_target": (RPE_MIN, RPE_MAX),
+}
 
 
-def _als_zielpuls(wert: Any) -> int | None:
-    """Gibt den Wert als Puls zurück — oder None, wenn er keiner sein kann."""
+def _als_zielwert(wert: Any, unten: int, oben: int) -> int | None:
+    """Gibt den Wert als ganze Zahl in der Spanne zurück — sonst None."""
     try:
         zahl = int(round(float(wert)))
     except (TypeError, ValueError):
         return None
-    return zahl if HF_MIN <= zahl <= HF_MAX else None
+    return zahl if unten <= zahl <= oben else None
 
 
 class AISessionIn(BaseModel):
@@ -237,9 +249,9 @@ class AISessionIn(BaseModel):
     target_hr_high: int | None = Field(None, ge=HF_MIN, le=HF_MAX)
     target_pace: str | None = None
     target_power: str | None = None
-    rpe_target: int | None = Field(None, ge=1, le=10)
+    rpe_target: int | None = Field(None, ge=RPE_MIN, le=RPE_MAX)
 
-    # Was `_raeume_zielpuls` weggeworfen hat, in der Form "target_hr_low=0".
+    # Was `_raeume_zielwerte` weggeworfen hat, in der Form "target_hr_low=0".
     # Steht am Modell, damit `plan_import.validate_coverage()` es melden kann,
     # und ist vom Dump ausgenommen: In `Plan.raw_json` gehört die KI-Antwort,
     # nicht unsere Buchführung darüber.
@@ -252,31 +264,32 @@ class AISessionIn(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _raeume_zielpuls(cls, data: Any) -> Any:
-        """Wirft unbrauchbare Zielpulse weg, statt den Block abzulehnen.
+    def _raeume_zielwerte(cls, data: Any) -> Any:
+        """Wirft unbrauchbare Steuerungsgrößen weg, statt den Block abzulehnen.
 
         Der Prompt verlangt zu jeder Einheit konkrete Steuerungsgrößen, und bei
-        Kraft, Mobility oder Ruhe gibt es keinen sinnvollen Korridor — Modelle
-        füllen die Lücke dann mit einer 0. Als Feldgrenze allein wäre das ein
-        harter Fehler: Ein vollständiger Block stürbe an zwei Zahlen, die
-        ohnehin niemand liest (`workouts.py` überspringt eine 0 als falsy).
-        Deshalb dieselbe Linie wie bei fehlenden Tagen — Warnung statt
-        Ablehnung. Erfunden wird dabei nichts: Der Wert fällt weg, er wird
-        nicht auf die Spanne zurechtgebogen.
+        Kraft, Mobility oder Ruhe gibt es weder einen sinnvollen Pulskorridor
+        noch eine geplante Anstrengung — Modelle füllen die Lücke dann mit
+        einer 0. Als Feldgrenze allein wäre das ein harter Fehler: Ein
+        vollständiger Block stürbe an ein paar Zahlen, die ohnehin niemand
+        liest (`workouts.py` überspringt eine 0 als falsy). Deshalb dieselbe
+        Linie wie bei fehlenden Tagen — Warnung statt Ablehnung. Erfunden wird
+        dabei nichts: Der Wert fällt weg, er wird nicht auf die Spanne
+        zurechtgebogen.
         """
         if not isinstance(data, dict):
             return data
 
         bereinigt = dict(data)
         verworfen: list[str] = []
-        for feld in ("target_hr_low", "target_hr_high"):
+        for feld, (unten, oben) in _ZIELWERT_SPANNEN.items():
             wert = bereinigt.get(feld)
             if wert is None:
                 continue
-            puls = _als_zielpuls(wert)
-            if puls is None:
+            zielwert = _als_zielwert(wert, unten, oben)
+            if zielwert is None:
                 verworfen.append(f"{feld}={wert}")
-            bereinigt[feld] = puls
+            bereinigt[feld] = zielwert
 
         # Immer setzen, nie aus den Eingangsdaten übernehmen: Das Feld ist
         # unsere Notiz und kein Teil des KI-Formats.
