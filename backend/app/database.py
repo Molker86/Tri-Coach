@@ -79,6 +79,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "workouts_pushed": "INTEGER NOT NULL DEFAULT 0",
         "workouts_removed": "INTEGER NOT NULL DEFAULT 0",
     },
+    # Die Zuordnung ist während der ersten Übertragung nach dem Update noch
+    # leer. Dort werden bestehende Garmin-Kennungen in den Pool übernommen.
+    "garmin_workout_links": {
+        "pool_slot_id": "INTEGER REFERENCES garmin_workout_pool_slots(id)",
+    },
 }
 
 # Das Gegenstück: Spalten, die aus dem Modell verschwunden sind. Sie einfach
@@ -130,6 +135,14 @@ _NACHGEREICHTE_INDIZES: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_session_logs_user_date "
     "ON session_logs (user_id, date)",
 )
+
+_TABELLENABHAENGIGE_INDIZES: dict[str, tuple[str, ...]] = {
+    "garmin_workout_links": (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_garmin_workout_pool_slot_link "
+        "ON garmin_workout_links (pool_slot_id) "
+        "WHERE pool_slot_id IS NOT NULL",
+    ),
+}
 
 
 def _ergaenze_spalten(connection: Connection) -> list[str]:
@@ -183,6 +196,21 @@ def _entferne_spalten(connection: Connection) -> list[str]:
     return entfernt
 
 
+def _ergaenze_tabellenabhaengige_indizes(connection: Connection) -> None:
+    """Legt Indizes nur an, wenn ihre nachgereichte Tabelle vorhanden ist."""
+    tabellen = {
+        row[0]
+        for row in connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    for tabelle, indizes in _TABELLENABHAENGIGE_INDIZES.items():
+        if tabelle not in tabellen:
+            continue
+        for ddl in indizes:
+            connection.exec_driver_sql(ddl)
+
+
 def init_db() -> None:
     from . import models  # noqa: F401  -- Modelle registrieren
 
@@ -192,3 +220,4 @@ def init_db() -> None:
         _entferne_spalten(connection)
         for ddl in _NACHGEREICHTE_INDIZES:
             connection.exec_driver_sql(ddl)
+        _ergaenze_tabellenabhaengige_indizes(connection)

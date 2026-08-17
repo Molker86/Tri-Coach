@@ -48,3 +48,9 @@ class GarminTokenUngueltig(GarminFehler):
 
 class GarminNichtVerbunden(GarminFehler):
     meldung = "Es ist kein Garmin-Konto verbunden."
+
+
+class GarminBeschaeftigt(GarminFehler):
+    meldung = (
+        "Gerade läuft bereits ein Garmin-Vorgang. Bitte warte, bis er beendet ist."
+    )

@@ -29,6 +29,7 @@ from ..models import (
     GarminAccount,
     GarminSyncJob,
     GarminWorkoutLink,
+    GarminWorkoutPoolSlot,
     Plan,
     PlanSession,
     SessionLog,
@@ -440,15 +441,16 @@ def uebertrage_einzelne_einheit(
         )
 
     try:
-        with garmin_sitzung(db, user.id) as api:
-            uebertragung.uebertrage_einheit(
-                db,
-                api,
-                user.id,
-                session,
-                zonen=workouts.zonen_aus_profil(user.profile),
-                ftp=getattr(user.profile, "ftp_watts", None),
-            )
+        with runner.exklusiver_direktaufruf():
+            with garmin_sitzung(db, user.id) as api:
+                uebertragung.uebertrage_einheit(
+                    db,
+                    api,
+                    user.id,
+                    session,
+                    zonen=workouts.zonen_aus_profil(user.profile),
+                    ftp=getattr(user.profile, "ftp_watts", None),
+                )
     except GarminFehler as exc:
         raise als_http(exc) from exc
 
@@ -531,20 +533,29 @@ def kalender(
     except GarminFehler as exc:
         raise als_http(exc) from exc
 
-    eigene = {
+    links = {
         link.garmin_workout_id: link
         for link in db.scalars(
             select(GarminWorkoutLink).where(GarminWorkoutLink.user_id == user.id)
         ).all()
     }
+    pool_ids = set(
+        db.scalars(
+            select(GarminWorkoutPoolSlot.garmin_workout_id).where(
+                GarminWorkoutPoolSlot.user_id == user.id,
+                GarminWorkoutPoolSlot.garmin_workout_id.is_not(None),
+            )
+        ).all()
+    )
 
     antwort = GarminKalenderOut(jahr=jahr, monat=monat)
     for eintrag in eintraege:
-        link = eigene.get(eintrag["workout_id"] or "")
+        workout_id = eintrag["workout_id"] or ""
+        link = links.get(workout_id)
         antwort.eintraege.append(
             GarminKalenderEintragOut(
                 **eintrag,
-                aus_tri_coach=link is not None,
+                aus_tri_coach=workout_id in pool_ids,
                 plan_session_id=link.plan_session_id if link else None,
             )
         )
@@ -596,10 +607,19 @@ def loesche_kalendereintrag(
     Aktivitäten stehen hier bewusst nicht zur Wahl — sie zu löschen hieße, die
     Trainingsdaten zu vernichten, aus denen diese App ihre Planung ableitet.
     """
+    ist_pool_vorlage = bool(
+        workout_id
+        and db.scalar(
+            select(GarminWorkoutPoolSlot.id).where(
+                GarminWorkoutPoolSlot.user_id == user.id,
+                GarminWorkoutPoolSlot.garmin_workout_id == workout_id,
+            )
+        )
+    )
     try:
         with garmin_sitzung(db, user.id) as api:
             fehler = nachsichtig(lambda: api.unschedule_workout(schedule_id))
-            if fehler is None and workout_id:
+            if fehler is None and workout_id and not ist_pool_vorlage:
                 fehler = nachsichtig(lambda: api.delete_workout(workout_id))
     except GarminFehler as exc:
         raise als_http(exc) from exc

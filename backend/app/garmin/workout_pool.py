@@ -1,0 +1,345 @@
+"""Dauerhafter Pool wiederverwendbarer Garmin-Workout-Vorlagen."""
+
+from datetime import date
+from types import SimpleNamespace
+from typing import Any
+
+from garminconnect import GarminConnectTooManyRequestsError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import GarminWorkoutLink, GarminWorkoutPoolSlot, PlanSession
+from ..zeit import jetzt_utc
+from . import workouts
+from .errors import GarminFehler, GarminRateLimit
+from .mapping import erster_wert
+from .verbindung import nachsichtig
+
+POOL_GROESSE = 15
+
+
+def slot_name(slot_index: int) -> str:
+    return f"TriCoach Slot {slot_index + 1:02d}"
+
+
+def _platzhalter(slot_index: int) -> dict[str, Any]:
+    session = SimpleNamespace(
+        sport="run",
+        title=slot_name(slot_index),
+        description="Reservierte Workout-Vorlage von Tri-Coach.",
+        structure=None,
+        purpose=None,
+        duration_min=1,
+        distance_km=None,
+        intensity_zone=None,
+        target_hr_low=None,
+        target_hr_high=None,
+        target_pace=None,
+        target_power=None,
+        rpe_target=None,
+    )
+    return workouts.baue_workout(session)
+
+
+def _link_prioritaet(
+    db: Session, link: GarminWorkoutLink, bevorzugt: set[int]
+) -> tuple[int, int, int, date, int]:
+    session = db.get(PlanSession, link.plan_session_id)
+    aktiv = bool(session and session.plan.is_active)
+    kuenftig = link.scheduled_date >= date.today()
+    return (
+        0 if link.plan_session_id in bevorzugt else 1,
+        0 if aktiv else 1,
+        0 if kuenftig else 1,
+        link.scheduled_date,
+        link.id,
+    )
+
+
+def _entferne_altbestand(
+    db: Session, api: Any, links: list[GarminWorkoutLink]
+) -> None:
+    """Entfernt nicht übernommene app-eigene Vorlagen samt Terminen."""
+    for link in links:
+        if link.garmin_schedule_id:
+            fehler = nachsichtig(
+                lambda link=link: api.unschedule_workout(link.garmin_schedule_id)
+            )
+            if fehler:
+                raise GarminFehler(
+                    "Der alte Garmin-Termin konnte nicht entfernt werden: "
+                    f"{fehler[:200]}"
+                )
+            link.garmin_schedule_id = None
+            db.commit()
+
+        fehler = nachsichtig(
+            lambda link=link: api.delete_workout(link.garmin_workout_id)
+        )
+        if fehler:
+            raise GarminFehler(
+                "Eine überzählige alte Workout-Vorlage konnte nicht entfernt "
+                f"werden: {fehler[:200]}"
+            )
+        db.delete(link)
+        db.commit()
+
+
+def _uebernehme_bestand(
+    db: Session,
+    api: Any,
+    user_id: int,
+    slots: list[GarminWorkoutPoolSlot],
+    bevorzugte_session_ids: set[int],
+) -> list[GarminWorkoutPoolSlot]:
+    bekannte_ids = {slot.garmin_workout_id for slot in slots if slot.garmin_workout_id}
+    links = list(
+        db.scalars(
+            select(GarminWorkoutLink)
+            .where(GarminWorkoutLink.user_id == user_id)
+            .order_by(GarminWorkoutLink.scheduled_date, GarminWorkoutLink.id)
+        ).all()
+    )
+    kandidaten = [link for link in links if link.garmin_workout_id not in bekannte_ids]
+    kandidaten.sort(key=lambda link: _link_prioritaet(db, link, bevorzugte_session_ids))
+
+    freie_indices = [index for index in range(POOL_GROESSE) if index not in {s.slot_index for s in slots}]
+    behalten = kandidaten[: len(freie_indices)]
+    verwerfen = kandidaten[len(freie_indices) :]
+    if any(link.plan_session_id in bevorzugte_session_ids for link in verwerfen):
+        raise GarminFehler(
+            f"Der Plan benötigt mehr als {POOL_GROESSE} Garmin-Workouts. "
+            "Es wurden keine zusätzlichen Workout-IDs angelegt."
+        )
+    if verwerfen:
+        _entferne_altbestand(db, api, verwerfen)
+
+    for index, link in zip(freie_indices, behalten, strict=False):
+        slot = GarminWorkoutPoolSlot(
+            user_id=user_id,
+            slot_index=index,
+            garmin_workout_id=link.garmin_workout_id,
+            sport=None,
+            title=link.title,
+            fingerabdruck=link.fingerabdruck,
+            last_used_at=link.updated_at,
+            last_error=link.last_error,
+        )
+        db.add(slot)
+        db.flush()
+        link.pool_slot_id = slot.id
+        db.commit()
+        slots.append(slot)
+
+    slots_nach_id = {slot.garmin_workout_id: slot for slot in slots}
+    for link in links:
+        if link.pool_slot_id is not None:
+            continue
+        slot = slots_nach_id.get(link.garmin_workout_id)
+        if slot is None:
+            continue
+        belegt = db.scalar(
+            select(GarminWorkoutLink.id).where(
+                GarminWorkoutLink.pool_slot_id == slot.id,
+                GarminWorkoutLink.id != link.id,
+            )
+        )
+        if belegt is None:
+            link.pool_slot_id = slot.id
+    db.commit()
+    return slots
+
+
+def _lege_slot_an(
+    db: Session, api: Any, user_id: int, slot_index: int
+) -> GarminWorkoutPoolSlot:
+    workout = _platzhalter(slot_index)
+    try:
+        antwort = api.upload_workout(workout)
+    except GarminConnectTooManyRequestsError as exc:
+        raise GarminRateLimit() from exc
+    workout_id = erster_wert(antwort, ("workoutId",), ("workout", "workoutId"), ("id",))
+    if workout_id is None:
+        raise GarminFehler(
+            "Garmin hat eine Pool-Vorlage angenommen, aber keine Kennung "
+            "zurückgegeben. Bitte versuche es später erneut."
+        )
+
+    slot = GarminWorkoutPoolSlot(
+        user_id=user_id,
+        slot_index=slot_index,
+        garmin_workout_id=str(workout_id),
+        sport="run",
+        title=workout["workoutName"],
+        fingerabdruck=workouts.fingerabdruck(workout),
+    )
+    db.add(slot)
+    db.commit()
+    return slot
+
+
+def _fuelle_slot(db: Session, api: Any, slot: GarminWorkoutPoolSlot) -> None:
+    """Gibt einem vorhandenen, nachweislich leeren Slot eine neue Vorlage."""
+    workout = _platzhalter(slot.slot_index)
+    try:
+        antwort = api.upload_workout(workout)
+    except GarminConnectTooManyRequestsError as exc:
+        raise GarminRateLimit() from exc
+    workout_id = erster_wert(antwort, ("workoutId",), ("workout", "workoutId"), ("id",))
+    if workout_id is None:
+        raise GarminFehler(
+            "Garmin hat eine Ersatzvorlage angenommen, aber keine Kennung "
+            "zurückgegeben. Bitte versuche es später erneut."
+        )
+    slot.garmin_workout_id = str(workout_id)
+    slot.sport = "run"
+    slot.title = workout["workoutName"]
+    slot.fingerabdruck = workouts.fingerabdruck(workout)
+    slot.last_error = None
+    db.commit()
+
+
+def _gleiche_fehlende_slots_ab(
+    db: Session, api: Any, slots: list[GarminWorkoutPoolSlot]
+) -> None:
+    """Prüft bei erkanntem Verlust alle Pool-IDs über die Bibliotheksliste."""
+    if not any(slot.garmin_workout_id is None for slot in slots):
+        return
+    if not hasattr(api, "get_workouts"):
+        return
+
+    gesucht = {slot.garmin_workout_id for slot in slots if slot.garmin_workout_id}
+    gefunden: set[str] = set()
+    start = 0
+    limit = 100
+    while gesucht - gefunden:
+        try:
+            seite = api.get_workouts(start=start, limit=limit)
+        except GarminConnectTooManyRequestsError as exc:
+            raise GarminRateLimit() from exc
+        if not isinstance(seite, list):
+            raise GarminFehler(
+                "Garmin hat die Workout-Bibliothek in einer unerwarteten Form "
+                "geliefert. Der Pool wurde nicht verändert."
+            )
+        for eintrag in seite:
+            workout_id = erster_wert(eintrag, ("workoutId",), ("id",))
+            if workout_id is not None:
+                gefunden.add(str(workout_id))
+        if len(seite) < limit:
+            break
+        start += limit
+
+    for slot in slots:
+        if slot.garmin_workout_id and slot.garmin_workout_id not in gefunden:
+            slot.garmin_workout_id = None
+            slot.fingerabdruck = ""
+            slot.last_error = "Die Vorlage wurde in Garmin gelöscht."
+    db.commit()
+
+
+def ersetze_fehlenden_slot(
+    db: Session,
+    api: Any,
+    slot: GarminWorkoutPoolSlot,
+    workout: dict[str, Any],
+    fingerabdruck: str,
+    sport: str,
+) -> str:
+    """Ersetzt genau eine von Garmin nachweislich gelöschte Pool-Vorlage."""
+    try:
+        antwort = api.upload_workout(workout)
+    except GarminConnectTooManyRequestsError as exc:
+        raise GarminRateLimit() from exc
+    workout_id = erster_wert(antwort, ("workoutId",), ("workout", "workoutId"), ("id",))
+    if workout_id is None:
+        raise GarminFehler(
+            "Garmin hat die Ersatzvorlage angenommen, aber keine Kennung "
+            "zurückgegeben. Bitte versuche es später erneut."
+        )
+    slot.garmin_workout_id = str(workout_id)
+    belege_slot(slot, workout, fingerabdruck, sport)
+    db.commit()
+    return slot.garmin_workout_id
+
+
+def stelle_pool_sicher(
+    db: Session,
+    api: Any,
+    user_id: int,
+    *,
+    bevorzugte_session_ids: set[int] | None = None,
+) -> list[GarminWorkoutPoolSlot]:
+    """Übernimmt Altbestand und ergänzt den Pool idempotent auf 15 Slots."""
+    slots = list(
+        db.scalars(
+            select(GarminWorkoutPoolSlot)
+            .where(GarminWorkoutPoolSlot.user_id == user_id)
+            .order_by(GarminWorkoutPoolSlot.slot_index)
+        ).all()
+    )
+    slots = _uebernehme_bestand(
+        db, api, user_id, slots, bevorzugte_session_ids or set()
+    )
+    _gleiche_fehlende_slots_ab(db, api, slots)
+    for slot in slots:
+        if slot.garmin_workout_id is None:
+            _fuelle_slot(db, api, slot)
+    vorhandene_indices = {slot.slot_index for slot in slots}
+    for slot_index in range(POOL_GROESSE):
+        if slot_index not in vorhandene_indices:
+            slots.append(_lege_slot_an(db, api, user_id, slot_index))
+    return sorted(slots, key=lambda slot: slot.slot_index)
+
+
+def freier_slot(db: Session, user_id: int, sport: str) -> GarminWorkoutPoolSlot | None:
+    """Wählt einen unbelegten Slot, bevorzugt mit derselben Sportart."""
+    belegte = select(GarminWorkoutLink.pool_slot_id).where(
+        GarminWorkoutLink.user_id == user_id,
+        GarminWorkoutLink.pool_slot_id.is_not(None),
+    )
+    return db.scalar(
+        select(GarminWorkoutPoolSlot)
+        .where(
+            GarminWorkoutPoolSlot.user_id == user_id,
+            GarminWorkoutPoolSlot.garmin_workout_id.is_not(None),
+            GarminWorkoutPoolSlot.id.not_in(belegte),
+        )
+        .order_by(
+            (GarminWorkoutPoolSlot.sport == sport).desc(),
+            GarminWorkoutPoolSlot.last_used_at.asc(),
+            GarminWorkoutPoolSlot.slot_index,
+        )
+        .limit(1)
+    )
+
+
+def freie_slots(db: Session, user_id: int) -> int:
+    belegte = set(
+        db.scalars(
+            select(GarminWorkoutLink.pool_slot_id).where(
+                GarminWorkoutLink.user_id == user_id,
+                GarminWorkoutLink.pool_slot_id.is_not(None),
+            )
+        ).all()
+    )
+    return sum(
+        1
+        for slot in db.scalars(
+            select(GarminWorkoutPoolSlot).where(
+                GarminWorkoutPoolSlot.user_id == user_id,
+                GarminWorkoutPoolSlot.garmin_workout_id.is_not(None),
+            )
+        ).all()
+        if slot.id not in belegte
+    )
+
+
+def belege_slot(
+    slot: GarminWorkoutPoolSlot, workout: dict[str, Any], fingerabdruck: str, sport: str
+) -> None:
+    slot.sport = sport
+    slot.title = workout["workoutName"]
+    slot.fingerabdruck = fingerabdruck
+    slot.last_used_at = jetzt_utc()
+    slot.last_error = None

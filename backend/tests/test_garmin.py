@@ -775,6 +775,32 @@ def test_prompt_bleibt_formatierbar(client, verbunden):
 # --------------------------------------------------------------------------
 
 
+def test_workout_pool_schema_ist_angelegt(client):
+    with engine.connect() as verbindung:
+        tabellen = {
+            r[0]
+            for r in verbindung.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        link_spalten = {
+            r[1]
+            for r in verbindung.exec_driver_sql(
+                "PRAGMA table_info(garmin_workout_links)"
+            )
+        }
+        link_indizes = {
+            r[1]
+            for r in verbindung.exec_driver_sql(
+                "PRAGMA index_list(garmin_workout_links)"
+            )
+        }
+
+    assert "garmin_workout_pool_slots" in tabellen
+    assert "pool_slot_id" in link_spalten
+    assert "uq_garmin_workout_pool_slot_link" in link_indizes
+
+
 def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
     """Der Helfer muss eine Datenbank von vor der Garmin-Anbindung retten."""
     import sqlalchemy as sa

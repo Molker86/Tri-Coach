@@ -606,48 +606,43 @@ sie vorher nur nicht kannte — ohne den Eintrag fiele die absolvierte Einheit
 beim Abgleich stillschweigend heraus.
 
 **Vorlage und Termin sind zwei Dinge** (`garmin/uebertragung.py`,
-`GarminWorkoutLink`). In Garmin liegt das Workout in der Bibliothek und ein
-Zeitplaneintrag verweist darauf; entsprechend hält jede übertragene Einheit
-beide Kennungen fest. Dazu einen `fingerabdruck` des zuletzt gesendeten
-Inhalts — **damit der Knopf gefahrlos zweimal gedrückt werden darf**:
-Unverändertes wird übersprungen (null Anfragen), Geändertes über
-`update_workout` an Ort und Stelle ersetzt, wodurch die Vorlage ihre Kennung
-und der Kalendertermin seine Gültigkeit behält. Nach jedem Schritt wird
-festgeschrieben, denn zwischen „Vorlage angelegt“ und „Termin eingetragen“
-liegt eine zweite Anfrage: Ginge die Kennung dazwischen verloren, entstünden
-bei jedem Versuch neue Karteileichen in einem fremden Konto. Wer eine Vorlage
-in Connect von Hand löscht, bekommt sie neu — ein 404 löst die Zuordnung, statt
-für immer gegen eine tote Kennung zu laufen (`verbindung.verschwunden`).
+`GarminWorkoutPoolSlot`, `GarminWorkoutLink`). In Garmin liegt das Workout in
+der Bibliothek und ein Zeitplaneintrag verweist darauf. Tri-Coach verwaltet je
+Nutzer **genau 15 dauerhafte Vorlagen**; ein Link belegt einen Slot nur für die
+aktuelle Planeinheit und ihren Termin. Bestehende App-IDs werden beim ersten
+Lauf übernommen, fehlende Slots aufgefüllt. Danach ersetzt `update_workout`
+den Inhalt an derselben Kennung. Neue IDs entstehen nur beim ersten Aufbau oder
+als Ersatz für eine mit 404 bestätigte, manuell gelöschte Pool-Vorlage. Ein
+voller Pool bricht vor der ersten Teilübertragung ab, statt eine 16. ID oder
+einen halben Block anzulegen.
 
 **Der Kalender ist das Ziel, die Bibliothek nur der Weg dorthin**
 (`workouts.name_der_einheit`). Deshalb trägt der Workout-Name **kein Datum**: Im
 Kalender steht der Tag schon in der Spalte, in der die Einheit hängt, und
 „16.08. Lockerer Dauerlauf“ am 16.08. las sich dort wie ein Fehler. Das Datum
 stand einmal voran, um die Bibliothek sortierbar zu halten — das war der Blick
-auf den falschen Ort, denn dort liegen ohnehin nur die noch anstehenden Tage
-des laufenden Blocks (`raeume_vergangene_auf`). Was am Datum hing, muss der
+auf den falschen Ort, denn dort liegen nur die fünfzehn wiederverwendbaren
+Pool-Slots. Was am Datum hing, muss der
 Rückfall auf „Training“ jetzt selbst leisten: Garmin lehnt ein Workout ohne
 Namen ab, und bis hierher war der Name durch den Datumsteil zwangsläufig nicht
 leer. **Ganz ohne Bibliothekseintrag geht es nicht** — `schedule_workout` nimmt
 eine `workoutId` und sonst nichts, einen Termin mit eingebettetem Inhalt kennt
-Garmin nicht. Ein Löschen der Vorlage nähme den Termin mit (genau das tut
-`entferne_link`).
+Garmin nicht. Pool-Vorlagen werden deshalb im normalen Lebenszyklus nie
+gelöscht.
 
-**Was vorbei ist, wird weggeräumt** (`uebertragung.raeume_vergangene_auf`).
-Weil ein Kalendertermin ohne Vorlage nicht existieren kann, legt jede übertragene
-Einheit zwangsläufig einen Eintrag in Garmins Bibliothek ab — bei einem Block je
-Woche wären das nach einem Jahr dreihundert, zwischen denen der Athlet seine
-eigenen Trainings nicht mehr fände. Deshalb löscht die App Vorlage *und* Termin
-jeder Einheit, deren Tag vorbei ist: am Ende jedes Abgleichs und am Ende jeder
-Übertragung — den beiden Zeitpunkten, an denen der Zugang ohnehin steht und das
-Schloss gehalten wird. Die Liste kommt aus `GarminWorkoutLink`, **nie** aus
-Garmins Bibliothek: Angefasst wird ausschließlich, was diese App selbst angelegt
-hat. Die absolvierte Aktivität ist ein eigener Datensatz und bleibt; auch die
-Umsetzungsquote hängt nicht daran, weil `matching` über Tag und Sportart
-verknüpft, nicht über die Garmin-Kennung. Ein Fehlschlag beim Aufräumen wertet
-den Lauf nicht um — er hat sein eigentliches Ziel schon erreicht —, aber die
-Anfragesperre wird festgehalten, und zwar **nach** dem Festschreiben des
-Ergebnisses: Der Erfolgspfad setzt sie eine Zeile vorher zurück.
+**Was vorbei ist, gibt seinen Slot frei**
+(`uebertragung.raeume_vergangene_auf`). Die App entfernt den Kalendertermin
+und löst `GarminWorkoutLink`, behält aber die Pool-Vorlage. So wächst die
+Connect-Bibliothek nicht über fünfzehn App-IDs hinaus. Die absolvierte Aktivität
+ist ein eigener Datensatz und bleibt; auch die Umsetzungsquote hängt nicht am
+Link, weil `matching` über Tag und Sportart verknüpft. Die verfügbare
+Connect-API kennt **keinen Fern-Löschbefehl für bereits auf eine Fenix
+synchronisierte Workouts**. Vor dem ersten Poolbetrieb müssen alte verwaiste
+Tri-Coach-Workouts deshalb einmalig manuell auf der Uhr entfernt werden. Garmin
+nennt für die meisten Geräte höchstens 25 benutzerdefinierte Workouts inklusive
+vorinstallierter; fünfzehn Pool-Slots lassen bewusst Reserve. Ob die Fenix 8
+Updates derselben ID lokal sicher ersetzt, wird am echten Gerät mit stabilem
+und wechselndem Namen sowie einem Sportartwechsel geprüft.
 
 **Die Übertragung ist ein Job, der Kalender nicht.** Ein Block kostet zwei
 Anfragen je Einheit und läuft deshalb durch denselben Runner und dasselbe

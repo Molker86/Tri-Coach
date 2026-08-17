@@ -334,6 +334,14 @@ class FakeGarmin:
             raise RuntimeError("404 Not Found")
         return dict(vorlage, workoutId=int(workout_id))
 
+    def get_workouts(self, start=0, limit=100):
+        self.aufrufe.append("get_workouts")
+        eintraege = [
+            dict(vorlage, workoutId=workout_id)
+            for workout_id, vorlage in sorted(self._workouts.items())
+        ]
+        return eintraege[int(start) : int(start) + int(limit)]
+
     def update_workout(self, workout_id, workout_json):
         self.aufrufe.append("update_workout")
         if int(workout_id) not in self._workouts:

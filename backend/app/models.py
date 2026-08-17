@@ -439,6 +439,34 @@ class GarminSyncJob(Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+class GarminWorkoutPoolSlot(Base):
+    """Eine dauerhafte, von Tri-Coach verwaltete Garmin-Workout-Vorlage.
+
+    Der Slot gehört dem Nutzer und nicht einer Planeinheit. Dadurch überlebt
+    seine Garmin-Kennung das Aufräumen alter Blöcke und kann mit neuem Inhalt
+    wiederverwendet werden.
+    """
+
+    __tablename__ = "garmin_workout_pool_slots"
+    __table_args__ = (
+        UniqueConstraint("user_id", "slot_index", name="uq_garmin_pool_user_slot"),
+        UniqueConstraint(
+            "user_id", "garmin_workout_id", name="uq_garmin_pool_user_workout"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    slot_index: Mapped[int] = mapped_column(Integer)
+    garmin_workout_id: Mapped[str | None] = mapped_column(String(32))
+
+    sport: Mapped[str | None] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(255), default="")
+    fingerabdruck: Mapped[str] = mapped_column(String(64), default="")
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
 class GarminWorkoutLink(Base):
     """Was eine geplante Einheit in Garmin geworden ist.
 
@@ -461,12 +489,16 @@ class GarminWorkoutLink(Base):
     __tablename__ = "garmin_workout_links"
     __table_args__ = (
         UniqueConstraint("plan_session_id", name="uq_garmin_workout_session"),
+        UniqueConstraint("pool_slot_id", name="uq_garmin_workout_pool_slot_link"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     plan_session_id: Mapped[int] = mapped_column(
         ForeignKey("plan_sessions.id", ondelete="CASCADE"), index=True
+    )
+    pool_slot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("garmin_workout_pool_slots.id", ondelete="SET NULL"), index=True
     )
 
     garmin_workout_id: Mapped[str] = mapped_column(String(32))

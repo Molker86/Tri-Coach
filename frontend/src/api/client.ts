@@ -234,7 +234,7 @@ export const api = {
 
   garminKalender: (jahr: number, monat: number) =>
     request<GarminKalender>(`/garmin/kalender?jahr=${jahr}&monat=${monat}`),
-  /** Ohne `workoutId` bleibt die Vorlage in der Bibliothek stehen. */
+  /** Poolvorlagen bleiben serverseitig auch mit `workoutId` erhalten. */
   garminKalenderLoeschen: (scheduleId: string, workoutId?: string | null) =>
     request<void>(
       `/garmin/kalender/${scheduleId}${workoutId ? `?workout_id=${workoutId}` : ''}`,

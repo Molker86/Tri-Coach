@@ -253,7 +253,7 @@ def delete_plan(
 def _nimm_aus_garmin(
     db, user_id: int, plan: Plan, *, uebergehen: bool
 ) -> tuple[int, list[str]]:
-    """Räumt Vorlagen und Termine des Plans aus Garmin — **vor** dem Löschen.
+    """Räumt Termine des Plans aus Garmin — **vor** dem Löschen.
 
     Die Reihenfolge ist die ganze Pointe: In Garmin fasst diese App nur an, was
     in `GarminWorkoutLink` steht, und der stirbt mit der Planeinheit. Wer den
@@ -268,7 +268,7 @@ def _nimm_aus_garmin(
     Sekunden dauert.
 
     Scheitert der Zugang, wird **nicht** gelöscht: Ein Plan ist schnell noch
-    einmal gelöscht, eine Karteileiche in einem fremden Konto nie mehr. Der
+    einmal gelöscht, ein verwaister Termin im fremden Kalender nie mehr. Der
     Nutzer bekommt den Grund und kann mit `garmin_uebergehen` darauf bestehen.
     """
     if not uebertragung.links_zum_plan(db, plan) or uebergehen:

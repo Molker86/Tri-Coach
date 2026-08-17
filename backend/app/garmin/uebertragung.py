@@ -3,24 +3,22 @@
 Die Gegenrichtung zum Abgleich: Bisher kamen Daten von der Uhr, hier gehen
 Vorgaben auf die Uhr. Zwei Eigenschaften bestimmen den Aufbau.
 
-**Ein zweiter Druck auf den Knopf darf nichts kosten.** Jede übertragene
-Einheit merkt sich in `GarminWorkoutLink`, was von ihr in Garmin steht und mit
-welchem Inhalt (`fingerabdruck`). Unverändertes wird übersprungen, Geändertes
-über `update_workout` an Ort und Stelle ersetzt — die Vorlage behält ihre
-Kennung, und der Termin im Kalender bleibt gültig. Ein neues Workout entsteht
-nur für eine Einheit, die noch keins hat.
+**Workout-IDs werden wiederverwendet.** Pro Nutzer hält
+`GarminWorkoutPoolSlot` genau fünfzehn dauerhafte Vorlagen. Eine Planeinheit
+belegt über `GarminWorkoutLink` vorübergehend einen Slot samt Kalendertermin.
+Unverändertes wird übersprungen, Geändertes über `update_workout` an Ort und
+Stelle ersetzt. Neue IDs entstehen nur beim ersten Aufbau oder als Ersatz für
+eine von Garmin mit 404 bestätigte, manuell gelöschte Pool-Vorlage.
 
-**Nach jedem Schritt wird festgeschrieben.** Zwischen „Vorlage angelegt" und
-„Termin eingetragen" liegt eine zweite Anfrage; bricht der Lauf dazwischen ab,
-muss die Kennung der Vorlage trotzdem gespeichert sein. Sonst legte der nächste
-Versuch dieselbe Einheit ein zweites Mal an, und in der Bibliothek stünden
-Karteileichen, die niemand mehr zuordnen kann.
+**Nach jedem Schritt wird festgeschrieben.** Zwischen Pool-Aufbau, Update und
+Terminierung liegen getrennte Anfragen. Bricht der Lauf dazwischen ab, muss die
+Kennung trotzdem gespeichert sein, damit der nächste Versuch denselben Slot
+fortsetzt statt eine weitere Vorlage anzulegen.
 
-**Was vorbei ist, wird weggeräumt** (`raeume_vergangene_auf`). Jede Einheit im
-Garmin-Kalender braucht eine Vorlage in der Bibliothek — anders kennt Garmin
-keinen Termin, und eine bloße Notiz käme nie auf die Uhr. Ohne Aufräumen wüchse
-diese Bibliothek also mit jedem Block weiter, bis der Athlet seine eigenen
-Trainings darin nicht mehr findet.
+**Was vorbei ist, gibt seinen Slot frei** (`raeume_vergangene_auf`). Der
+Kalendertermin wird entfernt und die Zuordnung zur Planeinheit gelöst; die
+Pool-Vorlage bleibt für den nächsten Block bestehen. Ein bereits auf die Uhr
+synchronisiertes Workout lässt sich über die Connect-API nicht fernlöschen.
 """
 
 import logging
@@ -32,8 +30,9 @@ from garminconnect import GarminConnectTooManyRequestsError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import GarminWorkoutLink, Plan, PlanSession
+from ..models import GarminWorkoutLink, GarminWorkoutPoolSlot, Plan, PlanSession
 from . import kalender as kalender_modul
+from . import workout_pool
 from . import workouts
 from .errors import GarminFehler, GarminRateLimit
 from .mapping import erster_wert
@@ -203,7 +202,13 @@ def gleiche_mit_garmin_ab(
             continue
         if _vorlage_fehlt(api, link.garmin_workout_id):
             # Weg ist weg: Die Einheit gilt wieder als offen und wird beim
-            # nächsten Übertragen neu angelegt.
+            # nächsten Übertragen aus genau diesem Pool-Slot wiederhergestellt.
+            if link.pool_slot_id:
+                slot = db.get(GarminWorkoutPoolSlot, link.pool_slot_id)
+                if slot is not None:
+                    slot.garmin_workout_id = None
+                    slot.fingerabdruck = ""
+                    slot.last_error = "Die Vorlage wurde in Garmin gelöscht."
             db.delete(link)
             korrigiert += 1
         elif link.garmin_schedule_id:
@@ -264,14 +269,20 @@ def uebertrage_einheit(
     finger = workouts.fingerabdruck(workout)
     link = _link(db, session.id)
 
+    if link is None or link.pool_slot_id is None:
+        workout_pool.stelle_pool_sicher(
+            db, api, user_id, bevorzugte_session_ids={session.id}
+        )
+        link = _link(db, session.id)
+
     if link is not None and _ist_aktuell(link, finger, session.date):
         return "unveraendert"
 
-    if link is not None and not _gleiche_vorlage_ab(db, api, link, workout, finger):
-        link = None  # In Garmin von Hand gelöscht — sie wird neu angelegt.
+    if link is not None:
+        _gleiche_vorlage_ab(db, api, link, workout, finger, session.sport)
 
     if link is None:
-        link = _lege_vorlage_an(db, api, user_id, session, workout, finger)
+        link = _belege_pool_slot(db, api, user_id, session, workout, finger)
         ergebnis = "neu"
     else:
         ergebnis = "aktualisiert"
@@ -297,33 +308,45 @@ def _ist_aktuell(link: GarminWorkoutLink, finger: str, tag: date) -> bool:
 
 
 def _gleiche_vorlage_ab(
-    db: Session, api: Any, link: GarminWorkoutLink, workout: dict, finger: str
-) -> bool:
-    """Bringt die Vorlage auf den neuen Stand. `False`: Sie gibt es nicht mehr.
+    db: Session,
+    api: Any,
+    link: GarminWorkoutLink,
+    workout: dict,
+    finger: str,
+    sport: str,
+) -> None:
+    """Bringt die Pool-Vorlage auf den neuen Stand.
 
     `update_workout` statt löschen und neu anlegen: Die Vorlage behält ihre
     Kennung, und der Termin im Kalender bleibt damit gültig. Wer sie in Garmin
-    Connect von Hand gelöscht hat, bekommt sie hier neu — sonst liefe jeder
-    weitere Versuch für immer gegen eine tote Kennung.
+    Connect von Hand gelöscht hat, bekommt genau diesen Pool-Slot ersetzt.
     """
     if link.fingerabdruck == finger:
-        return True
+        return
+    slot = db.get(GarminWorkoutPoolSlot, link.pool_slot_id) if link.pool_slot_id else None
+    if slot is None:
+        raise GarminFehler(
+            "Die Garmin-Vorlage ist keinem Workout-Pool zugeordnet. "
+            "Bitte starte die Übertragung erneut."
+        )
     try:
         api.update_workout(link.garmin_workout_id, workout)
     except Exception as exc:  # noqa: BLE001
         if not verschwunden(exc):
             raise
-        db.delete(link)
-        db.commit()
-        return False
+        link.garmin_workout_id = workout_pool.ersetze_fehlenden_slot(
+            db, api, slot, workout, finger, sport
+        )
+        link.garmin_schedule_id = None
+    else:
+        workout_pool.belege_slot(slot, workout, finger, sport)
 
     link.fingerabdruck = finger
     link.title = workout["workoutName"]
     db.commit()
-    return True
 
 
-def _lege_vorlage_an(
+def _belege_pool_slot(
     db: Session,
     api: Any,
     user_id: int,
@@ -331,17 +354,29 @@ def _lege_vorlage_an(
     workout: dict,
     finger: str,
 ) -> GarminWorkoutLink:
-    antwort = api.upload_workout(workout)
-    workout_id = erster_wert(antwort, ("workoutId",), ("workout", "workoutId"), ("id",))
-    if workout_id is None:
+    slot = workout_pool.freier_slot(db, user_id, session.sport)
+    if slot is None or slot.garmin_workout_id is None:
         raise GarminFehler(
-            "Garmin hat das Training angenommen, aber keine Kennung "
-            "zurückgegeben. Bitte versuche es später erneut."
+            f"Alle {workout_pool.POOL_GROESSE} Garmin-Workout-Plätze sind noch "
+            "durch anstehende Termine belegt. Es wurde keine zusätzliche "
+            "Workout-ID angelegt."
         )
+    try:
+        api.update_workout(slot.garmin_workout_id, workout)
+    except Exception as exc:  # noqa: BLE001
+        if not verschwunden(exc):
+            raise
+        workout_id = workout_pool.ersetze_fehlenden_slot(
+            db, api, slot, workout, finger, session.sport
+        )
+    else:
+        workout_pool.belege_slot(slot, workout, finger, session.sport)
+        workout_id = slot.garmin_workout_id
 
     link = GarminWorkoutLink(
         user_id=user_id,
         plan_session_id=session.id,
+        pool_slot_id=slot.id,
         garmin_workout_id=str(workout_id),
         scheduled_date=session.date,
         title=workout["workoutName"],
@@ -379,18 +414,19 @@ def _terminiere(db: Session, api: Any, link: GarminWorkoutLink, tag: date) -> st
 
 
 def entferne_link(db: Session, api: Any, link: GarminWorkoutLink) -> str | None:
-    """Nimmt Termin und Vorlage aus Garmin zurück. Rückgabe: Fehlertext oder None.
+    """Nimmt den Termin zurück und gibt seinen Pool-Slot wieder frei.
 
-    Reihenfolge mit Absicht: erst der Termin, dann die Vorlage. Andersherum
-    bliebe bei einem Fehlschlag ein Kalendereintrag ohne Inhalt stehen.
+    Die Vorlage bleibt in Garmin: Ihre Kennung gehört dauerhaft zum Pool und
+    wird für eine spätere Planeinheit mit neuem Inhalt wiederverwendet.
     """
     fehler = None
     if link.garmin_schedule_id:
-        # Nicht verwerfen: Bleibt der Termin stehen, während die Vorlage
-        # gelöscht wird, hätte die App eine Karteileiche in einem fremden
-        # Kalender hinterlassen, von der sie nichts mehr wüsste.
         fehler = nachsichtig(lambda: api.unschedule_workout(link.garmin_schedule_id))
-    fehler = fehler or nachsichtig(lambda: api.delete_workout(link.garmin_workout_id))
+    if fehler is None and link.pool_slot_id is None:
+        # Altbestand von vor dem Pool: Ohne Slot gäbe es nach dem Löschen des
+        # Links keinen Weg mehr zur Vorlage. Solche Links behalten deshalb den
+        # bisherigen vollständigen Cleanup.
+        fehler = nachsichtig(lambda: api.delete_workout(link.garmin_workout_id))
     if fehler:
         link.last_error = fehler
         db.commit()
@@ -417,6 +453,20 @@ def uebertrage_plan(
     ergebnis = UebertragungsErgebnis()
     pause = PAUSE_SEKUNDEN if pause_s is None else pause_s
 
+    if fortschritt:
+        fortschritt.schritt(
+            "pool",
+            0,
+            workout_pool.POOL_GROESSE,
+            "Der Garmin-Workout-Pool wird vorbereitet …",
+        )
+    workout_pool.stelle_pool_sicher(
+        db,
+        api,
+        user_id,
+        bevorzugte_session_ids={session.id for session in einheiten},
+    )
+
     # Zuerst nachsehen, was tatsächlich in Garmin steht. Ohne das übersprünge
     # der Lauf jede Einheit, die er selbst einmal übertragen hat — auch die, die
     # der Athlet in Connect längst gelöscht hat. Der Knopf wäre dann genau dann
@@ -427,6 +477,15 @@ def uebertrage_plan(
             "abgleich", 0, len(einheiten), "Es wird geprüft, was in Garmin steht …"
         )
     _pruefe_bestand(db, api, plan, einheiten)
+
+    offene = sum(1 for session in einheiten if _link(db, session.id) is None)
+    frei = workout_pool.freie_slots(db, user_id)
+    if offene > frei:
+        raise GarminFehler(
+            f"Der Plan benötigt {offene} weitere Garmin-Workouts, aber nur "
+            f"{frei} der {workout_pool.POOL_GROESSE} Pool-Plätze sind frei. "
+            "Es wurden keine zusätzlichen Workout-IDs angelegt."
+        )
 
     for index, session in enumerate(einheiten, start=1):
         if fortschritt:
@@ -519,20 +578,18 @@ def raeume_vergangene_auf(
     heute: date | None = None,
     pause_s: float | None = None,
 ) -> UebertragungsErgebnis:
-    """Nimmt Vorlage und Termin jeder Einheit zurück, deren Tag vorbei ist.
+    """Entfernt den Termin jeder vergangenen Einheit und gibt den Slot frei.
 
-    Der Grund liegt in Garmins Aufbau: Ein Kalendertermin ist nur ein Verweis
-    auf eine Vorlage in der Bibliothek, es gibt also keinen Weg, eine Einheit
-    einzuplanen, ohne sie dort abzulegen. Wer wöchentlich einen Block überträgt,
-    hätte nach einem Jahr dreihundert Vorlagen unter „Meine Trainings" stehen —
-    und fände seine eigenen nicht mehr.
+    Die fünfzehn Pool-Vorlagen bleiben dauerhaft in Garmins Bibliothek. Nur
+    ihre Zuordnung zur vergangenen Planeinheit wird gelöst, damit derselbe Slot
+    mit `update_workout` den nächsten Inhalt aufnehmen kann.
 
     Angefasst wird ausschließlich, was diese App selbst angelegt hat: Die Liste
     kommt aus `GarminWorkoutLink`, nicht aus Garmins Bibliothek. Was der Athlet
     dort selbst gebaut hat, bleibt unberührt.
 
     Was ebenfalls bleibt: die **absolvierte Aktivität**. Sie ist in Garmin ein
-    eigener Datensatz; gelöscht wird nur die Vorgabe, nicht ihre Erfüllung. Auch
+    eigener Datensatz; entfernt wird nur der Termin, nicht ihre Erfüllung. Auch
     die Umsetzungsquote leidet nicht — `matching` verknüpft über Tag und
     Sportart, nie über die Garmin-Kennung.
     """
