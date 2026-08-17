@@ -146,6 +146,7 @@ def fake(monkeypatch):
     # Ohne diese Zeilen dauerte ein 30-Tage-Test über zwei Minuten und
     # verlangte eine Abfrageschleife.
     monkeypatch.setattr(sync_modul, "PAUSE_SEKUNDEN", 0.0)
+    monkeypatch.setattr(sync_modul, "BEWERTUNG_PAUSE_SEKUNDEN", 0.0)
     monkeypatch.setattr(uebertragung_modul, "PAUSE_SEKUNDEN", 0.0)
     monkeypatch.setattr(runner_modul, "IM_HINTERGRUND", False)
 

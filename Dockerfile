@@ -45,6 +45,7 @@ RUN apt-get update \
 
 # Copy backend code
 COPY backend/app ./app
+COPY backend/scripts/garmin_workout_typwechsel.py ./scripts/garmin_workout_typwechsel.py
 
 # Copy the built frontend from the previous stage
 COPY --from=frontend-build /build/dist ./static

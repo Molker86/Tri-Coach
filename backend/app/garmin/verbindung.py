@@ -27,6 +27,7 @@ from ..models import GarminAccount
 from ..zeit import als_utc, jetzt_utc, liegt_in_der_zukunft
 from .client import client_aus_token, token_aktualisieren
 from .errors import (
+    GarminBeschaeftigt,
     GarminFehler,
     GarminNichtVerbunden,
     GarminRateLimit,
@@ -83,7 +84,9 @@ def als_http(exc: GarminFehler) -> HTTPException:
     """Übersetzt einen Garmin-Fehler in die Antwort für die Oberfläche."""
     if isinstance(exc, GarminRateLimit):
         code = status.HTTP_429_TOO_MANY_REQUESTS
-    elif isinstance(exc, (GarminTokenUngueltig, GarminNichtVerbunden)):
+    elif isinstance(
+        exc, (GarminTokenUngueltig, GarminNichtVerbunden, GarminBeschaeftigt)
+    ):
         code = status.HTTP_409_CONFLICT
     else:
         code = status.HTTP_502_BAD_GATEWAY

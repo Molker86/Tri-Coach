@@ -15,6 +15,7 @@ from app.garmin.mapping import (
     aktivitaet_zu_log,
     als_liste,
     bestzeiten,
+    bewertung_aus_detail,
     erster_wert,
     ftp_watt,
     gewicht_kg,
@@ -154,6 +155,32 @@ def test_rpe_ohne_jede_grundlage_bleibt_leer():
     assert quelle == "manual"
 
 
+def test_bewertung_rechnet_auf_die_skala_des_athleten_zurueck():
+    """Garmin speichert beides mal zehn — bewertet wird von 0/1 bis 10."""
+    detail = {"summaryDTO": {"directWorkoutRpe": 60, "directWorkoutFeel": 75}}
+    # Die 7,5 kommt von der Uhr: Sie bietet fünf Stufen statt der Skala an.
+    assert bewertung_aus_detail(detail) == {"rpe": 6, "feel": 7.5}
+
+
+def test_bewertung_fehlt_an_den_meisten_einheiten():
+    assert bewertung_aus_detail({"summaryDTO": {"averageHR": 148}}) == {
+        "rpe": None,
+        "feel": None,
+    }
+    assert bewertung_aus_detail({}) == {"rpe": None, "feel": None}
+
+
+def test_befinden_null_ist_ein_wert_rpe_null_dagegen_nicht():
+    """"Sehr schwach" ist eine Aussage — ein RPE 0 wäre kein Training."""
+    bewertung = bewertung_aus_detail(
+        {"summaryDTO": {"directWorkoutFeel": 0, "directWorkoutRpe": 0}}
+    )
+    assert bewertung["feel"] == 0
+    assert bewertung["rpe"] is None
+
+
+
+
 LAUF = {
     "activityId": 21482357291,
     "activityName": "Zürich Laufen",
@@ -193,6 +220,29 @@ def test_aktivitaet_wird_zu_trainingseintrag():
     assert log["garmin_activity_id"] == "21482357291"
     assert log["garmin_training_load"] == 142.5
     assert log["rpe_source"] == "hf_zonen"
+
+
+def test_bewertung_des_athleten_schlaegt_die_schaetzung():
+    log = aktivitaet_zu_log(LAUF, None, {"rpe": 4, "feel": 2.5})
+    assert log["rpe"] == 4
+    assert log["rpe_source"] == "athlet"
+    assert log["garmin_feel"] == 2.5
+
+    # Ohne eingetragenes RPE bleibt die Schätzung — das Befinden kommt trotzdem
+    # mit, die beiden Felder hängen in Connect nicht aneinander.
+    ohne_rpe = aktivitaet_zu_log(LAUF, None, {"rpe": None, "feel": 10.0})
+    assert ohne_rpe["rpe_source"] == "hf_zonen"
+    assert ohne_rpe["garmin_feel"] == 10.0
+
+
+def test_ohne_detailabruf_fehlen_die_bewertungsfelder_ganz():
+    """Sonst überschriebe ein Lauf ohne Detail eine früher geholte Bewertung."""
+    assert "garmin_feel" not in aktivitaet_zu_log(LAUF)
+    # Nachgesehen und nichts gefunden ist etwas anderes: Dann steht die Antwort
+    # ausdrücklich da.
+    assert (
+        aktivitaet_zu_log(LAUF, None, {"rpe": None, "feel": None})["garmin_feel"] is None
+    )
 
 
 def test_laufleistung_landet_nicht_in_der_wattspalte():

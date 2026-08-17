@@ -279,6 +279,61 @@ def test_geschaetztes_rpe_haelt_die_auswertung_am_leben(client, verbunden, fake)
     assert stats["acwr"] is not None
 
 
+def test_bewertung_des_athleten_kommt_mit(client, verbunden, fake):
+    """Anstrengung und Befinden stehen nur im Detail — dafür der zweite Abruf."""
+    fake.bewertungen["1001"] = {"directWorkoutRpe": 60, "directWorkoutFeel": 25}
+
+    _backfill(client, verbunden)
+    logs = client.get("/api/logs?weeks=4", headers=verbunden).json()
+
+    bewertet = next(lg for lg in logs if lg["garmin_activity_id"] == "1001")
+    assert bewertet["rpe"] == 6
+    assert bewertet["rpe_source"] == "athlet"
+    assert bewertet["garmin_feel"] == 2.5
+
+    # Alle anderen bleiben unbewertet — und behalten ihre Schätzung.
+    uebrige = [lg for lg in logs if lg["garmin_activity_id"] != "1001"]
+    assert uebrige
+    assert all(lg["garmin_feel"] is None for lg in uebrige)
+    assert all(lg["rpe_source"] != "athlet" for lg in uebrige)
+
+
+def test_bewertung_wird_nicht_von_einer_schaetzung_ueberschrieben(
+    client, verbunden, fake, monkeypatch
+):
+    """Ein Rückblick reicht weiter zurück als der Detailabruf.
+
+    Für die älteren Einheiten liefert der Mapper dann wieder die Schätzung —
+    sie darf die einmal geholte Bewertung des Athleten nicht abräumen.
+    """
+    fake.bewertungen["1001"] = {"directWorkoutRpe": 30, "directWorkoutFeel": 0}
+    _backfill(client, verbunden)
+
+    from app.garmin import sync as sync_modul
+
+    # Kein Detail mehr: Die Einheit liegt jetzt außerhalb des Fensters.
+    monkeypatch.setattr(sync_modul, "BEWERTUNGSFENSTER_TAGE", 0)
+    _backfill(client, verbunden)
+
+    logs = client.get("/api/logs?weeks=4", headers=verbunden).json()
+    lauf = next(lg for lg in logs if lg["garmin_activity_id"] == "1001")
+    assert lauf["rpe"] == 3
+    assert lauf["rpe_source"] == "athlet"
+    assert lauf["garmin_feel"] == 0
+
+
+def test_detail_wird_nur_im_bewertungsfenster_geholt(client, verbunden, fake):
+    """Sonst kostete ein Jahresrückblick dreihundert zusätzliche Anfragen."""
+    fake._aktivitaeten = [
+        baue_aktivitaet(2001, HEUTE - timedelta(days=2)),
+        baue_aktivitaet(2002, HEUTE - timedelta(days=200), typkey="cycling"),
+    ]
+
+    _backfill(client, verbunden, tage=365)
+
+    assert fake.aufrufe.count("get_activity") == 1
+
+
 def test_trainingsstatus_zweier_geraete_ist_eindeutig(client, verbunden):
     """Bei Laufuhr und Radcomputer muss der jüngere Eintrag gewinnen."""
     _backfill(client, verbunden)
@@ -761,6 +816,28 @@ def test_export_weist_geschaetztes_rpe_aus(client, verbunden):
     assert "rpe_quelle" in export["prompt"]
 
 
+def test_export_reicht_die_bewertung_durch_und_erfindet_keine(client, verbunden, fake):
+    """Bewertet oder nicht — beides muss die KI unterscheiden können."""
+    fake.bewertungen["1001"] = {"directWorkoutRpe": 80, "directWorkoutFeel": 25}
+    _backfill(client, verbunden)
+
+    export = client.get("/api/plans/export", headers=verbunden).json()
+    einheiten = export["payload"]["trainingshistorie"]["einheiten"]
+
+    bewertet = [e for e in einheiten if e.get("rpe_quelle") == "athlet"]
+    assert len(bewertet) == 1
+    assert bewertet[0]["rpe_1_10"] == 8
+    assert bewertet[0]["befinden_0_10"] == 2.5
+
+    # An den übrigen fehlt der Schlüssel ganz: Ein `null` wäre eine Aussage über
+    # eine Einheit, zu der der Athlet nichts gesagt hat.
+    uebrige = [e for e in einheiten if e.get("rpe_quelle") != "athlet"]
+    assert uebrige
+    assert all("befinden_0_10" not in e for e in uebrige)
+
+    assert "befinden_0_10" in export["prompt"]
+
+
 def test_prompt_bleibt_formatierbar(client, verbunden):
     """Die Regeltexte laufen durch `.format()` — unmaskierte Klammern brächen es."""
     _backfill(client, verbunden)
@@ -773,6 +850,32 @@ def test_prompt_bleibt_formatierbar(client, verbunden):
 # --------------------------------------------------------------------------
 # Migration
 # --------------------------------------------------------------------------
+
+
+def test_workout_pool_schema_ist_angelegt(client):
+    with engine.connect() as verbindung:
+        tabellen = {
+            r[0]
+            for r in verbindung.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        link_spalten = {
+            r[1]
+            for r in verbindung.exec_driver_sql(
+                "PRAGMA table_info(garmin_workout_links)"
+            )
+        }
+        link_indizes = {
+            r[1]
+            for r in verbindung.exec_driver_sql(
+                "PRAGMA index_list(garmin_workout_links)"
+            )
+        }
+
+    assert "garmin_workout_pool_slots" in tabellen
+    assert "pool_slot_id" in link_spalten
+    assert "uq_garmin_workout_pool_slot_link" in link_indizes
 
 
 def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
@@ -822,13 +925,13 @@ def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
         for ddl in _NACHGEREICHTE_INDIZES:
             verbindung.exec_driver_sql(ddl)
 
-    assert len(ergaenzt) == 8
+    assert len(ergaenzt) == 9
 
     with alt.connect() as verbindung:
         spalten = {
             r[1] for r in verbindung.exec_driver_sql("PRAGMA table_info(session_logs)")
         }
-        assert {"source", "garmin_activity_id", "rpe_source"} <= spalten
+        assert {"source", "garmin_activity_id", "rpe_source", "garmin_feel"} <= spalten
 
         profilspalten = {
             r[1]

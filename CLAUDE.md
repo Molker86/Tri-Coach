@@ -146,7 +146,8 @@ Block überdeckt, in die Zukunft ragt und weder ein erfasstes Training noch eine
 Garmin-Übertragung trägt — ein abgeschlossener Block bleibt als Verlauf stehen,
 ein beiseitegelegter ohne Überschneidung ebenso. Die Garmin-Bedingung ist dabei
 zwingend und nicht bloß vorsichtig: Was in Garmin liegt, wird ausschließlich über
-`GarminWorkoutLink` wieder entfernt, und der stirbt mit dem Plan. Deshalb läuft
+`GarminWorkoutLink` wieder aus dem Kalender entfernt, und der stirbt mit dem
+Plan; der dauerhafte Pool-Slot bleibt bestehen. Deshalb läuft
 dasselbe Aufräumen an **zwei** Stellen — beim Import und am Ende jedes
 Garmin-Laufs, wo `raeume_ersetzte_auf()` die Einheiten gerade aus dem fremden
 Kalender genommen hat und die Bedingung damit erfüllt ist.
@@ -194,12 +195,46 @@ jeden Tag statt nur für Trainingstage (`WellnessDay`, im Export der
 `fitnessdaten`-Block). Eine leere Spalte mit Gesundheitsdaten in jedem
 Home-Assistant-Backup liegen zu lassen, wäre der bequeme und nicht der richtige
 Weg — das Löschen übernimmt `database._ENTFALLENE_SPALTEN`. Das
-RPE ist damit **immer geschätzt** (`mapping.schaetze_rpe`); `rpe_source` behält
-seinen Wert `manual` nur noch als Altwert, und die Schutzregeln im Abgleich, die
-eine Handeingabe vor dem Überschreiben bewahrten, sind mit ihr entfallen. Ein
-Ausweichen aufs Formular gibt es nicht mehr — **ohne verbundene Uhr hat die App
-keine Trainingshistorie**, und der Prompt sagt das der KI ausdrücklich
-(`FITNESSREGELN_OHNE_DATEN`).
+RPE ist damit **in aller Regel geschätzt** (`mapping.schaetze_rpe`); `rpe_source`
+behält seinen Wert `manual` nur noch als Altwert. Ein Ausweichen aufs Formular
+gibt es nicht mehr — **ohne verbundene Uhr hat die App keine
+Trainingshistorie**, und der Prompt sagt das der KI ausdrücklich
+(`FITNESSREGELN_OHNE_DATEN`). Die eine Ausnahme kommt trotzdem vom Athleten,
+aber nicht aus dieser App — siehe „Bewertet der Athlet selbst".
+
+**Bewertet der Athlet selbst, gewinnt seine Zahl** (`mapping.bewertung_aus_detail`,
+`SessionLog.garmin_feel`, `rpe_source = "athlet"`). Garmin *berechnet* kein RPE,
+aber der Athlet kann in Connect zu jeder Einheit „Anstrengung" und „Wie hast du
+dich gefühlt?" eintragen. Das ist damit die einzige Selbstauskunft, die es hier
+noch gibt — und sie kommt ohne Formular, weil sie den Weg über die Uhr nimmt.
+Das RPE ersetzt deshalb die Schätzung (`rpe_source` hält beides
+auseinander): Fosters sRPE-Last rechnet ausdrücklich mit der *empfundenen*
+Anstrengung, und beide Zahlen liegen auf derselben Borg-CR10-Skala — anders als
+Garmins Trainingslast, die genau deswegen nur zusätzlich mitläuft.
+
+Drei Dinge daran sind nicht offensichtlich. **Beides steht nur im
+Aktivitätsdetail**, nicht in der Listenantwort (am echten Konto nachgezählt: 111
+Felder je Aktivität, keines davon) — es kostet also eine eigene Anfrage **je
+Einheit**. Deshalb `sync.BEWERTUNGSFENSTER_TAGE` = 42: Bei einem Jahresrückblick
+wären es sonst dreihundert Anfragen für Zahlen, die der Export gar nicht mehr
+liest. **Garmin speichert mal zehn** (`directWorkoutRpe` 10–100,
+`directWorkoutFeel` 0–100), bewertet wird aber von 0/1 bis 10; umgerechnet wird
+an genau einer Stelle, damit App, Export und Prompt dieselbe Skala zeigen wie
+Connect. Die halben Stufen (2,5 / 7,5) stammen von der Uhr, die fünf Stufen
+statt der Skala anbietet, und bleiben erhalten — auf 8 gerundet stünde dort eine
+Genauigkeit, die niemand angegeben hat. Und **eine Bewertung wird nie durch eine
+Schätzung überschrieben** (`sync._speichere_aktivitaet`): Ein Rückblick reicht
+weiter zurück als das Bewertungsfenster, und ohne die Sperre nähme er jeder
+älteren Einheit ihren echten Wert wieder ab. Der Preis ist derselbe wie überall
+sonst im Abgleich — eine in Connect *gelöschte* Bewertung bleibt hier stehen.
+
+Im Export steht das Befinden als `befinden_0_10` an der Einheit, aber **nur wo es
+belegt ist**: Ein `null` an den übrigen wäre keine leere Angabe, sondern eine
+Behauptung über eine Einheit, zu der der Athlet nichts gesagt hat. Genau das sagt
+auch Punkt 11 des Prompts — die Felder tragen, wo sie stehen, und ihr Fehlen wird
+nicht gedeutet. Ein Wochenmittel gibt es bewusst nicht: Bewertet wird ein
+Bruchteil der Einheiten (am Testkonto zwei von zwanzig), und ein Schnitt daraus
+sähe aus wie eine Aussage über die Woche.
 
 **FastAPI statt Django.** Der Kern der App ist Schema-Arbeit: Ein- und Ausgabe
 gegenüber der KI müssen streng validiert werden. Pydantic macht das direkt zum
@@ -379,8 +414,9 @@ Steuerung für importierte Trainings aus. Geschätzt wird aus der Zeitverteilung
 über die Herzfrequenzzonen, ersatzweise aus dem Trainingseffekt oder dem
 Durchschnittspuls; `rpe_source` hält fest, woher der Wert stammt, und geht so
 in den Export, damit die KI die Belastbarkeit der Zahl einordnen kann. Seit dem
-Wegfall der Handeingabe ist **jedes** RPE geschätzt — `manual` steht dort nur
-noch an Alteinträgen, und der Abgleich nimmt darauf keine Rücksicht mehr.
+Wegfall der Handeingabe ist **fast jedes** RPE geschätzt — `manual` steht nur
+noch an Alteinträgen, `athlet` an den wenigen Einheiten, die der Athlet in
+Connect selbst bewertet hat (siehe „Bewertet der Athlet selbst").
 Garmins `activityTrainingLoad` läuft nur *zusätzlich* mit (`total_garmin_load`)
 und ersetzt die sRPE-Last **nicht**: Beide sind unterschiedlich skaliert, und
 eine Übergangswoche aus alten manuellen und importierten Einheiten ergäbe sonst
@@ -606,48 +642,53 @@ sie vorher nur nicht kannte — ohne den Eintrag fiele die absolvierte Einheit
 beim Abgleich stillschweigend heraus.
 
 **Vorlage und Termin sind zwei Dinge** (`garmin/uebertragung.py`,
-`GarminWorkoutLink`). In Garmin liegt das Workout in der Bibliothek und ein
-Zeitplaneintrag verweist darauf; entsprechend hält jede übertragene Einheit
-beide Kennungen fest. Dazu einen `fingerabdruck` des zuletzt gesendeten
-Inhalts — **damit der Knopf gefahrlos zweimal gedrückt werden darf**:
-Unverändertes wird übersprungen (null Anfragen), Geändertes über
-`update_workout` an Ort und Stelle ersetzt, wodurch die Vorlage ihre Kennung
-und der Kalendertermin seine Gültigkeit behält. Nach jedem Schritt wird
-festgeschrieben, denn zwischen „Vorlage angelegt“ und „Termin eingetragen“
-liegt eine zweite Anfrage: Ginge die Kennung dazwischen verloren, entstünden
-bei jedem Versuch neue Karteileichen in einem fremden Konto. Wer eine Vorlage
-in Connect von Hand löscht, bekommt sie neu — ein 404 löst die Zuordnung, statt
-für immer gegen eine tote Kennung zu laufen (`verbindung.verschwunden`).
+`GarminWorkoutPoolSlot`, `GarminWorkoutLink`). In Garmin liegt das Workout in
+der Bibliothek und ein Zeitplaneintrag verweist darauf. Tri-Coach verwaltet je
+Nutzer **genau 15 dauerhafte Vorlagen**; ein Link belegt einen Slot nur für die
+aktuelle Planeinheit und ihren Termin. Bestehende App-IDs werden beim ersten
+Lauf übernommen, fehlende Slots aufgefüllt. Danach ersetzt `update_workout`
+den Inhalt an derselben Kennung. Neue IDs entstehen nur beim ersten Aufbau oder
+als Ersatz für eine mit 404 bestätigte, manuell gelöschte Pool-Vorlage. Ein
+voller Pool bricht vor der ersten Teilübertragung ab, statt eine 16. ID oder
+einen halben Block anzulegen.
 
 **Der Kalender ist das Ziel, die Bibliothek nur der Weg dorthin**
 (`workouts.name_der_einheit`). Deshalb trägt der Workout-Name **kein Datum**: Im
 Kalender steht der Tag schon in der Spalte, in der die Einheit hängt, und
 „16.08. Lockerer Dauerlauf“ am 16.08. las sich dort wie ein Fehler. Das Datum
 stand einmal voran, um die Bibliothek sortierbar zu halten — das war der Blick
-auf den falschen Ort, denn dort liegen ohnehin nur die noch anstehenden Tage
-des laufenden Blocks (`raeume_vergangene_auf`). Was am Datum hing, muss der
+auf den falschen Ort, denn dort liegen nur die fünfzehn wiederverwendbaren
+Pool-Slots. Was am Datum hing, muss der
 Rückfall auf „Training“ jetzt selbst leisten: Garmin lehnt ein Workout ohne
 Namen ab, und bis hierher war der Name durch den Datumsteil zwangsläufig nicht
 leer. **Ganz ohne Bibliothekseintrag geht es nicht** — `schedule_workout` nimmt
 eine `workoutId` und sonst nichts, einen Termin mit eingebettetem Inhalt kennt
-Garmin nicht. Ein Löschen der Vorlage nähme den Termin mit (genau das tut
-`entferne_link`).
+Garmin nicht. Pool-Vorlagen werden deshalb im normalen Lebenszyklus nie
+gelöscht.
 
-**Was vorbei ist, wird weggeräumt** (`uebertragung.raeume_vergangene_auf`).
-Weil ein Kalendertermin ohne Vorlage nicht existieren kann, legt jede übertragene
-Einheit zwangsläufig einen Eintrag in Garmins Bibliothek ab — bei einem Block je
-Woche wären das nach einem Jahr dreihundert, zwischen denen der Athlet seine
-eigenen Trainings nicht mehr fände. Deshalb löscht die App Vorlage *und* Termin
-jeder Einheit, deren Tag vorbei ist: am Ende jedes Abgleichs und am Ende jeder
-Übertragung — den beiden Zeitpunkten, an denen der Zugang ohnehin steht und das
-Schloss gehalten wird. Die Liste kommt aus `GarminWorkoutLink`, **nie** aus
-Garmins Bibliothek: Angefasst wird ausschließlich, was diese App selbst angelegt
-hat. Die absolvierte Aktivität ist ein eigener Datensatz und bleibt; auch die
-Umsetzungsquote hängt nicht daran, weil `matching` über Tag und Sportart
-verknüpft, nicht über die Garmin-Kennung. Ein Fehlschlag beim Aufräumen wertet
-den Lauf nicht um — er hat sein eigentliches Ziel schon erreicht —, aber die
-Anfragesperre wird festgehalten, und zwar **nach** dem Festschreiben des
-Ergebnisses: Der Erfolgspfad setzt sie eine Zeile vorher zurück.
+**Was vorbei ist, gibt seinen Slot frei**
+(`uebertragung.raeume_vergangene_auf`). Die App entfernt den Kalendertermin
+und löst `GarminWorkoutLink`, behält aber die Pool-Vorlage. So wächst die
+Connect-Bibliothek nicht über fünfzehn App-IDs hinaus. Die absolvierte Aktivität
+ist ein eigener Datensatz und bleibt; auch die Umsetzungsquote hängt nicht am
+Link, weil `matching` über Tag und Sportart verknüpft. Die verfügbare
+Connect-API kennt **keinen Fern-Löschbefehl für bereits auf eine Fenix
+synchronisierte Workouts**. Vor dem ersten Poolbetrieb müssen alte verwaiste
+Tri-Coach-Workouts deshalb einmalig manuell auf der Uhr entfernt werden. Garmin
+nennt für die meisten Geräte höchstens 25 benutzerdefinierte Workouts inklusive
+vorinstallierter; fünfzehn Pool-Slots lassen bewusst Reserve. **An der Fenix 8
+bestätigt:** Wird eine bestehende Workout-ID in Connect umbenannt und inhaltlich
+geändert, synchronisiert die Uhr den neuen Inhalt in den vorhandenen lokalen
+Eintrag. Dessen Name unter „Trainings“ bleibt zwar alt, der Kalender zeigt am
+Termin aber den aktuellen Namen und startet den aktualisierten Inhalt. Das ist
+für Tri-Coach die maßgebliche Ansicht; künstlich stabile Slotnamen sind deshalb
+nicht nötig. **Davon getrennt bleibt der Sportartwechsel ungeprüft:** Der
+generische `PUT` sendet zwar das vollständige neue `sportType`, aber weder
+Garmins Oberfläche noch die Bibliothek belegen, dass etwa
+`strength_training` zu `swimming` werden darf. Dafür liegt
+`scripts/garmin_workout_typwechsel.py` im Abbild; `--aus-datenbank` verwendet
+das verschlüsselt gespeicherte Token, legt genau eine temporäre Vorlage an,
+liest den Typ vor und nach dem Wechsel zurück und löscht sie im `finally`.
 
 **Die Übertragung ist ein Job, der Kalender nicht.** Ein Block kostet zwei
 Anfragen je Einheit und läuft deshalb durch denselben Runner und dasselbe
@@ -655,7 +696,10 @@ globale Schloss wie ein Abgleich — Garmins Grenze unterscheidet nicht, ob
 gelesen oder geschrieben wird. Einzelne Aufrufe (Monat laden, ein Workout
 löschen, eine Einheit nachschieben) gehen dagegen über `garmin/verbindung.py`
 direkt im Anfrage-Thread: Für eine einzelne Anfrage einen Fortschrittsbalken
-zu bauen wäre Umstand ohne Nutzen. Beide Wege behandeln die Anfragesperre
+zu bauen wäre Umstand ohne Nutzen. Die Einzelübertragung nimmt dabei dasselbe
+globale Schloss nicht blockierend; läuft schon ein Garmin-Vorgang, antwortet
+sie mit 409, statt parallel denselben Pool-Slot zu belegen. Beide Wege behandeln
+die Anfragesperre
 gleich, und beide fangen sie **auch in ihrer Form aus der Bibliothek** ab
 (`GarminConnectTooManyRequestsError`) — sonst liefe die Übertragung stur weiter
 und triebe eine Stunde Sperre auf zwei Tage. Ein Fehlschlag bei *einer* Einheit
@@ -765,16 +809,17 @@ nicht durchkommt, macht ihn `failed` statt „done" (`Aufraeumbilanz`).
 
 **Ein gelöschter Plan nimmt seine Einheiten mit** (`plans._nimm_aus_garmin`).
 Die Reihenfolge ist die ganze Pointe: In Garmin fasst diese App nur an, was in
-`GarminWorkoutLink` steht, und der stirbt mit der Planeinheit. Wer den Plan
-zuerst löschte — so war es —, ließ seine Einheiten für immer im fremden
+`GarminWorkoutLink` steht, und der stirbt mit der Planeinheit; der Pool-Slot
+bleibt für spätere Pläne bestehen. Wer den Plan zuerst löschte — so war es —,
+ließ seine Einheiten für immer im fremden
 Kalender stehen, und dort galt dann eine Vorgabe weiter, die es in der App gar
 nicht mehr gibt. Deshalb läuft das Entfernen **vor** dem Löschen, und zwar im
 Anfrage-Thread statt als Job: Es sind zwei Anfragen je Einheit und höchstens
 eine Handvoll (Vergangenes hat der letzte Abgleich schon geräumt), und ein
 Löschen, das erst später wirkt, wäre schwerer zu verstehen als eines, das ein
 paar Sekunden dauert. **Scheitert der Zugang, wird nicht gelöscht:** Ein Plan
-ist schnell noch einmal gelöscht, eine Karteileiche in einem fremden Konto nie
-mehr — der Nutzer bekommt den Grund und darf mit `garmin_uebergehen` darauf
+ist schnell noch einmal gelöscht, ein verwaister Termin im fremden Kalender
+nie mehr — der Nutzer bekommt den Grund und darf mit `garmin_uebergehen` darauf
 bestehen. Ohne verbundenes Konto und ohne Zuordnungen bleibt alles wie zuvor:
 kein Aufbau, keine Anfrage.
 
@@ -995,6 +1040,15 @@ und entscheidet darüber, ob auf der Uhr die Bewegungsanimation erscheint
 (`garmin/uebungen.py`). Das Wörterbuch dort fängt den Fall ohne Klammer ab —
 beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 
+Punkt 11 ordnet die **Selbstauskunft** ein: `rpe_quelle: "athlet"` und
+`befinden_0_10` stammen vom Athleten und wiegen schwerer als jede Schätzung und
+als die gemessene Last; alles andere ist geschätzt und wird gegen `hf_schnitt`,
+`trimp` und `garmin_trainingslast` gelesen. Der wichtigere Teil des Punktes ist
+die Sperre dahinter: Beide Felder **fehlen an den meisten Einheiten**, und das
+ist keine Aussage über sie. Ohne den Satz deutet ein Sprachmodell die Leerstelle
+— entweder als „hat sich nicht gemeldet, also war es hart" oder als stille
+Bestätigung — und richtet den Block an einer einzelnen bewerteten Einheit aus.
+
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
 `plan_import.py`.
@@ -1107,12 +1161,18 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   importierte Einheit zu korrigieren — was Garmin falsch liefert, wird in
   Connect berichtigt und beim nächsten Abgleich nachgezogen, oder der Eintrag
   wird im Verlauf gelöscht.
-- Die **subjektiven Werte** (Befinden, Muskelkater, Schlafqualität, Morgenpuls,
+- Die **subjektiven Werte** (Muskelkater, Schlafqualität, Morgenpuls,
   Morgen-HRV, Bedingungen, Schlaf je Einheit) haben damit keine Quelle mehr und
-  sind ersatzlos aus Modell, Schema, Export und Datenbank entfernt. Das RPE
-  bleibt als einziger und wird geschätzt. Wer eines dieser Felder je
-  zurückholen will, braucht wieder ein Formular — die Spalte ist weg, die
-  Historie damit auch.
+  sind ersatzlos aus Modell, Schema, Export und Datenbank entfernt. Wer eines
+  dieser Felder je zurückholen will, braucht wieder ein Formular — die Spalte ist
+  weg, die Historie damit auch. Anstrengung und **Befinden** sind die Ausnahme:
+  Sie sind zurück, aber über Garmin Connect statt über ein Formular, und deshalb
+  nur an den Einheiten, die der Athlet dort bewertet.
+- Die **Bewertung kostet eine Anfrage je Einheit** und reicht nur 42 Tage zurück
+  (`sync.BEWERTUNGSFENSTER_TAGE`). Wer eine ältere Einheit nachträglich in
+  Connect bewertet, bekommt das hier nie zu sehen — auch ein Rückblick holt das
+  Detail für diese Tage nicht. Wer eine Bewertung dort *löscht*, behält sie hier:
+  Der Abgleich fasst einen einmal gesetzten Wert nicht wieder an.
 - Was ein Athlet **vor** dieser Umstellung von Hand eingetragen hat, bleibt
   liegen und zählt weiter mit. `/api/garmin/dubletten` zeigt, was dabei doppelt
   ist; entfernt wird es über den Verlauf, einzeln und von Hand.
@@ -1122,7 +1182,7 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   beim Start gelöscht; für Umbenennungen oder Typänderungen bleibt es beim
   Löschen der Datei. Die Tabelle `garmin_workout_links` legt
   `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
-  `athlete_profiles.garmin_personal_bests` sowie
+  `athlete_profiles.garmin_personal_bests`, `session_logs.garmin_feel` sowie
   `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
   kommen über den Helfer.
 - Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus

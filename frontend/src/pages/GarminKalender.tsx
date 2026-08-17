@@ -457,8 +457,8 @@ function UebertragungsKarte(props: {
 
           <p className="muted small mb-0">
             Sobald der Tag einer Einheit vorbei ist, nimmt die App sie von selbst
-            aus deinem Garmin-Kalender und aus der Trainingsbibliothek — dein
-            absolviertes Training bleibt davon unberührt.
+            aus deinem Garmin-Kalender. Die wiederverwendbare Tri-Coach-Vorlage
+            bleibt erhalten — dein absolviertes Training bleibt davon unberührt.
           </p>
         </>
       )}
@@ -542,8 +542,9 @@ function EintragsFenster(props: {
 
           <h4 className="mt-2">Entfernen</h4>
           <p className="muted small">
-            Nur den Termin zu löschen lässt die Vorlage in deiner Garmin-Bibliothek —
-            du kannst sie dort erneut einplanen.
+            {eintrag.aus_tri_coach
+              ? 'Der Termin wird entfernt. Die wiederverwendbare Tri-Coach-Vorlage bleibt erhalten.'
+              : 'Nur den Termin zu löschen lässt die Vorlage in deiner Garmin-Bibliothek — du kannst sie dort erneut einplanen.'}
           </p>
           <div className="row">
             <button
@@ -553,16 +554,18 @@ function EintragsFenster(props: {
             >
               Aus dem Kalender nehmen
             </button>
-            <button
-              className="btn btn-danger"
-              disabled={props.busy || !eintrag.workout_id}
-              onClick={() => {
-                if (!confirm(`„${eintrag.titel}“ endgültig aus Garmin löschen?`)) return
-                props.onEntfernen(true)
-              }}
-            >
-              Ganz aus Garmin löschen
-            </button>
+            {!eintrag.aus_tri_coach && (
+              <button
+                className="btn btn-danger"
+                disabled={props.busy || !eintrag.workout_id}
+                onClick={() => {
+                  if (!confirm(`„${eintrag.titel}“ endgültig aus Garmin löschen?`)) return
+                  props.onEntfernen(true)
+                }}
+              >
+                Ganz aus Garmin löschen
+              </button>
+            )}
           </div>
         </>
       )}

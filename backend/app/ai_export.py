@@ -173,7 +173,7 @@ def _history_block(
 
     sessions = []
     for lg in recent:
-        sessions.append({
+        eintrag = {
             "datum": lg.date.isoformat(),
             "sportart": lg.sport,
             "status": lg.status,
@@ -186,22 +186,32 @@ def _history_block(
             "trittfrequenz": lg.avg_cadence,
             "hoehenmeter": lg.elevation_gain_m,
             "rpe_1_10": lg.rpe,
-            # Bei importierten Einheiten ist das RPE geschätzt. Die Quelle steht
-            # dabei, damit die KI weiß, wie belastbar die Zahl ist.
+            # Meistens geschätzt. Die Quelle steht dabei, damit die KI weiß, wie
+            # belastbar die Zahl ist — "athlet" ist seine eigene Bewertung aus
+            # Garmin Connect und damit die härteste Aussage zur Anstrengung.
             "rpe_quelle": lg.rpe_source,
             "quelle": "garmin" if lg.source == "garmin" else "manuell",
             "garmin_trainingslast": lg.garmin_training_load,
             "trainingseffekt_aerob": lg.garmin_aerobic_te,
             "trainingseffekt_anaerob": lg.garmin_anaerobic_te,
-            # Befinden, Muskelkater, Schlaf und Morgenpuls je Einheit gibt es
-            # nicht mehr — sie kamen aus dem Erfassungsformular. Denselben
-            # Zustand beschreibt der `fitnessdaten`-Block, gemessen statt
-            # erinnert und für jeden Tag, nicht nur für Trainingstage.
+            # Muskelkater, Schlaf und Morgenpuls je Einheit gibt es nicht mehr —
+            # sie kamen aus dem Erfassungsformular. Denselben Zustand beschreibt
+            # der `fitnessdaten`-Block, gemessen statt erinnert und für jeden
+            # Tag, nicht nur für Trainingstage.
             "trimp": banister_trimp(
                 lg.duration_min, lg.avg_hr, resting_hr, max_hr, sex
             ),
             "notiz": lg.notes,
-        })
+        }
+
+        # Das Befinden steht nur an den wenigen Einheiten, die der Athlet in
+        # Connect bewertet hat. Ein `null` an allen übrigen wäre kein leeres
+        # Feld, sondern eine Behauptung — deshalb fehlt der Schlüssel dort ganz,
+        # wie der `fitnessdaten`-Block ohne verbundenes Konto.
+        if lg.garmin_feel is not None:
+            eintrag["befinden_0_10"] = lg.garmin_feel
+
+        sessions.append(eintrag)
 
     weekly = weekly_summary(recent, weeks=HISTORY_WEEKS)
 
@@ -578,11 +588,23 @@ füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten,
 `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
 Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
 gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
-`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen. Das RPE in \
-der Historie ist **geschätzt** und stammt nicht vom Athleten — er trägt nichts von Hand \
-ein, alle Einheiten kommen aus der Uhr. `rpe_quelle` nennt, woraus geschätzt wurde \
-("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich deshalb stärker auf \
-`hf_schnitt`, `trimp` und `garmin_trainingslast` als auf die RPE-Zahl.
+`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen.
+11. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
+**geschätzt** — `rpe_quelle` nennt, woraus ("hf_zonen", "trainingseffekt", \
+"hf_schnitt"); stütze dich dann stärker auf `hf_schnitt`, `trimp` und \
+`garmin_trainingslast` als auf die RPE-Zahl. Steht dort dagegen "athlet", hat er die \
+Einheit in Garmin Connect selbst bewertet: Das ist die belastbarste Angabe zur \
+Anstrengung und wiegt schwerer als jede Schätzung und als die gemessene Last. Dasselbe \
+gilt für `befinden_0_10` (0 sehr schwach, 5 normal, 10 sehr stark — halbe Stufen kommen \
+von der Uhr). Nutze beides, wo es steht: Ein RPE deutlich über dem, was Puls und \
+Trainingslast derselben Einheit erwarten ließen, oder ein Befinden von 2,5 oder darunter \
+heißt, dass diese Einheit teurer war als sie aussieht — nimm die nächste Intensität \
+zurück und sage es in `summary`. \
+Umgekehrt trägt ein hohes Befinden bei moderatem RPE den Aufbau aus Punkt 6. \
+**Beide Felder fehlen an den meisten Einheiten.** Das ist keine Aussage über die \
+Einheit, sondern heißt nur, dass der Athlet nichts eingetragen hat — bewerte niemals ihr \
+Fehlen, leite daraus nichts ab und schließe von einer einzelnen Bewertung nicht auf die \
+übrigen Einheiten.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \

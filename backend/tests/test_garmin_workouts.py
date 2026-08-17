@@ -729,7 +729,7 @@ def test_uebertragung_legt_workouts_an_und_terminiert_sie(client, verbunden, fak
 
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_pushed"] == 2  # der Ruhetag bleibt außen vor
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
     assert len(fake._termine) == 2
 
     # Jede Vorlage hat genau einen Termin, und der liegt auf dem geplanten Tag.
@@ -750,7 +750,181 @@ def test_zweite_uebertragung_kostet_keine_anfrage(client, verbunden, fake):
     assert "bereits aktuell" in fertig["message"]
     assert "upload_workout" not in fake.aufrufe
     assert "schedule_workout" not in fake.aufrufe
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
+
+
+def test_neuer_block_verwendet_dieselben_workout_ids(client, verbunden, fake):
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    pool_ids = set(fake._workouts)
+    assert len(pool_ids) == 15
+
+    _importiere_plan(client, verbunden)
+    fake.aufrufe.clear()
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert set(fake._workouts) == pool_ids
+    assert "upload_workout" not in fake.aufrufe
+    assert "update_workout" in fake.aufrufe
+
+
+def test_bestehende_workout_ids_werden_in_den_pool_uebernommen(
+    client, verbunden, fake
+):
+    from app.database import SessionLocal
+    from app.models import GarminWorkoutLink, GarminWorkoutPoolSlot, PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    alte_ids = set()
+    user_id = None
+    with SessionLocal() as db:
+        for daten in (s for s in plan["sessions"] if s["sport"] != "rest"):
+            session = db.get(PlanSession, daten["id"])
+            user_id = session.plan.user_id
+            workout = workouts.baue_workout(session)
+            workout_id = fake.upload_workout(workout)["workoutId"]
+            schedule_id = fake.schedule_workout(workout_id, session.date.isoformat())[
+                "workoutScheduleId"
+            ]
+            alte_ids.add(workout_id)
+            db.add(
+                GarminWorkoutLink(
+                    user_id=session.plan.user_id,
+                    plan_session_id=session.id,
+                    garmin_workout_id=str(workout_id),
+                    garmin_schedule_id=str(schedule_id),
+                    scheduled_date=session.date,
+                    title=workout["workoutName"],
+                    fingerabdruck=workouts.fingerabdruck(workout),
+                )
+            )
+        db.commit()
+
+    fake.aufrufe.clear()
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert fake.aufrufe.count("upload_workout") == 13
+    assert alte_ids <= set(fake._workouts)
+    assert len(fake._workouts) == 15
+    with SessionLocal() as db:
+        slots = db.query(GarminWorkoutPoolSlot).filter_by(user_id=user_id).all()
+        links = db.query(GarminWorkoutLink).filter_by(user_id=user_id).all()
+        assert len(slots) == 15
+        assert all(link.pool_slot_id for link in links)
+
+
+def test_mehr_als_15_alt_ids_werden_nach_prioritaet_bereinigt(
+    client, verbunden, fake
+):
+    from app.database import SessionLocal
+    from app.garmin import workout_pool
+    from app.models import GarminWorkoutLink, PlanSession
+
+    plan = {
+        "schema_version": "2.0",
+        "plan": {
+            "title": "Legacy-Block",
+            "start_date": HEUTE.isoformat(),
+            "days": [
+                {
+                    "date": (HEUTE + timedelta(days=index)).isoformat(),
+                    "sessions": [
+                        {
+                            "sport": "run",
+                            "type": "easy",
+                            "title": f"Alt {index + 1}",
+                            "duration_min": 30,
+                        }
+                    ],
+                }
+                for index in range(16)
+            ],
+        },
+    }
+    _autopush(client, verbunden, False)
+    antwort = client.post(
+        "/api/plans/import", json={"raw": json.dumps(plan), "days": 16}, headers=verbunden
+    )
+    assert antwort.status_code == 201, antwort.text
+    sessions = antwort.json()["plan"]["sessions"]
+    bevorzugt = {session["id"] for session in sessions[:15]}
+
+    with SessionLocal() as db:
+        user_id = None
+        for daten in sessions:
+            session = db.get(PlanSession, daten["id"])
+            user_id = session.plan.user_id
+            workout = workouts.baue_workout(session)
+            workout_id = fake.upload_workout(workout)["workoutId"]
+            schedule_id = fake.schedule_workout(workout_id, session.date.isoformat())[
+                "workoutScheduleId"
+            ]
+            db.add(
+                GarminWorkoutLink(
+                    user_id=user_id,
+                    plan_session_id=session.id,
+                    garmin_workout_id=str(workout_id),
+                    garmin_schedule_id=str(schedule_id),
+                    scheduled_date=session.date,
+                    title=workout["workoutName"],
+                    fingerabdruck=workouts.fingerabdruck(workout),
+                )
+            )
+        db.commit()
+
+        workout_pool.stelle_pool_sicher(
+            db, fake, user_id, bevorzugte_session_ids=bevorzugt
+        )
+
+        links = db.query(GarminWorkoutLink).filter_by(user_id=user_id).all()
+        assert len(links) == 15
+        assert {link.plan_session_id for link in links} == bevorzugt
+
+    assert len(fake._workouts) == 15
+    assert len(fake._termine) == 15
+
+
+def test_voller_pool_bricht_vor_der_ersten_terminierung_ab(
+    client, verbunden, fake
+):
+    plan = {
+        "schema_version": "2.0",
+        "plan": {
+            "title": "Zu großer Block",
+            "start_date": HEUTE.isoformat(),
+            "days": [
+                {
+                    "date": (HEUTE + timedelta(days=index)).isoformat(),
+                    "sessions": [
+                        {
+                            "sport": "run",
+                            "type": "easy",
+                            "title": f"Lauf {index + 1}",
+                            "duration_min": 30,
+                        }
+                    ],
+                }
+                for index in range(16)
+            ],
+        },
+    }
+    _autopush(client, verbunden, False)
+    antwort = client.post(
+        "/api/plans/import",
+        json={"raw": json.dumps(plan), "days": 16},
+        headers=verbunden,
+    )
+    assert antwort.status_code == 201, antwort.text
+
+    fertig = _uebertrage(client, verbunden)
+
+    assert fertig["state"] == "failed"
+    assert "15" in fertig["message"]
+    assert fertig["workouts_pushed"] == 0
+    assert len(fake._workouts) == 15
+    assert fake._termine == {}
 
 
 def test_geaenderte_einheit_wird_ersetzt_statt_verdoppelt(client, verbunden, fake):
@@ -780,7 +954,7 @@ def test_geaenderte_einheit_wird_ersetzt_statt_verdoppelt(client, verbunden, fak
     assert "update_workout" in fake.aufrufe
     assert "upload_workout" not in fake.aufrufe
     # Die Vorlage behält ihre Kennung — der Termin bleibt damit gültig.
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
     assert len(fake._termine) == 2
 
 
@@ -824,7 +998,8 @@ def test_vergangene_tage_bleiben_liegen(client, verbunden, fake):
     assert len(zustand["einheiten"]) == 1
 
     _uebertrage(client, verbunden)
-    assert len(fake._workouts) == 1
+    assert len(fake._workouts) == 15
+    assert len(fake._termine) == 1
 
 
 def _mache_vergangen(plan_session_id: int, tage: int = 1) -> None:
@@ -851,12 +1026,13 @@ def _mache_vergangen(plan_session_id: int, tage: int = 1) -> None:
 
 
 def test_abgleich_raeumt_vergangene_einheiten_auf(client, verbunden, fake):
-    """Sonst wüchse Garmins Bibliothek mit jedem Block weiter."""
+    """Vergangene Termine geben ihren Slot frei, die Pool-ID bleibt bestehen."""
     plan = _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
     _mache_vergangen(next(s["id"] for s in plan["sessions"] if s["sport"] == "run"))
+    fake.aufrufe.clear()
 
     antwort = client.post("/api/garmin/sync", headers=verbunden)
     assert antwort.status_code == 202, antwort.text
@@ -867,8 +1043,9 @@ def test_abgleich_raeumt_vergangene_einheiten_auf(client, verbunden, fake):
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_removed"] == 1
     assert "aufgeräumt" in fertig["message"]
-    # Vorlage *und* Termin sind weg, die künftige Einheit bleibt stehen.
-    assert len(fake._workouts) == 1
+    assert "unschedule_workout" in fake.aufrufe
+    assert "delete_workout" not in fake.aufrufe
+    assert len(fake._workouts) == 15
     assert len(fake._termine) == 1
 
 
@@ -885,11 +1062,12 @@ def test_aufraeumen_laesst_fremde_workouts_stehen(client, verbunden, fake):
 
     client.post("/api/garmin/sync", headers=verbunden)
 
-    assert list(fake._workouts) == [eigenes]
+    assert eigenes in fake._workouts
+    assert len(fake._workouts) == 16
 
 
-def test_uebertragen_raeumt_den_vorigen_block_auf(client, verbunden, fake):
-    """Auch ohne täglichen Abgleich bleibt die Bibliothek sauber."""
+def test_uebertragen_raeumt_den_vorigen_termin_auf(client, verbunden, fake):
+    """Auch ohne täglichen Abgleich bleibt der Kalender sauber."""
     plan = _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
@@ -899,7 +1077,8 @@ def test_uebertragen_raeumt_den_vorigen_block_auf(client, verbunden, fake):
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_removed"] == 1
     assert "aufgeräumt" in fertig["message"]
-    assert len(fake._workouts) == 1
+    assert len(fake._workouts) == 15
+    assert len(fake._termine) == 1
 
 
 def test_neuplanung_raeumt_den_kalender_auch_ohne_uebertragung(
@@ -915,7 +1094,7 @@ def test_neuplanung_raeumt_den_kalender_auch_ohne_uebertragung(
     """
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
     antwort = _importiere(client, verbunden)  # autopush aus
     neu = antwort["plan"]
@@ -929,7 +1108,7 @@ def test_neuplanung_raeumt_den_kalender_auch_ohne_uebertragung(
 
     # Der Kalender ist leer, nicht doppelt belegt — und der leere Vorgänger
     # fällt weg, sobald nichts mehr von ihm in Garmin steht.
-    assert fake._workouts == {}
+    assert len(fake._workouts) == 15
     assert fake._termine == {}
     assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
         neu["id"]
@@ -961,7 +1140,7 @@ def test_abgeloester_block_verschwindet_erst_nach_dem_aufraeumen(
     assert "steht dort weiter" in fertig["message"]
 
     # Nichts ging weg, also bleiben beide Pläne — samt ihrer Zuordnungen.
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
     assert {p["id"] for p in client.get("/api/plans", headers=verbunden).json()} == {
         alt["id"],
         neu["id"],
@@ -977,10 +1156,12 @@ def test_abgeloester_block_verschwindet_erst_nach_dem_aufraeumen(
     assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
         neu["id"]
     ]
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
 
-def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
+def test_entfernen_nimmt_termine_zurueck_und_behaelt_den_pool(
+    client, verbunden, fake
+):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
@@ -992,11 +1173,50 @@ def test_entfernen_nimmt_vorlage_und_termin_zurueck(client, verbunden, fake):
 
     assert fertig["state"] == "done"
     assert fertig["workouts_removed"] == 2
-    assert fake._workouts == {}
+    assert len(fake._workouts) == 15
     assert fake._termine == {}
 
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     assert zustand["offen"] == 2
+
+
+def test_cleanup_vor_poolmigration_entfernt_legacy_vorlage(
+    client, verbunden, fake
+):
+    from app.database import SessionLocal
+    from app.models import GarminWorkoutLink, PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        workout = workouts.baue_workout(session)
+        workout_id = fake.upload_workout(workout)["workoutId"]
+        schedule_id = fake.schedule_workout(workout_id, session.date.isoformat())[
+            "workoutScheduleId"
+        ]
+        db.add(
+            GarminWorkoutLink(
+                user_id=session.plan.user_id,
+                plan_session_id=session.id,
+                garmin_workout_id=str(workout_id),
+                garmin_schedule_id=str(schedule_id),
+                scheduled_date=session.date,
+                title=workout["workoutName"],
+                fingerabdruck=workouts.fingerabdruck(workout),
+            )
+        )
+        db.commit()
+
+    fake.aufrufe.clear()
+    antwort = client.post("/api/garmin/workouts/entfernen", json={}, headers=verbunden)
+    assert antwort.status_code == 202, antwort.text
+    fertig = _job(client, verbunden, antwort.json()["id"])
+
+    assert fertig["state"] == "done"
+    assert "delete_workout" in fake.aufrufe
+    assert fake._workouts == {}
+    assert fake._termine == {}
 
 
 def test_plan_loeschen_nimmt_seine_einheiten_aus_garmin(client, verbunden, fake):
@@ -1008,13 +1228,13 @@ def test_plan_loeschen_nimmt_seine_einheiten_aus_garmin(client, verbunden, fake)
     """
     plan = _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
     antwort = client.delete(f"/api/plans/{plan['id']}", headers=verbunden)
     assert antwort.status_code == 200, antwort.text
     assert antwort.json() == {"garmin_entfernt": 2, "garmin_fehler": []}
 
-    assert fake._workouts == {}
+    assert len(fake._workouts) == 15
     assert fake._termine == {}
     assert client.get("/api/plans", headers=verbunden).json() == []
 
@@ -1038,7 +1258,7 @@ def test_plan_loeschen_wartet_auf_garmin_statt_karteileichen_zu_hinterlassen(
     assert [p["id"] for p in client.get("/api/plans", headers=verbunden).json()] == [
         plan["id"]
     ]
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
     # Der ausdrückliche Weg daran vorbei — die Einheiten bleiben dann in Garmin
     # stehen und lassen sich nur noch im Kalender der App entfernen.
@@ -1048,7 +1268,7 @@ def test_plan_loeschen_wartet_auf_garmin_statt_karteileichen_zu_hinterlassen(
     assert antwort.status_code == 200, antwort.text
     assert antwort.json()["garmin_entfernt"] == 0
     assert client.get("/api/plans", headers=verbunden).json() == []
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
 
 def test_einzelne_einheit_geht_ohne_job(client, verbunden, fake):
@@ -1060,12 +1280,32 @@ def test_einzelne_einheit_geht_ohne_job(client, verbunden, fake):
     )
     assert antwort.status_code == 200, antwort.text
     assert antwort.json()["zustand"] == "aktuell"
-    assert len(fake._workouts) == 1
+    assert len(fake._workouts) == 15
 
     assert client.delete(
         f"/api/garmin/workouts/einheit/{einheit_id}", headers=verbunden
     ).status_code == 204
+    assert len(fake._workouts) == 15
+    assert fake._termine == {}
+
+
+def test_einzeluebertragung_wartet_nicht_neben_einem_garmin_lauf(
+    client, verbunden, fake
+):
+    from app.garmin.runner import runner
+
+    plan = _importiere_plan(client, verbunden)
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+
+    with runner.exklusiver_direktaufruf():
+        antwort = client.post(
+            f"/api/garmin/workouts/einheit/{einheit_id}", headers=verbunden
+        )
+
+    assert antwort.status_code == 409
+    assert "Garmin-Vorgang" in antwort.json()["detail"]
     assert fake._workouts == {}
+    assert fake._termine == {}
 
 
 def test_ruhetag_wird_abgelehnt(client, verbunden):
@@ -1156,7 +1396,7 @@ def test_kalender_erfindet_keine_dauer_aus_einem_deutungsfreien_feld():
     assert workout["distanz_km"] is None
 
 
-def test_kalendereintrag_laesst_sich_loeschen(client, verbunden, fake):
+def test_kalendereintrag_loescht_keine_pool_vorlage(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
@@ -1164,6 +1404,7 @@ def test_kalendereintrag_laesst_sich_loeschen(client, verbunden, fake):
         f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
     ).json()["eintraege"]
     eigener = next(e for e in eintraege if e["aus_tri_coach"])
+    fake.aufrufe.clear()
 
     antwort = client.delete(
         f"/api/garmin/kalender/{eigener['schedule_id']}"
@@ -1171,8 +1412,10 @@ def test_kalendereintrag_laesst_sich_loeschen(client, verbunden, fake):
         headers=verbunden,
     )
     assert antwort.status_code == 204, antwort.text
-    assert int(eigener["workout_id"]) not in fake._workouts
+    assert int(eigener["workout_id"]) in fake._workouts
+    assert len(fake._workouts) == 15
     assert int(eigener["schedule_id"]) not in fake._termine
+    assert "delete_workout" not in fake.aufrufe
 
     # Und die Einheit gilt wieder als offen.
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
@@ -1221,10 +1464,14 @@ def test_in_garmin_geloeschtes_workout_wird_neu_angelegt(client, verbunden, fake
     """Wer die Vorlage in Connect löscht, darf hier nicht dauerhaft hängen bleiben."""
     plan = _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
+    vorher = set(fake._workouts)
 
-    # Von Hand in Garmin Connect gelöscht — die App weiß davon nichts.
-    fake._workouts.clear()
-    fake._termine.clear()
+    # Eine Vorlage von Hand in Garmin Connect gelöscht — die App weiß davon nichts.
+    geloescht = next(iter(fake._termine.values()))[0]
+    fake._workouts.pop(geloescht)
+    for schedule_id, (workout_id, _) in list(fake._termine.items()):
+        if workout_id == geloescht:
+            fake._termine.pop(schedule_id)
 
     # Der Plan ändert sich, damit die Übertragung die Vorlage anfassen muss.
     from app.database import SessionLocal
@@ -1236,10 +1483,13 @@ def test_in_garmin_geloeschtes_workout_wird_neu_angelegt(client, verbunden, fake
         session.duration_min = 75
         db.commit()
 
+    fake.aufrufe.clear()
     fertig = _uebertrage(client, verbunden)
 
     assert fertig["state"] == "done", fertig["message"]
-    assert len(fake._workouts) >= 1
+    assert len(fake._workouts) == 15
+    assert len(vorher & set(fake._workouts)) == 14
+    assert fake.aufrufe.count("upload_workout") == 1
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     assert zustand["fehler"] == 0
 
@@ -1279,12 +1529,14 @@ def test_uebertragen_legt_in_garmin_geloeschte_einheiten_neu_an(client, verbunde
     _uebertrage(client, verbunden)
     fake._workouts.clear()
     fake._termine.clear()
+    fake.aufrufe.clear()
 
     fertig = _uebertrage(client, verbunden)
 
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_pushed"] == 2
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
+    assert fake.aufrufe.count("upload_workout") == 15
     assert len(fake._termine) == 2
 
 
@@ -1316,14 +1568,13 @@ def test_abgeloester_block_wird_aus_garmin_geraeumt(client, verbunden, fake):
     """Zwei Blöcke auf denselben Tagen hießen zwei Trainings je Tag auf der Uhr."""
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
-    alte_vorlagen = set(fake._workouts)
+    pool_ids = set(fake._workouts)
 
     # Der nächste Block: ein neuer Plan, der alte wird nur stillgelegt.
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
-    assert not (alte_vorlagen & set(fake._workouts)), "Der alte Block steht noch in Garmin"
-    assert len(fake._workouts) == 2
+    assert set(fake._workouts) == pool_ids
     assert len(fake._termine) == 2
 
 
@@ -1364,22 +1615,22 @@ def test_verschieben_nimmt_die_planeinheit_mit(client, verbunden, fake):
 def test_eine_abgelehnte_einheit_stoppt_die_anderen_nicht(client, verbunden, fake):
     """Garmin lehnt gelegentlich einzelne Workouts ab — das darf kein Alles-oder-Nichts sein."""
     _importiere_plan(client, verbunden)
-    original = fake.upload_workout
+    original = fake.update_workout
     versuche = {"n": 0}
 
-    def mal_so_mal_so(workout_json):
+    def mal_so_mal_so(workout_id, workout_json):
         versuche["n"] += 1
         if versuche["n"] == 1:
             raise RuntimeError("400 Bad Request: unsupported step")
-        return original(workout_json)
+        return original(workout_id, workout_json)
 
-    fake.upload_workout = mal_so_mal_so
+    fake.update_workout = mal_so_mal_so
     fertig = _uebertrage(client, verbunden)
 
     assert fertig["state"] == "done"
     assert fertig["workouts_pushed"] == 1
     assert "Nicht geklappt hat es bei" in fertig["message"]
-    assert len(fake._workouts) == 1
+    assert len(fake._workouts) == 15
 
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     assert zustand["aktuell"] == 1
@@ -1424,7 +1675,7 @@ def test_uebertragen_ohne_garmin_konto_meldet_409(client, garmin_auth):
 # --------------------------------------------------------------------------
 
 
-def _wirft_429(workout_json):
+def _wirft_429(*_args):
     from garminconnect import GarminConnectTooManyRequestsError
 
     raise GarminConnectTooManyRequestsError("429 Too Many Requests")
@@ -1444,7 +1695,7 @@ def test_uebernommener_block_geht_von_selbst_auf_die_uhr(client, verbunden, fake
     fertig = _job(client, verbunden, antwort["garmin_job_id"])
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_pushed"] == 2  # der Ruhetag bleibt außen vor
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
     assert len(fake._termine) == 2
 
 
@@ -1460,13 +1711,12 @@ def test_neuer_block_verdraengt_den_alten_aus_dem_kalender(client, verbunden, fa
     """Sonst stünden auf jedem Tag zwei Trainings, von denen eines überholt ist."""
     _importiere(client, verbunden, autopush=True)
     zuerst = set(fake._workouts)
-    assert len(zuerst) == 2
+    assert len(zuerst) == 15
 
     # Derselbe Zeitraum, neu geplant.
     _importiere(client, verbunden, autopush=True)
 
-    assert len(fake._workouts) == 2
-    assert not zuerst & set(fake._workouts), "der abgelöste Block steht noch"
+    assert set(fake._workouts) == zuerst
     assert len(fake._termine) == 2
 
     # Und der leere Vorgänger fällt weg, sobald nichts mehr von ihm in Garmin steht.
@@ -1481,14 +1731,15 @@ def test_folgeblock_laesst_die_restlichen_tage_stehen(client, verbunden, fake):
     obwohl er nichts weggeplant hat.
     """
     _importiere(client, verbunden, autopush=True)
-    laufend = set(fake._workouts)
-    assert len(laufend) == 2
+    pool_ids = set(fake._workouts)
+    laufende_termine = dict(fake._termine)
+    assert len(pool_ids) == 15
 
     # Der nächste Block hängt hinten an, statt die laufenden Tage zu ersetzen.
     _importiere(client, verbunden, autopush=True, ab=HEUTE + timedelta(days=3))
 
-    assert laufend < set(fake._workouts), "die laufenden Tage wurden mit geräumt"
-    assert len(fake._workouts) == 4
+    assert set(fake._workouts) == pool_ids
+    assert laufende_termine.items() <= fake._termine.items()
     assert len(fake._termine) == 4
 
 
@@ -1503,14 +1754,14 @@ def test_abgeloester_block_geht_auch_bei_gescheiterter_uebertragung(
     Übel.
     """
     _importiere(client, verbunden, autopush=True)
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15
 
-    fake.upload_workout = _wirft_429
+    fake.update_workout = _wirft_429
     antwort = _importiere(client, verbunden, autopush=True)
 
     fertig = _job(client, verbunden, antwort["garmin_job_id"])
     assert fertig["state"] == "rate_limited"
-    assert fake._workouts == {}
+    assert len(fake._workouts) == 15
     assert fake._termine == {}
 
 
@@ -1559,4 +1810,4 @@ def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(
 
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_removed"] == 0
-    assert len(fake._workouts) == 2
+    assert len(fake._workouts) == 15

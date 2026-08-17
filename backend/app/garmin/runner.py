@@ -14,6 +14,8 @@ verschiedenen Konten im selben Haushalt.
 
 import logging
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import NamedTuple
 
@@ -24,7 +26,7 @@ from ..database import SessionLocal
 from ..models import GarminAccount, GarminSyncJob
 from . import sync as sync_modul
 from .client import client_aus_token, token_aktualisieren
-from .errors import GarminFehler, GarminRateLimit, GarminTokenUngueltig
+from .errors import GarminBeschaeftigt, GarminFehler, GarminRateLimit, GarminTokenUngueltig
 from .sync import Fortschritt, SyncAbbruch, SyncErgebnis, fuehre_sync_aus
 
 logger = logging.getLogger(__name__)
@@ -94,6 +96,16 @@ class SyncRunner:
             return False
         ereignis.set()
         return True
+
+    @contextmanager
+    def exklusiver_direktaufruf(self) -> Iterator[None]:
+        """Schützt direkte Schreibaufrufe vor laufenden Garmin-Jobs."""
+        if not self._schloss.acquire(blocking=False):
+            raise GarminBeschaeftigt()
+        try:
+            yield
+        finally:
+            self._schloss.release()
 
     def starte(
         self,
@@ -432,8 +444,8 @@ class SyncRunner:
             db.commit()
 
             # Der zweite Zeitpunkt zum Aufräumen: Wer den nächsten Block
-            # überträgt, hat den vorigen hinter sich — ohne das bliebe die
-            # Bibliothek voll, solange der tägliche Abgleich abgeschaltet ist.
+            # überträgt, hat den vorigen hinter sich. Seine Termine müssen die
+            # Pool-Slots auch ohne täglichen Abgleich wieder freigeben.
             # Bewusst **nach** dem Festschreiben: Läuft das Aufräumen in die
             # Anfragesperre, setzten die Zeilen darüber sie sonst gleich wieder
             # zurück.
@@ -527,7 +539,7 @@ class SyncRunner:
         ausser_plan_id: int | None = None,
         pause_s: float | None = None,
     ) -> Aufraeumbilanz:
-        """Löscht Einheiten, deren Tag vorbei ist oder deren Block abgelöst wurde.
+        """Entfernt Termine, deren Tag vorbei ist oder deren Block abgelöst wurde.
 
         Am Ende eines Laufs statt als eigener Job: Der Zugang steht, das Schloss
         ist gehalten, und ein Fortschrittsbalken für eine Handvoll Löschungen
@@ -554,7 +566,8 @@ class SyncRunner:
             )
             ergebnis.fehler.extend(ersetzt.fehler)
             # Jetzt erst: Ein abgelöster Block darf nur verschwinden, wenn nichts
-            # mehr von ihm in Garmin steht — die Zuordnung dorthin stirbt mit ihm.
+            # mehr von ihm im Kalender steht. Sein Link stirbt mit dem Plan, der
+            # dauerhafte Pool-Slot dagegen nicht.
             plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
         except GarminRateLimit as exc:
             db.rollback()
