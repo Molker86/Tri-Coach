@@ -179,8 +179,11 @@ export interface SessionLog {
   elevation_gain_m: number | null
   calories: number | null
 
-  /** Immer geschätzt — Garmin liefert kein RPE. Woraus, sagt `rpe_source`. */
+  /** Meist geschätzt; woher der Wert stammt, sagt `rpe_source`. */
   rpe: number | null
+  /** Garmins Befinden, 0 sehr schwach bis 10 sehr stark (die Uhr trifft auch
+   *  2,5 und 7,5). `null` heißt „nicht bewertet" — das ist der Normalfall. */
+  garmin_feel: number | null
   notes: string | null
   trimp: number | null
 
@@ -192,8 +195,9 @@ export interface SessionLog {
   garmin_training_load: number | null
   garmin_aerobic_te: number | null
   garmin_anaerobic_te: number | null
-  /** Woher `rpe` stammt — bei Garmin-Einheiten ist es geschätzt. */
-  rpe_source: 'manual' | 'hf_zonen' | 'trainingseffekt' | 'hf_schnitt'
+  /** Woher `rpe` stammt. `athlet` ist seine eigene Bewertung aus Garmin
+   *  Connect, alles außer `manual` (Altwert) sonst geschätzt. */
+  rpe_source: 'athlet' | 'manual' | 'hf_zonen' | 'trainingseffekt' | 'hf_schnitt'
 }
 
 export interface WeeklyBucket {

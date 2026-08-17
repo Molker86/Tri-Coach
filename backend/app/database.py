@@ -61,6 +61,10 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "garmin_aerobic_te": "FLOAT",
         "garmin_anaerobic_te": "FLOAT",
         "rpe_source": "VARCHAR(20) NOT NULL DEFAULT 'manual'",
+        # Bleibt für alle bestehenden Einheiten leer: Das Befinden steht im
+        # Aktivitätsdetail, und das wird für zurückliegende Einheiten nicht
+        # noch einmal geholt (`sync.BEWERTUNGSFENSTER_TAGE`).
+        "garmin_feel": "FLOAT",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",

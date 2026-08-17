@@ -451,8 +451,12 @@ class SessionLogOut(BaseModel):
     elevation_gain_m: int | None = Field(None, ge=0, le=15000)
     calories: int | None = Field(None, ge=0, le=20000)
 
-    # Immer geschätzt: Garmin liefert kein RPE (`mapping.schaetze_rpe`).
+    # Meist geschätzt (`mapping.schaetze_rpe`); `rpe_source` sagt, ob der Athlet
+    # die Einheit in Connect selbst bewertet hat.
     rpe: int | None = Field(None, ge=1, le=10)
+    # Garmins Befinden auf derselben Skala wie in Connect: 0 sehr schwach bis
+    # 10 sehr stark. Nur belegt, wenn der Athlet sie angetippt hat.
+    garmin_feel: float | None = Field(None, ge=0, le=10)
     notes: str | None = None
 
     trimp: float | None = None

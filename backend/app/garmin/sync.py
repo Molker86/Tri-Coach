@@ -33,6 +33,7 @@ from .mapping import (
     als_liste,
     als_zahl,
     bestzeiten,
+    bewertung_aus_detail,
     erster_wert,
     ftp_watt,
     gewicht_kg,
@@ -41,6 +42,7 @@ from .mapping import (
     schwellenpace_laufen,
     schwellenpuls,
     teile_multisport,
+    uebernimm_bewertung,
 )
 from .matching import finde_offene_planeinheit
 
@@ -65,6 +67,20 @@ TAGESSCHLEIFE_TAGE = 42
 # Wochen. Es ist zugleich die Grenze, ab der ältere Werte für die Planung nichts
 # mehr tragen.
 RUECKBLICK_TAGE = 365
+
+# Wie weit zurück das Aktivitätsdetail geholt wird. Anstrengung und Befinden
+# stehen **nur** dort und kosten je Aktivität eine eigene Anfrage — die
+# Listenantwort führt sie nicht. Bei einem Jahresrückblick wären das dreihundert
+# Anfragen für Zahlen, die der Export gar nicht mehr liest: Er blickt vier Wochen
+# zurück, 42 Tage sind das Fenster plus Puffer, dieselbe Grenze wie bei der
+# Tagesschleife. Im laufenden Abgleich greift sie nie — der holt ohnehin nur die
+# letzten Tage.
+BEWERTUNGSFENSTER_TAGE = 42
+
+# Pause zwischen zwei Detailabrufen. Die Bereichsabfragen laufen ohne Pause, sind
+# aber ein knappes Dutzend; hier können es bei einem Rückblick vierzig am Stück
+# werden. Derselbe Wert wie bei der Übertragung nach Garmin.
+BEWERTUNG_PAUSE_SEKUNDEN = 1.0
 
 # Überlappung beim laufenden Abgleich: die Tage, die *jeder* Lauf erneut holt.
 # Garmin trägt Schlaf-, Erholungs- und Trainingswerte teils Stunden später nach,
@@ -166,7 +182,13 @@ def _setze(zeile: WellnessDay, **werte: Any) -> bool:
 # --------------------------------------------------------------------------
 
 
-def _hole_geschuetzt(name: str, ergebnis: SyncErgebnis, aufruf: Callable[[], Any]) -> Any:
+def _hole_geschuetzt(
+    name: str,
+    ergebnis: SyncErgebnis,
+    aufruf: Callable[[], Any],
+    *,
+    melde: bool = True,
+) -> Any:
     """Ruft einen Endpunkt auf; ein Fehlschlag beendet den Lauf nicht.
 
     Ausnahme ist die Anfragesperre: Sie betrifft alle weiteren Aufrufe, und
@@ -174,6 +196,9 @@ def _hole_geschuetzt(name: str, ergebnis: SyncErgebnis, aufruf: Callable[[], Any
     allgemeinen Auffangen erkannt werden — auch in ihrer Form aus der
     Bibliothek, sonst liefe der Abgleich stur weiter und triebe die Sperre von
     einer Stunde auf zwei Tage.
+
+    `melde=False` für Aufrufe, die je Einheit einmal vorkommen: Ein Hinweis je
+    Endpunkt ist eine Zeile in der Bilanz, vierzig gleiche wären Lärm.
     """
     try:
         return aufruf()
@@ -181,7 +206,8 @@ def _hole_geschuetzt(name: str, ergebnis: SyncErgebnis, aufruf: Callable[[], Any
         raise GarminRateLimit() from exc
     except Exception as exc:  # noqa: BLE001 — undokumentierte Gegenstelle
         logger.warning("Garmin-Abruf '%s' fehlgeschlagen: %s", name, exc)
-        ergebnis.hinweise.append(f"{name} konnte nicht geladen werden.")
+        if melde:
+            ergebnis.hinweise.append(f"{name} konnte nicht geladen werden.")
         return None
 
 
@@ -204,11 +230,19 @@ def importiere_aktivitaeten(
         return
 
     eigenstaendig, kinder_je_eltern = teile_multisport(aktivitaeten)
+    bewertung_ab = date.today() - timedelta(days=BEWERTUNGSFENSTER_TAGE)
 
     for aktivitaet in eigenstaendig:
         felder = aktivitaet_zu_log(aktivitaet, profil)
         if felder is None:
             continue
+
+        # Erst jetzt das Detail: Es kostet eine eigene Anfrage je Einheit, und ob
+        # die Aktivität überhaupt als Training zählt, weiß erst der Mapper.
+        if felder["date"] >= bewertung_ab:
+            bewertung = _hole_bewertung(api, felder["garmin_activity_id"], ergebnis)
+            if bewertung is not None:
+                uebernimm_bewertung(felder, bewertung)
 
         kinder = kinder_je_eltern.get(str(aktivitaet.get("activityId")))
         if kinder:
@@ -224,6 +258,29 @@ def importiere_aktivitaeten(
         # `rollback()` auch alle zuvor verarbeiteten Trainings dieses Durchlaufs
         # verwerfen — sie wären erst beim nächsten Abgleich wieder da.
         db.commit()
+
+
+def _hole_bewertung(
+    api: Any, aktivitaets_id: str, ergebnis: SyncErgebnis
+) -> dict[str, Any] | None:
+    """Holt Anstrengung und Befinden einer Einheit. `None`, wenn es nicht klappt.
+
+    Ein Fehlschlag darf hier nichts kosten: Das Training selbst steht schon
+    fest, es fehlte nur die Selbstauskunft. Die Anfragesperre bleibt die
+    Ausnahme und beendet den Lauf (`_hole_geschuetzt`).
+
+    Die Pause steht im `finally`, damit auch eine Reihe von Fehlschlägen die
+    Gegenstelle nicht im Sekundentakt trifft.
+    """
+    try:
+        detail = _hole_geschuetzt(
+            "Bewertung", ergebnis, lambda: api.get_activity(aktivitaets_id), melde=False
+        )
+    finally:
+        if BEWERTUNG_PAUSE_SEKUNDEN:
+            time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
+
+    return None if detail is None else bewertung_aus_detail(detail)
 
 
 def _speichere_aktivitaet(
@@ -261,6 +318,15 @@ def _speichere_aktivitaet(
     # Aktualisieren: Was Garmin liefert, gewinnt — es ist die einzige Quelle.
     geaendert = False
     for feld, wert in felder.items():
+        if feld in ("rpe", "rpe_source") and vorhanden.rpe_source == "athlet":
+            # Eine Bewertung des Athleten wird nie durch eine Schätzung ersetzt.
+            # Ohne diese Sperre nähme ein Rückblick über ein Jahr jeder Einheit
+            # außerhalb des Bewertungsfensters ihren echten Wert wieder ab — dort
+            # wird das Detail nicht geholt, und der Mapper liefert dann wieder die
+            # Schätzung. Der Preis: Eine in Connect *gelöschte* Bewertung bleibt
+            # hier stehen, wie jeder andere Wert, den die Gegenseite zurückzieht.
+            if felder.get("rpe_source") != "athlet":
+                continue
         if feld == "notes" and vorhanden.notes:
             # Eine vorhandene Notiz bleibt stehen. Bei einer Koppeleinheit
             # steht dort die aus den Teildisziplinen zusammengesetzte Zeile

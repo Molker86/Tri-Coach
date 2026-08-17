@@ -29,6 +29,9 @@ class FakeGarmin:
         self.username = "athlet@example.com"
         self.password = "geheim"
         self._aktivitaeten = aktivitaeten if aktivitaeten is not None else []
+        # Bewertungen je Aktivitätskennung, wie sie im Detail stehen. Leer, weil
+        # die meisten Einheiten unbewertet bleiben — der Normalfall.
+        self.bewertungen: dict[str, dict[str, Any]] = {}
         self._tage = tage or []
         self._rate_limit_ab_tag = rate_limit_ab_tag
         self._tagesabrufe = 0
@@ -66,6 +69,20 @@ class FakeGarmin:
             for a in self._aktivitaeten
             if von <= date.fromisoformat(str(a["startTimeLocal"])[:10]) <= bis
         ]
+
+    def get_activity(self, activity_id):
+        """Das Detail — und nur hier stehen Anstrengung und Befinden.
+
+        Die Trennung ist keine Vereinfachung der Nachbildung, sondern der
+        eigentliche Grund für den zusätzlichen Abruf: An einem echten Konto
+        führt die Listenantwort 111 Felder je Aktivität, `directWorkoutFeel`
+        und `directWorkoutRpe` sind keines davon.
+        """
+        self.aufrufe.append("get_activity")
+        return {
+            "activityId": activity_id,
+            "summaryDTO": dict(self.bewertungen.get(str(activity_id), {})),
+        }
 
     # -- Bereichsabfragen ---------------------------------------------------
 

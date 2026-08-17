@@ -250,13 +250,24 @@ class SessionLog(Base):
     elevation_gain_m: Mapped[int | None] = mapped_column(Integer)
     calories: Mapped[int | None] = mapped_column(Integer)
 
-    # Der einzige verbliebene subjektive Marker — und selbst der wird geschätzt
-    # (`mapping.schaetze_rpe`), weil Garmin kein RPE liefert. Befinden,
-    # Muskelkater, Schlafqualität, Morgenpuls und Morgen-HRV kamen aus dem
+    # Meistens geschätzt (`mapping.schaetze_rpe`), weil Garmin je Aktivität kein
+    # RPE *berechnet*. Der Athlet kann es in Connect aber selbst eintragen; dann
+    # steht hier sein Wert und `rpe_source` sagt es. Muskelkater,
+    # Schlafqualität, Morgenpuls und Morgen-HRV kamen aus dem
     # Erfassungsformular; mit ihm sind auch ihre Spalten weg
     # (`database._ENTFALLENE_SPALTEN`). Was sie beschrieben, misst die Uhr
     # ohnehin genauer und Nacht für Nacht — siehe `WellnessDay`.
     rpe: Mapped[int | None] = mapped_column(Integer)  # 1-10 (Borg CR10)
+
+    # Garmins „Wie hast du dich gefühlt?" auf der Skala, die der Athlet in
+    # Connect vor sich hat: 0 sehr schwach, 5 normal, 10 sehr stark. Die einzige
+    # Angabe dieser App neben einem selbst vergebenen RPE, die er gesetzt hat —
+    # und deshalb meist leer: Sie steht nur an den Einheiten, die er bewertet
+    # hat. `NULL` heißt „nicht bewertet" und ist ausdrücklich keine Aussage über
+    # die Einheit; 0 dagegen ist eine. Kommalos ist der Wert nicht: Die Uhr
+    # kennt fünf Stufen und trifft damit 2,5 und 7,5
+    # (`mapping.bewertung_aus_detail`).
+    garmin_feel: Mapped[float | None] = mapped_column(Float)
 
     notes: Mapped[str | None] = mapped_column(Text)
 
@@ -274,13 +285,14 @@ class SessionLog(Base):
     garmin_training_load: Mapped[float | None] = mapped_column(Float)
     garmin_aerobic_te: Mapped[float | None] = mapped_column(Float)
     garmin_anaerobic_te: Mapped[float | None] = mapped_column(Float)
-    # Woher `rpe` stammt. Garmin liefert kein RPE; ohne Schätzung fielen sRPE,
-    # ACWR und die Abstandsregel für intensive Einheiten aus. Die Quelle geht in
-    # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann.
-    # `manual` ist heute nur noch ein Altwert: Er steht an Einträgen aus der
-    # Zeit, als es ein Erfassungsformular gab.
+    # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
+    # für intensive Einheiten für die meisten Einheiten aus. Die Quelle geht in
+    # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann:
+    # `athlet` ist seine eigene Bewertung aus Connect und wiegt schwerer als
+    # jede Schätzung. `manual` ist dagegen nur noch ein Altwert — er steht an
+    # Einträgen aus der Zeit, als es ein Erfassungsformular gab.
     rpe_source: Mapped[str] = mapped_column(String(20), default="manual")
-    # manual | hf_zonen | trainingseffekt | hf_schnitt
+    # athlet | hf_zonen | trainingseffekt | hf_schnitt | manual (Altwert)
 
     user: Mapped[User] = relationship(back_populates="logs")
     plan_session: Mapped["PlanSession | None"] = relationship(back_populates="log")

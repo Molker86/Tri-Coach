@@ -432,12 +432,14 @@ def _klemme(wert: float) -> int:
 def schaetze_rpe(aktivitaet: dict[str, Any], profil: Any = None) -> tuple[int | None, str]:
     """Schätzt das RPE einer Garmin-Aktivität. Rückgabe: (rpe, quelle).
 
-    Garmin liefert kein RPE, aber `sportscience` rechnet die sRPE-Last, das
-    Belastungsverhältnis (ACWR) und den Abstand zur letzten intensiven Einheit
-    daraus. Ohne Schätzung fiele all das für importierte Trainings aus — mit
-    einer Schätzung ist es ungenau, aber vorhanden und über die Wochen hinweg
-    vergleichbar. Die Quelle wird mitgeschrieben, damit ein selbst eingetragener
-    Wert erkennbar bleibt und die KI die Belastbarkeit einordnen kann.
+    Der Athlet *kann* eine Einheit in Connect selbst bewerten (siehe
+    `bewertung_aus_detail`) — meistens tut er es nicht. Für alle übrigen
+    Einheiten rechnet `sportscience` die sRPE-Last, das Belastungsverhältnis
+    (ACWR) und den Abstand zur letzten intensiven Einheit trotzdem aus dem RPE.
+    Ohne Schätzung fiele all das aus — mit einer Schätzung ist es ungenau, aber
+    vorhanden und über die Wochen hinweg vergleichbar. Die Quelle wird
+    mitgeschrieben, damit eine echte Bewertung erkennbar bleibt und die KI die
+    Belastbarkeit der Zahl einordnen kann.
 
     Reihenfolge nach abnehmender Aussagekraft:
       1. Zeitverteilung über die Herzfrequenzzonen
@@ -468,6 +470,83 @@ def schaetze_rpe(aktivitaet: dict[str, Any], profil: Any = None) -> tuple[int | 
 
 
 # --------------------------------------------------------------------------
+# Selbstauskunft des Athleten
+# --------------------------------------------------------------------------
+
+# Der Athlet bewertet in Connect auf einer Skala von 0/1 bis 10 — Garmin
+# speichert beides **mal zehn**: `directWorkoutRpe` in Zehnerschritten von 10
+# bis 100, `directWorkoutFeel` von 0 bis 100 (an einem echten Konto abgelesen:
+# RPE 60 und 20, Befinden 75). Die Viertelschritte beim Befinden stammen von der
+# Uhr, die statt der Skala fünf Stufen anbietet (sehr schwach bis sehr stark);
+# geteilt landen sie mit 2,5 / 5 / 7,5 auf derselben Skala. Deshalb wird hier
+# durch zehn geteilt und nirgends sonst: Was App, Export und Prompt zeigen, ist
+# die Skala, die der Athlet vor sich hatte.
+#
+# Beide Felder stehen **nur** im Aktivitätsdetail und nur, wenn er sie angetippt
+# hat — in der Listenantwort gibt es sie nicht (111 Felder je Aktivität, keines
+# davon).
+BEWERTUNG_TEILER = 10
+BEFINDEN_SPANNE = (0.0, 10.0)
+
+
+def bewertung_aus_detail(detail: Any) -> dict[str, Any]:
+    """Liest Anstrengung und Befinden aus `get_activity()`. Beides oft leer.
+
+    Rückgabe: `{"rpe": 1-10 | None, "feel": 0-10 | None}`. Die Felder sind
+    Selbstauskunft und damit die einzigen Angaben dieser App, die der Athlet
+    selbst gesetzt hat — sie wiegen schwerer als jede Schätzung und ersetzen sie
+    deshalb in `aktivitaet_zu_log`.
+
+    Eine 0 im RPE gilt als „nicht bewertet": Eine Einheit ohne jede Anstrengung
+    gibt es nicht, und der Wert ginge sonst als 1 in die sRPE-Last ein. Beim
+    Befinden ist 0 dagegen ein gültiger Wert („sehr schwach") und muss von
+    „nichts eingetragen" unterschieden werden.
+    """
+    roh_rpe = als_zahl(
+        erster_wert(detail, ("summaryDTO", "directWorkoutRpe"), ("directWorkoutRpe",))
+    )
+    roh_feel = als_zahl(
+        erster_wert(detail, ("summaryDTO", "directWorkoutFeel"), ("directWorkoutFeel",))
+    )
+
+    # Das RPE bleibt ganzzahlig: Es geht in die sRPE-Last und steht neben
+    # geschätzten Werten derselben Skala.
+    rpe = _klemme(roh_rpe / BEWERTUNG_TEILER) if roh_rpe and roh_rpe > 0 else None
+
+    feel: float | None = None
+    if roh_feel is not None:
+        wert = round(roh_feel / BEWERTUNG_TEILER, 1)
+        unten, oben = BEFINDEN_SPANNE
+        # Die halben Stufen der Uhr bleiben erhalten — 7,5 zu 8 zu runden wäre
+        # eine Genauigkeit, die der Athlet nie angegeben hat.
+        if unten <= wert <= oben:
+            feel = wert
+
+    return {"rpe": rpe, "feel": feel}
+
+
+def uebernimm_bewertung(
+    felder: dict[str, Any], bewertung: dict[str, Any]
+) -> dict[str, Any]:
+    """Legt die Selbstauskunft über die geschätzten Felder eines `SessionLog`.
+
+    Die eigene Bewertung schlägt die Schätzung: Foster rechnet die sRPE-Last
+    ausdrücklich aus dem *empfundenen* Anstrengungsgrad, und genau der steht
+    hier. Beide Zahlen liegen auf derselben Borg-CR10-Skala, sind also
+    innerhalb einer Woche vergleichbar — anders als Garmins Trainingslast, die
+    deshalb nur zusätzlich mitläuft.
+
+    Eigene Funktion, weil zwei Wege hierher führen: der Abgleich, der das Detail
+    erst nach dem Abbilden holt, und `aktivitaet_zu_log` mit fertiger Bewertung.
+    """
+    felder["garmin_feel"] = bewertung.get("feel")
+    if bewertung.get("rpe"):
+        felder["rpe"] = bewertung["rpe"]
+        felder["rpe_source"] = "athlet"
+    return felder
+
+
+# --------------------------------------------------------------------------
 # Aktivität → Trainingseintrag
 # --------------------------------------------------------------------------
 
@@ -493,9 +572,17 @@ def trittfrequenz(sport: str, aktivitaet: dict[str, Any]) -> int | None:
 
 
 def aktivitaet_zu_log(
-    aktivitaet: dict[str, Any], profil: Any = None
+    aktivitaet: dict[str, Any],
+    profil: Any = None,
+    bewertung: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Baut aus einer Garmin-Aktivität die Felder eines `SessionLog`.
+
+    `bewertung` ist das Ergebnis von `bewertung_aus_detail()`, sofern das Detail
+    zu dieser Aktivität geholt wurde. `None` heißt „nicht nachgesehen" und ist
+    etwas anderes als „nachgesehen und nichts eingetragen": Im ersten Fall
+    fehlen die Bewertungsfelder ganz, sodass eine früher geholte Bewertung beim
+    Aktualisieren stehen bleibt (`sync._speichere_aktivitaet`).
 
     Gibt `None` zurück, wenn die Aktivität nicht als Training zählt (Spaziergang,
     unbekannter Typ) oder kein Datum trägt.
@@ -517,7 +604,7 @@ def aktivitaet_zu_log(
     distanz_m = als_zahl(aktivitaet.get("distance"))
     rpe, rpe_quelle = schaetze_rpe(aktivitaet, profil)
 
-    return {
+    felder = {
         "date": tag,
         "sport": sport,
         "status": "completed",
@@ -542,6 +629,8 @@ def aktivitaet_zu_log(
         "garmin_anaerobic_te": als_zahl(aktivitaet.get("anaerobicTrainingEffect")),
         "notes": aktivitaet.get("activityName") or None,
     }
+
+    return felder if bewertung is None else uebernimm_bewertung(felder, bewertung)
 
 
 def teile_multisport(

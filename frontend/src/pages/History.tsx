@@ -11,11 +11,25 @@ const STATUS_LABEL: Record<SessionLog['status'], string> = {
   skipped: 'Ausgefallen',
 }
 
-/** Woher ein geschätztes RPE stammt — als Erklärung beim Überfahren. */
+/** Woher ein RPE stammt — als Erklärung beim Überfahren. */
 const RPE_QUELLE_TEXT: Record<string, string> = {
+  athlet: 'Vom Athleten in Garmin Connect bewertet',
   hf_zonen: 'Aus der Zeitverteilung über die Herzfrequenzzonen geschätzt',
   trainingseffekt: 'Aus Garmins Trainingseffekt geschätzt',
   hf_schnitt: 'Aus dem Durchschnittspuls geschätzt',
+}
+
+/** Nur diese Quellen sind Schätzungen — sie bekommen die Tilde. */
+const GESCHAETZT = new Set(['hf_zonen', 'trainingseffekt', 'hf_schnitt'])
+
+/** Garmins Befinden in Worten. Die Zahl steht auf der Skala 0 bis 10, wie in
+ *  Connect; die Uhr trifft mit ihren fünf Stufen 0, 2,5, 5, 7,5 und 10. */
+function befindenText(wert: number): string {
+  if (wert <= 1.2) return 'sehr schwach'
+  if (wert <= 3.7) return 'schwach'
+  if (wert <= 6.2) return 'normal'
+  if (wert <= 8.7) return 'stark'
+  return 'sehr stark'
 }
 
 export default function History() {
@@ -146,14 +160,14 @@ export default function History() {
                     <td data-label="RPE">
                       {log.rpe === null ? (
                         '–'
-                      ) : log.rpe_source === 'manual' ? (
-                        log.rpe
-                      ) : (
+                      ) : GESCHAETZT.has(log.rpe_source) ? (
                         // Die Tilde macht sichtbar, dass die Zahl geschätzt ist —
                         // sie geht in sRPE-Last und Belastungsverhältnis ein.
                         <span title={RPE_QUELLE_TEXT[log.rpe_source] ?? 'Geschätzt'}>
                           ~{log.rpe}
                         </span>
+                      ) : (
+                        <span title={RPE_QUELLE_TEXT[log.rpe_source]}>{log.rpe}</span>
                       )}
                     </td>
                     <td data-label="TRIMP">{log.trimp ?? '–'}</td>
@@ -217,15 +231,25 @@ export default function History() {
                   value={
                     selected.rpe === null
                       ? null
-                      : selected.rpe_source === 'manual'
-                        ? String(selected.rpe)
-                        : `~${selected.rpe} (geschätzt)`
+                      : GESCHAETZT.has(selected.rpe_source)
+                        ? `~${selected.rpe} (geschätzt)`
+                        : String(selected.rpe)
                   }
                   unit="/ 10"
                 />
-                {/* Befinden, Schlaf und Morgenpuls stehen nicht mehr an der
-                    Einheit: Sie kamen aus dem Erfassungsformular. Gemessen und
-                    je Tag stehen sie in der Fitnessdaten-Ansicht. */}
+                {/* Befinden und Anstrengung trägt der Athlet in Garmin Connect
+                    ein — meist gar nicht. Dann fehlt die Zeile, statt eine
+                    Bewertung zu behaupten. Schlaf und Morgenpuls stehen je Tag
+                    in der Fitnessdaten-Ansicht. */}
+                {selected.garmin_feel !== null && (
+                  <DetailRow
+                    label="Befinden"
+                    value={`${selected.garmin_feel.toLocaleString('de-DE')} (${befindenText(
+                      selected.garmin_feel,
+                    )})`}
+                    unit="/ 10"
+                  />
+                )}
                 <DetailRow label="Notizen" value={selected.notes} />
               </tbody>
             </table>
