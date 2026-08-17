@@ -464,17 +464,36 @@ Cooldown-Schritt („4x6 min Z4 / 10 min Ausrollen Z1“), wird die Zeile als Bl
 ganz abgelehnt und Teil für Teil neu gelesen — viermal ausrollen ergibt keine
 Einheit.
 
-**Auf dem Rad steuert die Leistung, nicht der Puls** (`_leistung_im_schritt`).
-Bei `bike` gewinnt Watt vor jeder Herzfrequenzvorgabe: Auf dem Smarttrainer
-regelt Garmin das Gerät danach, und im Freien zeigt die Leistung sofort an, ob
-das Tempo stimmt, während der Puls Minuten hinterherzieht. Zuerst zählt die
-Angabe im **Schritttext**, denn Belastung und Erholung haben je einen eigenen
-Korridor; erst danach das Feld `target_power`, und das nur über Arbeitsschritten
-— auf das Einrollen gelegt stünden dort die Intervallwatt. Eben weil ein
-Wattkorridor eine Anweisung an die Rolle ist und kein Alarm, gilt er **auch über
-einer Pause** und ist damit die eine Ausnahme von „Pausen ohne Zielkorridor“.
-Ein Prozentwert im Fließtext zählt nur, wenn „FTP“ danebensteht — dort kann er
-auch „% HFmax“ meinen, im Feld `target_power` dagegen nicht.
+**Auf dem Rad steuert die Leistung, nicht der Puls — und zwar in jedem Schritt**
+(`_leistung`, `_ziel`). Bei `bike` gewinnt Watt vor jeder Herzfrequenzvorgabe:
+Auf dem Smarttrainer regelt Garmin das Gerät danach, und im Freien zeigt die
+Leistung sofort an, ob das Tempo stimmt, während der Puls Minuten
+hinterherzieht. Zuerst zählt die Angabe im **Schritttext**, denn Belastung und
+Erholung haben je einen eigenen Korridor; danach das Feld `target_power`, und
+das nur über Arbeitsschritten — auf das Einrollen gelegt stünden dort die
+Intervallwatt; zuletzt die **Zone im Text**, umgerechnet über
+`_ZONE_ZU_FTP_ANTEIL` (Coggan, Z1 nach unten auf 45 % gedeckelt statt auf 0,
+weil eine Null für die Rolle keine Anweisung ist). Der letzte Schritt kam
+nachträglich dazu: Ein- und Ausrollen nennen keine Watt und standen deshalb als
+einzige Abschnitte mit Pulsziel im Workout — die Rolle fiel dort aus der
+Regelung, mitten in derselben Einheit. Eben weil ein Wattkorridor eine Anweisung
+an die Rolle ist und kein Alarm, gilt er **auch über einer Pause** und ist damit
+die Ausnahme von „Pausen ohne Zielkorridor“. Ein Prozentwert im Fließtext zählt
+nur, wenn „FTP“ danebensteht — dort kann er auch „% HFmax“ meinen, im Feld
+`target_power` dagegen nicht.
+
+**Der verdrängte Puls wandert in die Beschreibung** (`_pulshinweis`). Er
+verschwindet nicht, er wechselt die Rolle: Statt Zielkorridor steht er als
+„(Zielpuls 120-140 bpm)“ hinter dem Schritttext, den die Uhr unter dem Abschnitt
+anzeigt — die Steuerung übernimmt die Leistung, den gewünschten Pulsbereich
+sieht der Athlet trotzdem. Berechnet wird er aus derselben Quelle wie zuvor das
+Ziel (`_herzfrequenz`: Zone im Text vor Vorgabe der Einheit, letztere nur über
+Arbeitsschritten). Angehängt wird er **nicht**, wenn der Aufbautext den Puls
+schon selbst nennt (`_PULS_IM_TEXT`) — die KI schreibt ihn oft dazu, und zwei
+Korridore nebeneinander lesen sich wie ein Widerspruch. Er wird zuerst bemessen,
+damit er beim Kürzen auf Garmins Feldgrenze nicht als Erstes fällt.
+**Ohne bekannte FTP bleibt es beim Pulsziel**: Eine Leistung, die niemand
+ausrechnen kann, ist keine.
 
 **Zwei Grammatiken, weil derselbe Text Verschiedenes bedeutet**
 (`zerlege_uebungsliste()` neben `zerlege_struktur()`). Bei Kraft und Mobility
@@ -1151,6 +1170,12 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
 - Die **Bahnlänge für Schwimm-Workouts** liegt fest bei 25 m
   (`workouts.POOL_LAENGE_M`) — die App fragt sie nirgends ab. Im 50-m-Becken
   stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.
+- Der **Wattkorridor aus der Zone** ist eine Umrechnung über feste
+  FTP-Anteile und damit die gröbste der drei Leistungsquellen: Er trifft das
+  Ein- und Ausrollen, ersetzt aber keine Wattangabe der KI. Wer im Profil
+  **keine FTP** stehen hat, bekommt auf dem Rad weiterhin Pulsziele — dann
+  regelt der Smarttrainer in diesen Schritten nicht. Die FTP kommt aus Garmin
+  (`sync.hole_leistungswerte`) oder von Hand aus der Profilseite.
 - **Kraft- und Mobility-Schritte tragen keine Wiederholungszahl**: Jede Übung
   ist ein Schritt bis zur Rundentaste, „3x15 je Seite“ steht nur als Text
   darin. Garmin könnte mehr (`create_strength_set`, also Wiederholungsgruppe

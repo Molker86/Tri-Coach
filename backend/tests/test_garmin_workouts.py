@@ -430,9 +430,74 @@ def test_smarttrainer_einheit_kommt_vollstaendig_auf_die_uhr():
     assert pause["targetType"]["workoutTargetTypeKey"] == "power.zone"
     assert (pause["targetValueOne"], pause["targetValueTwo"]) == (110.0, 130.0)
 
-    # Ein- und Ausrollen nennen keine Watt und bleiben deshalb bei ihrer Zone.
+    # Ein- und Ausrollen nennen keine Watt, und ohne FTP lässt sich aus ihrer
+    # Zone keine berechnen — deshalb bleibt es hier beim Puls.
     assert folge[0]["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
     assert folge[2]["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+
+
+def test_auf_dem_rad_bekommt_jeder_schritt_eine_leistungsvorgabe():
+    """Auch Ein- und Ausrollen — sonst fällt die Rolle mittendrin aus der Regelung.
+
+    Der Puls verschwindet dabei nicht, er wechselt die Rolle: Statt Zielkorridor
+    steht er als Hinweis in der Beschreibung, die die Uhr unter dem Abschnitt
+    anzeigt.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="bike",
+            duration_min=55,
+            target_power="135-160 W",
+            structure=(
+                "10 min locker einrollen Z1"
+                " / 40 min gleichmäßig Z2, Trittfrequenz 85-95"
+                " / 5 min ausrollen Z1"
+            ),
+        ),
+        zonen=ZONEN,
+        ftp=260,
+    )
+    folge = schritte(plan)
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == [
+        "warmup",
+        "interval",
+        "cooldown",
+    ]
+    assert {s["targetType"]["workoutTargetTypeKey"] for s in folge} == {"power.zone"}
+
+    # Ein- und Ausrollen: aus Z1 gerechnet (45–55 % FTP). Die Hauptbelastung
+    # behält die Wattvorgabe der Einheit — sie ist die genauere Angabe.
+    assert (folge[0]["targetValueOne"], folge[0]["targetValueTwo"]) == (117.0, 143.0)
+    assert (folge[2]["targetValueOne"], folge[2]["targetValueTwo"]) == (117.0, 143.0)
+    assert (folge[1]["targetValueOne"], folge[1]["targetValueTwo"]) == (135.0, 160.0)
+
+    assert folge[0]["description"] == "10 min locker einrollen Z1 (Zielpuls 100-120 bpm)"
+    assert folge[1]["description"].endswith("(Zielpuls 120-140 bpm)")
+    assert folge[2]["description"] == "5 min ausrollen Z1 (Zielpuls 100-120 bpm)"
+
+
+def test_puls_im_aufbautext_wird_nicht_verdoppelt():
+    """Die KI schreibt den Korridor oft selbst dazu — zweimal liest sich falsch."""
+    plan = workouts.baue_workout(
+        einheit(sport="bike", structure="10 min locker einrollen Z1 (120-134 bpm)"),
+        zonen=ZONEN,
+        ftp=260,
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert schritt["description"] == "10 min locker einrollen Z1 (120-134 bpm)"
+
+
+def test_ohne_ftp_bleibt_der_puls_das_ziel():
+    """Eine Leistung, die niemand ausrechnen kann, ist keine."""
+    plan = workouts.baue_workout(
+        einheit(sport="bike", structure="10 min locker einrollen Z1"), zonen=ZONEN
+    )
+    schritt = schritte(plan)[0]
+    assert schritt["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+    assert (schritt["targetValueOne"], schritt["targetValueTwo"]) == (100.0, 120.0)
+    assert "Zielpuls" not in schritt["description"]
 
 
 def test_ausrollen_nach_einer_serie_bleibt_draussen():

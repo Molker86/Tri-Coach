@@ -156,6 +156,21 @@ _ZIEL_LEISTUNG = {
 }
 
 
+@dataclass(frozen=True)
+class Zielvorgabe:
+    """Der Zielkorridor eines Schritts — und was davon in den Text muss.
+
+    `pulshinweis` trägt den Herzfrequenzkorridor, den der Schritt *nicht* als
+    Ziel bekommen hat, weil auf dem Rad die Leistung führt. Er wandert in die
+    Beschreibung, damit der Athlet ihn auf der Uhr trotzdem sieht.
+    """
+
+    art: dict[str, Any]
+    wert_eins: float | None = None
+    wert_zwei: float | None = None
+    pulshinweis: str | None = None
+
+
 def ist_uebertragbar(sport: str) -> bool:
     return sport in SPORT_ZU_GARMIN
 
@@ -584,67 +599,141 @@ def _leistung_im_schritt(text: str | None, ftp: int | None) -> tuple[float, floa
     return None
 
 
+# Anteil an der FTP je Trainingszone (nach Coggan). Damit bekommt auch ein
+# Schritt eine Wattvorgabe, der im Text nur seine Zone nennt — auf dem Rad die
+# Regel beim Ein- und Ausrollen („10 min locker einrollen Z1“).
+#
+# Z1 ist nach unten offen; eine Null als Untergrenze wäre für die Rolle keine
+# Anweisung, deshalb steht dort 45 %. Die übrigen Grenzen sind die üblichen.
+_ZONE_ZU_FTP_ANTEIL: dict[int, tuple[float, float]] = {
+    1: (0.45, 0.55),
+    2: (0.56, 0.75),
+    3: (0.76, 0.90),
+    4: (0.91, 1.05),
+    5: (1.06, 1.20),
+}
+
+# Nennt der Schritttext den Puls schon selbst, wird nichts angehängt: Die KI
+# schreibt ihn oft dazu („10 min locker einrollen Z1 (120-134 bpm)“), und zwei
+# Korridore nebeneinander lesen sich wie ein Widerspruch.
+_PULS_IM_TEXT = re.compile(r"\b(?:bpm|hf|puls|herzfrequenz)\b", re.IGNORECASE)
+
+
+def _leistung_aus_zone(
+    schritt: Schritt, ftp: int | None
+) -> tuple[float, float] | None:
+    """Wattkorridor aus der Zone im Schritttext — nur mit bekannter FTP."""
+    if not schritt.zone_von or not ftp:
+        return None
+    unten = _ZONE_ZU_FTP_ANTEIL.get(schritt.zone_von)
+    oben = _ZONE_ZU_FTP_ANTEIL.get(schritt.zone_bis or schritt.zone_von)
+    if not unten or not oben:
+        return None
+    return float(round(unten[0] * ftp)), float(round(oben[1] * ftp))
+
+
+def _leistung(
+    session: Any, schritt: Schritt, ftp: int | None
+) -> tuple[float, float] | None:
+    """Wattkorridor eines Radschritts aus der jeweils genauesten Quelle."""
+    if watt := _leistung_im_schritt(schritt.text, ftp):
+        return watt
+    # Die Vorgabe der Einheit gilt nur der Arbeit: Auf das Einrollen gelegt
+    # stünden dort die Intervallwatt.
+    if schritt.art == "interval" and (
+        watt := _leistung_in_watt(session.target_power, ftp)
+    ):
+        return watt
+    return _leistung_aus_zone(schritt, ftp)
+
+
+def _herzfrequenz(
+    session: Any,
+    schritt: Schritt,
+    sport: str,
+    zonen: dict[str, tuple[int, int]],
+) -> tuple[float, float] | None:
+    """Der Pulskorridor eines Schritts, unabhängig davon, ob er zum Ziel wird.
+
+    Vorrang hat die Zone aus dem Aufbautext — sie ist die feinste Angabe und
+    gilt für jeden Schritttyp. Die Vorgabe der Einheit gilt nur der Arbeit:
+    Pausen und das Ein-/Auslaufen tragen die Intensität der Hauptbelastung
+    nicht.
+
+    Kraft und Mobility bleiben ganz ohne: Dort springt die Herzfrequenz von
+    Satz zu Satz und sinkt in der Dehnung — ein Alarm liefe fast durchgehend,
+    obwohl die Einheit richtig läuft.
+    """
+    if schritt.zone_von and zonen:
+        unten = zonen.get(f"Z{schritt.zone_von}")
+        oben = zonen.get(f"Z{schritt.zone_bis or schritt.zone_von}")
+        if unten and oben:
+            return float(unten[0]), float(oben[1])
+
+    if schritt.art != "interval" or sport in UEBUNGSSPORTARTEN:
+        return None
+
+    if session.target_hr_low and session.target_hr_high:
+        return float(session.target_hr_low), float(session.target_hr_high)
+
+    if session.intensity_zone and zonen.get(session.intensity_zone):
+        unten, oben = zonen[session.intensity_zone]
+        return float(unten), float(oben)
+
+    return None
+
+
+def _pulshinweis(schritt: Schritt, puls: tuple[float, float] | None) -> str | None:
+    if puls is None or (schritt.text and _PULS_IM_TEXT.search(schritt.text)):
+        return None
+    return f"Zielpuls {round(puls[0])}-{round(puls[1])} bpm"
+
+
 def _ziel(
     session: Any,
     schritt: Schritt,
     sport: str,
     zonen: dict[str, tuple[int, int]],
     ftp: int | None,
-) -> tuple[dict[str, Any], float | None, float | None]:
-    """Zielkorridor eines Schritts. Rückgabe: (Zielart, Wert 1, Wert 2).
+) -> Zielvorgabe:
+    """Zielkorridor eines Schritts. Mehr als ein Ziel je Schritt kennt Garmin
+    nicht — deshalb entscheidet die Reihenfolge hier, was auf der Uhr steht.
 
-    Vorrang hat immer die Zone aus dem Aufbautext — sie ist die feinste Angabe.
-    Danach die Herzfrequenzvorgabe der Einheit, dann Watt, dann Tempo. Mehr als
-    ein Ziel je Schritt kennt Garmin nicht.
+    **Auf dem Rad steuert die Leistung, und zwar in jedem Schritt.** Wer auf dem
+    Smarttrainer fährt, wird über Watt gesteuert — Garmin regelt das Gerät
+    danach —, und im Freien zeigt die Leistung sofort an, ob das Tempo stimmt,
+    während der Puls Minuten hinterherzieht. Ein einzelner Schritt mit
+    Pulsvorgabe risse die Rolle mitten in der Einheit aus der Regelung; genau
+    das passierte beim Ein- und Ausrollen, solange die Wattvorgabe der Einheit
+    nur über Arbeitsschritten galt. Deshalb kommt der Korridor notfalls aus der
+    Zone im Text (`_ZONE_ZU_FTP_ANTEIL`) — und **der Puls wandert als Hinweis in
+    die Beschreibung**, wo ihn die Uhr unter dem Abschnitt anzeigt: Die
+    Steuerung übernimmt die Leistung, den gewünschten Pulsbereich sieht der
+    Athlet trotzdem.
 
-    **Auf dem Rad steht die Leistung davor.** Wer auf dem Smarttrainer fährt,
-    wird über Watt gesteuert — Garmin regelt das Gerät danach —, und im Freien
-    ist die Leistung die Größe, die sofort anzeigt, ob das Tempo stimmt; die
-    Herzfrequenz zieht Minuten später nach. Zuerst zählt dabei die Angabe im
-    Schritttext, denn Belastung und Erholung haben je einen eigenen Korridor
-    („4x6 min bei 195-210 W, dazwischen 3 min bei 110-130 W“). Eben deshalb gilt
-    sie **auch über einer Pause**, anders als die Herzfrequenz weiter unten: Ein
-    Wattkorridor in der Erholung ist eine Anweisung an die Rolle und kein Alarm,
-    der den Puls hochtriebe.
+    Der Wattkorridor gilt **auch über einer Pause**, anders als die Herzfrequenz:
+    Eine Wattzahl in der Erholung ist eine Anweisung an die Rolle und kein
+    Alarm, der den Puls hochtriebe. Ohne bekannte FTP bleibt es beim Puls — eine
+    Leistung, die niemand ausrechnen kann, ist keine.
     """
-    if sport == "bike":
-        if watt := _leistung_im_schritt(schritt.text, ftp):
-            return _ZIEL_LEISTUNG, watt[0], watt[1]
-        # Die Vorgabe der Einheit gilt nur der Arbeit: Auf das Einrollen
-        # gelegt stünden dort die Intervallwatt.
-        if schritt.art == "interval" and (
-            watt := _leistung_in_watt(session.target_power, ftp)
-        ):
-            return _ZIEL_LEISTUNG, watt[0], watt[1]
+    puls = _herzfrequenz(session, schritt, sport, zonen)
 
-    if schritt.zone_von and zonen:
-        unten = zonen.get(f"Z{schritt.zone_von}")
-        oben = zonen.get(f"Z{schritt.zone_bis or schritt.zone_von}")
-        if unten and oben:
-            return _ZIEL_HF, float(unten[0]), float(oben[1])
+    if sport == "bike" and (watt := _leistung(session, schritt, ftp)):
+        return Zielvorgabe(_ZIEL_LEISTUNG, watt[0], watt[1], _pulshinweis(schritt, puls))
+
+    if puls is not None:
+        return Zielvorgabe(_ZIEL_HF, puls[0], puls[1])
 
     # Pausen und das Ein-/Auslaufen bleiben ohne Korridor: Ein Alarm in der
     # Erholung treibt genau die Herzfrequenz hoch, die gerade sinken soll.
-    if schritt.art != "interval":
-        return _ZIEL_KEINS, None, None
-
-    # Kraft und Mobility ebenso: Dort springt die Herzfrequenz von Satz zu Satz
-    # und sinkt in der Dehnung — der Alarm liefe fast durchgehend, obwohl die
-    # Einheit richtig läuft.
-    if sport in UEBUNGSSPORTARTEN:
-        return _ZIEL_KEINS, None, None
-
-    if session.target_hr_low and session.target_hr_high:
-        return _ZIEL_HF, float(session.target_hr_low), float(session.target_hr_high)
-
-    if session.intensity_zone and zonen.get(session.intensity_zone):
-        unten, oben = zonen[session.intensity_zone]
-        return _ZIEL_HF, float(unten), float(oben)
+    # Kraft und Mobility ebenso — siehe `_herzfrequenz`.
+    if schritt.art != "interval" or sport in UEBUNGSSPORTARTEN:
+        return Zielvorgabe(_ZIEL_KEINS)
 
     if tempo := _tempo_in_m_pro_s(sport, session.target_pace):
-        return _ZIEL_TEMPO, tempo[0], tempo[1]
+        return Zielvorgabe(_ZIEL_TEMPO, tempo[0], tempo[1])
 
-    return _ZIEL_KEINS, None, None
+    return Zielvorgabe(_ZIEL_KEINS)
 
 
 # --------------------------------------------------------------------------
@@ -664,12 +753,11 @@ def _sport_typ(sport: str) -> dict[str, Any]:
 def _schritt_json(
     schritt: Schritt,
     reihenfolge: int,
-    ziel: tuple[dict[str, Any], float | None, float | None],
+    ziel: Zielvorgabe,
     sport: str,
     kind_id: int | None,
 ) -> dict[str, Any]:
     typ_id, typ_schluessel = _SCHRITT_TYPEN[schritt.art]
-    zielart, wert_eins, wert_zwei = ziel
 
     if schritt.distanz_m:
         ende, endwert = _ENDE_DISTANZ, float(schritt.distanz_m)
@@ -688,14 +776,17 @@ def _schritt_json(
         },
         "endCondition": ende,
         "endConditionValue": endwert,
-        "targetType": zielart,
-        "targetValueOne": wert_eins,
-        "targetValueTwo": wert_zwei,
+        "targetType": ziel.art,
+        "targetValueOne": ziel.wert_eins,
+        "targetValueTwo": ziel.wert_zwei,
         "zoneNumber": None,
         "childStepId": kind_id,
     }
-    if schritt.text:
-        eintrag["description"] = schritt.text[:512]
+    # Der Pulshinweis wird zuerst bemessen: Er ist der Teil, der nicht wegfallen
+    # darf, wenn der Aufbautext die Feldgrenze reißt.
+    zusatz = f" ({ziel.pulshinweis})" if ziel.pulshinweis else ""
+    if beschreibung := (schritt.text[: 512 - len(zusatz)] + zusatz).strip():
+        eintrag["description"] = beschreibung
     if sport == "swim":
         # Ohne Zug- und Materialangabe lehnt Garmin Schwimmschritte ab.
         eintrag["strokeType"] = dict(_ZUG_UNBESTIMMT)

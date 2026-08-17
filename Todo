@@ -1,8 +1,1 @@
-///////beim Radfahren sollen km/h als "pace" angegeben werden und beim schwimmen min/100m, beim laufen min/km (dort wo man das Training zurückmeldet)
-
-//////////ür mobilgeräte ist es nicht wirklcih optimiert, ich möchte, dass dies übersichtlicher und schöner umgestzt wird. manche bereiche sind zu groß und manche zu klein. Für den Browser an einem Laptop ist es bereits sehr schön umgesetzt.
-
-//////Bei der Auswahl der Trainingstage soll es einen button geben mit "alle Tage auswählen"
-
-
-schaffe die möglichkeit die generierten Trainings in Garmin connect via import zu verfügung zu stellen, dass der User dieses Training mit seinen geräten absolvieren kann. Es soll natürlich auch so gemacht werdne, dass im garmin kalender, das training dann dort erscheint und mit den synchronisierten geräten gestartet werden kann. ggf schau dir die doku von der Schnittstelle an. Wenn die geplanten trainings bekannt sind, soll man mit einem knopfdruck auf "garmin trainings übertragen" die daten an den Kalender senden können. Ich möchte auch den Garmin kalender in der App zu verfügung haben. Der kalneder soll die vollen funkeionen haben mit training löschen aus garmin connect z.B. usw.
+Promt cutten und aufräumen. bsp.fit datei analysieren, und nur noch workouts an garmin senden, welche nach dem Format sind, dann kommen auch videos raus!
