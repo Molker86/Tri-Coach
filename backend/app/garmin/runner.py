@@ -566,7 +566,8 @@ class SyncRunner:
             )
             ergebnis.fehler.extend(ersetzt.fehler)
             # Jetzt erst: Ein abgelöster Block darf nur verschwinden, wenn nichts
-            # mehr von ihm in Garmin steht — die Zuordnung dorthin stirbt mit ihm.
+            # mehr von ihm im Kalender steht. Sein Link stirbt mit dem Plan, der
+            # dauerhafte Pool-Slot dagegen nicht.
             plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
         except GarminRateLimit as exc:
             db.rollback()

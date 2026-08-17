@@ -146,7 +146,8 @@ Block überdeckt, in die Zukunft ragt und weder ein erfasstes Training noch eine
 Garmin-Übertragung trägt — ein abgeschlossener Block bleibt als Verlauf stehen,
 ein beiseitegelegter ohne Überschneidung ebenso. Die Garmin-Bedingung ist dabei
 zwingend und nicht bloß vorsichtig: Was in Garmin liegt, wird ausschließlich über
-`GarminWorkoutLink` wieder entfernt, und der stirbt mit dem Plan. Deshalb läuft
+`GarminWorkoutLink` wieder aus dem Kalender entfernt, und der stirbt mit dem
+Plan; der dauerhafte Pool-Slot bleibt bestehen. Deshalb läuft
 dasselbe Aufräumen an **zwei** Stellen — beim Import und am Ende jedes
 Garmin-Laufs, wo `raeume_ersetzte_auf()` die Einheiten gerade aus dem fremden
 Kalender genommen hat und die Bedingung damit erfüllt ist.
@@ -640,9 +641,19 @@ Connect-API kennt **keinen Fern-Löschbefehl für bereits auf eine Fenix
 synchronisierte Workouts**. Vor dem ersten Poolbetrieb müssen alte verwaiste
 Tri-Coach-Workouts deshalb einmalig manuell auf der Uhr entfernt werden. Garmin
 nennt für die meisten Geräte höchstens 25 benutzerdefinierte Workouts inklusive
-vorinstallierter; fünfzehn Pool-Slots lassen bewusst Reserve. Ob die Fenix 8
-Updates derselben ID lokal sicher ersetzt, wird am echten Gerät mit stabilem
-und wechselndem Namen sowie einem Sportartwechsel geprüft.
+vorinstallierter; fünfzehn Pool-Slots lassen bewusst Reserve. **An der Fenix 8
+bestätigt:** Wird eine bestehende Workout-ID in Connect umbenannt und inhaltlich
+geändert, synchronisiert die Uhr den neuen Inhalt in den vorhandenen lokalen
+Eintrag. Dessen Name unter „Trainings“ bleibt zwar alt, der Kalender zeigt am
+Termin aber den aktuellen Namen und startet den aktualisierten Inhalt. Das ist
+für Tri-Coach die maßgebliche Ansicht; künstlich stabile Slotnamen sind deshalb
+nicht nötig. **Davon getrennt bleibt der Sportartwechsel ungeprüft:** Der
+generische `PUT` sendet zwar das vollständige neue `sportType`, aber weder
+Garmins Oberfläche noch die Bibliothek belegen, dass etwa
+`strength_training` zu `swimming` werden darf. Dafür liegt
+`scripts/garmin_workout_typwechsel.py` im Abbild; `--aus-datenbank` verwendet
+das verschlüsselt gespeicherte Token, legt genau eine temporäre Vorlage an,
+liest den Typ vor und nach dem Wechsel zurück und löscht sie im `finally`.
 
 **Die Übertragung ist ein Job, der Kalender nicht.** Ein Block kostet zwei
 Anfragen je Einheit und läuft deshalb durch denselben Runner und dasselbe
@@ -650,7 +661,10 @@ globale Schloss wie ein Abgleich — Garmins Grenze unterscheidet nicht, ob
 gelesen oder geschrieben wird. Einzelne Aufrufe (Monat laden, ein Workout
 löschen, eine Einheit nachschieben) gehen dagegen über `garmin/verbindung.py`
 direkt im Anfrage-Thread: Für eine einzelne Anfrage einen Fortschrittsbalken
-zu bauen wäre Umstand ohne Nutzen. Beide Wege behandeln die Anfragesperre
+zu bauen wäre Umstand ohne Nutzen. Die Einzelübertragung nimmt dabei dasselbe
+globale Schloss nicht blockierend; läuft schon ein Garmin-Vorgang, antwortet
+sie mit 409, statt parallel denselben Pool-Slot zu belegen. Beide Wege behandeln
+die Anfragesperre
 gleich, und beide fangen sie **auch in ihrer Form aus der Bibliothek** ab
 (`GarminConnectTooManyRequestsError`) — sonst liefe die Übertragung stur weiter
 und triebe eine Stunde Sperre auf zwei Tage. Ein Fehlschlag bei *einer* Einheit
@@ -760,16 +774,17 @@ nicht durchkommt, macht ihn `failed` statt „done" (`Aufraeumbilanz`).
 
 **Ein gelöschter Plan nimmt seine Einheiten mit** (`plans._nimm_aus_garmin`).
 Die Reihenfolge ist die ganze Pointe: In Garmin fasst diese App nur an, was in
-`GarminWorkoutLink` steht, und der stirbt mit der Planeinheit. Wer den Plan
-zuerst löschte — so war es —, ließ seine Einheiten für immer im fremden
+`GarminWorkoutLink` steht, und der stirbt mit der Planeinheit; der Pool-Slot
+bleibt für spätere Pläne bestehen. Wer den Plan zuerst löschte — so war es —,
+ließ seine Einheiten für immer im fremden
 Kalender stehen, und dort galt dann eine Vorgabe weiter, die es in der App gar
 nicht mehr gibt. Deshalb läuft das Entfernen **vor** dem Löschen, und zwar im
 Anfrage-Thread statt als Job: Es sind zwei Anfragen je Einheit und höchstens
 eine Handvoll (Vergangenes hat der letzte Abgleich schon geräumt), und ein
 Löschen, das erst später wirkt, wäre schwerer zu verstehen als eines, das ein
 paar Sekunden dauert. **Scheitert der Zugang, wird nicht gelöscht:** Ein Plan
-ist schnell noch einmal gelöscht, eine Karteileiche in einem fremden Konto nie
-mehr — der Nutzer bekommt den Grund und darf mit `garmin_uebergehen` darauf
+ist schnell noch einmal gelöscht, ein verwaister Termin im fremden Kalender
+nie mehr — der Nutzer bekommt den Grund und darf mit `garmin_uebergehen` darauf
 bestehen. Ohne verbundenes Konto und ohne Zuordnungen bleibt alles wie zuvor:
 kein Aufbau, keine Anfrage.
 

@@ -597,7 +597,10 @@ def loesche_kalendereintrag(
     db: DbSession,
     workout_id: str | None = Query(
         None,
-        description="Vorlage, die zusätzlich aus der Bibliothek gelöscht werden soll.",
+        description=(
+            "Fremde Vorlage, die zusätzlich aus der Bibliothek gelöscht werden "
+            "soll. Tri-Coach-Poolvorlagen bleiben immer erhalten."
+        ),
     ),
 ) -> None:
     """Nimmt ein Workout aus dem Kalender — auf Wunsch samt Vorlage.
