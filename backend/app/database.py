@@ -69,6 +69,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
     },
+    # Umbenennung von `recovery_time_h`: Garmin liefert Minuten, der alte Name
+    # behauptete Stunden. Die Werte zieht `_uebertrage_spalten()` herüber.
+    "wellness_days": {
+        "recovery_time_min": "INTEGER",
+    },
     # Bis wann Daten geholt wurden. Ohne den Wert holt der erste Abgleich nach
     # dem Update einmal das volle Jahr — richtig so: Was vorher gedeckt war,
     # weiß die bestehende Datenbank nicht.
@@ -113,7 +118,19 @@ _ENTFALLENE_SPALTEN: dict[str, tuple[str, ...]] = {
         "morning_hrv",
         "conditions",
     ),
+    # Der alte Name behauptete Stunden, gespeichert waren Garmins Minuten.
+    # Inhalt geht über `_UMZUZIEHENDE_SPALTEN` nach `recovery_time_min`.
+    "wellness_days": ("recovery_time_h",),
 }
+
+# Umbenennungen: (Tabelle, alt, neu). SQLite kann `ALTER TABLE ... RENAME
+# COLUMN`, aber das liefe nur einmal und wäre bei einer frisch angelegten
+# Datenbank ein Fehler. Kopieren, was noch leer ist, und die alte Spalte
+# anschließend über `_ENTFALLENE_SPALTEN` löschen lassen, ist idempotent: Nach
+# dem ersten Start gibt es die Quellspalte nicht mehr und der Schritt entfällt.
+_UMZUZIEHENDE_SPALTEN: tuple[tuple[str, str, str], ...] = (
+    ("wellness_days", "recovery_time_h", "recovery_time_min"),
+)
 
 _KANN_SPALTEN_LOESCHEN = sqlite3.sqlite_version_info >= (3, 35)
 
@@ -175,6 +192,33 @@ def _ergaenze_spalten(connection: Connection) -> list[str]:
     return ergaenzt
 
 
+def _uebertrage_spalten(connection: Connection) -> list[str]:
+    """Zieht Werte einer umbenannten Spalte in ihre Nachfolgerin.
+
+    Läuft zwischen Ergänzen und Löschen und nur, solange beide Spalten
+    nebeneinander stehen — danach ist die Quelle weg und der Schritt tut
+    nichts mehr. Überschrieben wird nichts: Nur Zeilen, in denen die neue
+    Spalte leer ist, bekommen den alten Wert.
+    """
+    umgezogen: list[str] = []
+    for tabelle, alt, neu in _UMZUZIEHENDE_SPALTEN:
+        vorhanden = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                f"PRAGMA table_info({tabelle})"
+            ).fetchall()
+        }
+        if alt not in vorhanden or neu not in vorhanden:
+            continue
+        ergebnis = connection.exec_driver_sql(
+            f"UPDATE {tabelle} SET {neu} = {alt} "
+            f"WHERE {neu} IS NULL AND {alt} IS NOT NULL"
+        )
+        if ergebnis.rowcount:
+            umgezogen.append(f"{tabelle}.{alt} -> {neu} ({ergebnis.rowcount})")
+    return umgezogen
+
+
 def _entferne_spalten(connection: Connection) -> list[str]:
     """Löscht entfallene Spalten. Idempotent — läuft bei jedem Start mit.
 
@@ -221,6 +265,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
         _ergaenze_spalten(connection)
+        _uebertrage_spalten(connection)
         _entferne_spalten(connection)
         for ddl in _NACHGEREICHTE_INDIZES:
             connection.exec_driver_sql(ddl)

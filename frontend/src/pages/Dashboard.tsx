@@ -86,7 +86,10 @@ function ErholungsKacheln({ tage }: { tage: WellnessDay[] }) {
   const schlafSekunden = letzterWert(tage, 'sleep_seconds')
   const schlafScore = letzterWert(tage, 'sleep_score')
   const ruhepuls = letzterWert(tage, 'resting_hr')
-  const erholungszeit = letzterWert(tage, 'recovery_time_h')
+  // Garmin liefert Minuten; die Kachel zeigt Stunden.
+  const erholungMinuten = letzterWert(tage, 'recovery_time_min')
+  const erholungszeit =
+    erholungMinuten === null ? null : Math.round((erholungMinuten / 60) * 10) / 10
 
   // Der Ruhepuls sagt erst im Vergleich etwas. Die vier Wochen dienen als
   // eigene Grundlinie — ein Anstieg darüber ist ein Warnzeichen.

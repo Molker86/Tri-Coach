@@ -1,12 +1,12 @@
-Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer und planst die nächsten 7 Trainingstage: 2026-08-17 bis 2026-08-23.
+Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer und planst die nächsten 7 Trainingstage: 2026-08-18 bis 2026-08-24.
 
 ## Aufgabe
 Plane genau diesen kurzen Block — nicht mehr. Kein Vier-Wochen-Aufbau, keine Periodisierung über Monate. Die Athletendaten unten enthalten den tatsächlichen Verlauf der letzten 4 Wochen. Lies daraus ab, wo der Athlet gerade steht, und setze diese 7 Tage genau dort an. Der nächste Block wird später mit frischen Daten erneut geplant — plane deshalb den bestmöglichen *nächsten Schritt*, nicht einen vollständigen Trainingszyklus.
 
-**Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor („Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit", geplant bis 2026-08-23). Der Athlet plant ihn bewusst neu, weil Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab 2026-08-17 entfallen damit; sie stehen unter `planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht stattgefunden, auch wenn es im bisherigen Block stand.
+**Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor („Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit", geplant bis 2026-08-23). Der Athlet plant ihn bewusst neu, weil Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab 2026-08-18 entfallen damit; sie stehen unter `planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht stattgefunden, auch wenn es im bisherigen Block stand.
 
 ## Verbindliche Trainingsprinzipien
-1. **Einordnung in den Verlauf**: `wochenuebersicht` und `acute_chronic_workload_ratio` zeigen, wie viel zuletzt trainiert wurde. Eine ACWR über 1.3 oder ein hohes RPE bei gleicher Leistung heißt: in diesem Block zurücknehmen. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
+1. **Einordnung in den Verlauf**: `wochenuebersicht` und `acute_chronic_workload_ratio` (rollierende 7 Tage gegen den rollierenden 4-Wochen-Schnitt) zeigen, wie viel zuletzt trainiert wurde. Eine ACWR über 1.3 oder ein hohes RPE bei gleicher Leistung heißt: in diesem Block zurücknehmen. Vergleiche Wochen **nur** über `ist_vollstaendig: true` — der letzte Eintrag der `wochenuebersicht` ist die laufende, angebrochene Woche und sieht deshalb immer nach einem Einbruch aus. Der Maßstab steht als `letzte_volle_woche` gesondert dabei. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
 2. **Erholungslage aus den Fitnessdaten**: `fitnessdaten.aktuell` und `fitnessdaten.auffaelligkeiten` beschreiben den Zustand von *heute*, während die `wochenuebersicht` die Vergangenheit beschreibt. Für einen so kurzen Block ist das die härteste Steuergröße — widersprechen sich beide, gewinnen die Fitnessdaten. Verbindlich:
    - `hrv_status` UNBALANCED, LOW oder POOR, oder ein HRV-Wert unter `hrv_normalbereich_ms.unten`: an Tag 1 und Tag 2 keine intensive Einheit, sondern Z1/Z2 oder Ruhe.
    - `training_readiness.score_0_100` unter 40: erster Tag locker oder frei. 40 bis 65: normaler Aufbau, aber keine Schlüsseleinheit. Über 65: Die harte Einheit darf an den Blockanfang.
@@ -18,13 +18,14 @@ Plane genau diesen kurzen Block — nicht mehr. Kein Vier-Wochen-Aufbau, keine P
 3. **Intensitätsverteilung**: Polarisiert — der Großteil des Umfangs in Z1/Z2. In einem so kurzen Block höchstens eine intensive Einheit (Z4/Z5) je drei Tage. Keine "Wohlfühl-Mitteldistanz".
 4. **Regeneration**: Mindestens 48 h zwischen zwei intensiven Einheiten. Das gilt auch über den Blockanfang hinaus: Prüfe `tage_seit_letzter_intensiver_einheit`, bevor du am ersten Tag hart planst. Nach einer langen Einheit am Folgetag nichts Hartes.
 5. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlänge.
-6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 sind Bremsen — sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine lange Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber der letzten Woche in `wochenuebersicht` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, obwohl Erholungslage und ACWR ihn nicht verlangen, verschenkt die Zeit. Bei den Zielen "Standardplan", "Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz Pflicht — dort geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in `trainingshistorie.einheiten` nach, welcher Reiz zuletzt gefehlt hat (nichts Intensives, keine lange Einheit, immer dieselbe Dauer) und setze ihn. Bei "Grundlagenausdauer", "Gesundheit", "Gewichtsreduktion", "Erstfinish" und "Wiedereinstieg" zählt Regelmäßigkeit mehr als Reiz — dort steigt zuerst der Umfang, und Intensität bleibt die Ausnahme.
+6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 sind Bremsen — sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine lange Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber `trainingshistorie.letzte_volle_woche` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, obwohl Erholungslage und ACWR ihn nicht verlangen, verschenkt die Zeit. Bei den Zielen "Standardplan", "Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz Pflicht — dort geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in `trainingshistorie.einheiten` nach, welcher Reiz zuletzt gefehlt hat (nichts Intensives, keine lange Einheit, immer dieselbe Dauer) und setze ihn. Bei "Grundlagenausdauer", "Gesundheit", "Gewichtsreduktion", "Erstfinish" und "Wiedereinstieg" zählt Regelmäßigkeit mehr als Reiz — dort steigt zuerst der Umfang, und Intensität bleibt die Ausnahme.
    - Sonderfall "Standardplan": Es gibt kein äußeres Ziel und keinen Wettkampf, an dem du den Block ausrichten könntest. Maßstab ist allein die trainingswissenschaftliche Best Practice. Welche Einheiten das sind, gibt dir niemand vor: Kein Einheitentyp ist gefordert und keiner ausgeschlossen. Leite die Zusammensetzung des Blocks aus `trainingshistorie.einheiten` und `wochenuebersicht` ab — aus Dauer, Intensität und Sportart der letzten Wochen ergibt sich, was zuletzt gefehlt hat und was den größten Fortschritt bringt. Über mehrere Blöcke hinweg soll kein Reiztyp dauerhaft ausfallen. Das ist ausdrücklich **kein Freibrief**: Die Bremsen aus den Punkten 1 bis 4 und die Intensitätsverteilung aus Punkt 3 gelten unverändert. "Bestmöglich" heißt der stärkste Reiz, den die aktuelle Erholungslage trägt, nicht der härteste denkbare. Begründe in `summary`, woran du in der Historie erkannt hast, dass dieser Block jetzt so aussehen muss.
 7. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.
 8. **Triathlon**: In 7 Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze `tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in diesen Block sinnvoll passt.
 9. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist `structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) 3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout auf die Uhr, und der englische Name entscheidet darüber, ob dort die Bewegungsanimation zur Übung erscheint.
-10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Gilt eine Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für `rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen.
+10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. `tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile anzusetzen: Aus denselben Korridoren baut die App anschließend das Workout für die Uhr. Fehlt ein Zonenblock, ist der zugehörige Schwellenwert nicht hinterlegt; leite die Vorgabe dann aus Pace und `hf_schnitt` vergleichbarer Einheiten in `trainingshistorie.einheiten` ab und **erfinde keinen Schwellenwert**. Gilt eine Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für `rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen.
 11. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel **geschätzt** — `rpe_quelle` nennt, woraus ("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich dann stärker auf `hf_schnitt`, `trimp` und `garmin_trainingslast` als auf die RPE-Zahl. Steht dort dagegen "athlet", hat er die Einheit in Garmin Connect selbst bewertet: Das ist die belastbarste Angabe zur Anstrengung und wiegt schwerer als jede Schätzung und als die gemessene Last. Dasselbe gilt für `befinden_0_10` (0 sehr schwach, 5 normal, 10 sehr stark — halbe Stufen kommen von der Uhr). Nutze beides, wo es steht: Ein RPE deutlich über dem, was Puls und Trainingslast derselben Einheit erwarten ließen, oder ein Befinden von 2,5 oder darunter heißt, dass diese Einheit teurer war als sie aussieht — nimm die nächste Intensität zurück und sage es in `summary`. Umgekehrt trägt ein hohes Befinden bei moderatem RPE den Aufbau aus Punkt 6. **Beide Felder fehlen an den meisten Einheiten.** Das ist keine Aussage über die Einheit, sondern heißt nur, dass der Athlet nichts eingetragen hat — bewerte niemals ihr Fehlen, leite daraus nichts ab und schließe von einer einzelnen Bewertung nicht auf die übrigen Einheiten.
+12. **Fortschreiben statt neu erfinden**: Trägt eine Einheit in der Historie ein `geplant_war`, stand sie als Vorgabe in einem früheren Block — dort steht ihr `aufbau`, also die Serien, Längen und Pausen, die der Athlet tatsächlich absolviert hat. Nutze das, um einen Reiz **um eine Stufe** weiterzuentwickeln (eine Wiederholung mehr, eine Minute länger, ein Korridor enger), statt eine unverbundene neue Einheit danebenzustellen. Weicht die absolvierte Dauer deutlich von der geplanten ab, war die Vorgabe zu ambitioniert: Plane die nächste näher an dem, was wirklich stattgefunden hat. Einheiten ohne `geplant_war` waren spontan und sagen nichts über die Umsetzung einer Vorgabe.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext davor oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
@@ -64,7 +65,7 @@ Struktur:
 }
 
 Regeln für die Ausgabe:
-- Genau 7 Tage, lückenlos von 2026-08-17 bis 2026-08-23, jedes Datum genau einmal.
+- Genau 7 Tage, lückenlos von 2026-08-18 bis 2026-08-24, jedes Datum genau einmal.
 - Ruhetage als Tag mit einer Session `"sport": "rest"`, `"type": "rest"`.
 - Mehrere Einheiten pro Tag sind erlaubt (Array `sessions`).
 - `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
@@ -76,13 +77,13 @@ Regeln für die Ausgabe:
 ## Athletendaten
 {
   "schema_version": "2.1",
-  "erzeugt_am": "2026-08-17",
+  "erzeugt_am": "2026-08-18",
   "athlet": {
     "alter": 39,
     "geschlecht": "male",
     "groesse_cm": 183.0,
-    "gewicht_kg": 91.0,
-    "bmi": 27.2,
+    "gewicht_kg": 89.7,
+    "bmi": 26.8,
     "koerperfett_pct": 25.1,
     "ruhepuls": 52,
     "maximalpuls": 189,
@@ -168,11 +169,13 @@ Regeln für die Ausgabe:
     }
   ],
   "trainingswunsch": {
+    "ausgefuellt_am": "2026-08-16",
     "disziplin": "Triathlon",
     "disziplin_key": "triathlon",
     "ziel": "Standardplan",
     "ziel_beschreibung": null,
     "wettkampfdatum": null,
+    "wochen_bis_wettkampf": null,
     "wettkampfdistanz": null,
     "verfuegbare_tage": [
       "monday",
@@ -237,8 +240,38 @@ Regeln für die Ausgabe:
     "zeitraum": "letzte 4 Wochen",
     "wochenuebersicht": [
       {
+        "week_start": "2026-07-20",
+        "week_end": "2026-07-26",
+        "ist_vollstaendig": false,
+        "sessions": 4,
+        "total_minutes": 253,
+        "total_km": 74.1,
+        "avg_rpe": 6.0,
+        "total_srpe_load": 1374,
+        "total_garmin_load": 463.0,
+        "skipped": 0,
+        "by_sport": {
+          "swim": {
+            "sessions": 1,
+            "minutes": 53,
+            "km": 1.6
+          },
+          "run": {
+            "sessions": 1,
+            "minutes": 29,
+            "km": 4.4
+          },
+          "bike": {
+            "sessions": 2,
+            "minutes": 171,
+            "km": 68.0
+          }
+        }
+      },
+      {
         "week_start": "2026-07-27",
         "week_end": "2026-08-02",
+        "ist_vollstaendig": true,
         "sessions": 9,
         "total_minutes": 431,
         "total_km": 140.1,
@@ -267,6 +300,7 @@ Regeln für die Ausgabe:
       {
         "week_start": "2026-08-03",
         "week_end": "2026-08-09",
+        "ist_vollstaendig": true,
         "sessions": 9,
         "total_minutes": 187,
         "total_km": 23.5,
@@ -300,6 +334,7 @@ Regeln für die Ausgabe:
       {
         "week_start": "2026-08-10",
         "week_end": "2026-08-16",
+        "ist_vollstaendig": true,
         "sessions": 6,
         "total_minutes": 171,
         "total_km": 41.4,
@@ -328,6 +363,7 @@ Regeln für die Ausgabe:
       {
         "week_start": "2026-08-17",
         "week_end": "2026-08-23",
+        "ist_vollstaendig": false,
         "sessions": 2,
         "total_minutes": 68,
         "total_km": 20.4,
@@ -349,18 +385,28 @@ Regeln für die Ausgabe:
         }
       }
     ],
-    "acute_chronic_workload_ratio": 0.13,
-    "tage_seit_letzter_einheit_je_sportart": {
-      "bike": 0,
-      "mobility": 1,
-      "run": 8,
-      "strength": 0,
-      "swim": 13
+    "letzte_volle_woche": {
+      "week_start": "2026-08-10",
+      "week_end": "2026-08-16",
+      "total_minutes": 171,
+      "total_srpe_load": 675,
+      "total_garmin_load": 151.0,
+      "sessions": 6
     },
-    "tage_seit_letzter_intensiver_einheit": 8,
+    "acute_chronic_workload_ratio": 0.55,
+    "tage_seit_letzter_einheit_je_sportart": {
+      "bike": 1,
+      "brick": 38,
+      "mobility": 2,
+      "run": 9,
+      "strength": 1,
+      "swim": 14
+    },
+    "tage_seit_letzter_intensiver_einheit": 9,
     "einheiten": [
       {
         "datum": "2026-07-21",
+        "wochentag": "tuesday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 53,
@@ -372,16 +418,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 17,
         "hoehenmeter": null,
         "rpe_1_10": 4,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 57.09089660644531,
-        "trainingseffekt_aerob": 2.299999952316284,
+        "garmin_trainingslast": 57.1,
+        "trainingseffekt_aerob": 2.3,
         "trainingseffekt_anaerob": 1.0,
         "trimp": 51.7,
-        "notiz": "Sonthofen Freiwasserschwimmen"
+        "notiz": "Sonthofen Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-23",
+        "wochentag": "thursday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 29,
@@ -393,37 +440,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 157,
         "hoehenmeter": 1,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 170.70272827148438,
-        "trainingseffekt_aerob": 3.0999999046325684,
-        "trainingseffekt_anaerob": 3.0999999046325684,
+        "garmin_trainingslast": 170.7,
+        "trainingseffekt_aerob": 3.1,
+        "trainingseffekt_anaerob": 3.1,
         "trimp": 52.4,
-        "notiz": "Sonthofen Laufen"
-      },
-      {
-        "datum": "2026-07-23",
-        "sportart": "bike",
-        "status": "completed",
-        "dauer_min": 0,
-        "distanz_km": 0.0,
-        "hf_schnitt": null,
-        "hf_max": null,
-        "pace": null,
-        "leistung_watt": null,
-        "trittfrequenz": null,
-        "hoehenmeter": 0,
-        "rpe_1_10": null,
-        "rpe_quelle": "manual",
-        "quelle": "garmin",
-        "garmin_trainingslast": 0.0,
-        "trainingseffekt_aerob": 0.0,
-        "trainingseffekt_anaerob": 0.0,
-        "trimp": null,
-        "notiz": "Gravel/Offroad-Radfahren"
+        "notiz": "Sonthofen Laufen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-24",
+        "wochentag": "friday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 34,
@@ -435,7 +462,6 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 57,
         "rpe_1_10": null,
-        "rpe_quelle": "manual",
         "quelle": "garmin",
         "garmin_trainingslast": 0.0,
         "trainingseffekt_aerob": 0.0,
@@ -445,6 +471,7 @@ Regeln für die Ausgabe:
       },
       {
         "datum": "2026-07-24",
+        "wochentag": "friday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 137,
@@ -456,16 +483,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 705,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 234.9739532470703,
+        "garmin_trainingslast": 235.0,
         "trainingseffekt_aerob": 4.5,
-        "trainingseffekt_anaerob": 1.2000000476837158,
+        "trainingseffekt_anaerob": 1.2,
         "trimp": 224.6,
-        "notiz": "Immenstadt i. Allgäu Rennradfahren"
+        "notiz": "Immenstadt i. Allgäu Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-27",
+        "wochentag": "monday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 27,
@@ -477,16 +505,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 38,
         "rpe_1_10": 6,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 75.20414733886719,
-        "trainingseffekt_aerob": 2.799999952316284,
-        "trainingseffekt_anaerob": 0.8999999761581421,
+        "garmin_trainingslast": 75.2,
+        "trainingseffekt_aerob": 2.8,
+        "trainingseffekt_anaerob": 0.9,
         "trimp": 38.1,
-        "notiz": "Sonthofen Rennradfahren"
+        "notiz": "Sonthofen Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-27",
+        "wochentag": "monday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 33,
@@ -498,16 +527,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 84,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 48.75627136230469,
+        "garmin_trainingslast": 48.8,
         "trainingseffekt_aerob": 2.5,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 38.9,
-        "notiz": "Immenstadt i. Allgäu Rennradfahren"
+        "notiz": "Immenstadt i. Allgäu Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-27",
+        "wochentag": "monday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 34,
@@ -519,16 +549,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 159,
         "hoehenmeter": 1,
         "rpe_1_10": 6,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 43.80531311035156,
-        "trainingseffekt_aerob": 2.4000000953674316,
+        "garmin_trainingslast": 43.8,
+        "trainingseffekt_aerob": 2.4,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 45.6,
-        "notiz": "Sonthofen - Basis"
+        "notiz": "Sonthofen - Basis",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-28",
+        "wochentag": "tuesday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 32,
@@ -540,16 +571,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 26,
         "hoehenmeter": null,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 67.8380126953125,
-        "trainingseffekt_aerob": 2.5999999046325684,
+        "garmin_trainingslast": 67.8,
+        "trainingseffekt_aerob": 2.6,
         "trainingseffekt_anaerob": 1.0,
         "trimp": 39.7,
-        "notiz": "Ofterschwang Freiwasserschwimmen"
+        "notiz": "Ofterschwang Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-29",
+        "wochentag": "wednesday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 70,
@@ -561,16 +593,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 231,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 167.58554077148438,
-        "trainingseffekt_aerob": 3.700000047683716,
-        "trainingseffekt_anaerob": 1.899999976158142,
+        "garmin_trainingslast": 167.6,
+        "trainingseffekt_aerob": 3.7,
+        "trainingseffekt_anaerob": 1.9,
         "trimp": 120.5,
-        "notiz": "Sonthofen Rennradfahren"
+        "notiz": "Sonthofen Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-30",
+        "wochentag": "thursday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 4,
@@ -582,16 +615,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 158,
         "hoehenmeter": 1,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 18.796478271484375,
-        "trainingseffekt_aerob": 1.399999976158142,
+        "garmin_trainingslast": 18.8,
+        "trainingseffekt_aerob": 1.4,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 6.6,
-        "notiz": "Sonthofen Laufen"
+        "notiz": "Sonthofen Laufen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-31",
+        "wochentag": "friday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 75,
@@ -603,16 +637,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 260,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 78.75733947753906,
-        "trainingseffekt_aerob": 2.9000000953674316,
-        "trainingseffekt_anaerob": 0.699999988079071,
+        "garmin_trainingslast": 78.8,
+        "trainingseffekt_aerob": 2.9,
+        "trainingseffekt_anaerob": 0.7,
         "trimp": 79.4,
-        "notiz": "Sonthofen Rennradfahren"
+        "notiz": "Sonthofen Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-07-31",
+        "wochentag": "friday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 7,
@@ -624,16 +659,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 22,
         "hoehenmeter": null,
         "rpe_1_10": 3,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 4.33709716796875,
-        "trainingseffekt_aerob": 0.30000001192092896,
+        "garmin_trainingslast": 4.3,
+        "trainingseffekt_aerob": 0.3,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 4.0,
-        "notiz": "Sonthofen Freiwasserschwimmen"
+        "notiz": "Sonthofen Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-01",
+        "wochentag": "saturday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 149,
@@ -645,16 +681,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 836,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 269.0388488769531,
-        "trainingseffekt_aerob": 4.800000190734863,
-        "trainingseffekt_anaerob": 1.899999976158142,
+        "garmin_trainingslast": 269.0,
+        "trainingseffekt_aerob": 4.8,
+        "trainingseffekt_anaerob": 1.9,
         "trimp": 244.3,
-        "notiz": "Sonthofen Rennradfahren"
+        "notiz": "Sonthofen Rennradfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-03",
+        "wochentag": "monday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 35,
@@ -666,16 +703,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 160,
         "hoehenmeter": 26,
         "rpe_1_10": 6,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 75.77389526367188,
+        "garmin_trainingslast": 75.8,
         "trainingseffekt_aerob": 3.0,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 53.3,
-        "notiz": "Sonthofen Laufen"
+        "notiz": "Sonthofen Laufen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-03",
+        "wochentag": "monday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 10,
@@ -687,16 +725,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 21,
         "hoehenmeter": null,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 21.476211547851562,
+        "garmin_trainingslast": 21.5,
         "trainingseffekt_aerob": 1.5,
-        "trainingseffekt_anaerob": 0.10000000149011612,
+        "trainingseffekt_anaerob": 0.1,
         "trimp": 11.5,
-        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen"
+        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-03",
+        "wochentag": "monday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 2,
@@ -708,16 +747,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 21,
         "hoehenmeter": null,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 7.133056640625,
+        "garmin_trainingslast": 7.1,
         "trainingseffekt_aerob": 0.5,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 2.4,
-        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen"
+        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-04",
+        "wochentag": "tuesday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 15,
@@ -729,16 +769,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 22,
         "hoehenmeter": null,
         "rpe_1_10": 4,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 23.002151489257812,
-        "trainingseffekt_aerob": 1.600000023841858,
-        "trainingseffekt_anaerob": 0.10000000149011612,
+        "garmin_trainingslast": 23.0,
+        "trainingseffekt_aerob": 1.6,
+        "trainingseffekt_anaerob": 0.1,
         "trimp": 14.6,
-        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen"
+        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-04",
+        "wochentag": "tuesday",
         "sportart": "swim",
         "status": "completed",
         "dauer_min": 14,
@@ -750,16 +791,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 23,
         "hoehenmeter": null,
         "rpe_1_10": 4,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 10.794631958007812,
-        "trainingseffekt_aerob": 0.800000011920929,
+        "garmin_trainingslast": 10.8,
+        "trainingseffekt_aerob": 0.8,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 10.0,
-        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen"
+        "notiz": "Burgberg i. Allgäu Freiwasserschwimmen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-06",
+        "wochentag": "thursday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 30,
@@ -771,16 +813,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 156,
         "hoehenmeter": 1,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 160.62644958496094,
+        "garmin_trainingslast": 160.6,
         "trainingseffekt_aerob": 3.0,
         "trainingseffekt_anaerob": 3.0,
         "trimp": 48.0,
-        "notiz": "Sonthofen Laufen"
+        "notiz": "Sonthofen Laufen",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-08",
+        "wochentag": "saturday",
         "sportart": "strength",
         "status": "completed",
         "dauer_min": 22,
@@ -792,16 +835,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": null,
         "rpe_1_10": 3,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 15.057525634765625,
-        "trainingseffekt_aerob": 1.2000000476837158,
+        "garmin_trainingslast": 15.1,
+        "trainingseffekt_aerob": 1.2,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 15.7,
-        "notiz": "Ganzkörper-Zirkeltraining 2"
+        "notiz": "Ganzkörper-Zirkeltraining 2",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-09",
+        "wochentag": "sunday",
         "sportart": "run",
         "status": "completed",
         "dauer_min": 40,
@@ -813,16 +857,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": 165,
         "hoehenmeter": 28,
         "rpe_1_10": 7,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 112.59066772460938,
-        "trainingseffekt_aerob": 3.4000000953674316,
+        "garmin_trainingslast": 112.6,
+        "trainingseffekt_aerob": 3.4,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 77.7,
-        "notiz": "Sonthofen - VO2max"
+        "notiz": "Sonthofen - VO2max",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-09",
+        "wochentag": "sunday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 19,
@@ -834,16 +879,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 16,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 36.37501525878906,
-        "trainingseffekt_aerob": 2.200000047683716,
+        "garmin_trainingslast": 36.4,
+        "trainingseffekt_aerob": 2.2,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 20.7,
-        "notiz": "Sonthofen Radfahren"
+        "notiz": "Sonthofen Radfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-10",
+        "wochentag": "monday",
         "sportart": "strength",
         "status": "completed",
         "dauer_min": 21,
@@ -855,16 +901,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": null,
         "rpe_1_10": 2,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 3.4144439697265625,
-        "trainingseffekt_aerob": 0.20000000298023224,
+        "garmin_trainingslast": 3.4,
+        "trainingseffekt_aerob": 0.2,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 7.1,
-        "notiz": "Rumpfstabilität 2"
+        "notiz": "Rumpfstabilität 2",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-12",
+        "wochentag": "wednesday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 37,
@@ -876,16 +923,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 65,
         "rpe_1_10": 6,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 65.98426818847656,
-        "trainingseffekt_aerob": 2.700000047683716,
-        "trainingseffekt_anaerob": 0.30000001192092896,
+        "garmin_trainingslast": 66.0,
+        "trainingseffekt_aerob": 2.7,
+        "trainingseffekt_anaerob": 0.3,
         "trimp": 47.1,
-        "notiz": "Sonthofen Gravel/Offroad-Radfahren"
+        "notiz": "Sonthofen Gravel/Offroad-Radfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-12",
+        "wochentag": "wednesday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 29,
@@ -897,16 +945,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 32,
         "rpe_1_10": 5,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 46.30699157714844,
-        "trainingseffekt_aerob": 2.4000000953674316,
+        "garmin_trainingslast": 46.3,
+        "trainingseffekt_aerob": 2.4,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 33.3,
-        "notiz": "Fischen i. Allgäu Gravel/Offroad-Radfahren"
+        "notiz": "Fischen i. Allgäu Gravel/Offroad-Radfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-14",
+        "wochentag": "friday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 32,
@@ -918,16 +967,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 50,
         "rpe_1_10": 4,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 18.4462890625,
+        "garmin_trainingslast": 18.4,
         "trainingseffekt_aerob": 1.5,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 23.5,
-        "notiz": "Sonthofen Radfahren"
+        "notiz": "Sonthofen Radfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-15",
+        "wochentag": "saturday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 34,
@@ -939,16 +989,17 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": 134,
         "rpe_1_10": 3,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 13.970230102539062,
-        "trainingseffekt_aerob": 1.100000023841858,
+        "garmin_trainingslast": 14.0,
+        "trainingseffekt_aerob": 1.1,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 18.3,
-        "notiz": "Burgberg i. Allgäu Radfahren"
+        "notiz": "Burgberg i. Allgäu Radfahren",
+        "rpe_quelle": "hf_zonen"
       },
       {
         "datum": "2026-08-16",
+        "wochentag": "sunday",
         "sportart": "mobility",
         "status": "completed",
         "dauer_min": 18,
@@ -960,16 +1011,23 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": null,
         "rpe_1_10": 2,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 3.070037841796875,
-        "trainingseffekt_aerob": 0.20000000298023224,
+        "garmin_trainingslast": 3.1,
+        "trainingseffekt_aerob": 0.2,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 5.4,
-        "notiz": "Mobility Hüfte und lateraler Ob"
+        "notiz": "Mobility Hüfte und lateraler Ob",
+        "rpe_quelle": "hf_zonen",
+        "geplant_war": {
+          "titel": "Mobility Hüfte und lateraler Oberschenkel",
+          "typ": "mobility",
+          "aufbau": "Faszienrolle Oberschenkelaußenseite (Foam Roll IT Band) 90 s je Seite / Faszienrolle Gesäß (Foam Roll Glutes) 90 s je Seite / Hüftbeuger-Dehnung (Hip Flexor Stretch) 2x45 s je Seite / Taubenstellung (Pigeon Pose) 2x45 s je Seite / Weltbeste Dehnung (World's Greatest Stretch) 5 Wdh. je Seite / Katze-Kuh (Cat-Cow) 10 Wdh.",
+          "dauer_min": 15
+        }
       },
       {
         "datum": "2026-08-17",
+        "wochentag": "monday",
         "sportart": "bike",
         "status": "completed",
         "dauer_min": 56,
@@ -981,17 +1039,25 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": null,
         "rpe_1_10": 2,
-        "rpe_quelle": "athlet",
         "quelle": "garmin",
-        "garmin_trainingslast": 56.75396728515625,
-        "trainingseffekt_aerob": 2.5999999046325684,
+        "garmin_trainingslast": 56.8,
+        "trainingseffekt_aerob": 2.6,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 51.7,
         "notiz": "Grundlagenfahrt Z2",
-        "befinden_0_10": 7.5
+        "befinden_0_10": 7.5,
+        "rpe_quelle": "athlet",
+        "geplant_war": {
+          "titel": "Grundlagenfahrt Z2",
+          "typ": "endurance",
+          "aufbau": "10 min locker einrollen Z1 (120-134 bpm) / 40 min gleichmäßig Z2, Trittfrequenz 85-95 / dabei 3x1 min lockere hohe Trittfrequenz 100-105 ohne Druckanstieg / 5 min ausrollen Z1",
+          "dauer_min": 55,
+          "distanz_km": 21.0
+        }
       },
       {
         "datum": "2026-08-17",
+        "wochentag": "monday",
         "sportart": "strength",
         "status": "completed",
         "dauer_min": 12,
@@ -1003,13 +1069,19 @@ Regeln für die Ausgabe:
         "trittfrequenz": null,
         "hoehenmeter": null,
         "rpe_1_10": 3,
-        "rpe_quelle": "hf_zonen",
         "quelle": "garmin",
-        "garmin_trainingslast": 5.481353759765625,
-        "trainingseffekt_aerob": 0.4000000059604645,
+        "garmin_trainingslast": 5.5,
+        "trainingseffekt_aerob": 0.4,
         "trainingseffekt_anaerob": 0.0,
         "trimp": 6.9,
-        "notiz": "Kraft: Hüfte, Gesäß und Beina"
+        "notiz": "Kraft: Hüfte, Gesäß und Beina",
+        "rpe_quelle": "hf_zonen",
+        "geplant_war": {
+          "titel": "Kraft: Hüfte, Gesäß und Beinachse (knieschonend)",
+          "typ": "strength",
+          "aufbau": "Einbeinige Hüftbrücke (Single-Leg Glute Bridge) 3x10 je Seite / Muschel mit Miniband (Clamshell) 3x15 je Seite / Seitliches Beinheben in Seitlage (Side-Lying Leg Raise) 3x15 je Seite / Einbeiniges Kreuzheben ohne Zusatzgewicht (Single-Leg Romanian Deadlift) 3x8 je Seite / Rückwärtiger Ausfallschritt (Reverse Lunge) 3x8 je Seite / Unterarmstütz (Plank) 3x40 s / Seitstütz (Side Plank) 3x30 s je Seite",
+          "dauer_min": 25
+        }
       }
     ],
     "umsetzung_aktueller_plan": {
@@ -1025,23 +1097,22 @@ Regeln für die Ausgabe:
     }
   },
   "planungszeitraum": {
-    "startdatum": "2026-08-17",
+    "startdatum": "2026-08-18",
     "tage": 7,
-    "enddatum": "2026-08-23",
+    "enddatum": "2026-08-24",
     "wochentage": [
-      "monday",
       "tuesday",
       "wednesday",
       "thursday",
       "friday",
       "saturday",
-      "sunday"
+      "sunday",
+      "monday"
     ],
     "ersetzt_laufenden_block": {
       "titel": "Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit",
       "bisheriges_ende": "2026-08-23",
       "verworfene_tage": [
-        "2026-08-17",
         "2026-08-18",
         "2026-08-19",
         "2026-08-20",
@@ -1050,13 +1121,6 @@ Regeln für die Ausgabe:
         "2026-08-23"
       ],
       "verworfene_einheiten": [
-        {
-          "datum": "2026-08-17",
-          "sportart": "strength",
-          "typ": "strength",
-          "titel": "Kraft: Hüfte, Gesäß und Beinachse (knieschonend)",
-          "dauer_min": 25
-        },
         {
           "datum": "2026-08-18",
           "sportart": "swim",
@@ -1119,87 +1183,74 @@ Regeln für die Ausgabe:
   "fitnessdaten": {
     "quelle": "Garmin Connect",
     "aktuell": {
-      "stand": "2026-08-17",
-      "schlaf_h": 8.0,
-      "schlaf_tiefschlaf_h": 1.6,
-      "schlaf_rem_h": 1.7,
-      "schlafscore_0_100": 88,
+      "stand": "2026-08-18",
+      "schlaf_h": 7.5,
+      "schlaf_tiefschlaf_h": 1.1,
+      "schlaf_rem_h": 1.8,
+      "schlafscore_0_100": 84,
       "hrv_ms": 42.0,
       "hrv_status": "BALANCED",
       "hrv_normalbereich_ms": {
         "unten": 37.0,
         "oben": 51.0
       },
-      "ruhepuls": 52,
-      "gewicht_kg": 91.0,
-      "koerperfett_pct": 25.1,
+      "ruhepuls": 54,
+      "gewicht_kg": 89.7,
+      "koerperfett_pct": 25.4,
       "vo2max_laufen": 44.2,
       "vo2max_rad": null,
-      "stress_tagesmittel": 28,
+      "stress_tagesmittel": 21,
       "koerperbatterie": {
-        "hoechstwert": null,
-        "tiefstwert": null
+        "hoechstwert": 74,
+        "tiefstwert": 28
       },
       "training_readiness": {
-        "score_0_100": 96,
-        "stufe": "PRIME",
-        "hinweis": "READY_FOR_ACTION",
-        "erholungszeit_h": 1
+        "score_0_100": 81,
+        "stufe": "HIGH",
+        "hinweis": "WELL_RESTED",
+        "erholungszeit_h": 15.2
       },
       "training_status": {
         "status": "RECOVERY_2",
         "wochenlast": null,
-        "acwr_garmin": 0.5,
+        "acwr_garmin": 0.4,
         "acwr_bewertung": "LOW",
-        "akutlast": 226.0,
-        "chronische_last": 444.0
+        "akutlast": 178.0,
+        "chronische_last": 423.0
       }
     },
     "mittelwerte": {
       "schlaf_h": {
-        "7_tage": 7.2,
+        "7_tage": 7.3,
         "28_tage": 7.4
       },
       "schlafscore": {
-        "7_tage": 76.2,
-        "28_tage": 79.3
+        "7_tage": 78.1,
+        "28_tage": 79.1
       },
       "hrv_ms": {
-        "7_tage": 41.8,
-        "28_tage": 43.1
+        "7_tage": 42.2,
+        "28_tage": 43.0
       },
       "ruhepuls": {
-        "7_tage": 52.4,
+        "7_tage": 52.5,
         "28_tage": 52.7
       },
       "stress": {
-        "7_tage": 32.2,
+        "7_tage": 31.4,
         "28_tage": 31.0
       },
       "trainingsreife": {
-        "7_tage": 75.4,
-        "28_tage": 72.6
+        "7_tage": 77.6,
+        "28_tage": 72.2
       },
       "koerperbatterie_hoch": {
-        "7_tage": null,
-        "28_tage": null
+        "7_tage": 65.5,
+        "28_tage": 65.5
       }
     },
     "auffaelligkeiten": [],
     "tage": [
-      {
-        "datum": "2026-07-20",
-        "schlaf_h": 7.6,
-        "schlafscore": 91,
-        "hrv_ms": 44.0,
-        "hrv_status": "BALANCED",
-        "ruhepuls": 53,
-        "trainingsreife": 91,
-        "erholungszeit_h": 0,
-        "stress": 22,
-        "koerperbatterie_hoch": null,
-        "gewicht_kg": 91.4
-      },
       {
         "datum": "2026-07-21",
         "schlaf_h": 8.1,
@@ -1208,7 +1259,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 51,
         "trainingsreife": 100,
-        "erholungszeit_h": 0,
+        "erholungszeit_h": 0.0,
         "stress": 25,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.8
@@ -1221,7 +1272,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 52,
         "trainingsreife": 100,
-        "erholungszeit_h": 97,
+        "erholungszeit_h": 1.6,
         "stress": 25,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1234,7 +1285,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 49,
         "trainingsreife": 100,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 27,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.7
@@ -1247,7 +1298,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 55,
         "trainingsreife": 72,
-        "erholungszeit_h": 895,
+        "erholungszeit_h": 14.9,
         "stress": 35,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.2
@@ -1260,7 +1311,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 56,
         "trainingsreife": 42,
-        "erholungszeit_h": 2506,
+        "erholungszeit_h": 41.8,
         "stress": 45,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 91.7
@@ -1273,7 +1324,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 53,
         "trainingsreife": 23,
-        "erholungszeit_h": 1407,
+        "erholungszeit_h": 23.4,
         "stress": 28,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1286,7 +1337,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 54,
         "trainingsreife": 69,
-        "erholungszeit_h": 29,
+        "erholungszeit_h": 0.5,
         "stress": 29,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.2
@@ -1299,7 +1350,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 55,
         "trainingsreife": 68,
-        "erholungszeit_h": 779,
+        "erholungszeit_h": 13.0,
         "stress": 32,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.8
@@ -1312,7 +1363,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 54,
         "trainingsreife": 78,
-        "erholungszeit_h": 309,
+        "erholungszeit_h": 5.2,
         "stress": 39,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1325,7 +1376,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 54,
         "trainingsreife": 56,
-        "erholungszeit_h": 1188,
+        "erholungszeit_h": 19.8,
         "stress": 29,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 91.3
@@ -1338,7 +1389,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 51,
         "trainingsreife": 86,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 31,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.7
@@ -1351,7 +1402,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 52,
         "trainingsreife": 83,
-        "erholungszeit_h": 181,
+        "erholungszeit_h": 3.0,
         "stress": 41,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1364,7 +1415,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 54,
         "trainingsreife": 17,
-        "erholungszeit_h": 3241,
+        "erholungszeit_h": 54.0,
         "stress": 33,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.5
@@ -1377,7 +1428,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 53,
         "trainingsreife": 55,
-        "erholungszeit_h": 1836,
+        "erholungszeit_h": 30.6,
         "stress": 26,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.2
@@ -1390,7 +1441,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 52,
         "trainingsreife": 72,
-        "erholungszeit_h": 311,
+        "erholungszeit_h": 5.2,
         "stress": 25,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.3
@@ -1403,7 +1454,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 51,
         "trainingsreife": 90,
-        "erholungszeit_h": 0,
+        "erholungszeit_h": 0.0,
         "stress": 30,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 89.8
@@ -1416,7 +1467,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 55,
         "trainingsreife": 58,
-        "erholungszeit_h": 30,
+        "erholungszeit_h": 0.5,
         "stress": 27,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1429,7 +1480,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 49,
         "trainingsreife": 73,
-        "erholungszeit_h": 810,
+        "erholungszeit_h": 13.5,
         "stress": 22,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 89.7
@@ -1442,7 +1493,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 55,
         "trainingsreife": 82,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 31,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1455,7 +1506,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 51,
         "trainingsreife": 87,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 40,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 89.9
@@ -1468,7 +1519,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 53,
         "trainingsreife": 63,
-        "erholungszeit_h": 418,
+        "erholungszeit_h": 7.0,
         "stress": 28,
         "koerperbatterie_hoch": null,
         "gewicht_kg": null
@@ -1481,7 +1532,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 50,
         "trainingsreife": 88,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 27,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.4
@@ -1494,7 +1545,7 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 50,
         "trainingsreife": 94,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 28,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 90.3
@@ -1507,9 +1558,9 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 53,
         "trainingsreife": 79,
-        "erholungszeit_h": 543,
+        "erholungszeit_h": 9.1,
         "stress": 33,
-        "koerperbatterie_hoch": null,
+        "koerperbatterie_hoch": 90,
         "gewicht_kg": null
       },
       {
@@ -1520,9 +1571,9 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 56,
         "trainingsreife": 35,
-        "erholungszeit_h": 289,
+        "erholungszeit_h": 4.8,
         "stress": 50,
-        "koerperbatterie_hoch": null,
+        "koerperbatterie_hoch": 28,
         "gewicht_kg": null
       },
       {
@@ -1533,9 +1584,9 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 51,
         "trainingsreife": 80,
-        "erholungszeit_h": 0,
+        "erholungszeit_h": 0.0,
         "stress": 31,
-        "koerperbatterie_hoch": null,
+        "koerperbatterie_hoch": 78,
         "gewicht_kg": 90.7
       },
       {
@@ -1546,9 +1597,9 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 54,
         "trainingsreife": 68,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 33,
-        "koerperbatterie_hoch": null,
+        "koerperbatterie_hoch": 46,
         "gewicht_kg": 91.0
       },
       {
@@ -1559,11 +1610,56 @@ Regeln für die Ausgabe:
         "hrv_status": "BALANCED",
         "ruhepuls": 52,
         "trainingsreife": 96,
-        "erholungszeit_h": 1,
+        "erholungszeit_h": 0.0,
         "stress": 28,
-        "koerperbatterie_hoch": null,
+        "koerperbatterie_hoch": 77,
         "gewicht_kg": null
+      },
+      {
+        "datum": "2026-08-18",
+        "schlaf_h": 7.5,
+        "schlafscore": 84,
+        "hrv_ms": 42.0,
+        "hrv_status": "BALANCED",
+        "ruhepuls": 54,
+        "trainingsreife": 81,
+        "erholungszeit_h": 15.2,
+        "stress": 21,
+        "koerperbatterie_hoch": 74,
+        "gewicht_kg": 89.7
       }
     ]
-  }
+  },
+  "leistungszonen": [
+    {
+      "zone": "Z1",
+      "label": "Regeneration",
+      "low_watt": 89,
+      "high_watt": 109
+    },
+    {
+      "zone": "Z2",
+      "label": "Grundlagenausdauer",
+      "low_watt": 111,
+      "high_watt": 148
+    },
+    {
+      "zone": "Z3",
+      "label": "Tempo / extensive Intervalle",
+      "low_watt": 150,
+      "high_watt": 178
+    },
+    {
+      "zone": "Z4",
+      "label": "Schwelle",
+      "low_watt": 180,
+      "high_watt": 208
+    },
+    {
+      "zone": "Z5",
+      "label": "VO2max",
+      "low_watt": 210,
+      "high_watt": 238
+    }
+  ]
 }

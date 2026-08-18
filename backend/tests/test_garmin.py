@@ -14,6 +14,7 @@ from app.garmin import runner as runner_modul
 from app.garmin.errors import GarminAnmeldungFehlgeschlagen, GarminTokenUngueltig
 from app.garmin.sync import standard_zeitraum
 from app.models import GarminAccount, GarminSyncJob, WellnessDay
+from app.schemas import WEEKDAYS
 
 from fakes import baue_aktivitaet
 
@@ -350,6 +351,51 @@ def test_trainingsreife_nimmt_den_wert_nach_dem_aufwachen(client, verbunden):
     assert fitness[0]["readiness_score"] == 78  # nicht die 45 der späteren Messung
 
 
+def test_koerperbatterie_kommt_an(client, verbunden):
+    """Die Spalte blieb an 370 echten Tagen leer, weil der Index geraten war.
+
+    Gelesen wird die Spalte jetzt aus `bodyBatteryValueDescriptorDTOList`;
+    der Test hält fest, dass am Ende Werte in der Zeile stehen.
+    """
+    _backfill(client, verbunden)
+    fitness = client.get("/api/garmin/wellness?weeks=4", headers=verbunden).json()
+    juengster = fitness[0]
+    assert juengster["body_battery_high"] == 92
+    assert juengster["body_battery_low"] == 24
+
+
+def test_schlaf_kommt_aus_der_bereichsabfrage(client, verbunden, fake):
+    """Der Bereichsabruf benennt die Phasen anders als die Tagesantwort.
+
+    Am echten Konto heißt die Dauer dort `totalSleepTimeInSeconds` und die
+    Tiefschlafphase `deepTime`; der Parser kannte nur die Namen der
+    Tagesantwort (`sleepTimeSeconds`, `deepSleepSeconds`) und las deshalb an
+    jeder Bereichszeile None. Weil dieselben Felder auch die Tagesschleife
+    schreibt, fiel das nicht auf — Schlaf stand einfach nur für deren 42 Tage
+    in der Datenbank, woraus CLAUDE.md schloss, `get_sleep_daily()` liefere
+    nichts.
+
+    Genau diese Verdeckung stellt der Test ab: Schweigt die Tagesantwort,
+    muss der Schlaf trotzdem ankommen — dann kann er nur aus dem Bereich
+    stammen.
+    """
+    fake.get_sleep_data = lambda cdate: {}
+
+    _backfill(client, verbunden)
+
+    fitness = client.get("/api/garmin/wellness?weeks=4", headers=verbunden).json()
+    juengster = fitness[0]
+    assert juengster["sleep_seconds"] == 27000
+    assert juengster["sleep_deep_seconds"] == 4200
+    assert juengster["sleep_light_seconds"] == 15600
+    assert juengster["sleep_rem_seconds"] == 6000
+    assert juengster["sleep_awake_seconds"] == 1200
+    # Score und Nachtladung stehen in derselben Zeile. Über die Tagesantwort
+    # reichen sie nur 42 Tage weit, aus dem Bereich so weit wie der Rückblick.
+    assert juengster["sleep_score"] == 81
+    assert juengster["sleep_body_battery_change"] == 45
+
+
 def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     """Ein importiertes Training soll die Umsetzungsquote füttern."""
     tag = HEUTE - timedelta(days=1)
@@ -376,6 +422,7 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
                             "sport": "run",
                             "type": "endurance",
                             "title": "Dauerlauf",
+                            "structure": "15 min Z2 / 5x1000 m Z4 / 10 min Z1",
                             "duration_min": 60,
                         }
                     ],
@@ -398,6 +445,21 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
 
     stats = client.get("/api/logs/stats", headers=garmin_auth).json()
     assert stats["compliance"]["logged"] == 1
+
+    # Der geplante Aufbau muss mit in den Export: Ohne ihn sieht die KI von
+    # einem Intervalltraining nur Dauer und Schnittpuls und kann es nicht
+    # fortschreiben — aus 5x1000 m wird sonst nie 6x1000 m.
+    payload = client.get("/api/plans/export", headers=garmin_auth).json()["payload"]
+    einheit = next(
+        e
+        for e in payload["trainingshistorie"]["einheiten"]
+        if e["datum"] == tag.isoformat() and e["sportart"] == "run"
+    )
+    assert einheit["geplant_war"]["aufbau"] == "15 min Z2 / 5x1000 m Z4 / 10 min Z1"
+    assert einheit["geplant_war"]["typ"] == "endurance"
+    # Und der Wochentag steht dabei, damit die KI Muster wie "samstags lang"
+    # erkennt, ohne aus dem Datum rechnen zu müssen.
+    assert einheit["wochentag"] == WEEKDAYS[tag.weekday()]
 
 
 def test_dubletten_werden_benannt_nicht_geloescht(client, verbunden, erfasse):
@@ -1017,3 +1079,65 @@ def test_migration_entfernt_die_spalten_des_erfassungsformulars(tmp_path):
     # Zweiter Lauf darf nichts tun und nichts brechen.
     with alt.begin() as verbindung:
         assert _entferne_spalten(verbindung) == []
+
+
+def test_erholungszeit_zieht_von_stunden_nach_minuten_um(tmp_path):
+    """Der alte Spaltenname behauptete Stunden, gespeichert waren Minuten.
+
+    Die Werte dürfen dabei nicht verloren gehen: Ein Rückblick über ein Jahr
+    kostet Minuten gegen ein fremdes System mit Anfragegrenze, und für die
+    Erholungszeit gibt es nicht einmal einen Rückblick — sie steht nur in der
+    Tagesschleife der letzten sechs Wochen.
+    """
+    import sqlalchemy as sa
+
+    from app.database import (
+        _entferne_spalten,
+        _ergaenze_spalten,
+        _uebertrage_spalten,
+    )
+
+    pfad = tmp_path / "mit_stunden.db"
+    alt = sa.create_engine(f"sqlite:///{pfad}")
+    with alt.begin() as verbindung:
+        verbindung.exec_driver_sql(
+            """
+            CREATE TABLE wellness_days (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                date DATE NOT NULL,
+                resting_hr INTEGER,
+                recovery_time_h INTEGER
+            )
+            """
+        )
+        verbindung.exec_driver_sql(
+            "INSERT INTO wellness_days (id, user_id, date, resting_hr,"
+            " recovery_time_h) VALUES (1, 1, '2026-08-18', 54, 911),"
+            " (2, 1, '2026-08-17', 52, NULL)"
+        )
+
+    with alt.begin() as verbindung:
+        _ergaenze_spalten(verbindung)
+        umgezogen = _uebertrage_spalten(verbindung)
+        _entferne_spalten(verbindung)
+
+    assert umgezogen == ["wellness_days.recovery_time_h -> recovery_time_min (1)"]
+
+    with alt.connect() as verbindung:
+        spalten = {
+            r[1] for r in verbindung.exec_driver_sql("PRAGMA table_info(wellness_days)")
+        }
+        assert "recovery_time_min" in spalten
+        assert "recovery_time_h" not in spalten
+
+        # Der Wert steht unverändert in Minuten — umgerechnet wird erst zur
+        # Anzeige, sonst liefe die Umrechnung bei jedem Start erneut.
+        zeilen = verbindung.exec_driver_sql(
+            "SELECT id, recovery_time_min FROM wellness_days ORDER BY id"
+        ).fetchall()
+        assert zeilen == [(1, 911), (2, None)]
+
+    # Zweiter Lauf: Quellspalte ist weg, also passiert nichts mehr.
+    with alt.begin() as verbindung:
+        assert _uebertrage_spalten(verbindung) == []

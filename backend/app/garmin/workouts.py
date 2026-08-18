@@ -41,6 +41,7 @@ from typing import Any
 
 from garminconnect.workout import ConditionType, SportType, StepType, TargetType
 
+from ..sportscience import FTP_ZONEN_ANTEIL
 from . import uebungen
 
 # --------------------------------------------------------------------------
@@ -714,13 +715,11 @@ def _leistung_im_schritt(text: str | None, ftp: int | None) -> tuple[float, floa
 #
 # Z1 ist nach unten offen; eine Null als Untergrenze wäre für die Rolle keine
 # Anweisung, deshalb steht dort 45 %. Die übrigen Grenzen sind die üblichen.
-_ZONE_ZU_FTP_ANTEIL: dict[int, tuple[float, float]] = {
-    1: (0.45, 0.55),
-    2: (0.56, 0.75),
-    3: (0.76, 0.90),
-    4: (0.91, 1.05),
-    5: (1.06, 1.20),
-}
+# Eine Quelle für die Anteile: Derselbe Korridor, den der KI-Export als
+# `leistungszonen` in den Prompt schreibt, landet hier auf der Uhr. Zwei
+# Tabellen liefen auseinander, und dann stünde im Plan ein anderer Bereich als
+# im Workout.
+_ZONE_ZU_FTP_ANTEIL = FTP_ZONEN_ANTEIL
 
 # Nennt der Schritttext den Puls schon selbst, wird nichts angehängt: Die KI
 # schreibt ihn oft dazu („10 min locker einrollen Z1 (120-134 bpm)“), und zwei

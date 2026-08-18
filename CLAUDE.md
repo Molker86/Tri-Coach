@@ -65,7 +65,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 220 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 281 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -371,6 +371,45 @@ pro Tag, nicht pro Anfrage. Alles ist ein Upsert über `(user_id, date)` bzw.
 `(user_id, garmin_activity_id)`, damit ein zweiter Lauf nichts verdoppelt und
 ein Wiederaufsetzen nach einer Sperre folgenlos bleibt.
 
+**Die Bereichsantwort benennt dieselben Größen anders als die Tagesantwort** —
+und das hat zwei Spalten jahrelang leer gelassen. Beides am echten Konto
+nachgesehen und die Nachbildung darauf gezogen:
+
+*Schlaf.* `get_sleep_daily()` (Bereich) liefert je Nacht ein `values`-Objekt mit
+`totalSleepTimeInSeconds`, `deepTime`, `lightTime`, `remTime`, `awakeTime` —
+`get_sleep_data()` (Tag) dagegen ein `dailySleepDTO` mit `sleepTimeSeconds`,
+`deepSleepSeconds` und so fort. Der Parser kannte nur die Tagesnamen und las an
+jeder Bereichszeile `None`. Weil dieselben Felder auch die Tagesschleife
+schreibt, sah das nicht nach einem Fehler aus, sondern nach einem Endpunkt, der
+schweigt: In der Datenbank stand Schlaf für genau die 42 Tage der Schleife, und
+daraus wurde hier einmal die falsche Regel „`get_sleep_daily()` liefert nichts".
+Der Endpunkt liefert; über 21 geprüfte Tage 120 Tage in der Vergangenheit kam
+Schlaf an **allen** an. In derselben Zeile stehen außerdem `sleepScore` und
+`bodyBatteryChange` — beide werden jetzt von dort gelesen und reichen damit so
+weit wie der Rückblick statt nur 42 Tage.
+
+*Körperbatterie.* `bodyBatteryValuesArray` ist eine Tabelle ohne Kopfzeile,
+und welche Spalte was bedeutet, sagt `bodyBatteryValueDescriptorDTOList`. Am
+echten Konto sind es **zwei** Spalten (`timestamp`, `bodyBatteryLevel`); der
+Parser griff fest auf Index 2 und traf damit nichts — `body_battery_high`/`_low`
+blieben an allen 370 Tagen leer, während Garmin die Werte durchgehend liefert.
+Gelesen wird die Spalte deshalb jetzt aus dem Descriptor
+(`sync._body_battery_werte`) und nicht geraten: Ein fester Index 1 wäre
+derselbe Fehler ein Jahr später. Der Randtag eines Zeitraums kommt mit
+belegten Zeitstempeln und leerem Ladestand — er hat dann korrekt keinen
+Höchstwert. Die aus dem Bereich gelesenen Extremwerte sind dabei **nicht**
+gröber als die Tagesangabe: Garmin gibt zwar nur sechs Punkte je Tag zurück,
+über fünf Tage geprüft stimmten Höchst- und Tiefstwert exakt mit
+`get_user_summary().bodyBatteryHighestValue`/`LowestValue` überein. Die
+Bereichsabfrage bleibt damit die richtige Quelle — eine Anfrage statt einer
+je Tag.
+
+Die Lehre für beide: Eine Nachbildung, die der Entwickler nach dem Parser
+formt, bestätigt den Parser und sonst nichts. Beide Formen hier stammen aus
+abgelesenen Antworten, und `test_koerperbatterie_kommt_an` wie
+`test_schlaf_kommt_aus_der_bereichsabfrage` halten sie fest — letzterer, indem
+er die Tagesantwort schweigen lässt, weil sie die Bereichszeile sonst verdeckt.
+
 **Jeder Tag wird einmal geholt, die letzten fünf immer wieder**
 (`sync.standard_zeitraum`, `GarminAccount.backfill_from` /
 `synced_through`). „Jetzt synchronisieren" holt beim ersten Mal ein volles Jahr
@@ -406,6 +445,89 @@ hängt auch an der Herkunftsadresse. Beim Start markiert
 unterbrochen — ihr Thread ist mit dem Prozess gestorben. Weil zwei Schreiber auf
 derselben SQLite-Datei arbeiten, steht `journal_mode=WAL` und ein `timeout` von
 30 s in `database.py`.
+
+**Die Kennzahlen der Historie werden rollierend gerechnet, nicht in
+Kalenderwochen** (`sportscience.acute_chronic_ratio`). Die ACWR nahm ihre
+Akutlast einmal aus dem letzten Bucket der `wochenuebersicht` — und der ist die
+*laufende* Woche. An einem Dienstag standen dort zwei Tage gegen einen vollen
+Vierwochenschnitt: An echten Daten meldete der Export 0.13, wo 0.55 richtig war.
+Die Zahl hing damit am Wochentag des Exports statt an der Belastung, und Punkt 1
+des Prompts liest einen niedrigen Wert als Freigabe zum Aufbau. Deshalb rechnet
+sie jetzt über die Rohdaten: 7 Tage gegen 28 Tage / 4, beides rollierend ab
+heute.
+
+Die `wochenuebersicht` bleibt bei Kalenderwochen — der Athlet denkt in ihnen —,
+deckt aber das **ganze** Rückblickfenster ab. Vorher zählte sie vier Buckets ab
+dem aktuellen Montag zurück, während die Historie 28 Tage vor *heute* beginnt:
+Fällt heute nicht auf einen Montag, fielen die Einheiten dazwischen aus der
+Übersicht, obwohl sie in `einheiten` standen (an echten Daten fünf Einheiten,
+darunter eine über 137 Minuten). Die KI sah zwei widersprüchliche Darstellungen
+desselben Zeitraums. Jedem Bucket steht deshalb `ist_vollstaendig` dabei, und
+`letzte_volle_woche` benennt den Maßstab, den Punkt 6 für sein „bis zu 10 %
+mehr" braucht — der letzte Eintrag der Übersicht taugt dafür nie.
+
+**Fällig ist, was vor heute lag** (`sportscience.compliance`). Der heutige Tag
+ist nicht vorbei; die Einheit von heute Abend als versäumt zu zählen, drückt die
+Quote genau dann, wenn der Block frisch ist. An echten Daten wurden aus zwei von
+zwei umgesetzten Einheiten 33 %, weil die beiden noch bevorstehenden von heute
+mitzählten — und Punkt 1 des Prompts macht aus einer niedrigen Quote den Auftrag,
+kleiner zu planen.
+
+**Garmins `recoveryTime` sind Minuten** (`WellnessDay.recovery_time_min`). Die
+Spalte hieß einmal `recovery_time_h` und übernahm den Wert ungerechnet. Ein
+Eintrag von 911 stand damit als „911 Stunden Erholung" im Export und in den
+Auffälligkeiten, und der Prompt macht daraus „in diesem Zeitfenster nichts über
+Z2" — 38 Tage lang. Die Schwelle `ERHOLUNGSZEIT_HOCH_H = 24` feuerte
+entsprechend bei 24 *Minuten*, also fast immer. Der Name sagt jetzt die Einheit,
+umgerechnet wird erst zur Anzeige (`sportscience.erholung_stunden`) — sonst liefe
+die Umrechnung bei jedem Start erneut über dieselben Werte. Die Umbenennung
+läuft über `database._UMZUZIEHENDE_SPALTEN`: ergänzen, kopieren, alte Spalte
+löschen, alles idempotent.
+
+**Watt- und Tempokorridore kommen mit, nicht nur ihre Schwellenwerte**
+(`sportscience.power_zones` / `pace_zones`). Punkt 10 verlangt zu jeder Einheit
+ein `target_power` bzw. `target_pace`, lieferte der KI aber nur die nackte FTP —
+sie musste die Anteile raten, während `garmin/workouts.py` sie längst festlegt.
+Beide lesen jetzt dieselbe Tabelle `FTP_ZONEN_ANTEIL`: Aus denselben Korridoren,
+die im Prompt stehen, baut die App anschließend das Workout für die Uhr. Zwei
+Tabellen liefen auseinander, und dann stünde im Plan ein anderer Bereich als auf
+dem Gerät. **Ohne hinterlegten Schwellenwert fehlt der Block ganz** — geschätzt
+wird nichts, denn eine erfundene Schwellenpace stünde als Vorgabe im Plan. Der
+Prompt sagt für diesen Fall ausdrücklich, dass die Vorgabe aus Pace und
+`hf_schnitt` vergleichbarer Einheiten der Historie abzuleiten ist.
+
+**Was geplant war, steht an der absolvierten Einheit** (`ai_export._geplant_war`,
+Punkt 12 des Prompts). Die Verknüpfung legt der Abgleich über Tag und Sportart
+an (`garmin/matching.py`), der Aufbau lag also vor — er wurde nur nie
+exportiert. Die KI sah von einem Intervalltraining „29 min, 4,4 km, HF 150" und
+konnte es nicht fortschreiben: Aus 5x1000 m wird so nie 6x1000 m. Für einen
+Block, der ausdrücklich den *nächsten Schritt* setzen soll, war das die größte
+inhaltliche Lücke. Mitgeliefert wird auch die geplante Dauer — weicht die
+absolvierte deutlich ab, war die Vorgabe zu ambitioniert, und das sagt mehr als
+jede Umsetzungsquote.
+
+**Ein leerer Messblock wird weggelassen, nicht mit `null` gefüllt**
+(`_fitness_block`). Dieselbe Regel wie beim `fitnessdaten`-Block selbst und bei
+`befinden_0_10`: `{"hoechstwert": null, "tiefstwert": null}` liest sich wie ein
+Gerät, das Null misst, statt wie eine Größe, die es nicht gibt. Betrifft in der
+Praxis die Körperbatterie (siehe „Bekannte Grenzen"). Einzelne Nullwerte neben
+belegten Geschwistern bleiben stehen — dort ist „nicht gemessen" die
+naheliegende Lesart.
+
+**Eine Aktivität ohne Dauer und ohne Strecke ist kein Training**
+(`ai_export._ist_einheit`). Garmin liefert gelegentlich solche Einträge — ein
+versehentlich gestarteter und sofort beendeter Timer. Als Einheit gezählt hoben
+sie die Wochenzahl und setzten `tage_seit_letzter_einheit_je_sportart` auf 0:
+Die KI plante daraufhin keine Radeinheit mehr, obwohl seit Tagen keine
+stattgefunden hatte. Gefiltert wird **einmal** am Kopf von `_history_block`,
+damit Einheitenliste, Wochenübersicht, ACWR und Abstände dieselbe Menge sehen.
+
+**Die Abstände zählen über die ganze Historie, nicht über vier Wochen**
+(`_days_since_by_sport`, `_days_since_hard_session`). Eine Sportart, die länger
+ruht als das Fenster reicht, verschwand sonst aus dem Ergebnis — ausgerechnet
+die, die Punkt 8 vorziehen soll. Und `tage_seit_letzter_intensiver_einheit: null`
+hieß sowohl „seit über vier Wochen nichts Hartes" als auch „keine Daten",
+während die 48-h-Regel genau an dieser Zahl hängt.
 
 **RPE wird geschätzt, ACWR bleibt sRPE-basiert** (`mapping.schaetze_rpe`).
 Garmin liefert kein RPE, aber `weekly_summary`, `acute_chronic_ratio` und
@@ -1232,6 +1354,13 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
 - Was ein Athlet **vor** dieser Umstellung von Hand eingetragen hat, bleibt
   liegen und zählt weiter mit. `/api/garmin/dubletten` zeigt, was dabei doppelt
   ist; entfernt wird es über den Verlauf, einzeln und von Hand.
+- `training_status.weeklyTrainingLoad` ist an **allen** 370 Tagen leer, und das
+  ist kein Lesefehler: Am echten Konto steht der Schlüssel im JSON und trägt
+  `null` (ebenso `loadTunnelMin`/`loadTunnelMax`). Garmin füllt ihn schlicht
+  nicht. Was die Wochenlast tatsächlich beschreibt, steht daneben in
+  `acuteTrainingLoadDTO.dailyTrainingLoadAcute` — die App speichert es längst
+  als `garmin_load_acute`. Die Spalte `weekly_training_load` bleibt als
+  Altlast stehen; wer sie füllen will, holt sie von dort.
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt, entfallene über `_ENTFALLENE_SPALTEN`
@@ -1246,10 +1375,6 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im
   Zeitraum scheitert, nicht teilweise als geholt gelten: `synced_through` rückt
   nur im Erfolgsfall vor, der nächste Lauf wiederholt den ganzen Zeitraum.
-- Die genaue Form von `get_sleep_daily()` (Zeilen aus `individualStats`) ist
-  nicht dokumentiert. Der Mapper liest sie über mehrere Pfade und fällt auf die
-  Tagesantwort zurück; **beim ersten echten Rückblick prüfen**, ob Schlafdauer
-  und -phasen für den älteren Teil des Zeitraums ankommen.
 - Der Rückblick über ein Jahr wurde bisher nur gegen die Nachbildung geprüft,
   nicht gegen ein echtes Konto.
 - Auch die Antwortform von `get_cycling_ftp()` und `get_lactate_threshold()` ist

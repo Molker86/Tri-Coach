@@ -390,7 +390,12 @@ class WellnessDay(Base):
     readiness_score: Mapped[int | None] = mapped_column(Integer)
     readiness_level: Mapped[str | None] = mapped_column(String(24))
     readiness_feedback: Mapped[str | None] = mapped_column(String(64))
-    recovery_time_h: Mapped[int | None] = mapped_column(Integer)
+    # Garmins `recoveryTime` kommt in **Minuten** — der Wert hieß hier einmal
+    # `recovery_time_h` und wurde ungerechnet übernommen. Ein Eintrag von 911
+    # stand damit als "911 Stunden Erholung" im Export, und der Prompt macht
+    # daraus "in diesem Zeitfenster nichts über Z2" — 38 Tage lang. Der Name
+    # sagt jetzt die Einheit, umgerechnet wird erst zur Anzeige.
+    recovery_time_min: Mapped[int | None] = mapped_column(Integer)
     readiness_hrv_factor_pct: Mapped[int | None] = mapped_column(Integer)
     readiness_acwr_factor_pct: Mapped[int | None] = mapped_column(Integer)
     acute_load: Mapped[float | None] = mapped_column(Float)

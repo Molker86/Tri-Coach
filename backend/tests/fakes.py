@@ -126,17 +126,22 @@ class FakeGarmin:
 
     def get_sleep_daily(self, start, end):
         self.aufrufe.append("get_sleep_daily")
-        # Zeilen aus `individualStats` — andere Verschachtelung als die
-        # Tagesantwort von `get_sleep_data`.
+        # Feldnamen am echten Konto abgelesen: Der Bereichsabruf benennt die
+        # Phasen *anders* als die Tagesantwort von `get_sleep_data`
+        # (`deepTime` statt `deepSleepSeconds`) und nennt die Gesamtdauer
+        # `totalSleepTimeInSeconds`. Die hier zuvor stehenden Namen gab es
+        # nirgends — der Parser las deshalb an allen Zeilen None.
         return [
             {
                 "calendarDate": tag.isoformat(),
                 "values": {
-                    "totalSleepSeconds": 27000,
-                    "deepSleepSeconds": 4200,
-                    "lightSleepSeconds": 15600,
-                    "remSleepSeconds": 6000,
-                    "awakeSleepSeconds": 1200,
+                    "totalSleepTimeInSeconds": 27000,
+                    "deepTime": 4200,
+                    "lightTime": 15600,
+                    "remTime": 6000,
+                    "awakeTime": 1200,
+                    "sleepScore": 81,
+                    "bodyBatteryChange": 45,
                 },
             }
             for tag in self._im_bereich(start, end)
@@ -154,12 +159,29 @@ class FakeGarmin:
 
     def get_body_battery(self, startdate, enddate=None):
         self.aufrufe.append("get_body_battery")
+        # Form am echten Konto abgelesen: zwei Spalten, und welche den
+        # Ladestand trägt, sagt der Descriptor. Hier stand einmal eine
+        # erfundene vierspaltige Zeile mit dem Wert an Index 2 — passend zum
+        # damaligen Parser, aber zu nichts sonst. Beide zusammen ergaben einen
+        # grünen Test über einer Spalte, die am echten Konto immer leer blieb.
         return [
             {
                 "date": tag.isoformat(),
+                "bodyBatteryValueDescriptorDTOList": [
+                    {
+                        "bodyBatteryValueDescriptorIndex": 0,
+                        "bodyBatteryValueDescriptorKey": "timestamp",
+                    },
+                    {
+                        "bodyBatteryValueDescriptorIndex": 1,
+                        "bodyBatteryValueDescriptorKey": "bodyBatteryLevel",
+                    },
+                ],
                 "bodyBatteryValuesArray": [
-                    [1755036000000, "MEASURED", 24, 1.0],
-                    [1755039600000, "MEASURED", 92, 1.0],
+                    [1755036000000, 24],
+                    [1755039600000, 92],
+                    # Randtage kommen mit leerem Ladestand.
+                    [1755043200000, None],
                 ],
             }
             for tag in self._im_bereich(startdate, enddate)

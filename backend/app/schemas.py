@@ -578,7 +578,7 @@ class WellnessDayOut(BaseModel):
     readiness_score: int | None = None
     readiness_level: str | None = None
     readiness_feedback: str | None = None
-    recovery_time_h: int | None = None
+    recovery_time_min: int | None = None
     training_status: str | None = None
     training_status_feedback: str | None = None
     weekly_training_load: float | None = None

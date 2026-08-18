@@ -435,6 +435,7 @@ def importiere_bereichswerte(
             sleep_seconds=als_ganzzahl(
                 erster_wert(
                     zeile,
+                    ("values", "totalSleepTimeInSeconds"),
                     ("values", "totalSleepSeconds"),
                     ("values", "sleepTimeSeconds"),
                     ("dailySleepDTO", "sleepTimeSeconds"),
@@ -444,6 +445,7 @@ def importiere_bereichswerte(
             sleep_deep_seconds=als_ganzzahl(
                 erster_wert(
                     zeile,
+                    ("values", "deepTime"),
                     ("values", "deepSleepSeconds"),
                     ("dailySleepDTO", "deepSleepSeconds"),
                     ("deepSleepSeconds",),
@@ -452,6 +454,7 @@ def importiere_bereichswerte(
             sleep_light_seconds=als_ganzzahl(
                 erster_wert(
                     zeile,
+                    ("values", "lightTime"),
                     ("values", "lightSleepSeconds"),
                     ("dailySleepDTO", "lightSleepSeconds"),
                     ("lightSleepSeconds",),
@@ -460,6 +463,7 @@ def importiere_bereichswerte(
             sleep_rem_seconds=als_ganzzahl(
                 erster_wert(
                     zeile,
+                    ("values", "remTime"),
                     ("values", "remSleepSeconds"),
                     ("dailySleepDTO", "remSleepSeconds"),
                     ("remSleepSeconds",),
@@ -468,10 +472,18 @@ def importiere_bereichswerte(
             sleep_awake_seconds=als_ganzzahl(
                 erster_wert(
                     zeile,
+                    ("values", "awakeTime"),
                     ("values", "awakeSleepSeconds"),
                     ("dailySleepDTO", "awakeSleepSeconds"),
                     ("awakeSleepSeconds",),
                 )
+            ),
+            # Beide stehen auch in der Tagesantwort (unten, `get_sleep_data`),
+            # dort aber nur für die Tage der Tagesschleife. Aus der Bereichs-
+            # zeile gelesen reichen sie so weit wie der Rückblick.
+            sleep_score=als_ganzzahl(erster_wert(zeile, ("values", "sleepScore"))),
+            sleep_body_battery_change=als_ganzzahl(
+                erster_wert(zeile, ("values", "bodyBatteryChange"))
             ),
         )
     db.commit()
@@ -498,18 +510,44 @@ def importiere_bereichswerte(
         tag = als_datum(zeile.get("date") or zeile.get("calendarDate"))
         if not tag:
             continue
-        werte = [
-            als_ganzzahl(eintrag[2])
-            for eintrag in als_liste(zeile.get("bodyBatteryValuesArray"))
-            if isinstance(eintrag, (list, tuple)) and len(eintrag) > 2
-        ]
-        werte = [w for w in werte if w is not None]
+        werte = _body_battery_werte(zeile)
         _setze(
             _wellness_tag(db, user_id, tag, cache),
             body_battery_high=max(werte) if werte else None,
             body_battery_low=min(werte) if werte else None,
         )
     db.commit()
+
+
+def _body_battery_werte(zeile: dict[str, Any]) -> list[int]:
+    """Die Ladestände eines Tages aus `bodyBatteryValuesArray`.
+
+    Die Spalte wird über `bodyBatteryValueDescriptorDTOList` gesucht und nicht
+    geraten: Am echten Konto hat eine Zeile genau zwei Spalten
+    (`timestamp`, `bodyBatteryLevel`). Hier stand einmal fest der Index 2 — der
+    trifft keine davon, weshalb `body_battery_high`/`_low` an allen 370 Tagen
+    der Datenbank leer blieben, obwohl Garmin die Werte durchgehend liefert.
+    Ein fester Index 1 wäre derselbe Fehler ein Jahr später.
+    """
+    index = next(
+        (
+            d.get("bodyBatteryValueDescriptorIndex")
+            for d in als_liste(zeile.get("bodyBatteryValueDescriptorDTOList"))
+            if isinstance(d, dict)
+            and d.get("bodyBatteryValueDescriptorKey") == "bodyBatteryLevel"
+        ),
+        None,
+    )
+    if not isinstance(index, int):
+        return []
+    werte = [
+        als_ganzzahl(eintrag[index])
+        for eintrag in als_liste(zeile.get("bodyBatteryValuesArray"))
+        if isinstance(eintrag, (list, tuple)) and len(eintrag) > index
+    ]
+    # Der Randtag eines Zeitraums kommt mit belegten Zeitstempeln und leerem
+    # Ladestand — er hat dann keinen Höchst- und keinen Tiefstwert.
+    return [w for w in werte if w is not None]
 
 
 def _juengster_trainingsstatus(daten: dict[str, Any]) -> dict[str, Any] | None:
@@ -583,7 +621,8 @@ def importiere_tageswerte(
                 readiness_score=als_ganzzahl(eintrag.get("score")),
                 readiness_level=eintrag.get("level"),
                 readiness_feedback=eintrag.get("feedbackShort"),
-                recovery_time_h=als_ganzzahl(eintrag.get("recoveryTime")),
+                # Minuten, nicht Stunden — siehe `WellnessDay.recovery_time_min`.
+                recovery_time_min=als_ganzzahl(eintrag.get("recoveryTime")),
                 readiness_hrv_factor_pct=als_ganzzahl(eintrag.get("hrvFactorPercent")),
                 readiness_acwr_factor_pct=als_ganzzahl(eintrag.get("acwrFactorPercent")),
                 acute_load=als_zahl(eintrag.get("acuteLoad")),

@@ -179,7 +179,13 @@ def test_ai_export_contains_context(client, auth):
     assert period["startdatum"] == date.today().isoformat()
     assert period["enddatum"] == (date.today() + timedelta(days=6)).isoformat()
     assert len(period["wochentage"]) == 7
-    assert len(payload["trainingshistorie"]["wochenuebersicht"]) == 4
+
+    # Die Wochenübersicht muss das ganze Rückblickfenster abdecken. Wie viele
+    # Kalenderwochen das sind, hängt vom Wochentag ab: Nur wenn heute Montag
+    # ist, sind es genau vier — sonst ragt das Fenster in eine fünfte hinein.
+    wochen = payload["trainingshistorie"]["wochenuebersicht"]
+    assert date.fromisoformat(wochen[0]["week_start"]) <= date.today() - timedelta(weeks=4)
+    assert date.fromisoformat(wochen[-1]["week_end"]) >= date.today()
 
     # Der Prompt muss Auftrag, Daten und Formatvorgabe enthalten
     assert "nächsten 7 Trainingstage" in data["prompt"]
@@ -424,7 +430,9 @@ def test_log_session_and_stats(client, auth, erfasse):
     stats = client.get("/api/logs/stats", headers=auth).json()
     assert stats["total_sessions"] == 1
     assert stats["total_minutes"] == 62
-    assert len(stats["weekly"]) == 4
+    # Anzahl der Kalenderwochen hängt am Wochentag (siehe
+    # `test_ai_export_contains_context`); entscheidend ist die Abdeckung.
+    assert date.fromisoformat(stats["weekly"][0]["week_start"]) <= date.today() - timedelta(weeks=4)
 
     # Die erfasste Einheit ist im Plan als erledigt markiert
     refreshed = client.get("/api/plans/active", headers=auth).json()
@@ -450,8 +458,12 @@ def test_export_includes_history_after_logging(client, auth):
     assert history["umsetzung_aktueller_plan"]["rate_pct"] is None
 
     weekly = history["wochenuebersicht"]
-    assert len(weekly) == 4
     assert weekly[-1]["total_minutes"] == 62  # laufende Woche
+    # Die laufende Woche ist angebrochen und taugt deshalb nicht als Maßstab
+    # für die Aufbauregel — genau dafür gibt es das Kennzeichen.
+    assert weekly[-1]["ist_vollstaendig"] is False
+    assert all(not w["ist_vollstaendig"] or w["week_end"] < date.today().isoformat()
+               for w in weekly)
 
 
 def test_compliance_for_running_plan(client, auth, erfasse):

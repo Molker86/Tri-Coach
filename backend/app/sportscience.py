@@ -6,6 +6,7 @@ gehen als Kontext in den Export, damit die KI nicht raten muss.
 """
 
 import math
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -87,6 +88,120 @@ def hr_zones(
     return zones
 
 
+# Coggan-Leistungszonen als FTP-Anteil. Steht hier und nicht in
+# `garmin/workouts.py`, obwohl der Workout-Bauer sie zuerst brauchte: Der
+# KI-Export nennt der KI dieselben Korridore, aus denen die Uhr später ihre
+# Wattvorgabe rechnet. Zwei Tabellen liefen auseinander, und dann stünde im
+# Plan ein anderer Bereich als auf dem Gerät.
+FTP_ZONEN_ANTEIL: dict[int, tuple[float, float]] = {
+    1: (0.45, 0.55),
+    2: (0.56, 0.75),
+    3: (0.76, 0.90),
+    4: (0.91, 1.05),
+    5: (1.06, 1.20),
+}
+
+# Laufzonen als Anteil der Schwellenpace (Friel). Über 100 % heißt langsamer:
+# Pace ist eine Zeit je Strecke, ein größerer Wert ist das gemächlichere Tempo.
+PACE_ZONEN_ANTEIL_LAUF: dict[int, tuple[float, float]] = {
+    1: (1.29, 1.50),
+    2: (1.14, 1.29),
+    3: (1.06, 1.14),
+    4: (0.99, 1.06),
+    5: (0.90, 0.99),
+}
+
+# Schwimmzonen als Anteil der kritischen Schwimmgeschwindigkeit (CSS). Die CSS
+# selbst liegt an der Grenze von Z3 zu Z4.
+PACE_ZONEN_ANTEIL_SCHWIMM: dict[int, tuple[float, float]] = {
+    1: (1.10, 1.25),
+    2: (1.03, 1.10),
+    3: (1.00, 1.03),
+    4: (0.97, 1.00),
+    5: (0.90, 0.97),
+}
+
+_ZONEN_LABEL = {
+    1: "Regeneration",
+    2: "Grundlagenausdauer",
+    3: "Tempo / extensive Intervalle",
+    4: "Schwelle",
+    5: "VO2max",
+}
+
+
+def power_zones(ftp_watts: int | None) -> list[dict[str, Any]]:
+    """Die fünf Wattkorridore aus der FTP.
+
+    Der Prompt verlangt zu Radeinheiten ein `target_power`, lieferte der KI
+    aber nur die nackte FTP — sie musste die Anteile selbst raten, während die
+    App sie in `FTP_ZONEN_ANTEIL` längst festlegt. Ohne FTP bleibt die Liste
+    leer, und es bleibt beim Pulsziel: Eine Leistung, die niemand ausrechnen
+    kann, ist keine.
+    """
+    if not ftp_watts:
+        return []
+    return [
+        {
+            "zone": f"Z{z}",
+            "label": _ZONEN_LABEL[z],
+            "low_watt": round(unten * ftp_watts),
+            "high_watt": round(oben * ftp_watts),
+        }
+        for z, (unten, oben) in sorted(FTP_ZONEN_ANTEIL.items())
+    ]
+
+
+def parse_pace(wert: str | None) -> float | None:
+    """"4:15" -> 255 Sekunden. Auch "4:15 min/km" und "4.25" werden gelesen."""
+    if not wert:
+        return None
+    text = str(wert).strip()
+    treffer = re.match(r"^(\d{1,3}):(\d{1,2})", text)
+    if treffer:
+        return int(treffer.group(1)) * 60 + int(treffer.group(2))
+    treffer = re.match(r"^(\d{1,3}(?:[.,]\d+)?)", text)
+    if treffer:
+        return round(float(treffer.group(1).replace(",", ".")) * 60)
+    return None
+
+
+def format_pace(sekunden: float | None) -> str | None:
+    """255 -> "4:15". Auf ganze Sekunden — feiner steuert niemand."""
+    if sekunden is None:
+        return None
+    gesamt = round(sekunden)
+    return f"{gesamt // 60}:{gesamt % 60:02d}"
+
+
+def pace_zones(
+    schwelle: str | None, anteile: dict[int, tuple[float, float]], einheit: str
+) -> list[dict[str, Any]]:
+    """Tempokorridore um eine Schwellenpace herum.
+
+    Dieselbe Begründung wie bei `power_zones()`: Der Prompt fordert
+    `target_pace`, und ohne Korridore leitete die KI es aus den Bestzeiten ab —
+    also aus Wettkampftempo statt aus der Trainingsschwelle. Ohne hinterlegte
+    Schwelle bleibt die Liste leer; geschätzt wird nichts, denn eine erfundene
+    Schwellenpace stünde als Vorgabe im Plan.
+    """
+    basis = parse_pace(schwelle)
+    if not basis:
+        return []
+    return [
+        {
+            "zone": f"Z{z}",
+            "label": _ZONEN_LABEL[z],
+            # Der langsamere (größere) Wert zuerst, damit "von-bis" sich liest
+            # wie ein Korridor und nicht wie eine Umkehrung.
+            "pace_langsam": format_pace(basis * oben),
+            "pace_schnell": format_pace(basis * unten),
+            "einheit": einheit,
+        }
+        for z, (unten, oben) in sorted(anteile.items())
+    ]
+
+
 def banister_trimp(
     duration_min: int | None,
     avg_hr: int | None,
@@ -115,13 +230,31 @@ def session_rpe_load(duration_min: int | None, rpe: int | None) -> float | None:
 
 
 def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
-    """Aggregiert die Logs der letzten `weeks` Wochen kalenderwochenweise."""
+    """Aggregiert die Logs kalenderwochenweise über das ganze Rückblickfenster.
+
+    Kalenderwochen, weil der Athlet in ihnen denkt ("letzte Woche war viel").
+    Sie passen aber nicht auf ein Fenster, das `weeks * 7` Tage vor *heute*
+    beginnt: Fällt heute nicht auf einen Montag, ragt das Fenster in eine
+    fünfte, ältere Kalenderwoche hinein. Wurde nur über `weeks` Buckets ab dem
+    aktuellen Montag zurückgezählt, fielen deren Einheiten aus der Übersicht,
+    obwohl sie in `einheiten` stehen — die KI sah zwei widersprüchliche
+    Darstellungen desselben Zeitraums. Deshalb so viele Buckets, wie das Fenster
+    berührt.
+
+    `ist_vollstaendig` sagt zu jedem Bucket, ob er die ganze Woche abbildet:
+    Die jüngste Woche ist bis heute angebrochen, die älteste beginnt vor dem
+    Rückblickfenster. Ohne die Markierung liest ein Sprachmodell die halbe
+    laufende Woche als Wocheneinbruch — und genau darauf zielt die Aufbauregel
+    des Prompts, wenn sie "gegenüber der letzten Woche" sagt.
+    """
     today = date.today()
     current_monday = today - timedelta(days=today.weekday())
-    buckets: list[dict[str, Any]] = []
+    fenster_start = today - timedelta(weeks=weeks)
+    erster_montag = fenster_start - timedelta(days=fenster_start.weekday())
 
-    for offset in range(weeks - 1, -1, -1):
-        start = current_monday - timedelta(weeks=offset)
+    buckets: list[dict[str, Any]] = []
+    start = erster_montag
+    while start <= current_monday:
         end = start + timedelta(days=6)
         in_week = [lg for lg in logs if start <= lg.date <= end]
 
@@ -152,6 +285,9 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
         buckets.append({
             "week_start": start.isoformat(),
             "week_end": end.isoformat(),
+            # Nur eine Woche, die ganz im Fenster liegt und vorbei ist, taugt
+            # zum Vergleich. Die beiden Randwochen tun das nicht.
+            "ist_vollstaendig": start >= fenster_start and end < today,
             "sessions": len(in_week),
             "total_minutes": sum(lg.duration_min or 0 for lg in in_week),
             "total_km": round(sum(lg.distance_km or 0 for lg in in_week), 1),
@@ -168,23 +304,52 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
                 for k, v in by_sport.items()
             },
         })
+        start += timedelta(days=7)
     return buckets
 
 
-def acute_chronic_ratio(weekly: list[dict[str, Any]]) -> float | None:
-    """ACWR: Last der letzten Woche gegen den 4-Wochen-Schnitt.
+def letzte_volle_woche(weekly: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Die jüngste Woche, die als Vergleichsmaßstab taugt.
+
+    Die Aufbauregel des Prompts ("bis zu ~10 % über der letzten Woche") braucht
+    eine *ganze* Woche. Der letzte Eintrag der Übersicht ist die laufende und
+    damit fast immer eine halbe — an einem Dienstag stünden dort zwei Tage.
+    """
+    for woche in reversed(weekly):
+        if woche["ist_vollstaendig"]:
+            return woche
+    return None
+
+
+def acute_chronic_ratio(
+    logs: list[Any], today: date | None = None, weeks: int = 4
+) -> float | None:
+    """ACWR: rollierende 7-Tage-Last gegen den rollierenden 4-Wochen-Schnitt.
+
+    Bewusst rollierend und nicht über die Kalenderwochen der `weekly_summary`:
+    Deren jüngster Eintrag ist die *angebrochene* Woche, und als Akutlast
+    gelesen ergab das an einem Dienstag den Bruchteil einer Woche gegen einen
+    vollen Vierwochenschnitt — an echten Daten 0.13 statt 0.55. Die Zahl hing
+    damit am Wochentag des Exports statt an der Belastung, und der Prompt liest
+    einen niedrigen Wert als Aufforderung zum Aufbau.
 
     Grober Orientierungswert für die Belastungssteuerung — Werte deutlich über
     1.3 gelten als erhöhtes Überlastungsrisiko.
     """
-    loads = [w["total_srpe_load"] for w in weekly if w["total_srpe_load"]]
-    if len(loads) < 2:
+    heute = today or date.today()
+
+    def last(seit: date) -> float:
+        return sum(
+            session_rpe_load(lg.duration_min, lg.rpe) or 0.0
+            for lg in logs
+            if seit < lg.date <= heute
+        )
+
+    akut = last(heute - timedelta(days=7))
+    chronisch = last(heute - timedelta(weeks=weeks)) / weeks
+    if not chronisch:
         return None
-    acute = loads[-1]
-    chronic = sum(loads) / len(loads)
-    if not chronic:
-        return None
-    return round(acute / chronic, 2)
+    return round(akut / chronisch, 2)
 
 
 # --------------------------------------------------------------------------
@@ -199,7 +364,7 @@ SCHLAF_DEFIZIT_MIN = 45          # 7-Tage-Schnitt unter dem 28-Tage-Schnitt
 SCHLAF_ABSOLUT_H = 6.5
 RUHEPULS_ANSTIEG_BPM = 3
 READINESS_NIEDRIG = 40
-ERHOLUNGSZEIT_HOCH_H = 24
+ERHOLUNGSZEIT_HOCH_H = 24         # Garmins recoveryTime, in Stunden umgerechnet
 STRESS_HOCH = 50
 GARMIN_ACWR_HOCH = 1.3
 GEWICHTSVERLUST_PCT = 2.0
@@ -210,6 +375,18 @@ _KRITISCHE_TRAININGSSTATUS = {
     "STRAINED",
     "DETRAINING",
 }
+
+
+def erholung_stunden(minuten: int | None) -> float | None:
+    """Garmins `recoveryTime` (Minuten) als Stunden.
+
+    An genau einer Stelle, weil Export, Auffälligkeiten und Oberfläche sonst
+    drei Rundungen zeigten. Auf halbe Stunden genau — Garmin selbst zeigt in
+    Connect nichts Feineres, und eine Nachkommastelle täuschte Genauigkeit vor.
+    """
+    if minuten is None:
+        return None
+    return round(minuten / 60, 1)
 
 
 def _mittel(werte: list[float]) -> float | None:
@@ -308,10 +485,9 @@ def wellness_auffaelligkeiten(tage: list[Any], heute: date) -> list[str]:
             f"Garmins Trainingsreife steht bei {juengster.readiness_score} von 100."
         )
 
-    if juengster.recovery_time_h and juengster.recovery_time_h > ERHOLUNGSZEIT_HOCH_H:
-        hinweise.append(
-            f"Garmin veranschlagt noch {juengster.recovery_time_h} Stunden Erholung."
-        )
+    erholung = erholung_stunden(juengster.recovery_time_min)
+    if erholung and erholung > ERHOLUNGSZEIT_HOCH_H:
+        hinweise.append(f"Garmin veranschlagt noch {erholung} Stunden Erholung.")
 
     status = (juengster.training_status_feedback or juengster.training_status or "").upper()
     if any(kritisch in status for kritisch in _KRITISCHE_TRAININGSSTATUS):
@@ -349,9 +525,16 @@ def wellness_auffaelligkeiten(tage: list[Any], heute: date) -> list[str]:
 
 
 def compliance(plan_sessions: list[Any], logs: list[Any]) -> dict[str, Any]:
-    """Wie viel des geplanten Trainings wurde tatsächlich umgesetzt?"""
+    """Wie viel des geplanten Trainings wurde tatsächlich umgesetzt?
+
+    Fällig ist nur, was *vor* heute lag. Der heutige Tag ist noch nicht vorbei:
+    Die Einheit von heute Abend als versäumt zu zählen, drückt die Quote genau
+    dann, wenn der Block frisch ist — an einem zwei Tage alten Block wurden aus
+    2 von 2 umgesetzten Einheiten so 33 %. Der Prompt liest eine niedrige Quote
+    als Auftrag, kleiner zu planen.
+    """
     logged_ids = {lg.plan_session_id for lg in logs if lg.plan_session_id}
-    past = [s for s in plan_sessions if s.date <= date.today() and s.sport != "rest"]
+    past = [s for s in plan_sessions if s.date < date.today() and s.sport != "rest"]
     if not past:
         return {"planned_past": 0, "logged": 0, "rate_pct": None}
 

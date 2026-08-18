@@ -203,6 +203,8 @@ export interface SessionLog {
 export interface WeeklyBucket {
   week_start: string
   week_end: string
+  /** Ganze Woche und vorbei? Die laufende und die angeschnittene älteste sind es nie. */
+  ist_vollstaendig: boolean
   sessions: number
   total_minutes: number
   total_km: number
@@ -340,7 +342,8 @@ export interface WellnessDay {
   readiness_score: number | null
   readiness_level: string | null
   readiness_feedback: string | null
-  recovery_time_h: number | null
+  /** Garmins `recoveryTime` — Minuten, nicht Stunden. */
+  recovery_time_min: number | null
   training_status: string | null
   training_status_feedback: string | null
   weekly_training_load: number | null

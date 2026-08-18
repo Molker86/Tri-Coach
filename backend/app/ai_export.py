@@ -22,13 +22,19 @@ from sqlalchemy.orm import Session, selectinload
 from .models import AthleteProfile, Plan, SessionLog, TrainingRequest, User, WellnessDay
 from .schemas import WEEKDAYS
 from .sportscience import (
+    PACE_ZONEN_ANTEIL_LAUF,
+    PACE_ZONEN_ANTEIL_SCHWIMM,
     acute_chronic_ratio,
     banister_trimp,
     calc_age,
     calc_bmi,
     compliance,
+    erholung_stunden,
     estimate_max_hr,
     hr_zones,
+    letzte_volle_woche,
+    pace_zones,
+    power_zones,
     weekly_summary,
     wellness_auffaelligkeiten,
     wellness_mittelwerte,
@@ -105,15 +111,28 @@ def _athlete_block(profile: AthleteProfile | None) -> dict[str, Any]:
     }
 
 
-def _request_block(req: TrainingRequest | None) -> dict[str, Any]:
+def _request_block(req: TrainingRequest | None, heute: date) -> dict[str, Any]:
     if req is None:
         return {}
+
+    # Punkt 5 verlangt "je näher der Wettkampf, desto spezifischer" — bisher
+    # stand dort nur das Datum, und die Wochen daraus auszurechnen ist genau
+    # die Sorte Aufgabe, an der Sprachmodelle scheitern.
+    wochen_bis = None
+    if req.race_date:
+        wochen_bis = round((req.race_date - heute).days / 7, 1)
+
     return {
+        # Wann der Fragebogen ausgefüllt wurde. Ein halbes Jahr alter Wunsch
+        # sah im Payload aus wie ein frischer; Zeitbudget und verfügbare Tage
+        # sind aber genau die Angaben, die veralten.
+        "ausgefuellt_am": req.created_at.date().isoformat() if req.created_at else None,
         "disziplin": DISCIPLINE_LABEL.get(req.discipline, req.discipline),
         "disziplin_key": req.discipline,
         "ziel": req.goal_type,
         "ziel_beschreibung": req.goal_text,
         "wettkampfdatum": req.race_date.isoformat() if req.race_date else None,
+        "wochen_bis_wettkampf": wochen_bis,
         "wettkampfdistanz": req.race_distance,
         "verfuegbare_tage": req.available_days,
         "sportart_je_tag": req.day_sport_map,
@@ -131,6 +150,11 @@ def _days_since_by_sport(logs: list[SessionLog], today: date) -> dict[str, int]:
 
     Für einen Block über wenige Tage die wichtigste Steuergröße: Sie entscheidet,
     welche Disziplin drankommt, wenn nicht alle hineinpassen.
+
+    Bewusst über die **ganze** Historie und nicht über das Vierwochenfenster:
+    Eine Sportart, die länger ruht als das Fenster reicht, verschwand sonst aus
+    dem Ergebnis — ausgerechnet die, die Punkt 8 des Prompts vorziehen soll.
+    Fehlt ein Schlüssel jetzt, hat es die Sportart wirklich nie gegeben.
     """
     latest: dict[str, date] = {}
     for lg in logs:
@@ -142,7 +166,12 @@ def _days_since_by_sport(logs: list[SessionLog], today: date) -> dict[str, int]:
 
 
 def _days_since_hard_session(logs: list[SessionLog], today: date) -> int | None:
-    """Abstand zur letzten intensiven Einheit — für die 48-h-Regel am Blockanfang."""
+    """Abstand zur letzten intensiven Einheit — für die 48-h-Regel am Blockanfang.
+
+    Ebenfalls über die ganze Historie: Im Vierwochenfenster hieß `None` sowohl
+    "seit über vier Wochen nichts Hartes" als auch "keine Daten", und die
+    48-h-Regel hängt genau an dieser Zahl.
+    """
     hard = [
         lg.date
         for lg in logs
@@ -159,12 +188,52 @@ def _pace_with_unit(sport: str, value: str | None) -> str | None:
     return value if unit in value else f"{value} {unit}"
 
 
+def _ist_einheit(lg: SessionLog) -> bool:
+    """Trägt der Eintrag überhaupt ein Training?
+
+    Garmin liefert gelegentlich Aktivitäten ohne Dauer und ohne Strecke — ein
+    versehentlich gestarteter und sofort beendeter Timer. Als Einheit gezählt
+    heben sie die Wochenzahl, setzen `tage_seit_letzter_einheit_je_sportart`
+    auf 0 und behaupten damit ein Training, das nie stattgefunden hat.
+    """
+    return bool(lg.duration_min) or bool(lg.distance_km)
+
+
+def _geplant_war(lg: SessionLog) -> dict[str, Any] | None:
+    """Der Aufbau, der zu dieser absolvierten Einheit geplant war.
+
+    Ohne ihn sieht die KI von einem Intervalltraining nur "29 min, 4,4 km,
+    HF 150" und kann es nicht fortschreiben — aus 5x1000 m wird nie 6x1000 m,
+    weil die 5x1000 m nirgends stehen. Die Verknüpfung legt der Abgleich über
+    Tag und Sportart an (`garmin/matching.py`), der Aufbau liegt also vor; er
+    wurde nur nie exportiert.
+
+    `None`, wo keine Planeinheit hängt: Ein spontanes Training hatte keine
+    Vorgabe, und eine leere Hülle sähe aus wie eine verfehlte.
+    """
+    ps = lg.plan_session
+    if ps is None:
+        return None
+    geplant = {
+        "titel": ps.title,
+        "typ": ps.session_type,
+        "aufbau": ps.structure,
+        "dauer_min": ps.duration_min,
+        "distanz_km": ps.distance_km,
+    }
+    return {k: v for k, v in geplant.items() if v is not None}
+
+
 def _history_block(
     logs: list[SessionLog], profile: AthleteProfile | None, plan: Plan | None
 ) -> dict[str, Any]:
     today = date.today()
     cutoff = today - timedelta(weeks=HISTORY_WEEKS)
-    recent = [lg for lg in logs if lg.date >= cutoff]
+    # Einmal gefiltert, damit Einheitenliste, Wochenübersicht, ACWR und die
+    # Abstände dieselbe Menge sehen. Zwei Zählweisen nebeneinander waren genau
+    # der Fehler, den die Wochenübersicht schon hatte.
+    echte = [lg for lg in logs if _ist_einheit(lg)]
+    recent = [lg for lg in echte if lg.date >= cutoff]
     recent.sort(key=lambda lg: lg.date)
 
     max_hr = profile.max_hr if profile else None
@@ -175,6 +244,10 @@ def _history_block(
     for lg in recent:
         eintrag = {
             "datum": lg.date.isoformat(),
+            # Ohne den Wochentag müsste die KI ihn aus dem Datum rechnen, um
+            # ein Muster wie "samstags lang" zu erkennen — Datumsarithmetik ist
+            # das Unzuverlässigste, was ein Sprachmodell tut.
+            "wochentag": WEEKDAYS[lg.date.weekday()],
             "sportart": lg.sport,
             "status": lg.status,
             "dauer_min": lg.duration_min,
@@ -186,14 +259,13 @@ def _history_block(
             "trittfrequenz": lg.avg_cadence,
             "hoehenmeter": lg.elevation_gain_m,
             "rpe_1_10": lg.rpe,
-            # Meistens geschätzt. Die Quelle steht dabei, damit die KI weiß, wie
-            # belastbar die Zahl ist — "athlet" ist seine eigene Bewertung aus
-            # Garmin Connect und damit die härteste Aussage zur Anstrengung.
-            "rpe_quelle": lg.rpe_source,
             "quelle": "garmin" if lg.source == "garmin" else "manuell",
-            "garmin_trainingslast": lg.garmin_training_load,
-            "trainingseffekt_aerob": lg.garmin_aerobic_te,
-            "trainingseffekt_anaerob": lg.garmin_anaerobic_te,
+            # Garmin gibt die Werte mit voller Fließkommabreite zurück
+            # (57.09089660644531). Ungerundet sind sie Scheingenauigkeit und
+            # kosten über dreißig Einheiten spürbar Platz im Prompt.
+            "garmin_trainingslast": _gerundet(lg.garmin_training_load),
+            "trainingseffekt_aerob": _gerundet(lg.garmin_aerobic_te),
+            "trainingseffekt_anaerob": _gerundet(lg.garmin_anaerobic_te),
             # Muskelkater, Schlaf und Morgenpuls je Einheit gibt es nicht mehr —
             # sie kamen aus dem Erfassungsformular. Denselben Zustand beschreibt
             # der `fitnessdaten`-Block, gemessen statt erinnert und für jeden
@@ -211,16 +283,49 @@ def _history_block(
         if lg.garmin_feel is not None:
             eintrag["befinden_0_10"] = lg.garmin_feel
 
+        # Die Quelle nur, wo es auch einen Wert gibt. Ohne RPE stand dort der
+        # Spaltenvorgabewert "manual" — an einer Einheit aus Garmin, für die
+        # `schaetze_rpe` nichts hergab. Punkt 11 erklärt der KI, `rpe_quelle`
+        # nenne die Schätzgrundlage; "manual" ohne Zahl war dort ein
+        # Widerspruch.
+        if lg.rpe is not None:
+            eintrag["rpe_quelle"] = lg.rpe_source
+
+        if (geplant := _geplant_war(lg)) is not None:
+            eintrag["geplant_war"] = geplant
+
         sessions.append(eintrag)
 
     weekly = weekly_summary(recent, weeks=HISTORY_WEEKS)
+    volle = letzte_volle_woche(weekly)
 
     block: dict[str, Any] = {
         "zeitraum": f"letzte {HISTORY_WEEKS} Wochen",
         "wochenuebersicht": weekly,
-        "acute_chronic_workload_ratio": acute_chronic_ratio(weekly),
-        "tage_seit_letzter_einheit_je_sportart": _days_since_by_sport(recent, today),
-        "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(recent, today),
+        # Der Bezugspunkt für die Aufbauregel, ausdrücklich benannt. Der letzte
+        # Eintrag der Übersicht ist die *laufende* Woche und an einem Dienstag
+        # zwei Tage lang — "10 % über der letzten Woche" hieß dann 10 % über
+        # zwei Tagen.
+        "letzte_volle_woche": (
+            None
+            if volle is None
+            else {
+                "week_start": volle["week_start"],
+                "week_end": volle["week_end"],
+                "total_minutes": volle["total_minutes"],
+                "total_srpe_load": volle["total_srpe_load"],
+                "total_garmin_load": volle["total_garmin_load"],
+                "sessions": volle["sessions"],
+            }
+        ),
+        # Rollierend über die Rohdaten, nicht über die Kalenderwochen: Sonst
+        # stünde die angebrochene Woche als Akutlast gegen einen vollen
+        # Vierwochenschnitt.
+        "acute_chronic_workload_ratio": acute_chronic_ratio(
+            recent, today, weeks=HISTORY_WEEKS
+        ),
+        "tage_seit_letzter_einheit_je_sportart": _days_since_by_sport(echte, today),
+        "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(echte, today),
         "einheiten": sessions,
     }
 
@@ -274,6 +379,10 @@ def _ersatz_block(plan: Plan | None, start: date) -> dict[str, Any] | None:
             if s.sport != "rest"
         ],
     }
+
+
+def _gerundet(wert: float | None, stellen: int = 1) -> float | None:
+    return None if wert is None else round(wert, stellen)
 
 
 def _stunden(sekunden: int | None) -> float | None:
@@ -346,7 +455,9 @@ def _fitness_block(
             "score_0_100": wert("readiness_score"),
             "stufe": wert("readiness_level"),
             "hinweis": wert("readiness_feedback"),
-            "erholungszeit_h": wert("recovery_time_h"),
+            # Garmin liefert Minuten; hier stehen Stunden, weil der Prompt in
+            # Stunden argumentiert. Ungerechnet stand dort "911 Stunden".
+            "erholungszeit_h": erholung_stunden(wert("recovery_time_min")),
         },
         "training_status": {
             "status": wert("training_status_feedback"),
@@ -356,6 +467,20 @@ def _fitness_block(
             "akutlast": wert("garmin_load_acute"),
             "chronische_last": wert("garmin_load_chronic"),
         },
+    }
+
+    # Ein Teilblock, in dem *jeder* Wert fehlt, ist keine Messung mit leeren
+    # Feldern, sondern eine, die es nicht gibt. Als
+    # `{"hoechstwert": null, "tiefstwert": null}` sähe das aus wie ein Gerät, das
+    # Null misst; dieselbe Überlegung wie beim `fitnessdaten`-Block selbst und
+    # bei `befinden_0_10`. Einzelne Nullwerte neben belegten Geschwistern
+    # bleiben stehen — dort ist "nicht gemessen" die naheliegende Lesart.
+    # Die Körperbatterie war hier lange der Dauerfall; das lag aber am
+    # Lesefehler in `sync._body_battery_werte`, nicht an der Abfrage.
+    aktuell = {
+        schluessel: wert_
+        for schluessel, wert_ in aktuell.items()
+        if not (isinstance(wert_, dict) and not any(v is not None for v in wert_.values()))
     }
 
     return {
@@ -372,7 +497,7 @@ def _fitness_block(
                 "hrv_status": tag.hrv_status,
                 "ruhepuls": tag.resting_hr,
                 "trainingsreife": tag.readiness_score,
-                "erholungszeit_h": tag.recovery_time_h,
+                "erholungszeit_h": erholung_stunden(tag.recovery_time_min),
                 "stress": tag.stress_avg,
                 "koerperbatterie_hoch": tag.body_battery_high,
                 "gewicht_kg": tag.weight_kg,
@@ -435,7 +560,7 @@ def build_payload(
         "erzeugt_am": date.today().isoformat(),
         "athlet": _athlete_block(profile),
         "herzfrequenzzonen": zones,
-        "trainingswunsch": _request_block(request),
+        "trainingswunsch": _request_block(request, date.today()),
         "trainingshistorie": _history_block(logs, profile, plan),
         "planungszeitraum": zeitraum,
     }
@@ -444,6 +569,26 @@ def build_payload(
     # Regeln zu einem Block, der leer ist — und die KI erfände sich Werte dazu.
     if fitness is not None:
         payload["fitnessdaten"] = fitness
+
+    # Nur aufnehmen, was sich aus einem hinterlegten Schwellenwert rechnen
+    # lässt. Punkt 10 verlangt `target_power` und `target_pace`; ohne Korridore
+    # leitete die KI sie aus der nackten FTP oder aus Bestzeiten ab, also aus
+    # Wettkampftempo statt aus der Trainingsschwelle. Fehlt der Anker, fehlt
+    # der Schlüssel — geschätzt wird nichts.
+    if leistung := power_zones(profile.ftp_watts if profile else None):
+        payload["leistungszonen"] = leistung
+    if lauf := pace_zones(
+        profile.threshold_pace_run if profile else None,
+        PACE_ZONEN_ANTEIL_LAUF,
+        "min/km",
+    ):
+        payload["tempozonen_laufen"] = lauf
+    if schwimm := pace_zones(
+        profile.css_swim if profile else None,
+        PACE_ZONEN_ANTEIL_SCHWIMM,
+        "min/100m",
+    ):
+        payload["tempozonen_schwimmen"] = schwimm
 
     return payload
 
@@ -524,9 +669,13 @@ nicht einen vollständigen Trainingszyklus.{ersatzhinweis}
 
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und \
-`acute_chronic_workload_ratio` zeigen, wie viel zuletzt trainiert wurde. Eine ACWR \
+`acute_chronic_workload_ratio` (rollierende 7 Tage gegen den rollierenden \
+4-Wochen-Schnitt) zeigen, wie viel zuletzt trainiert wurde. Eine ACWR \
 über 1.3 oder ein hohes RPE bei gleicher Leistung heißt: in diesem Block \
-zurücknehmen. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, \
+zurücknehmen. Vergleiche Wochen **nur** über `ist_vollstaendig: true` — der \
+letzte Eintrag der `wochenuebersicht` ist die laufende, angebrochene Woche und \
+sieht deshalb immer nach einem Einbruch aus. Der Maßstab steht als \
+`letzte_volle_woche` gesondert dabei. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, \
 sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene \
 Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht \
 umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
@@ -542,8 +691,8 @@ Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlä
 6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 sind Bremsen \
 — sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block \
 enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine lange \
-Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber der letzten Woche \
-in `wochenuebersicht` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, \
+Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber \
+`trainingshistorie.letzte_volle_woche` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, \
 obwohl Erholungslage und ACWR ihn nicht verlangen, verschenkt die Zeit. Bei den Zielen \
 "Standardplan", "Aufbau", "Bestzeit" und "Wettkampfvorbereitung" ist ein solcher Reiz \
 Pflicht — dort geht es um Leistungssteigerung über mehrere Blöcke hinweg. Sieh in \
@@ -582,7 +731,13 @@ durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deut
 auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
 Bewegungsanimation zur Übung erscheint.
 10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
-aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Gilt eine \
+aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
+`tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den \
+gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile \
+anzusetzen: Aus denselben Korridoren baut die App anschließend das Workout für die Uhr. \
+Fehlt ein Zonenblock, ist der zugehörige Schwellenwert nicht hinterlegt; leite die \
+Vorgabe dann aus Pace und `hf_schnitt` vergleichbarer Einheiten in \
+`trainingshistorie.einheiten` ab und **erfinde keinen Schwellenwert**. Gilt eine \
 Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu \
 füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an \
 `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
@@ -605,6 +760,14 @@ Umgekehrt trägt ein hohes Befinden bei moderatem RPE den Aufbau aus Punkt 6. \
 Einheit, sondern heißt nur, dass der Athlet nichts eingetragen hat — bewerte niemals ihr \
 Fehlen, leite daraus nichts ab und schließe von einer einzelnen Bewertung nicht auf die \
 übrigen Einheiten.
+12. **Fortschreiben statt neu erfinden**: Trägt eine Einheit in der Historie ein \
+`geplant_war`, stand sie als Vorgabe in einem früheren Block — dort steht ihr `aufbau`, \
+also die Serien, Längen und Pausen, die der Athlet tatsächlich absolviert hat. Nutze \
+das, um einen Reiz **um eine Stufe** weiterzuentwickeln (eine Wiederholung mehr, eine \
+Minute länger, ein Korridor enger), statt eine unverbundene neue Einheit danebenzustellen. \
+Weicht die absolvierte Dauer deutlich von der geplanten ab, war die Vorgabe zu \
+ambitioniert: Plane die nächste näher an dem, was wirklich stattgefunden hat. Einheiten \
+ohne `geplant_war` waren spontan und sagen nichts über die Umsetzung einer Vorgabe.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
@@ -761,7 +924,14 @@ def erzeuge_export(
             .first()
         )
 
-    logs = db.query(SessionLog).filter(SessionLog.user_id == user.id).all()
+    # `plan_session` wird je Einheit gelesen (`_geplant_war`): ohne Eager
+    # Loading eine Abfrage pro Einheit.
+    logs = (
+        db.query(SessionLog)
+        .options(selectinload(SessionLog.plan_session))
+        .filter(SessionLog.user_id == user.id)
+        .all()
+    )
 
     plan = (
         db.query(Plan)
