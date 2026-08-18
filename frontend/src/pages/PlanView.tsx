@@ -810,6 +810,11 @@ function SessionDetail({
     <Modal title={session.title} onClose={onClose}>
       <div className="row mb-1">
         <span className="badge">{sportIcon(session.sport)} {sportLabel(session.sport)}</span>
+        {session.sport === 'swim' && session.swim_location && (
+          <span className="badge">
+            {session.swim_location === 'open_water' ? '🌊 Freiwasser' : '🏊 Becken'}
+          </span>
+        )}
         <span className="badge">{sessionTypeLabel(session.session_type)}</span>
         {session.intensity_zone && (
           <span

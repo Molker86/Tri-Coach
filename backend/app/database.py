@@ -99,6 +99,13 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "plan_sessions": {
         "angepasst_am": "DATETIME",
         "anpassungswunsch": "TEXT",
+        # Becken oder Freiwasser. Bleibt an bestehenden Einheiten leer; die
+        # werden wie bisher als Beckentraining behandelt, sofern nicht der
+        # Rückfall in `workouts.schwimmort()` etwas anderes erkennt.
+        "swim_location": "VARCHAR(16)",
+        # Der Bauplan der KI. Bleibt an bestehenden Einheiten leer — die
+        # werden weiter aus ihrem Fließtext zerlegt.
+        "steps_json": "JSON",
     },
     # Dieselbe Anpassung als Lauf: welche Einheit, mit welchem Wunsch.
     "ai_jobs": {

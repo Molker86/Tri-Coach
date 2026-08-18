@@ -264,6 +264,15 @@ SYNONYME: dict[str, str] = {
     "huftbeugerdehnung": "Lunging Hip Flexor Stretch",
     "huftbeuger ausfallschritt": "Lunging Hip Flexor Stretch",
     "huftbeugerdehnung im ausfallschritt": "Lunging Hip Flexor Stretch",
+    # Den bloßen Namen führt der Katalog nicht — er kennt die Dehnung nur im
+    # Ausfallschritt und die Kombination mit dem Quadrizeps. Gemeint ist beide
+    # Male dieselbe Bewegung, und der Plan schreibt sie so, wie sie hier steht:
+    # aus einem echten Block, wo „Hip Flexor Stretch" in der Klammer stand und
+    # deshalb ohne Animation blieb. Zugeordnet wird dieselbe Übung wie beim
+    # deutschen Namen darüber — zwei Schreibweisen desselben Begriffs dürfen
+    # nicht auf zwei Animationen zeigen.
+    "hip flexor stretch": "Lunging Hip Flexor Stretch",
+    "hueftbeugerdehnung": "Lunging Hip Flexor Stretch",
     "hamstringdehnung": "Hamstring Stretch",
     "beinruckseitendehnung": "Hamstring Stretch",
     "dehnung ruckseite oberschenkel": "Hamstring Stretch",
@@ -287,6 +296,12 @@ SYNONYME: dict[str, str] = {
     "tractusdehnung": "Standing IT Band Stretch",
     "tractus": "Standing IT Band Stretch",
     "it band": "Standing IT Band Stretch",
+    # „Supine" ist die Rückenlage, die der Katalog „Lying" nennt. Ohne den
+    # Eintrag blieb „Supine Spinal Twist" aus einem echten Mobility-Block ohne
+    # Animation, während „Lying Spinal Twist" trifft.
+    "supine spinal twist": "Lying Spinal Twist Stretch",
+    "wirbelsaulendrehung im liegen": "Lying Spinal Twist Stretch",
+    "liegende wirbelsaulendrehung": "Lying Spinal Twist Stretch",
     "schmetterling": "Butterfly Stretch",
     "schmetterlingsdehnung": "Butterfly Stretch",
     "huftoffner": "90/90 Stretch",

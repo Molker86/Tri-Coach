@@ -141,6 +141,19 @@ def _week_number(day: date, start: date) -> int:
     return max(1, (day - start).days // 7 + 1)
 
 
+def _schritte_json(session: Any) -> list[dict[str, Any]] | None:
+    """Der Bauplan als schlichtes JSON — oder `None`, wenn keiner kam.
+
+    `None` statt einer leeren Liste, weil beides Verschiedenes heißt: Kein
+    Bauplan bedeutet „zerlege den Fließtext wie bisher", eine leere Liste
+    bedeutete „diese Einheit hat keine Schritte".
+    """
+    schritte = getattr(session, "steps", None)
+    if not schritte:
+        return None
+    return [schritt.model_dump(mode="json") for schritt in schritte]
+
+
 def build_plan(
     body: AIPlanBody, user_id: int, request_id: int | None = None
 ) -> Plan:
@@ -184,6 +197,8 @@ def build_plan(
                     target_pace=session.target_pace,
                     target_power=session.target_power,
                     rpe_target=session.rpe_target,
+                    swim_location=session.swim_location,
+                    steps_json=_schritte_json(session),
                 )
             )
 
@@ -247,6 +262,26 @@ def validate_coverage(
             f"Unbrauchbare Steuerungsgröße verworfen: {shown}{suffix}. Der Wert "
             "fehlt an diesen Einheiten; ein verworfener Zielpuls heißt außerdem, "
             "dass sie ohne Herzfrequenzkorridor auf die Uhr gehen."
+        )
+
+    # Fehlt der Bauplan, ist der Block trotzdem gut — er geht dann über den
+    # Fließtext auf die Uhr, so wie vor der Einführung des Feldes. Gemeldet
+    # wird es aber: Sonst fiele nie auf, dass der zweite Kanal nicht trägt,
+    # und die Zerlegung bliebe stillschweigend der einzige Weg.
+    ohne_bauplan = [
+        f"„{einheit.title}“"
+        for tag in body.days
+        for einheit in tag.sessions
+        if einheit.sport != "rest" and not einheit.steps
+    ]
+    if ohne_bauplan:
+        shown = ", ".join(ohne_bauplan[:3])
+        suffix = f" (und {len(ohne_bauplan) - 3} weitere)" if len(ohne_bauplan) > 3 else ""
+        warnings.append(
+            f"Ohne Schrittliste geliefert: {shown}{suffix}. Diese Einheiten "
+            "werden für die Uhr aus ihrem Aufbautext zerlegt — das ist der "
+            "bisherige Weg und funktioniert, trifft den Aufbau aber nicht so "
+            "sicher wie eine Schrittliste."
         )
 
     return warnings
@@ -408,6 +443,12 @@ def pruefe_einheit(body: AIEinheitBody) -> list[str]:
             "ohne Herzfrequenzkorridor auf die Uhr geht."
         )
 
+    if einheit.sport != "rest" and not einheit.steps:
+        warnings.append(
+            "Die angepasste Einheit kam ohne Schrittliste. Sie wird für die "
+            "Uhr aus ihrem Aufbautext zerlegt."
+        )
+
     # Ohne Dauer hat das Workout auf der Uhr keinen Anhaltspunkt für seine
     # Länge — `garmin/workouts.py` baut den Ersatzschritt über `duration_min`.
     if einheit.sport != "rest" and not einheit.duration_min:
@@ -465,6 +506,8 @@ def uebernimm_einheit(
     session.target_pace = neu.target_pace
     session.target_power = neu.target_power
     session.rpe_target = neu.rpe_target
+    session.swim_location = neu.swim_location
+    session.steps_json = _schritte_json(neu)
     session.angepasst_am = jetzt_utc()
     session.anpassungswunsch = wunsch
 

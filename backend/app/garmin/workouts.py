@@ -73,9 +73,48 @@ UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
 # Bahnlänge für Schwimm-Workouts. Garmin verlangt sie am Workout; die App fragt
 # sie nirgends ab, und 25 m ist das, was in Deutschland im Hallenbad liegt. Wer
 # im 50-m-Becken schwimmt, sieht auf der Uhr dieselben Strecken, nur anders in
-# Bahnen umgerechnet.
+# Bahnen umgerechnet. Sie gilt **nur im Becken**: Im Freiwasser gibt es keine
+# Bahn, und eine trotzdem gesetzte Länge macht aus der Einheit ein
+# Beckentraining.
 POOL_LAENGE_M = 25.0
 _POOL_EINHEIT = {"unitId": 1, "unitKey": "meter", "factor": 100.0}
+
+# Wörter, an denen eine Freiwassereinheit auch ohne das Feld `swim_location` zu
+# erkennen ist. Der Rückfall ist Absicht: Das Feld gibt es erst seit dieser
+# Änderung, in der Datenbank stehen Blöcke ohne es, und über die Zwischenablage
+# antwortet womöglich eine KI, die den Prompt nicht kennt.
+#
+# **Gesucht wird allein im Titel** — und das ist an einem echten Plan gelernt.
+# Über Beschreibung, Zweck und Aufbau gelesen kippte „Ruhiges Schwimmen mit
+# Orientierungsblick" ins Freiwasser, weil in der Beschreibung „Orientierungsblick
+# fürs Freiwasser" stand: eine Beckeneinheit (4x50 m, 4x150 m, 20 s Pause), die
+# eine Freiwasserfertigkeit *übt*. Genau so steht das Wort dort meistens — als
+# Zweck, nicht als Ort. Der Titel dagegen benennt die Einheit selbst.
+_FREIWASSER_WOERTER = (
+    "freiwasser",
+    "open water",
+    "open-water",
+    "openwater",
+    "im see",
+    "seeschwimmen",
+)
+
+
+def schwimmort(session: Any) -> str:
+    """`pool` oder `open_water` — die Angabe der KI vor dem Wortlaut.
+
+    Ohne Angabe und ohne Hinweis im Titel bleibt es beim Becken: Das war schon
+    immer die Annahme, und sie einseitig zu lassen hält den Rückfall davon ab,
+    aus einer Beckeneinheit eine Seerunde zu machen.
+    """
+    gesetzt = getattr(session, "swim_location", None)
+    if gesetzt in ("pool", "open_water"):
+        return str(gesetzt)
+
+    titel = str(getattr(session, "title", "") or "").lower()
+    if any(wort in titel for wort in _FREIWASSER_WOERTER):
+        return "open_water"
+    return "pool"
 
 # Vier Felder, die Garmins *eigene* Übungsworkouts an jedem Schritt tragen und
 # die dem unseren fehlten (abgelesen an „Ganzkörper-Mobilitäts-Warm-up“,
@@ -597,6 +636,121 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
 # 4 s exzentrisch abgesenkt“ ist eine Übung mit Zusatz) und nicht das „mit“ aus
 # `_TEIL_TRENNER` („Monster Walks mit Band“ wäre sonst zweigeteilt).
 _UEBUNG_TRENNER = re.compile(r"\s+/\s+|[\n;·•]|\s+\|\s+")
+
+
+def aus_schrittliste(schritte: Any, sport: str) -> list[Element]:
+    """Der Bauplan der KI als Elemente — ohne Grammatik dazwischen.
+
+    Der zweite Kanal neben `zerlege_struktur()`. Dort wird aus Prosa
+    zurückgerechnet, was die KI ohnehin wusste; hier steht es da. Jede
+    Sonderregel des Zerlegers entstand, weil ein echter Plan anders formuliert
+    war als erwartet — die Serie hinter dem Schrägstrich, die Pause hinter dem
+    Komma, „Trudeln" als Pausenwort, die still verschwundene Variantenzeile.
+    Ein Sprachmodell hat unbegrenzte Formulierungsfreiheit, also kann diese
+    Grammatik nie fertig sein. Ein Feld dagegen schon.
+
+    Was hier **nicht** passiert, ist so wichtig wie das, was passiert: Keine
+    Ableitung der Schrittart aus dem Wortlaut, keine Regel „der zweite Teil
+    eines Paars ist die Pause", kein Erraten des Umfangs. Die KI sagt es, und
+    was sie nicht sagt, bleibt leer.
+
+    Nicht deutbare Einträge fallen weg, nicht der ganze Block — dieselbe Linie
+    wie beim Import. Bleibt am Ende nichts übrig, ist das die Antwort „kein
+    Bauplan", und `baue_workout()` nimmt den Fließtext.
+    """
+    if not isinstance(schritte, list):
+        return []
+
+    elemente: list[Element] = []
+    for eintrag in schritte:
+        element = _element_aus_eintrag(eintrag, sport)
+        if element is not None:
+            elemente.append(element)
+    return elemente
+
+
+def _element_aus_eintrag(eintrag: Any, sport: str) -> Element | None:
+    if not isinstance(eintrag, dict):
+        return None
+
+    kinder = eintrag.get("steps")
+    anzahl = eintrag.get("repeat")
+    if isinstance(anzahl, int) and anzahl >= 2 and isinstance(kinder, list):
+        # Eine Gruppe trägt nur Schritte, keine weitere Gruppe: Garmin
+        # verschachtelt `RepeatGroupDTO` nicht, und `_block_json` erwartet
+        # flache Kinder.
+        inhalt = [
+            schritt
+            for kind in kinder
+            if isinstance(schritt := _schritt_aus_eintrag(kind, sport), Schritt)
+        ]
+        if inhalt:
+            return Block(anzahl=anzahl, schritte=inhalt)
+        return None
+
+    return _schritt_aus_eintrag(eintrag, sport)
+
+
+def _schritt_aus_eintrag(eintrag: Any, sport: str) -> Schritt | None:
+    if not isinstance(eintrag, dict):
+        return None
+
+    dauer = _als_zahl(eintrag.get("duration_s"))
+    distanz = _als_zahl(eintrag.get("distance_m"))
+    wiederholungen = _als_zahl(eintrag.get("reps"))
+    text = str(eintrag.get("text") or "").strip()
+
+    # Ein Schritt ohne jedes Maß steuert die Uhr nicht. Bei Kraft und Mobility
+    # ist das zulässig — dort läuft er bis zur Rundentaste, so wie eine
+    # Übungszeile ohne Umfang. Sonst ist er unbrauchbar und fällt weg, statt
+    # als leerer Abschnitt im Workout zu stehen.
+    if dauer is None and distanz is None and wiederholungen is None:
+        if sport not in UEBUNGSSPORTARTEN:
+            return None
+
+    uebung = None
+    if sport in UEBUNGSSPORTARTEN:
+        # Der Name steht als eigenes Feld da und muss nicht mehr aus einer
+        # Zeile voller Beiwerk gefischt werden. Fehlt er, greift der bisherige
+        # Weg über den Schritttext.
+        uebung = uebungen.finde(eintrag.get("exercise_en")) or uebungen.finde(text)
+
+    # `_schritt_json` schlägt die Art in `_SCHRITT_TYPEN` nach. Was dort nicht
+    # steht, ist Arbeit — die Angabe kommt aus einem JSON-Feld, und ein Tippfehler
+    # darf nicht das ganze Workout mitnehmen. „repeat" ist keine Schrittart,
+    # sondern die Gruppe darum.
+    art = str(eintrag.get("kind") or "interval")
+    if art not in _SCHRITT_TYPEN or art == "repeat":
+        art = "interval"
+
+    zone_von, zone_bis = _zonen_im_text(str(eintrag.get("zone") or ""))
+    return Schritt(
+        art=art,
+        dauer_s=dauer,
+        distanz_m=distanz,
+        wiederholungen=int(wiederholungen) if wiederholungen else None,
+        zone_von=zone_von,
+        zone_bis=zone_bis,
+        text=text,
+        # Die Angabe der KI vor dem Wortlaut: Bei der Koppeleinheit entscheidet
+        # sie, wo Garmin den Abschnitt wechselt.
+        sport=_koppelsport(eintrag, text) if sport == "brick" else None,
+        uebung=uebung,
+    )
+
+
+def _koppelsport(eintrag: dict[str, Any], text: str) -> str | None:
+    genannt = eintrag.get("sport")
+    if isinstance(genannt, str) and genannt in SPORT_ZU_GARMIN:
+        return genannt
+    return _sport_im_text(text)
+
+
+def _als_zahl(wert: Any) -> float | None:
+    """Nur echte, positive Zahlen — eine 0 ist hier kein Maß."""
+    if isinstance(wert, bool) or not isinstance(wert, (int, float)):
+        return None
+    return float(wert) if wert > 0 else None
 
 
 def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
@@ -1152,7 +1306,17 @@ def _ersatz_elemente(session: Any) -> list[Element]:
 
 
 def _beschreibung(session: Any, hinweis: str | None = None) -> str:
+    # Der Ort steht ganz vorn, weil er die Einheit verändert und nicht bloß
+    # schmückt: Die Uhr wählt ihren Aufzeichnungsmodus nicht selbst, und wer
+    # eine Freiwassereinheit im Beckenmodus startet, bekommt gezählte Bahnen
+    # statt gemessener Strecke.
+    ort = (
+        "Freiwasser — auf der Uhr im Freiwassermodus starten."
+        if session.sport == "swim" and schwimmort(session) == "open_water"
+        else None
+    )
     teile = [
+        ort,
         session.description,
         f"Aufbau: {session.structure}" if session.structure else None,
         f"Zweck: {session.purpose}" if session.purpose else None,
@@ -1218,7 +1382,17 @@ def baue_workout(
         if session.sport in UEBUNGSSPORTARTEN
         else zerlege_struktur
     )
-    elemente = zerlegen(session.structure) or _ersatz_elemente(session)
+    # Der Bauplan der KI vor dem Fließtext, der Fließtext vor dem Ersatzschritt.
+    # Die Reihenfolge ist die ganze Änderung: Was die KI ausdrücklich sagt,
+    # muss nicht aus ihrer Prosa zurückgerechnet werden. Der Zerleger bleibt
+    # trotzdem — für Blöcke aus der Zeit vor dem Feld, für Antworten fremder
+    # KIs über die Zwischenablage, und für den Fall, dass der Bauplan nichts
+    # Brauchbares enthält.
+    elemente = (
+        aus_schrittliste(getattr(session, "steps_json", None), session.sport)
+        or zerlegen(session.structure)
+        or _ersatz_elemente(session)
+    )
 
     hinweis: str | None = None
     if session.sport == "brick":
@@ -1267,7 +1441,19 @@ def baue_workout(
         "workoutSegments": segmente,
         "avgTrainingSpeed": None,
     }
-    if session.sport == "swim":
+    # Die Bahnlänge gehört ausschließlich ans Beckentraining. Sie stand hier
+    # einmal an *jeder* Schwimmeinheit, und damit ging auch die Freiwasserrunde
+    # als Beckentraining auf die Uhr: Dort werden dann Bahnen gezählt statt
+    # Strecke gemessen, und ein Workout „4x150 m mit 25 s Pause" meint im See
+    # etwas anderes als im Becken.
+    #
+    # Was im Freiwasser stattdessen mitgeht, ist bewusst wenig: kein geratener
+    # `subSportType`. Ob Garmin für Workouts überhaupt einen Freiwasser-Untertyp
+    # führt, ist nicht dokumentiert und spricht eher dagegen — und eine
+    # unbekannte Kennung quittiert der Dienst mit 400 für das *ganze* Workout,
+    # also auch für die Schritte, die in Ordnung sind. Geklärt wird das gegen
+    # ein echtes Konto (`scripts/garmin_freiwasser_probe.py`), nicht hier.
+    if session.sport == "swim" and schwimmort(session) == "pool":
         workout["poolLength"] = POOL_LAENGE_M
         workout["poolLengthUnit"] = dict(_POOL_EINHEIT)
     return workout

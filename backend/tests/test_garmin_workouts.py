@@ -39,6 +39,8 @@ def einheit(**abweichend):
         target_power=None,
         rpe_target=8,
         order_in_day=0,
+        swim_location=None,
+        steps_json=None,
     )
     felder.update(abweichend)
     return SimpleNamespace(**felder)
@@ -732,6 +734,65 @@ def test_schwimmeinheit_bekommt_bahnlaenge_und_zugart():
     assert plan["poolLength"] == workouts.POOL_LAENGE_M
     assert plan["sportType"]["sportTypeKey"] == "swimming"
     assert schritte(plan)[0]["strokeType"]["strokeTypeId"] == 0
+
+
+def test_freiwasser_bekommt_keine_bahnlaenge():
+    """Die Bahnlänge machte aus jeder Freiwasserrunde ein Beckentraining.
+
+    Im See gibt es keine Bahn: Die Uhr zählt dann Längen statt Strecke zu
+    messen, und das Workout misst etwas anderes, als der Plan meint.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="swim",
+            swim_location="open_water",
+            title="Freiwasser: Orientierung",
+            structure="400 m locker / 4x200 m zügig, 30 s Pause / 200 m ausschwimmen",
+        ),
+        zonen=ZONEN,
+    )
+    assert "poolLength" not in plan
+    assert "poolLengthUnit" not in plan
+    assert plan["sportType"]["sportTypeKey"] == "swimming"
+    # Die Uhr wählt den Modus nicht selbst — der Athlet muss ihn kennen.
+    assert plan["description"].startswith("Freiwasser")
+
+
+def test_schwimmort_faellt_auf_den_wortlaut_zurueck():
+    """Für Blöcke, die vor dem Feld entstanden sind, und für fremde KIs.
+
+    Anders als beim Zerlegen des Aufbautexts ist die Entscheidung binär und
+    das Wort eindeutig; ohne Hinweis bleibt es beim Becken.
+    """
+    ohne_feld = einheit(
+        sport="swim", swim_location=None, title="Freiwasser: Technik und Orientierung"
+    )
+    assert workouts.schwimmort(ohne_feld) == "open_water"
+    assert "poolLength" not in workouts.baue_workout(ohne_feld, zonen=ZONEN)
+
+    # Das Feld schlägt den Wortlaut: Wer „open_water" sagt, meint es auch.
+    assert workouts.schwimmort(einheit(sport="swim", swim_location="pool")) == "pool"
+    assert workouts.schwimmort(einheit(sport="swim", title="Lockeres Schwimmen")) == "pool"
+
+
+def test_freiwasser_im_zweck_macht_noch_keine_seerunde():
+    """Aus einem echten Plan: Die Beckeneinheit, die Freiwasser *übt*.
+
+    „Orientierungsblick fürs Freiwasser" stand in der Beschreibung einer
+    Einheit über 4x50 m und 4x150 m mit 20 s Pause — also im Becken. Über
+    Beschreibung und Zweck gelesen kippte der Rückfall sie ins Freiwasser und
+    nahm ihr die Bahnlänge.
+    """
+    beckeneinheit = einheit(
+        sport="swim",
+        swim_location=None,
+        title="Ruhiges Schwimmen mit Orientierungsblick",
+        description="… mit kurzen Technikanteilen und Orientierungsblick fürs Freiwasser.",
+        purpose="Freiwasser-Orientierung",
+        structure="200 m locker / 4x150 m gleichmäßig Z2, 25 s Pause / 100 m locker",
+    )
+    assert workouts.schwimmort(beckeneinheit) == "pool"
+    assert workouts.baue_workout(beckeneinheit, zonen=ZONEN)["poolLength"] == 25.0
 
 
 def test_koppeleinheit_wird_zu_zwei_abschnitten():
@@ -2198,3 +2259,192 @@ def test_der_tausch_laesst_umfang_und_ausfuehrungshinweis_unangetastet():
     # Ein Umlaut verrät den deutschen Nachsatz.
     assert folge[1]["exerciseName"] == "BODY_WEIGHT_WALL_SQUAT"
     assert folge[1]["description"] == "Wandsitz (Rücken flach an der Wand) 3x30 s"
+
+
+# --------------------------------------------------------------------------
+# Der Bauplan der KI (`steps`) — der zweite Weg neben dem Fließtext
+# --------------------------------------------------------------------------
+
+
+def test_bauplan_schlaegt_den_fliesstext():
+    """Beide Kanäle vorhanden: Was die KI ausdrücklich sagt, gewinnt.
+
+    Der Fließtext ist hier absichtlich ein Fall, an dem der Zerleger einmal
+    gescheitert ist — die Serie hinter dem Schrägstrich. Der Bauplan sagt
+    dieselbe Einheit ohne Grammatik dazwischen.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="run",
+            structure="15 min Einlaufen Z2 / 5x1000 m Z4, dazwischen 2 min traben / 10 min Auslaufen Z1",
+            steps_json=[
+                {"kind": "warmup", "duration_s": 900, "zone": "Z2", "text": "Einlaufen"},
+                {
+                    "repeat": 5,
+                    "steps": [
+                        {"kind": "interval", "distance_m": 1000, "zone": "Z4", "text": "zügig"},
+                        {"kind": "recovery", "duration_s": 120, "text": "Trabpause"},
+                    ],
+                },
+                {"kind": "cooldown", "duration_s": 600, "zone": "Z1", "text": "Auslaufen"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    abschnitte = schritte(plan)
+    assert [a.get("type") for a in abschnitte] == [
+        "ExecutableStepDTO",
+        "RepeatGroupDTO",
+        "ExecutableStepDTO",
+    ]
+    gruppe = abschnitte[1]
+    assert gruppe["numberOfIterations"] == 5
+    assert len(gruppe["workoutSteps"]) == 2
+    # Die Pause sagt sich selbst als Pause — nicht abgeleitet aus ihrer Position.
+    assert gruppe["workoutSteps"][1]["stepType"]["stepTypeKey"] == "recovery"
+    assert abschnitte[0]["stepType"]["stepTypeKey"] == "warmup"
+    assert abschnitte[2]["stepType"]["stepTypeKey"] == "cooldown"
+
+
+def test_ohne_bauplan_bleibt_es_beim_zerleger():
+    """Der Rückfall trägt die Blöcke, die vor dem Feld entstanden sind."""
+    mit_text = einheit(
+        sport="run",
+        steps_json=None,
+        structure="15 min Einlaufen Z2 / 5x1000 m Z4, dazwischen 2 min traben / 10 min Auslaufen Z1",
+    )
+    assert len(schritte(workouts.baue_workout(mit_text, zonen=ZONEN))) == 3
+
+
+def test_unbrauchbare_schritte_fallen_weg_statt_das_workout_zu_kippen():
+    """Dieselbe Linie wie beim Import: Warnung statt Ablehnung.
+
+    Ein Abschnitt ohne jedes Maß steuert die Uhr nicht — er fällt heraus, die
+    übrigen gehen durch. Bleibt gar nichts übrig, greift der Fließtext.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="run",
+            structure="40 min locker",
+            steps_json=[
+                {"kind": "warmup", "duration_s": 600, "text": "Einlaufen"},
+                {"kind": "interval", "text": "irgendwas ohne Maß"},
+                {"kind": "cooldown", "duration_s": 300, "text": "Auslaufen"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    assert len(schritte(plan)) == 2
+
+    # Nichts Brauchbares im Bauplan -> der Fließtext übernimmt.
+    leer = einheit(
+        sport="run", structure="40 min locker Z2", steps_json=[{"kind": "interval"}]
+    )
+    assert len(schritte(workouts.baue_workout(leer, zonen=ZONEN))) == 1
+
+
+def test_bauplan_nennt_die_uebung_beim_namen():
+    """`exercise_en` ersetzt das Herausfischen aus der Zeile.
+
+    Genau hier lagen die Fehlgriffe des Textwegs: „Lateral Band Walk" zog die
+    Animation eines Spaziergangs an sich, „Copenhagen Plank" die des
+    Unterarmstützes.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            structure="Seitstütz (Side Plank) 3x40 s je Seite",
+            steps_json=[
+                {
+                    "repeat": 3,
+                    "steps": [
+                        {
+                            "kind": "interval",
+                            "duration_s": 40,
+                            "text": "Side Plank",
+                            "exercise_en": "Side Plank",
+                        }
+                    ],
+                }
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    schritt = schritte(plan)[0]["workoutSteps"][0]
+    assert schritt["category"] == "PLANK"
+    assert "SIDE_PLANK" in schritt["exerciseName"]
+
+
+def test_bauplan_ueberlebt_den_weg_durch_den_import():
+    """Von der KI-Antwort bis zur Garmin-JSON, ohne Abkürzung.
+
+    Der Bauplan wandert durch drei Stationen — Pydantic, `steps_json` an der
+    Einheit, `baue_workout` —, und jede könnte ihn stillschweigend verlieren.
+    Genau das wäre der teuerste Fehler: Das Workout entstünde weiter aus dem
+    Fließtext, und niemandem fiele auf, dass der zweite Kanal gar nicht trägt.
+    """
+    from app.plan_import import _schritte_json, parse_ai_response
+
+    antwort = json.dumps({
+        "plan": {
+            "title": "Testblock",
+            "start_date": "2026-08-20",
+            "days": [{
+                "date": "2026-08-20",
+                "sessions": [{
+                    "sport": "Laufen",
+                    "type": "intervals",
+                    "title": "Schwellenintervalle",
+                    "structure": "15 min Einlaufen / 4x2000 m Z4, 3 min Pause / 10 min Auslaufen",
+                    "steps": [
+                        {"kind": "Einlaufen", "duration_s": 900, "zone": "Z2", "text": "Einlaufen"},
+                        {"repeat": 4, "steps": [
+                            {"kind": "work", "distance_m": 2000, "zone": "Z4", "text": "zügig"},
+                            {"kind": "Pause", "duration_s": 180, "text": "Trabpause"},
+                        ]},
+                        {"kind": "cooldown", "duration_s": 600, "zone": "Z1", "text": "Auslaufen"},
+                    ],
+                }],
+            }],
+        }
+    })
+
+    body = parse_ai_response(antwort)
+    ki_einheit = body.days[0].sessions[0]
+    # Die Sprachvarianten sind unterwegs normalisiert worden.
+    assert [s.kind for s in ki_einheit.steps] == ["warmup", "interval", "cooldown"]
+    assert [s.kind for s in ki_einheit.steps[1].steps] == ["interval", "recovery"]
+
+    gespeichert = _schritte_json(ki_einheit)
+    plan = workouts.baue_workout(
+        einheit(sport="run", structure=ki_einheit.structure, steps_json=gespeichert),
+        zonen=ZONEN,
+    )
+    abschnitte = schritte(plan)
+    assert abschnitte[1]["numberOfIterations"] == 4
+    assert abschnitte[1]["workoutSteps"][0]["endConditionValue"] == 2000
+    assert abschnitte[1]["workoutSteps"][1]["stepType"]["stepTypeKey"] == "recovery"
+
+
+def test_koppeleinheit_wird_im_bauplan_benannt_statt_geschaetzt():
+    """Der eine Fall, an dem der Textweg ausdrücklich schätzt.
+
+    Ohne erkennbare Teilung im Aufbautext fällt `_koppel_segmente` auf 2:1 für
+    Rad und Lauf zurück und weist das in der Beschreibung aus. Sagt der Bauplan
+    die Disziplin, wird nicht geschätzt.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="brick",
+            duration_min=90,
+            structure="Koppeleinheit",
+            steps_json=[
+                {"kind": "interval", "duration_s": 3600, "sport": "bike", "text": "Rad Z3"},
+                {"kind": "interval", "duration_s": 1200, "sport": "run", "text": "Antritt Z2"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    segmente = plan["workoutSegments"]
+    assert [s["sportType"]["sportTypeKey"] for s in segmente] == ["cycling", "running"]
+    assert "geschätzt" not in plan["description"]

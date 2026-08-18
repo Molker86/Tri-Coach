@@ -217,6 +217,20 @@ class PlanSession(Base):
     target_power: Mapped[str | None] = mapped_column(String(64))
     rpe_target: Mapped[int | None] = mapped_column(Integer)
 
+    # Becken oder Freiwasser. Nur bei `sport == "swim"` belegt und die einzige
+    # Angabe, die eine Schwimmeinheit sonst nirgends trägt: Aus Titel und
+    # Aufbau ist sie nicht sicher abzulesen, und ohne sie ging jede Einheit als
+    # Beckentraining auf die Uhr — samt Bahnlänge, die im See nichts zählt.
+    swim_location: Mapped[str | None] = mapped_column(String(16))
+
+    # Der Bauplan der Einheit, so wie die KI ihn geliefert hat: die Schrittliste
+    # aus `AIStepIn`. `structure` bleibt daneben stehen und ist der Text, den
+    # der Athlet liest — hier steht dieselbe Einheit für die Uhr. Leer heißt,
+    # dass der Block aus der Zeit vor dem Feld stammt oder von einer KI kam,
+    # die den Prompt nicht kennt; dann zerlegt `workouts.py` wie bisher den
+    # Fließtext.
+    steps_json: Mapped[list | None] = mapped_column(JSON)
+
     # Einzeln nachträglich angepasst: Der Wunsch des Athleten im Wortlaut und
     # wann die KI ihn umgesetzt hat. Steht an der Einheit und nicht bloß am
     # Job, weil der Job irgendwann aus der Liste rutscht — die Einheit trägt

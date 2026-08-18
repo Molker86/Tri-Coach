@@ -53,8 +53,34 @@ WEEKDAYS = [
 ]
 
 
+# Becken oder Freiwasser. Die KI schreibt mal den Schlüssel, mal das deutsche
+# Wort — dieselbe Toleranz wie bei den Sportarten, aus demselben Grund: Der
+# Wert kommt aus einem Sprachmodell, nicht aus einem Formular.
+SWIM_LOCATION_ALIASES = {
+    "pool": "pool", "becken": "pool", "schwimmbad": "pool", "hallenbad": "pool",
+    "lap_swimming": "pool", "indoor": "pool", "schwimmbecken": "pool",
+    "open_water": "open_water", "openwater": "open_water",
+    "open water": "open_water", "freiwasser": "open_water",
+    "open_water_swimming": "open_water", "see": "open_water",
+    "freiwasserschwimmen": "open_water", "outdoor": "open_water",
+}
+
+
 def normalize_sport(value: str) -> str:
     return SPORT_ALIASES.get(str(value).strip().lower(), str(value).strip().lower())
+
+
+def normalize_swim_location(value: str | None) -> str | None:
+    """Unbekannte Angaben fallen weg, statt den Block zu kippen.
+
+    Ein Wert, den niemand deuten kann, ist hier schlechter als keiner: Fehlt
+    er, greift der dokumentierte Rückfall; stünde er falsch da, ginge eine
+    Freiwassereinheit als Beckentraining auf die Uhr — genau der Fehler, gegen
+    den das Feld eingeführt wurde.
+    """
+    if value is None:
+        return None
+    return SWIM_LOCATION_ALIASES.get(str(value).strip().lower())
 
 
 def normalize_day(value: str) -> str:
@@ -233,6 +259,68 @@ def _als_zielwert(wert: Any, unten: int, oben: int) -> int | None:
     return zahl if unten <= zahl <= oben else None
 
 
+# Die Schrittarten sind Garmins eigene und heißen hier genauso wie in
+# `workouts._SCHRITT_TYPEN` — eine Übersetzungsschicht dazwischen wäre eine
+# dritte Stelle, an der dieselbe Liste auseinanderlaufen kann.
+STEP_KIND_ALIASES = {
+    "warmup": "warmup", "warm_up": "warmup", "einlaufen": "warmup",
+    "aufwaermen": "warmup", "einschwimmen": "warmup", "einrollen": "warmup",
+    "cooldown": "cooldown", "cool_down": "cooldown", "auslaufen": "cooldown",
+    "ausrollen": "cooldown", "ausschwimmen": "cooldown",
+    "interval": "interval", "work": "interval", "belastung": "interval",
+    "active": "interval", "main": "interval",
+    "recovery": "recovery", "pause": "recovery", "trabpause": "recovery",
+    "rest": "rest", "ruhe": "rest",
+}
+
+
+class AIStepIn(BaseModel):
+    """Ein Schritt der Einheit, so wie die KI ihn liefert.
+
+    Der zweite Weg neben `structure`: Dort steht der Aufbau als Fließtext für
+    den Athleten, hier derselbe Aufbau als Bauplan für die Uhr. Der Fließtext
+    musste bis hierher zurückübersetzt werden — `workouts.zerlege_struktur()`
+    ist die Grammatik dafür, und jede ihrer Sonderregeln entstand, nachdem ein
+    echter Plan anders formuliert war als erwartet. Die KI *kennt* den Aufbau;
+    ihn erst in Prosa zu kodieren und dann zu raten, war der Umweg.
+
+    Die Felder spiegeln `workouts.Schritt` und `workouts.Block`: `repeat` mit
+    `steps` ist eine Wiederholungsgruppe, alles andere ein einzelner Schritt.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    kind: str = "interval"
+    duration_s: int | None = Field(None, ge=1, le=36000)
+    distance_m: float | None = Field(None, ge=1, le=100000)
+    # Gezählte Wiederholungen (Kraft), nicht die Zahl der Durchgänge — die
+    # steht als `repeat` an der Gruppe darum.
+    reps: int | None = Field(None, ge=1, le=500)
+    zone: str | None = None
+    text: str = ""
+    # Der englische Katalogname der Übung. Bisher musste ihn `uebungen.finde()`
+    # aus der Zeile herausfischen, mitsamt der Regeln, die „Copenhagen Plank"
+    # vom Unterarmstütz und „Lateral Band Walk" vom Spaziergang trennen.
+    exercise_en: str | None = None
+    # Nur bei Koppeleinheiten: die Disziplin dieses Abschnitts. Ohne sie muss
+    # `workouts._koppel_segmente` den Wechsel am Wortlaut erkennen und schätzt
+    # sonst 2:1 auf Rad und Lauf — die einzige Stelle im Bauplan, an der sonst
+    # noch geraten würde.
+    sport: str | None = None
+    repeat: int | None = Field(None, ge=2, le=99)
+    steps: list["AIStepIn"] = Field(default_factory=list)
+
+    @field_validator("kind")
+    @classmethod
+    def _norm_kind(cls, v: str) -> str:
+        return STEP_KIND_ALIASES.get(str(v).strip().lower(), "interval")
+
+    @field_validator("sport")
+    @classmethod
+    def _norm_step_sport(cls, v: str | None) -> str | None:
+        return normalize_sport(v) if v else None
+
+
 class AISessionIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -251,6 +339,11 @@ class AISessionIn(BaseModel):
     target_pace: str | None = None
     target_power: str | None = None
     rpe_target: int | None = Field(None, ge=RPE_MIN, le=RPE_MAX)
+    swim_location: str | None = None
+    # Leer ist kein Fehler: Dann baut `workouts.baue_workout()` die Einheit wie
+    # bisher aus `structure`. Der Zerleger bleibt der Rückfall für Blöcke aus
+    # der Zeit vor diesem Feld und für Antworten fremder KIs.
+    steps: list[AIStepIn] = Field(default_factory=list)
 
     # Was `_raeume_zielwerte` weggeworfen hat, in der Form "target_hr_low=0".
     # Steht am Modell, damit `plan_import.validate_coverage()` es melden kann,
@@ -262,6 +355,11 @@ class AISessionIn(BaseModel):
     @classmethod
     def _norm_sport(cls, v: str) -> str:
         return normalize_sport(v)
+
+    @field_validator("swim_location")
+    @classmethod
+    def _norm_schwimmort(cls, v: str | None) -> str | None:
+        return normalize_swim_location(v)
 
     @model_validator(mode="before")
     @classmethod
@@ -388,6 +486,7 @@ class PlanSessionOut(BaseModel):
     target_pace: str | None = None
     target_power: str | None = None
     rpe_target: int | None = None
+    swim_location: str | None = None
     logged: bool = False
     # Einzeln nachträglich angepasst. Beide Felder fehlen an allem, was seit
     # der Planung des Blocks unverändert steht.

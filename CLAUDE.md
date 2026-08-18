@@ -701,6 +701,96 @@ soll). Die Kennungen für Sport-, Schritt- und Zieltypen kommen aus
 `garminconnect.workout` statt aus eigenen Zahlen — zwei Quellen dafür liefen
 auseinander.
 
+**Die KI liefert den Bauplan mit, statt ihn in Prosa zu verstecken**
+(`AIStepIn` in `schemas.py`, `workouts.aus_schrittliste`,
+`PlanSession.steps_json`). Der Zerleger oben rechnet aus dem Fließtext zurück,
+was die KI ohnehin wusste — und **jede** seiner Sonderregeln entstand
+nachträglich, an einem echten Plan, nachdem auf der Uhr still etwas Falsches
+stand: das „4ד hinter dem Schrägstrich, die Serienpause hinter dem Komma,
+„Trudeln" als Pausenwort, die verschwundene Variantenzeile, Ein- und Ausrollen
+in der Serie, drei erkannte Umfangsschreibweisen, und im Übungskatalog
+`_grundform_ok`, `_MIT_ROLLE`, `_KLAMMER`. Das ist kein Mangel an Sorgfalt,
+sondern strukturell: Der Fließtext ist eine verlustbehaftete Kodierung der
+Absicht, der Erzeuger ist ein Sprachmodell mit unbegrenzter
+Formulierungsfreiheit, und eine Grammatik dafür kann nie fertig werden. Ein
+Feld dagegen schon. Der Prompt verlangt deshalb neben `structure` eine
+Schrittliste `steps`, die `workouts.Schritt` und `workouts.Block` spiegelt:
+`kind`, `duration_s`/`distance_m`/`reps`, `zone`, `text`, `exercise_en`, und
+eine Serie als *ein* Eintrag mit `repeat` und den Schritten darin.
+
+**Der Zerleger bleibt, er rückt nur auf Platz zwei.** `baue_workout()` nimmt
+den Bauplan, sonst den Fließtext, sonst den Ersatzschritt. Löschen ginge nicht
+und soll es auch nicht: In der Datenbank stehen Blöcke aus der Zeit vor dem
+Feld, und über die Zwischenablage — die ausdrückliche Rückfallebene — antwortet
+womöglich eine KI, die den Prompt nie gesehen hat. Der Gewinn ist deshalb nicht
+„weniger Code", sondern **„die Grammatik hört auf zu wachsen"**: Eine
+Formulierung, die sie nicht kennt, kostet keinen Fehlgriff mehr auf der Uhr.
+Die Reihenfolge macht den zweiten Kanal außerdem folgenlos, wenn er ausfällt —
+schlechter als vorher kann es nicht werden.
+
+**Was hier ausdrücklich *nicht* passiert**, ist der eigentliche Punkt: keine
+Schrittart aus dem Wortlaut, keine Regel „der zweite Teil eines Paars ist die
+Pause", kein geratener Umfang, kein Herausfischen des Übungsnamens aus einer
+Zeile voller Beiwerk. Die KI sagt es, und was sie nicht sagt, bleibt leer. Ein
+Eintrag ohne jedes Maß fällt weg statt als leerer Abschnitt im Workout zu
+stehen — außer bei Kraft und Mobility, wo ein Schritt bis zur Rundentaste
+zulässig ist. Bleibt nichts übrig, ist das die Antwort „kein Bauplan".
+
+**Eine fehlende Schrittliste wird gemeldet, nicht verschwiegen**
+(`validate_coverage`, `pruefe_einheit`). Dieselbe Linie wie überall beim Import
+— Warnung statt Ablehnung —, aber hier aus einem eigenen Grund: Ohne den
+Hinweis fiele nie auf, dass der zweite Kanal gar nicht trägt. Der Block sähe
+gut aus, die Uhr bekäme weiter zerlegte Prosa, und niemand wüsste es.
+
+**Zwei Beschreibungen derselben Einheit können auseinanderlaufen** — das ist
+der Preis, und er ist bewusst bezahlt. `structure` bleibt, weil der Athlet es
+in Dashboard und Planansicht liest; `steps` ist, was die Uhr bekommt. Der
+Prompt sagt ausdrücklich, dass beide dieselbe Einheit beschreiben müssen. Ein
+Auseinanderlaufen wäre aber ohnehin die bessere Lage als heute: Jetzt läuft der
+Text gegen die Uhr auseinander, und zwar unsichtbar.
+
+**Die Bahnlänge gehört ans Becken, nicht an jede Schwimmeinheit**
+(`workouts.schwimmort`, `PlanSession.swim_location`). `poolLength` stand einmal
+an *jedem* Schwimm-Workout, und damit ging auch die Freiwasserrunde als
+Beckentraining auf die Uhr: Dort zählt das Gerät Bahnen, statt Strecke zu
+messen, und „4x150 m mit 25 s Pause" meint im See etwas anderes als auf der
+25-m-Bahn. Am echten Konto ist das kein Randfall — der Athlet schwimmt den
+halben Sommer im Freiwasser (sieben von zehn Einheiten im Juli/August).
+
+**Woher der Ort kommt, ist der eigentliche Punkt: Die KI sagt ihn.** Aus Titel
+und Aufbau ist er nicht sicher abzulesen, und die Ausrüstung im Fragebogen
+nennt nur, was *möglich* ist — welche Einheit wohin gehört, entscheidet die
+Planung. `SESSION_SCHEMA` trägt deshalb `swim_location` (`pool` |
+`open_water`), verlangt es in `PRINZIP_STEUERGROESSEN` für jede
+Schwimmeinheit, und die Spalte hängt an der Einheit statt am Plan. Unbekannte
+Werte fallen in `normalize_swim_location()` weg statt den Block zu kippen: Ein
+falscher Ort wäre schlimmer als keiner, denn dann greift der Rückfall.
+
+**Der Rückfall liest nur den Titel** — für Blöcke, die vor dem Feld entstanden
+sind, und für die Zwischenablage, wo eine KI antwortet, die den Prompt nicht
+kennt. Er suchte zuerst auch in Beschreibung, Zweck und Aufbau, und das ging an
+einem echten Plan sofort schief: „Ruhiges Schwimmen mit Orientierungsblick"
+kippte ins Freiwasser, weil in der Beschreibung „Orientierungsblick fürs
+Freiwasser" stand — eine Beckeneinheit über 4x50 m und 4x150 m mit 20 s Pause,
+die eine Freiwasserfertigkeit *übt*. So steht das Wort dort meistens: als
+Zweck, nicht als Ort. Gesucht wird deshalb nur im Titel, und nur in eine
+Richtung — ohne Hinweis bleibt es beim Becken, wie bisher.
+
+**Was im Freiwasser mitgeht, ist wenig — und das ist am echten Konto
+nachgemessen** (`scripts/garmin_freiwasser_probe.py`, je Variante ein
+temporäres Workout, zurückgelesen und im `finally` gelöscht). Ein
+Schwimm-Workout **ohne** `poolLength` nimmt Garmin an und gibt es unverändert
+zurück. Ein `subSportType` dagegen wird abgelehnt, und zwar beide plausiblen
+Kennungen: `open_water_swimming` (5) und der FIT-Untertyp `open_water` (18)
+quittiert der Dienst mit **500** — nicht mit einer Fehlermeldung, sondern mit
+einem Serverfehler für das ganze Workout. Einen Freiwasser-Untertyp führt
+Garmins Workout-Format also nicht; strukturierte Workouts sind dort
+Beckensache. Es fällt deshalb nur die Bahnlänge weg, und die Beschreibung sagt
+in ihrer ersten Zeile „Freiwasser — auf der Uhr im Freiwassermodus starten":
+Den Aufzeichnungsmodus wählt das Gerät nicht selbst, und niemand sonst sagt es
+dem Athleten. Wer hier eine Kennung nachtragen will, probiert sie mit dem
+Skript und nicht im Betrieb — ein geratener Wert nimmt das *ganze* Workout mit.
+
 **Eine Serie bleibt eine Wiederholungsgruppe** (`_als_block`). Garmin führt sie
 als `RepeatGroupDTO` — eine Zeile „Wiederholen 4ד mit Belastung und Pause
 darunter —, und genau so steht sie auch in der App. Es gab hier einmal den
@@ -1389,6 +1479,11 @@ Einzelanpassung setzt dieselben Texte an anderer Stelle ein (siehe „Eine
 einzelne Einheit wird angepasst"). Wer sie ändert, ändert beide Aufgaben — das
 ist die Absicht. Die Nummer gehört in die Vorlage, nicht in den Text.
 
+Punkt 10 verlangt außerdem die **Schrittliste** `steps` — den Bauplan der
+Einheit für die Uhr, neben `structure` als Text für den Athleten. Wer den einen
+ändert, prüft den anderen mit: Der Prompt verlangt, dass beide dieselbe Einheit
+beschreiben, und die App hat keine Möglichkeit, das nachzurechnen.
+
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
 `plan_import.py`. Die Felder einer Einheit stehen dafür einmal in
@@ -1550,6 +1645,26 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   `planbare_einheiten` aus). Der verwaiste Termin steht dann nur noch im
   Garmin-Kalender der App und ist dort von Hand zu entfernen; der Hinweis am
   Lauf sagt das.
+- **Die Schrittliste ist gegen einen echten Lauf bestätigt** (Opus,
+  `--effort max`, 288 s, 0,64 USD): Alle zehn Einheiten des Blocks kamen mit
+  `steps`, ohne eine einzige Warnung, und `swim_location` traf beide Fälle —
+  `pool` fürs Becken, `open_water` für die Freiwasserrunde. Die Koppeleinheit
+  benannte ihre Disziplin je Abschnitt und wurde deshalb nicht geschätzt.
+  `--json-schema` bleibt trotzdem in der Hinterhand: Fällt `steps` einmal aus,
+  sagt es der Hinweis „Ohne Schrittliste geliefert" beim Übernehmen, und die
+  Einheiten gehen über den Zerleger auf die Uhr wie zuvor.
+- **Ein Lauf kann sofort und folgenlos scheitern.** Beim ersten Versuch kam
+  nach zwei Sekunden `is_error` mit `stop_reason: "stop_sequence"` und null
+  Eingabetoken zurück — der unmittelbar folgende Versuch mit demselben Prompt
+  lief durch. Das ist keine Kontingent- und keine Anmeldefrage, sondern eine
+  vorübergehende Störung der Gegenseite; sie landet über `_ordne_fehler_ein`
+  als allgemeiner Fehler mit Originaltext. Eine Wiederholung baut die App
+  bewusst nicht ein — was zweimal hintereinander losläuft, kostet auch zweimal
+  Kontingent.
+- **`steps` steht nicht in `PlanSessionOut`.** Der Athlet sieht in der App
+  `structure`; ob die Schrittliste dasselbe sagt, zeigt sich erst auf der Uhr.
+  Wer das prüfen will, braucht das Feld in der Ausgabe und eine Darstellung
+  dafür — beides gibt es nicht.
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt, entfallene über `_ENTFALLENE_SPALTEN`
@@ -1600,6 +1715,12 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
 - Die **Bahnlänge für Schwimm-Workouts** liegt fest bei 25 m
   (`workouts.POOL_LAENGE_M`) — die App fragt sie nirgends ab. Im 50-m-Becken
   stimmen die Strecken, nur die Bahnzahl auf der Uhr nicht.
+- **Eine Freiwassereinheit geht ohne Bahnlänge nach Garmin, sonst unverändert.**
+  Dass Garmin sie so annimmt, ist am echten Konto geprüft; dass sie sich auf
+  der Uhr im *Freiwassermodus* starten lässt, ist es nicht — Garmin führt für
+  Workouts keinen Freiwasser-Untertyp, das Workout bleibt formal ein
+  Schwimm-Workout. Der Hinweis dazu steht in seiner Beschreibung, den Modus
+  wählt der Athlet selbst.
 - Der **Wattkorridor aus der Zone** ist eine Umrechnung über feste
   FTP-Anteile und damit die gröbste der drei Leistungsquellen: Er trifft das
   Ein- und Ausrollen, ersetzt aber keine Wattangabe der KI. Wer im Profil
@@ -1624,7 +1745,11 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   Kraft- und Mobility-Einheiten in der Datenbank werden 42 zugeordnet. Die
   sechs übrigen führt Garmin nicht (dreimal Faszienrolle, „World's Greatest
   Stretch“, „Plank Shoulder Tap“, Zwerchfellatmung), und sie bleiben deshalb
-  leer. Was
+  leer. Am ersten Block mit `exercise_en` waren es 18 von 22 — offen blieben
+  zwei Faszienrollen und „Band Shoulder Pass-Through“; „Hip Flexor Stretch“
+  und „Supine Spinal Twist“ sind dabei als Synonyme nachgetragen worden. Das
+  eigene Feld erleichtert das Nachtragen erheblich: Der Name steht für sich
+  statt in einer Zeile voller Beiwerk, eine Lücke ist damit sofort sichtbar. Was
   `uebungen.finde()` nicht erkennt, bleibt ohne Animation — **und ohne Titel**:
   Die Überschrift des Schritts kommt in Connect wie auf der Uhr allein aus
   `category`/`exerciseName`, ein Feld für einen eigenen Namen gibt es im

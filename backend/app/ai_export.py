@@ -759,6 +759,30 @@ SESSION_SCHEMA = {
         "Zahl 1-10 – geplante Anstrengung, z.B. 4. "
         "Bei rest weglassen — 0 ist kein gültiger Wert"
     ),
+    "steps": (
+        "Liste – derselbe Aufbau wie in `structure`, aber als Bauplan für die "
+        "Uhr. Ein Eintrag je Abschnitt, in der Reihenfolge des Trainings. "
+        "Felder je Eintrag: `kind` (warmup | interval | recovery | cooldown | "
+        "rest), `duration_s` ODER `distance_m` (bei strength/mobility "
+        "stattdessen oder zusätzlich `reps` für gezählte Wiederholungen), "
+        "`zone` ('Z2' oder 'Z1-Z2'), `text` (kurze Beschriftung des Schritts). "
+        "Eine Serie ist EIN Eintrag mit `repeat` (Zahl der Durchgänge) und "
+        "`steps` (die Schritte darin, Belastung und Pause je als eigener "
+        "Eintrag mit eigenem `kind`) — nicht ausgeschrieben. "
+        "Bei strength und mobility zusätzlich `exercise_en` mit dem "
+        "englischen Übungsnamen aus der Klammer, bei brick zusätzlich `sport` "
+        "je Eintrag (bike | run | swim) — daran wechselt die Uhr die Disziplin. "
+        "Beispiel: [{'kind':'warmup','duration_s':900,'zone':'Z1-Z2', "
+        "'text':'Einlaufen'}, {'repeat':5,'steps':[{'kind':'interval', "
+        "'distance_m':1000,'zone':'Z4','text':'zügig'},{'kind':'recovery', "
+        "'duration_s':120,'text':'Trabpause'}]}, {'kind':'cooldown', "
+        "'duration_s':600,'zone':'Z1','text':'Auslaufen'}]"
+    ),
+    "swim_location": (
+        "pool | open_water – nur bei sport=swim, dort aber immer angeben. "
+        "Entscheidet, wie die Einheit auf der Uhr aufgezeichnet wird; "
+        "eine Freiwassereinheit als Beckentraining zählt Bahnen statt Strecke"
+    ),
 }
 
 RESPONSE_SCHEMA = {
@@ -940,7 +964,21 @@ füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten,
 `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
 Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
 gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
-`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen."""
+`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen. Bei \
+`swim` gehört zusätzlich `swim_location` dazu — `pool` oder `open_water`, je nachdem, \
+wofür die Einheit gedacht ist und was unter `trainingswunsch.equipment` zur Verfügung \
+steht. Auch daraus baut die App das Workout: Eine Freiwassereinheit, die als \
+Beckentraining auf der Uhr landet, zählt Bahnen statt Strecke.
+
+**Der Bauplan für die Uhr**: Gib zu jeder Einheit außer `rest` zusätzlich zu \
+`structure` das Feld `steps` an — denselben Aufbau, aber als Liste von \
+Abschnitten. `structure` ist der Text, den der Athlet liest; `steps` ist das, \
+woraus die App das Workout für die Uhr baut. **Beide müssen dieselbe Einheit \
+beschreiben.** Schreibe eine Serie als *einen* Eintrag mit `repeat` und den \
+Schritten darin, nicht ausgeschrieben, und gib Belastung und Pause je als \
+eigenen Eintrag mit eigenem `kind` an. Jeder Eintrag außerhalb von \
+`strength` und `mobility` braucht ein Maß — `duration_s` oder `distance_m`; \
+ein Abschnitt ohne beides steuert auf der Uhr nichts und fällt weg."""
 
 
 # Punkt 2 der Trainingsprinzipien. Zwei Fassungen, weil Regeln zu Daten, die

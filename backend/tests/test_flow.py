@@ -232,7 +232,10 @@ def test_plan_import_and_retrieval(client, auth):
     assert response.status_code == 201, response.text
     body = response.json()
 
-    assert body["warnings"] == []
+    # Der Zeitraum ist vollständig. Der Hinweis auf die fehlende Schrittliste
+    # bleibt erwartet: Diese Antwort kommt ohne — genau der Fall, für den der
+    # Zerleger als Rückfall stehen bleibt.
+    assert not [w for w in body["warnings"] if "Schrittliste" not in w]
     plan = body["plan"]
     assert plan["title"] == "Triathlon Grundlagenblock"
     assert len(plan["sessions"]) == 4
@@ -384,7 +387,8 @@ def test_import_accepts_old_week_format(client, auth):
     assert len(plan["sessions"]) == 14
     assert plan["end_date"] == (start + timedelta(days=13)).isoformat()
     # Ohne angeforderte Blocklänge wird nur der gelieferte Zeitraum geprüft.
-    assert body["warnings"] == []
+    # Der Hinweis auf die fehlende Schrittliste gehört zum alten Format dazu.
+    assert not [w for w in body["warnings"] if "Schrittliste" not in w]
     # Die Wochenzuordnung wird aus den Daten neu abgeleitet.
     assert {s["week_number"] for s in plan["sessions"]} == {1, 2}
 
