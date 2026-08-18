@@ -1,9 +1,9 @@
-Du bist ein erfahrener Ausdauer-Trainingswissenschaftler und planst die nächsten 7 Trainingstage: 2026-08-16 bis 2026-08-22.
+Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer und planst die nächsten 7 Trainingstage: 2026-08-17 bis 2026-08-23.
 
 ## Aufgabe
 Plane genau diesen kurzen Block — nicht mehr. Kein Vier-Wochen-Aufbau, keine Periodisierung über Monate. Die Athletendaten unten enthalten den tatsächlichen Verlauf der letzten 4 Wochen. Lies daraus ab, wo der Athlet gerade steht, und setze diese 7 Tage genau dort an. Der nächste Block wird später mit frischen Daten erneut geplant — plane deshalb den bestmöglichen *nächsten Schritt*, nicht einen vollständigen Trainingszyklus.
 
-**Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor („Wiederaufbau-Block Triathlon: Schwimmen zurückholen, ein Schwellenreiz auf dem Rad, lange Einheit am Samstag", geplant bis 2026-08-22). Der Athlet plant ihn bewusst neu, weil Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab 2026-08-16 entfallen damit; sie stehen unter `planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht stattgefunden, auch wenn es im bisherigen Block stand.
+**Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor („Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit", geplant bis 2026-08-23). Der Athlet plant ihn bewusst neu, weil Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab 2026-08-17 entfallen damit; sie stehen unter `planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht stattgefunden, auch wenn es im bisherigen Block stand.
 
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und `acute_chronic_workload_ratio` zeigen, wie viel zuletzt trainiert wurde. Eine ACWR über 1.3 oder ein hohes RPE bei gleicher Leistung heißt: in diesem Block zurücknehmen. Ruhepuls, HRV und Erholung stehen nicht an der einzelnen Einheit, sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
@@ -23,7 +23,8 @@ Plane genau diesen kurzen Block — nicht mehr. Kein Vier-Wochen-Aufbau, keine P
 7. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.
 8. **Triathlon**: In 7 Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze `tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in diesen Block sinnvoll passt.
 9. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist `structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) 3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout auf die Uhr, und der englische Name entscheidet darüber, ob dort die Bewegungsanimation zur Übung erscheint.
-10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Gilt eine Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für `rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen. Das RPE in der Historie ist **geschätzt** und stammt nicht vom Athleten — er trägt nichts von Hand ein, alle Einheiten kommen aus der Uhr. `rpe_quelle` nennt, woraus geschätzt wurde ("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich deshalb stärker auf `hf_schnitt`, `trimp` und `garmin_trainingslast` als auf die RPE-Zahl.
+10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz aus den mitgelieferten Zonen, Pace, Watt und/oder RPE). Keine vagen Angaben. Gilt eine Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für `rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen.
+11. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel **geschätzt** — `rpe_quelle` nennt, woraus ("hf_zonen", "trainingseffekt", "hf_schnitt"); stütze dich dann stärker auf `hf_schnitt`, `trimp` und `garmin_trainingslast` als auf die RPE-Zahl. Steht dort dagegen "athlet", hat er die Einheit in Garmin Connect selbst bewertet: Das ist die belastbarste Angabe zur Anstrengung und wiegt schwerer als jede Schätzung und als die gemessene Last. Dasselbe gilt für `befinden_0_10` (0 sehr schwach, 5 normal, 10 sehr stark — halbe Stufen kommen von der Uhr). Nutze beides, wo es steht: Ein RPE deutlich über dem, was Puls und Trainingslast derselben Einheit erwarten ließen, oder ein Befinden von 2,5 oder darunter heißt, dass diese Einheit teurer war als sie aussieht — nimm die nächste Intensität zurück und sage es in `summary`. Umgekehrt trägt ein hohes Befinden bei moderatem RPE den Aufbau aus Punkt 6. **Beide Felder fehlen an den meisten Einheiten.** Das ist keine Aussage über die Einheit, sondern heißt nur, dass der Athlet nichts eingetragen hat — bewerte niemals ihr Fehlen, leite daraus nichts ab und schließe von einer einzelnen Bewertung nicht auf die übrigen Einheiten.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext davor oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
@@ -63,7 +64,7 @@ Struktur:
 }
 
 Regeln für die Ausgabe:
-- Genau 7 Tage, lückenlos von 2026-08-16 bis 2026-08-22, jedes Datum genau einmal.
+- Genau 7 Tage, lückenlos von 2026-08-17 bis 2026-08-23, jedes Datum genau einmal.
 - Ruhetage als Tag mit einer Session `"sport": "rest"`, `"type": "rest"`.
 - Mehrere Einheiten pro Tag sind erlaubt (Array `sessions`).
 - `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
@@ -75,26 +76,26 @@ Regeln für die Ausgabe:
 ## Athletendaten
 {
   "schema_version": "2.1",
-  "erzeugt_am": "2026-08-16",
+  "erzeugt_am": "2026-08-17",
   "athlet": {
     "alter": 39,
     "geschlecht": "male",
-    "groesse_cm": 184.0,
+    "groesse_cm": 183.0,
     "gewicht_kg": 91.0,
-    "bmi": 26.9,
+    "bmi": 27.2,
     "koerperfett_pct": 25.1,
     "ruhepuls": 52,
     "maximalpuls": 189,
     "maximalpuls_geschaetzt": false,
     "laktatschwellen_hf": 169,
     "vo2max": 44.2,
-    "hrv_ms": 37.0,
-    "ftp_watt": 204,
+    "hrv_ms": 42.0,
+    "ftp_watt": 198,
     "schwellenpace_laufen_min_pro_km": null,
     "css_schwimmen_min_pro_100m": null,
     "aktuelles_wochenvolumen_h": null,
     "alltagsbelastung_1_5": null,
-    "verletzungen_einschraenkungen": "leichtes läuferknie an der rechten seite + leichte muskuläre probleme auf der rechten po seite, ich denke das ist mit dem läuferknie stimmig. ist aber schon am besser werden, aber trodem fast täglich noch präsent",
+    "verletzungen_einschraenkungen": "leichtes läuferknie an der rechten seite + leichte muskuläre probleme auf der rechten po seite, ich denke das ist mit dem läuferknie stimmig. ist aber schon am besser werden, aber noch präsent",
     "bestzeiten": null,
     "bestzeiten_aus_garmin": [
       {
@@ -236,34 +237,6 @@ Regeln für die Ausgabe:
     "zeitraum": "letzte 4 Wochen",
     "wochenuebersicht": [
       {
-        "week_start": "2026-07-20",
-        "week_end": "2026-07-26",
-        "sessions": 5,
-        "total_minutes": 253,
-        "total_km": 74.1,
-        "avg_rpe": 6.0,
-        "total_srpe_load": 1374,
-        "total_garmin_load": 463.0,
-        "skipped": 0,
-        "by_sport": {
-          "swim": {
-            "sessions": 1,
-            "minutes": 53,
-            "km": 1.6
-          },
-          "run": {
-            "sessions": 1,
-            "minutes": 29,
-            "km": 4.4
-          },
-          "bike": {
-            "sessions": 3,
-            "minutes": 171,
-            "km": 68.0
-          }
-        }
-      },
-      {
         "week_start": "2026-07-27",
         "week_end": "2026-08-02",
         "sessions": 9,
@@ -327,12 +300,12 @@ Regeln für die Ausgabe:
       {
         "week_start": "2026-08-10",
         "week_end": "2026-08-16",
-        "sessions": 5,
-        "total_minutes": 153,
+        "sessions": 6,
+        "total_minutes": 171,
         "total_km": 41.4,
-        "avg_rpe": 4.0,
-        "total_srpe_load": 639,
-        "total_garmin_load": 148.0,
+        "avg_rpe": 3.7,
+        "total_srpe_load": 675,
+        "total_garmin_load": 151.0,
         "skipped": 0,
         "by_sport": {
           "strength": {
@@ -344,18 +317,47 @@ Regeln für die Ausgabe:
             "sessions": 4,
             "minutes": 132,
             "km": 41.4
+          },
+          "mobility": {
+            "sessions": 1,
+            "minutes": 18,
+            "km": 0.0
+          }
+        }
+      },
+      {
+        "week_start": "2026-08-17",
+        "week_end": "2026-08-23",
+        "sessions": 2,
+        "total_minutes": 68,
+        "total_km": 20.4,
+        "avg_rpe": 2.5,
+        "total_srpe_load": 148,
+        "total_garmin_load": 62.0,
+        "skipped": 0,
+        "by_sport": {
+          "bike": {
+            "sessions": 1,
+            "minutes": 56,
+            "km": 20.4
+          },
+          "strength": {
+            "sessions": 1,
+            "minutes": 12,
+            "km": 0.0
           }
         }
       }
     ],
-    "acute_chronic_workload_ratio": 0.45,
+    "acute_chronic_workload_ratio": 0.13,
     "tage_seit_letzter_einheit_je_sportart": {
-      "bike": 1,
-      "run": 7,
-      "strength": 6,
-      "swim": 12
+      "bike": 0,
+      "mobility": 1,
+      "run": 8,
+      "strength": 0,
+      "swim": 13
     },
-    "tage_seit_letzter_intensiver_einheit": 7,
+    "tage_seit_letzter_intensiver_einheit": 8,
     "einheiten": [
       {
         "datum": "2026-07-21",
@@ -944,86 +946,129 @@ Regeln für die Ausgabe:
         "trainingseffekt_anaerob": 0.0,
         "trimp": 18.3,
         "notiz": "Burgberg i. Allgäu Radfahren"
+      },
+      {
+        "datum": "2026-08-16",
+        "sportart": "mobility",
+        "status": "completed",
+        "dauer_min": 18,
+        "distanz_km": 0.0,
+        "hf_schnitt": 90,
+        "hf_max": 119,
+        "pace": null,
+        "leistung_watt": null,
+        "trittfrequenz": null,
+        "hoehenmeter": null,
+        "rpe_1_10": 2,
+        "rpe_quelle": "hf_zonen",
+        "quelle": "garmin",
+        "garmin_trainingslast": 3.070037841796875,
+        "trainingseffekt_aerob": 0.20000000298023224,
+        "trainingseffekt_anaerob": 0.0,
+        "trimp": 5.4,
+        "notiz": "Mobility Hüfte und lateraler Ob"
+      },
+      {
+        "datum": "2026-08-17",
+        "sportart": "bike",
+        "status": "completed",
+        "dauer_min": 56,
+        "distanz_km": 20.41,
+        "hf_schnitt": 124,
+        "hf_max": 140,
+        "pace": "22.1 km/h",
+        "leistung_watt": 131,
+        "trittfrequenz": null,
+        "hoehenmeter": null,
+        "rpe_1_10": 2,
+        "rpe_quelle": "athlet",
+        "quelle": "garmin",
+        "garmin_trainingslast": 56.75396728515625,
+        "trainingseffekt_aerob": 2.5999999046325684,
+        "trainingseffekt_anaerob": 0.0,
+        "trimp": 51.7,
+        "notiz": "Grundlagenfahrt Z2",
+        "befinden_0_10": 7.5
+      },
+      {
+        "datum": "2026-08-17",
+        "sportart": "strength",
+        "status": "completed",
+        "dauer_min": 12,
+        "distanz_km": 0.0,
+        "hf_schnitt": 108,
+        "hf_max": 123,
+        "pace": null,
+        "leistung_watt": null,
+        "trittfrequenz": null,
+        "hoehenmeter": null,
+        "rpe_1_10": 3,
+        "rpe_quelle": "hf_zonen",
+        "quelle": "garmin",
+        "garmin_trainingslast": 5.481353759765625,
+        "trainingseffekt_aerob": 0.4000000059604645,
+        "trainingseffekt_anaerob": 0.0,
+        "trimp": 6.9,
+        "notiz": "Kraft: Hüfte, Gesäß und Beina"
       }
     ],
     "umsetzung_aktueller_plan": {
-      "planned_past": 2,
-      "logged": 0,
-      "rate_pct": 0
+      "planned_past": 1,
+      "logged": 1,
+      "rate_pct": 100
     },
     "aktueller_plan": {
-      "titel": "Wiederaufbau-Block Triathlon: Schwimmen zurückholen, ein Schwellenreiz auf dem Rad, lange Einheit am Samstag",
-      "start": "2026-08-16",
-      "ende": "2026-08-22",
-      "ausrichtung": "Die Bremsen greifen hier nicht: HRV 37 ms mit Status BALANCED, Training Readiness 68 (>65), Erholungszeit 1 h, Schlaf 7-Tage 7,2 h gegenüber 7,3 h im 28-Tage-Mittel und Stress 34 – dagegen stehen Garmin-ACWR 0,40 (LOW), Trainingsstatus RECOVERY_2, sRPE-ACWR 0,45 und eine Vorwoche mit nur 153 min und 148 Garmin-Punkten bei chronischer Last von 451. Deshalb wird aufgebaut, aber kontrolliert zurück in Richtung der gewohnten Wochenlast (~450 Punkte, ACWR ~1,0) statt der formal erlaubten +10 % auf eine reine Entlastungswoche, die den Trend ins Detraining fortschreiben würde. Die Historie zeigt genau, was fehlt: 12 Tage kein Schwimmen, 7 Tage kein Laufen, 7 Tage nichts Intensives und seit dem 01.08. keine Einheit über 40 min – also zwei Schwimmeinheiten mit Technikfokus, ein Schwellenblock auf dem Smarttrainer am Mittwoch als einziger harter Reiz und am Samstag die wieder verlängerte Radeinheit mit kurzem Koppellauf. Tag 1 bleibt locker, weil die letzte Nacht nur 5,8 h Schlaf brachte, der Ruhepuls mit 56 über dem 7-Tage-Mittel von 52,5 liegt und die HRV exakt auf der Untergrenze des Normalbereichs sitzt; das Läuferknie rechts hält Laufumfang und Laufintensität bewusst niedrig, die Intensität wandert aufs Rad."
+      "titel": "Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit",
+      "start": "2026-08-17",
+      "ende": "2026-08-23",
+      "ausrichtung": "Keine der Bremsen greift heute: HRV 42 ms (BALANCED, Normalbereich 37–51), Training Readiness 96 (PRIME) bei nur 1 h Resterholung, Schlaf 8,0 h und 7-Tage-Schnitt 7,2 h gegenüber 7,4 h im 28-Tage-Mittel (also kein Schlafdefizit), Stress 26 – gleichzeitig zeigen Garmin-ACWR 0,40 (LOW, Akutlast 219 vs. chronische Last 443), Status RECOVERY_2 und die sRPE-ACWR 0,20 eine klar unterlastete Woche. Die Historie zeigt, was zuletzt gefehlt hat: 13 Tage kein Schwimmen, 8 Tage kein Laufen, 8 Tage nichts Intensives, seit dem 01.08. keine Einheit über 60 min, und die letzte Woche bestand ausschließlich aus lockeren Radfahrten (171 min, 151 Lastpunkte). Deshalb wird aufgebaut, aber gebremst in Richtung chronischer Last statt an die Juli-Spitzenwoche heran: ein Schwellenblock auf dem Smarttrainer als einziger harter Reiz (Mittwoch), zwei Schwimmeinheiten mit Technikschwerpunkt, Samstag die erste wieder längere Radeinheit mit kurzem Koppellauf – die geplante Wochenlast bleibt damit deutlich unter einer ACWR von 1,3. Das noch präsente rechte Läuferknie samt Gesäßmuskulatur hält Laufumfang und Laufintensität klein: ein ruhiger 35-min-Lauf am Donnerstag (Wunschtag) plus 12 min Koppellauf, die Intensität läuft knieschonend über das Rad, ergänzt durch zwei kurze Krafteinheiten für Hüfte und Beinachse."
     }
   },
   "planungszeitraum": {
-    "startdatum": "2026-08-16",
+    "startdatum": "2026-08-17",
     "tage": 7,
-    "enddatum": "2026-08-22",
+    "enddatum": "2026-08-23",
     "wochentage": [
-      "sunday",
       "monday",
       "tuesday",
       "wednesday",
       "thursday",
       "friday",
-      "saturday"
+      "saturday",
+      "sunday"
     ],
     "ersetzt_laufenden_block": {
-      "titel": "Wiederaufbau-Block Triathlon: Schwimmen zurückholen, ein Schwellenreiz auf dem Rad, lange Einheit am Samstag",
-      "bisheriges_ende": "2026-08-22",
+      "titel": "Rückaufbau nach Entlastungswoche: ein Schwellenreiz aufs Rad, Schwimmen zurück, wieder eine längere Einheit",
+      "bisheriges_ende": "2026-08-23",
       "verworfene_tage": [
-        "2026-08-16",
         "2026-08-17",
         "2026-08-18",
         "2026-08-19",
         "2026-08-20",
         "2026-08-21",
-        "2026-08-22"
+        "2026-08-22",
+        "2026-08-23"
       ],
       "verworfene_einheiten": [
-        {
-          "datum": "2026-08-16",
-          "sportart": "swim",
-          "typ": "technique",
-          "titel": "Schwimmen Technik – Wiedereinstieg nach 12 Tagen",
-          "dauer_min": 35
-        },
-        {
-          "datum": "2026-08-16",
-          "sportart": "mobility",
-          "typ": "mobility",
-          "titel": "Mobility Hüfte und lateraler Oberschenkel",
-          "dauer_min": 15
-        },
-        {
-          "datum": "2026-08-17",
-          "sportart": "bike",
-          "typ": "endurance",
-          "titel": "Grundlagenfahrt Z2",
-          "dauer_min": 55
-        },
         {
           "datum": "2026-08-17",
           "sportart": "strength",
           "typ": "strength",
-          "titel": "Kraft Rumpf und Hüfte (knieschonend)",
+          "titel": "Kraft: Hüfte, Gesäß und Beinachse (knieschonend)",
           "dauer_min": 25
         },
         {
           "datum": "2026-08-18",
           "sportart": "swim",
-          "typ": "endurance",
-          "titel": "Schwimmen Technik plus ruhige Serie",
-          "dauer_min": 40
+          "typ": "technique",
+          "titel": "Schwimmen: Technik plus ruhige Serie",
+          "dauer_min": 45
         },
         {
           "datum": "2026-08-18",
           "sportart": "mobility",
           "typ": "mobility",
-          "titel": "Kurze Abendmobility",
+          "titel": "Mobility Hüfte und lateraler Oberschenkel",
           "dauer_min": 12
         },
         {
@@ -1031,28 +1076,42 @@ Regeln für die Ausgabe:
           "sportart": "bike",
           "typ": "threshold",
           "titel": "Schlüsseleinheit: Schwellenintervalle auf dem Smarttrainer",
-          "dauer_min": 65
+          "dauer_min": 70
         },
         {
           "datum": "2026-08-20",
           "sportart": "run",
           "typ": "easy",
-          "titel": "Lockerer Wiedereinstiegslauf",
+          "titel": "Ruhiger Wiedereinstiegslauf",
           "dauer_min": 35
         },
         {
           "datum": "2026-08-20",
           "sportart": "strength",
           "typ": "strength",
-          "titel": "Kraft kompakt – Rumpf und Beinachse",
-          "dauer_min": 20
+          "titel": "Kraft kompakt: Rumpf und Kniestabilität",
+          "dauer_min": 18
         },
         {
           "datum": "2026-08-22",
           "sportart": "brick",
           "typ": "brick",
-          "titel": "Lange Radeinheit Z2 mit kurzem Koppellauf",
-          "dauer_min": 90
+          "titel": "Längere Radeinheit Z2 mit kurzem Koppellauf",
+          "dauer_min": 110
+        },
+        {
+          "datum": "2026-08-23",
+          "sportart": "swim",
+          "typ": "endurance",
+          "titel": "Ruhiges Schwimmen mit Orientierungsblick",
+          "dauer_min": 35
+        },
+        {
+          "datum": "2026-08-23",
+          "sportart": "mobility",
+          "typ": "mobility",
+          "titel": "Mobility Schulter, Rücken und Gesäß",
+          "dauer_min": 12
         }
       ]
     }
@@ -1060,66 +1119,66 @@ Regeln für die Ausgabe:
   "fitnessdaten": {
     "quelle": "Garmin Connect",
     "aktuell": {
-      "stand": "2026-08-16",
-      "schlaf_h": 5.8,
-      "schlaf_tiefschlaf_h": 0.5,
-      "schlaf_rem_h": 1.2,
-      "schlafscore_0_100": 63,
-      "hrv_ms": 37.0,
+      "stand": "2026-08-17",
+      "schlaf_h": 8.0,
+      "schlaf_tiefschlaf_h": 1.6,
+      "schlaf_rem_h": 1.7,
+      "schlafscore_0_100": 88,
+      "hrv_ms": 42.0,
       "hrv_status": "BALANCED",
       "hrv_normalbereich_ms": {
         "unten": 37.0,
         "oben": 51.0
       },
-      "ruhepuls": 56,
+      "ruhepuls": 52,
       "gewicht_kg": 91.0,
       "koerperfett_pct": 25.1,
       "vo2max_laufen": 44.2,
       "vo2max_rad": null,
-      "stress_tagesmittel": 35,
+      "stress_tagesmittel": 28,
       "koerperbatterie": {
         "hoechstwert": null,
         "tiefstwert": null
       },
       "training_readiness": {
-        "score_0_100": 68,
-        "stufe": "MODERATE",
-        "hinweis": "GOOD_SLEEP_HISTORY",
+        "score_0_100": 96,
+        "stufe": "PRIME",
+        "hinweis": "READY_FOR_ACTION",
         "erholungszeit_h": 1
       },
       "training_status": {
         "status": "RECOVERY_2",
         "wochenlast": null,
-        "acwr_garmin": 0.4,
+        "acwr_garmin": 0.5,
         "acwr_bewertung": "LOW",
-        "akutlast": 183.0,
-        "chronische_last": 451.0
+        "akutlast": 226.0,
+        "chronische_last": 444.0
       }
     },
     "mittelwerte": {
       "schlaf_h": {
         "7_tage": 7.2,
-        "28_tage": 7.3
+        "28_tage": 7.4
       },
       "schlafscore": {
-        "7_tage": 75.8,
-        "28_tage": 79.0
+        "7_tage": 76.2,
+        "28_tage": 79.3
       },
       "hrv_ms": {
-        "7_tage": 42.1,
+        "7_tage": 41.8,
         "28_tage": 43.1
       },
       "ruhepuls": {
-        "7_tage": 52.5,
-        "28_tage": 52.8
+        "7_tage": 52.4,
+        "28_tage": 52.7
       },
       "stress": {
-        "7_tage": 34.0,
-        "28_tage": 31.1
+        "7_tage": 32.2,
+        "28_tage": 31.0
       },
       "trainingsreife": {
-        "7_tage": 74.2,
-        "28_tage": 71.8
+        "7_tage": 75.4,
+        "28_tage": 72.6
       },
       "koerperbatterie_hoch": {
         "7_tage": null,
@@ -1128,19 +1187,6 @@ Regeln für die Ausgabe:
     },
     "auffaelligkeiten": [],
     "tage": [
-      {
-        "datum": "2026-07-19",
-        "schlaf_h": 6.5,
-        "schlafscore": 78,
-        "hrv_ms": 43.0,
-        "hrv_status": "BALANCED",
-        "ruhepuls": 54,
-        "trainingsreife": 74,
-        "erholungszeit_h": 244,
-        "stress": 27,
-        "koerperbatterie_hoch": null,
-        "gewicht_kg": null
-      },
       {
         "datum": "2026-07-20",
         "schlaf_h": 7.6,
@@ -1498,12 +1544,25 @@ Regeln für die Ausgabe:
         "schlafscore": 63,
         "hrv_ms": 37.0,
         "hrv_status": "BALANCED",
-        "ruhepuls": 56,
+        "ruhepuls": 54,
         "trainingsreife": 68,
         "erholungszeit_h": 1,
-        "stress": 35,
+        "stress": 33,
         "koerperbatterie_hoch": null,
         "gewicht_kg": 91.0
+      },
+      {
+        "datum": "2026-08-17",
+        "schlaf_h": 8.0,
+        "schlafscore": 88,
+        "hrv_ms": 42.0,
+        "hrv_status": "BALANCED",
+        "ruhepuls": 52,
+        "trainingsreife": 96,
+        "erholungszeit_h": 1,
+        "stress": 28,
+        "koerperbatterie_hoch": null,
+        "gewicht_kg": null
       }
     ]
   }

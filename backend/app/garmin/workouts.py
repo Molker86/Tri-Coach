@@ -133,6 +133,14 @@ _ENDE_WIEDERHOLUNGEN = {
     "displayOrder": 7,
     "displayable": False,
 }
+# Ende nach gezählten Wiederholungen — die Form, in der Garmins eigener
+# Krafteditor einen Satz führt („15 Wdh.“ statt Rundentaste).
+_ENDE_REPS = {
+    "conditionTypeId": ConditionType.REPS,
+    "conditionTypeKey": "reps",
+    "displayOrder": 10,
+    "displayable": True,
+}
 
 _ZIEL_KEINS = {
     "workoutTargetTypeId": TargetType.NO_TARGET,
@@ -187,6 +195,7 @@ class Schritt:
     art: str  # warmup | interval | recovery | cooldown | rest
     dauer_s: float | None = None
     distanz_m: float | None = None
+    wiederholungen: int | None = None  # nur bei Kraft und Mobility belegt
     zone_von: int | None = None
     zone_bis: int | None = None
     text: str = ""
@@ -468,23 +477,36 @@ _UEBUNG_TRENNER = re.compile(r"\s+/\s+|[\n;·•]|\s+\|\s+")
 
 
 def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
-    """Jede Übung wird ein Schritt — Reihenfolge und Wortlaut wie im Plan.
+    """Jede Übung wird ein Abschnitt — Sätze als Wiederholungsgruppe mit Timer.
 
-    Beendet wird per Rundentaste statt nach Zeit, denn die Zeitangabe einer
-    Übung gilt je Satz und je Seite: „2x45 s je Seite“ sind vier Haltephasen,
-    kein einziger Schritt über 45 s. Wie oft, wie lange und je welcher Seite
-    steht im Text, den die Uhr beim Schritt anzeigt; wann es weitergeht,
-    entscheidet der Athlet. Damit stimmen die Abschnitte auf der Uhr mit dem
-    Aufbau in der Notiz überein — vorher fielen Übungen ohne Zeitangabe still
-    weg und „3x15 Leg Raise“ wurde zur Wiederholungsgruppe über 15 Sekunden.
+    „2x45 s je Seite“ ist keine Zeile für den Athleten zum Selberzählen,
+    sondern eine Serie: vier Haltephasen zu 45 s, zwei je Seite. Genau so steht
+    sie jetzt auf der Uhr — eine Gruppe „Wiederholen 4×“ über einem Schritt,
+    der nach 45 s von selbst weiterschaltet. Vorher war jede Übung *ein*
+    Schritt bis zur Rundentaste, und Satzzahl wie Haltedauer standen nur als
+    Text darin: Die Uhr zählte und stoppte nichts, obwohl beides im Plan steht.
+    Dieselbe Form führt Garmin in seinen eigenen Workouts (Serie mit einem
+    zeitgesteuerten Kind), und sie ist der Grund, weshalb der Athlet den Timer
+    dort sieht.
 
-    Unter zwei erkannten Übungen bleibt die Liste leer: Ein Fließtext ohne
-    Trennzeichen ist keine Liste, und ein einzelner Schritt ohne Ende wäre
-    schlechter als der Ersatzschritt über die geplante Dauer.
+    Drei Umfangsformen werden erkannt, und nur sie:
+
+    * „3x40 s“, „2x60 s“, „4x2 min“ — Sätze mal Zeit, ein Timer je Satz;
+    * „3x15“, „2x8“ — Sätze mal Wiederholungen, gezählt statt gestoppt;
+    * „10 Wiederholungen“, „90 s“, „3 min“ — ein einzelner Satz.
+
+    „je Seite“ (auch „pro Bein“, „je Richtung“, „beidseitig“) verdoppelt die
+    Durchgänge, denn die Angabe gilt je Satz *und* Seite. Der Zusatz im
+    Schritttext sagt, dass ein Durchgang eine Seite ist — sonst läse sich
+    „Wiederholen 4×“ neben „2x45 s je Seite“ wie ein Widerspruch.
+
+    Steht in einer Zeile **kein** Umfang, bleibt es beim bisherigen Schritt bis
+    zur Rundentaste: Geraten wird auch hier nicht. Unter zwei erkannten Übungen
+    bleibt die Liste leer — ein Fließtext ohne Trennzeichen ist keine Liste.
 
     Jede Zeile wird zusätzlich in Garmins Übungskatalog nachgeschlagen. Der
     Treffer hängt am Schritt und wird auf der Uhr zur Bewegungsanimation; ohne
-    Treffer bleibt der Schritt wie bisher eine Textzeile.
+    Treffer bleibt der Schritt eine Textzeile.
     """
     if not struktur or not struktur.strip():
         return []
@@ -494,12 +516,99 @@ def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
     if len(teile) < 2:
         return []
 
+    return [_uebungselement(teil) for teil in teile]
+
+
+def _uebungselement(teil: str) -> Element:
+    """Eine Übungszeile als Schritt — mit Serie darum, wenn sie Sätze nennt."""
+    durchgaenge, dauer_s, wiederholungen, je_seite = _uebungsumfang(teil)
+
+    text = teil.strip()
+    if je_seite and durchgaenge > 1:
+        text = f"{text} — je Durchgang eine Seite"
+
     # Alle Einträge sind Arbeit: In einer Übungsliste steht keine Pause, und
     # `_art()` läse aus „Ausrollen“ (Faszienrolle) sonst ein Auslaufen.
-    return [
-        Schritt(art="interval", text=teil, uebung=uebungen.finde(teil))
-        for teil in teile
-    ]
+    schritt = Schritt(
+        art="interval",
+        dauer_s=dauer_s,
+        wiederholungen=wiederholungen,
+        text=text,
+        uebung=uebungen.finde(teil),
+    )
+    if durchgaenge < 2:
+        return schritt
+    return Block(anzahl=durchgaenge, schritte=[schritt])
+
+
+# Sätze mal Umfang: „3x15“, „2x45 s“, „4 x 2 min“. Die Einheit ist optional —
+# ohne sie sind es Wiederholungen, mit ihr eine Haltedauer.
+_UEBUNG_SAETZE = re.compile(
+    r"(\d{1,2})\s*[x×*]\s*(\d{1,4})\s*(sek\w*|sec\w*|min\w*|s|\'|\u2019)?\b",
+    re.IGNORECASE,
+)
+
+# Ein einzelner Satz — hier ist die Einheit Pflicht. Eine nackte Zahl wäre
+# sonst jede Zahl im Übungsnamen („90/90“, „Figur 4“).
+_UEBUNG_UMFANG = re.compile(
+    r"(\d{1,4})\s*(sek\w*|sec\w*|min\w*|s|\'|\u2019|wdh\w*|wiederholung\w*"
+    r"|atemzug\w*|rep\w*|mal)\b",
+    re.IGNORECASE,
+)
+
+# „je Seite“ und seine Geschwister. Die Angabe gilt je Satz und Seite, also
+# zählt sie doppelt — so liest sie auch jeder Trainingsplan.
+_JE_SEITE = re.compile(
+    r"\b(?:je|pro)\s+(?:seite|bein|arm|richtung|fuss|fuß|hand|schulter)\w*"
+    r"|\bbeidseitig\b|\bbeidseits\b",
+    re.IGNORECASE,
+)
+
+# Grenzen des Plausiblen. Was darüber oder darunter liegt, ist keine
+# Umfangsangabe, sondern eine Zahl im Text.
+_MAX_SAETZE = 20
+_MAX_WIEDERHOLUNGEN = 200
+_MIN_DAUER_S, _MAX_DAUER_S = 5.0, 1800.0
+
+
+def _uebungsumfang(teil: str) -> tuple[int, float | None, int | None, bool]:
+    """(Durchgänge, Dauer je Durchgang, Wiederholungen, „je Seite“).
+
+    Die Satzform wird zuerst gesucht: In „3x8 Step-Downs je Seite, 4 s
+    exzentrisch abgesenkt“ ist „3x8“ der Umfang und „4 s“ ein Zusatz zur
+    Ausführung. Ohne Satzform zählt die erste Angabe mit Einheit.
+    """
+    je_seite = bool(_JE_SEITE.search(teil))
+    seiten = 2 if je_seite else 1
+
+    if (treffer := _UEBUNG_SAETZE.search(teil)) is not None:
+        saetze = int(treffer.group(1))
+        dauer, wiederholungen = _umfangswert(treffer.group(2), treffer.group(3))
+        if 2 <= saetze <= _MAX_SAETZE and (dauer or wiederholungen):
+            return saetze * seiten, dauer, wiederholungen, je_seite
+
+    if (treffer := _UEBUNG_UMFANG.search(teil)) is not None:
+        dauer, wiederholungen = _umfangswert(treffer.group(1), treffer.group(2))
+        if dauer or wiederholungen:
+            return seiten, dauer, wiederholungen, je_seite
+
+    # Ohne erkannten Umfang bleibt es beim Schritt bis zur Rundentaste.
+    return 1, None, None, je_seite
+
+
+def _umfangswert(zahl: str, einheit: str | None) -> tuple[float | None, int | None]:
+    """Eine Zahl mit Einheit als Dauer *oder* Wiederholungszahl."""
+    wert = int(zahl)
+    kurz = (einheit or "").lower()
+
+    if kurz.startswith("min") or kurz in ("\'", "\u2019"):
+        dauer = wert * 60.0
+    elif kurz.startswith(("s", "sek", "sec")):
+        dauer = float(wert)
+    else:
+        return None, (wert if 1 <= wert <= _MAX_WIEDERHOLUNGEN else None)
+
+    return (dauer if _MIN_DAUER_S <= dauer <= _MAX_DAUER_S else None), None
 
 
 # --------------------------------------------------------------------------
@@ -763,6 +872,8 @@ def _schritt_json(
         ende, endwert = _ENDE_DISTANZ, float(schritt.distanz_m)
     elif schritt.dauer_s:
         ende, endwert = _ENDE_ZEIT, float(schritt.dauer_s)
+    elif schritt.wiederholungen:
+        ende, endwert = _ENDE_REPS, float(schritt.wiederholungen)
     else:
         ende, endwert = _ENDE_RUNDENTASTE, None
 

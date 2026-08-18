@@ -197,6 +197,11 @@ SYNONYME: dict[str, str] = {
     "kreuzheben": "Deadlift",
     "rumanisches kreuzheben": "Romanian Deadlift",
     "gestrecktes kreuzheben": "Romanian Deadlift",
+    # Einbeinig führt der Katalog nur mit Hantel oder Schlingen. Dieselbe
+    # Hüftbeuge auf zwei Beinen ist die nächstliegende Animation — und der
+    # Plan schreibt dieselbe Übung mal mit, mal ohne „rumänisch“.
+    "einbeiniges kreuzheben": "Romanian Deadlift",
+    "single leg deadlift": "Romanian Deadlift",
     "wadenheben": "Calf Raise",
     "wadenheber": "Calf Raise",
     # Einbeinig ist eine andere Übung als beidbeinig — ohne eigenen Eintrag
@@ -265,6 +270,20 @@ SYNONYME: dict[str, str] = {
     "glutealdehnung": "Glutes Stretch",
     "gesassdehnung": "Glutes Stretch",
     "piriformisdehnung": "Piriformis Stretch",
+    "piriformisdehnung im liegen": "Lying Piriformis Stretch",
+    # Die Vierer- oder Figur-4-Dehnung *ist* die Piriformisdehnung — Knöchel
+    # über dem Knie, das „4“ zeichnet das gebeugte Bein. Ohne diese Zeilen
+    # blieb sie ohne Kennung, und auf der Uhr stand ein Schritt ohne Titel:
+    # Garmin zeigt dort „--“, weil die Überschrift *nur* aus dem Katalog
+    # kommt. Nennt der Plan die Lage („im Liegen“), gewinnt der längere
+    # Schlüssel den eigenen Katalogeintrag; ohne Angabe bleibt es beim
+    # allgemeinen.
+    "figur 4 dehnung": "Piriformis Stretch",
+    "figur 4 dehnung im liegen": "Lying Piriformis Stretch",
+    "figure 4 stretch": "Piriformis Stretch",
+    "figure four stretch": "Piriformis Stretch",
+    "vierer dehnung": "Piriformis Stretch",
+    "vierer dehnung im liegen": "Lying Piriformis Stretch",
     "tractusdehnung": "Standing IT Band Stretch",
     "tractus": "Standing IT Band Stretch",
     "it band": "Standing IT Band Stretch",
@@ -292,10 +311,15 @@ SYNONYME: dict[str, str] = {
     "leistendehnung": "Groiners",
     "brustdehnung": "Pectoral Stretch",
     "brustoffner": "Pectoral Stretch",
+    "brustoffnung": "Pectoral Stretch",
     # An der Wand hat Garmin einen eigenen Eintrag; drei Wörter schlagen das
-    # einzelne „brustoffner“, wenn der Plan die Wand nennt.
+    # einzelne „brustoffner“, wenn der Plan die Wand nennt. Im Türrahmen ist
+    # dieselbe Bewegung gemeint — Garmin führt nur die Wandvariante.
     "brustoffner an der wand": "Wall Chest and Shoulder Stretch",
+    "brustoffnung an der wand": "Wall Chest and Shoulder Stretch",
     "wall chest stretch": "Wall Chest and Shoulder Stretch",
+    "brustoffnung im turrahmen": "Wall Chest and Shoulder Stretch",
+    "doorway chest stretch": "Wall Chest and Shoulder Stretch",
     "hamstringdehnung im stand": "Standing Hamstring Stretch",
     "knie zur brust": "Lying Knee-to-Chest Stretch",
     "wirbelsaulendrehung im liegen": "Lying Spinal Twist Stretch",
@@ -489,6 +513,19 @@ def _suche(woerter: tuple[str, ...]) -> tuple[int, Uebung] | None:
 # Namens.
 _KLAMMER = re.compile(r"[()\[\]]")
 
+# Faszienrollen und Massagebälle. Garmins Katalog kennt sie nicht als Bewegung
+# — die einzigen Treffer mit „Foam Roller“ sind Übungen *auf* der Rolle
+# („Foam Roller Reverse Crunch“). Ohne diese Sperre zog „Faszienrolle
+# lateraler Oberschenkel (Foam Roll IT Band)“ die „Standing IT Band Stretch“ an
+# sich, weil der Schlüssel „it band“ mitten im Text steht: Auf der Uhr lief die
+# Animation einer Dehnung im Stand, während der Plan Ausrollen im Liegen meint.
+# Zwei verschiedene Übungen, und die falsche wird ungeprüft nachgemacht.
+_MIT_ROLLE = re.compile(
+    r"faszienroll|faszienball|blackroll|black\s+roll|foam\s*roll"
+    r"|massageroll|massageball|triggerpunktball",
+    re.IGNORECASE,
+)
+
 
 def finde(text: str | None) -> Uebung | None:
     """Die Übung aus einer Zeile des Aufbautexts, oder `None`.
@@ -515,4 +552,11 @@ def finde(text: str | None) -> Uebung | None:
         treffer = _suche(_woerter(abschnitt))
         if treffer is not None and (bester is None or treffer[0] > bester[0]):
             bester = treffer
-    return bester[1] if bester is not None else None
+    if bester is None:
+        return None
+
+    # Wer mit der Rolle arbeitet, dehnt nicht — es sei denn, der Katalogeintrag
+    # nennt die Rolle selbst.
+    if _MIT_ROLLE.search(text) and "foam roller" not in bester[1].anzeige.lower():
+        return None
+    return bester[1]

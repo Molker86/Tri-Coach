@@ -188,6 +188,24 @@ def test_einwortiger_katalogname_aus_fremder_kategorie_ist_gesperrt():
         ),
         ("2x12 Hüftkreisen im Vierfüßler (Fire Hydrant)", "FIRE_HYDRANT_KICKS"),
         ("3x10 Rumänisches Kreuzheben", "ROMANIAN_DEADLIFT"),
+        # Die Vierer- oder Figur-4-Dehnung ist die Piriformisdehnung; ohne
+        # Eintrag blieb der Schritt namenlos, und die Uhr zeigte darüber „--“.
+        (
+            "Figur-4-Dehnung im Liegen (Figure-4 Stretch) 2x45 s je Seite",
+            "STRETCH_LYING_PIRIFORMIS",
+        ),
+        (
+            "Vierer-Dehnung im Sitzen (Figure-Four Stretch) 2x45 s je Seite",
+            "STRETCH_PIRIFORMIS",
+        ),
+        (
+            "Brustöffnung an der Wand (Doorway Chest Stretch) 2x30 s",
+            "STRETCH_WALL_CHEST_AND_SHOULDER",
+        ),
+        (
+            "Einbeiniges Kreuzheben (Single-Leg Deadlift) 3x10 je Seite",
+            "ROMANIAN_DEADLIFT",
+        ),
     ],
 )
 def test_zeilen_aus_echten_ki_plaenen(zeile, erwartet):
@@ -195,3 +213,22 @@ def test_zeilen_aus_echten_ki_plaenen(zeile, erwartet):
     treffer = uebungen.finde(zeile)
     assert treffer is not None, zeile
     assert treffer.name == erwartet
+
+
+def test_arbeit_mit_der_rolle_bekommt_keine_dehnung():
+    """Ausrollen ist keine Dehnung — Garmin kennt dafür keine Bewegung.
+
+    „Faszienrolle lateraler Oberschenkel (Foam Roll IT Band)“ zog die
+    „Standing IT Band Stretch“ an sich, weil deren Schlüssel „it band“ mitten
+    im Text steht: Auf der Uhr lief die Animation einer Dehnung im Stand,
+    während der Plan Ausrollen im Liegen meint.
+    """
+    assert uebungen.finde("Faszienrolle lateraler Oberschenkel (Foam Roll IT Band) 2x60 s") is None
+    assert uebungen.finde("Faszienrolle Gesäß (Foam Roll Glutes) 90 s je Seite") is None
+    assert uebungen.finde("2x60 s Oberschenkelvorderseite mit der Blackroll") is None
+
+    # Die Dehnung derselben Struktur bleibt erreichbar, solange keine Rolle
+    # im Spiel ist.
+    assert uebungen.finde("2x45 s IT-Band-Dehnung im Stehen (Standing IT Band Stretch)").name == (
+        "STRETCH_STANDING_IT_BAND"
+    )

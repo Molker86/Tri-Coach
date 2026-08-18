@@ -538,15 +538,34 @@ Raise je Seite / 2x45 s Dehnung je Seite“. Durch die Ausdauer-Grammatik gelese
 wurde daraus Unsinn: „3x15“ eine Wiederholungsgruppe über 15 Sekunden, die
 zweite Übung darin die „Pause“, und jede Übung ohne Zeitangabe fiel still weg —
 auf der Uhr standen dann zwei Abschnitte, während die Notiz vier nannte. Für die
-Sportarten in `UEBUNGSSPORTARTEN` wird deshalb jede Übung *ein* Schritt in der
-Reihenfolge des Plans, beendet per **Rundentaste** statt nach Zeit: Die Angabe
-„2x45 s je Seite“ gilt je Satz und Seite, sind also vier Haltephasen und nicht
-ein 45-Sekunden-Schritt. Getrennt wird nur an „ / “, Zeilenumbruch und
+Sportarten in `UEBUNGSSPORTARTEN` steht deshalb jede Übung für sich, in der
+Reihenfolge des Plans. Getrennt wird nur an „ / “, Zeilenumbruch und
 Aufzählungszeichen — nicht am Komma („…, 4 s exzentrisch abgesenkt“ ist ein
 Zusatz) und nicht an „mit“ („Monster Walks mit Band“). Unter zwei erkannten
 Übungen greift wieder der Ersatzschritt über die geplante Dauer. Diese Einheiten
 bekommen außerdem **keinen Herzfrequenzkorridor**: Der Puls springt dort von
 Satz zu Satz und fällt in der Dehnung, ein Alarm liefe fast durchgehend.
+
+**Und der Umfang der Übung steuert die Uhr, statt bloß danebenzustehen**
+(`_uebungsumfang`). „2x45 s je Seite“ wird eine Wiederholungsgruppe über vier
+Durchgängen mit einem Schritt von 45 s, „3x15“ eine über drei Durchgängen mit
+fünfzehn gezählten Wiederholungen (`ConditionType.REPS`). Vorher war jede Übung
+*ein* Schritt bis zur Rundentaste, und Satzzahl wie Haltedauer standen nur als
+Text darin: Die Uhr zählte und stoppte nichts, obwohl beides im Plan steht, und
+der Athlet zählte selbst. Dieselbe Form führt Garmin in seinen eigenen Workouts
+(Serie über einem zeitgesteuerten Kind, nachgesehen an Workout 1037036157).
+Erkannt werden nur drei Schreibweisen — „3x40 s“ / „4x2 min“, „3x15“ und der
+einzelne Satz („10 Wiederholungen“, „90 s“, „3 min“) —, und die **Satzform geht
+vor**: In „3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt“ ist „3x8“ der
+Umfang und „4 s“ ein Zusatz zur Ausführung. Nennt eine Zeile gar keinen Umfang,
+bleibt es beim Schritt bis zur Rundentaste — geraten wird auch hier nicht.
+
+**„je Seite“ verdoppelt die Durchgänge**, denn die Angabe gilt je Satz *und*
+Seite: „2x45 s je Seite“ sind vier Haltephasen, nicht zwei. Damit die Gruppe
+lesbar bleibt, hängt an den Schritttext „— je Durchgang eine Seite“; ohne ihn
+stünde „Wiederholen 4×“ über einer Zeile, die „2x45 s“ sagt, und das läse sich
+wie ein Fehler. Dieselbe Verdopplung gilt für „pro Bein“, „je Richtung“ und
+„beidseitig“.
 
 **Eine benannte Übung wird auf der Uhr vorgemacht** (`garmin/uebungen.py`).
 Garmin zeigt zu einem Workout-Schritt eine Bewegungsanimation — aber nur, wenn
@@ -611,6 +630,16 @@ Kategorie. Am zweiten hing ein echter Fehlgriff: „Walk“ steht unter `RUN`, s
 aber in „Lateral Band Walk“, und die Bandübung eines echten Plans bekam die
 Animation eines Spaziergangs. Zwanzig solcher Namen führt der Katalog („Jog“,
 „Sprint“, „Burpee“, „Step-up“ …).
+
+**Wer mit der Rolle arbeitet, dehnt nicht** (`_MIT_ROLLE`). Garmins Katalog
+kennt kein Faszienrollen — die einzigen Treffer mit „Foam Roller“ sind Übungen
+*auf* der Rolle. Ohne Sperre zog „Faszienrolle lateraler Oberschenkel (Foam
+Roll IT Band)“ die „Standing IT Band Stretch“ an sich, weil deren Schlüssel
+„it band“ mitten im Text steht: Auf der Uhr lief die Animation einer Dehnung im
+Stand, während der Plan Ausrollen im Liegen meint. Nennt eine Zeile Rolle oder
+Massageball, gilt ein Treffer deshalb nur, wenn der Katalogeintrag die Rolle
+selbst nennt. Der Preis ist der bekannte: kein Titel, keine Animation — dafür
+keine falsche.
 
 **Die Klammer trennt, sie verbindet nicht** (`_KLAMMER` in `finde()`). Punkt 9
 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen englischen
@@ -1236,22 +1265,32 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   **keine FTP** stehen hat, bekommt auf dem Rad weiterhin Pulsziele — dann
   regelt der Smarttrainer in diesen Schritten nicht. Die FTP kommt aus Garmin
   (`sync.hole_leistungswerte`) oder von Hand aus der Profilseite.
-- **Kraft- und Mobility-Schritte tragen keine Wiederholungszahl**: Jede Übung
-  ist ein Schritt bis zur Rundentaste, „3x15 je Seite“ steht nur als Text
-  darin. Garmin könnte mehr (`create_strength_set`, also Wiederholungsgruppe
-  mit `endCondition: reps` und Satzpause), und die Übungskennung liegt jetzt
-  vor — was fehlt, ist die Regel für „je Seite“: Sie verdoppelt die Sätze, und
-  eine Haltedauer („2x45 s“) ist keine Wiederholungszahl. Die Animation hängt
-  *nicht* daran — Garmins eigene Übungsworkouts enden ebenfalls per
-  Rundentaste.
+- **Die Satzpause zwischen zwei Durchgängen fehlt.** Eine Serie ist die
+  Übung allein; Garmins `create_strength_set` legt dahinter noch einen
+  Ruheschritt („60 s Pause“). Die Pläne der KI nennen selten eine, und ein
+  geratener Wert stünde als Vorgabe auf der Uhr — der Athlet drückt zwischen
+  den Durchgängen weiter selbst weiter. Ebenso bleibt ein **Zusatzgewicht**
+  ungelesen: `weightValue` steht fest auf „ohne“ (-1), auch wenn „mit 8 kg
+  Kurzhantel“ in der Zeile steht.
+- **Der Umfang wird nur in drei Schreibweisen erkannt** (`_uebungsumfang`):
+  „3x40 s“, „3x15“ und die einzelne Angabe mit Einheit. Wer „45 s halten,
+  3 Durchgänge“ schreibt, bekommt einen Durchgang; „Wiederholen bis zur
+  Erschöpfung“ bleibt die Rundentaste. Das ist Absicht — die Zahl der
+  Durchgänge zu raten, hieße die Einheit zu verändern.
 - Die **Zuordnung zum Übungskatalog** deckt ab, was in Kraft- und
   Mobilityplänen für Ausdauersportler üblich ist, nicht den ganzen Katalog.
-  Gemessen ist sie an den bis dahin erzeugten Blöcken: Alle 23 Übungen der
-  vier Kraft- und Mobility-Einheiten in der Datenbank werden zugeordnet. Was
-  `uebungen.finde()` nicht erkennt, bleibt ohne Animation — sichtbar wird
-  das nur auf der Uhr, die App meldet es nirgends. Wer eine Lücke bemerkt,
-  trägt sie in `SYNONYME` nach; `test_garmin_uebungen.py` prüft, dass jede
-  Entsprechung im Katalog existiert.
+  Gemessen ist sie an den erzeugten Blöcken: Von den 48 Übungen der acht
+  Kraft- und Mobility-Einheiten in der Datenbank werden 42 zugeordnet. Die
+  sechs übrigen führt Garmin nicht (dreimal Faszienrolle, „World's Greatest
+  Stretch“, „Plank Shoulder Tap“, Zwerchfellatmung), und sie bleiben deshalb
+  leer. Was
+  `uebungen.finde()` nicht erkennt, bleibt ohne Animation — **und ohne Titel**:
+  Die Überschrift des Schritts kommt in Connect wie auf der Uhr allein aus
+  `category`/`exerciseName`, ein Feld für einen eigenen Namen gibt es im
+  Schritt-DTO nicht (an einem zurückgelesenen Workout nachgezählt). Ein
+  namenloser Schritt steht dort als „--“ über seiner Beschreibung. Wer eine
+  Lücke bemerkt, trägt sie in `SYNONYME` nach; `test_garmin_uebungen.py` prüft,
+  dass jede Entsprechung im Katalog existiert.
 - Ein paar Bewegungen führt der Katalog **nur mit Gerät**, obwohl der Plan sie
   ohne meint: Für „Single-Leg Romanian Deadlift“ gibt es keinen Eintrag ohne
   Hantel oder Schlingen, weshalb dort das zweibeinige „Romanian Deadlift“
@@ -1262,10 +1301,11 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   angemeldeten Connect-Editor und wird nirgends öffentlich ausgeliefert
   (`web-data/exercises/Yoga.json` ist ein 404). Deshalb laufen Mobility-
   Einheiten als Garmins „Mobility“ über den Kraftkatalog statt als Yoga.
-- Die Sportart `mobility` (11) und die Übungskennungen sind am echten Konto
-  bestätigt (Garmin speichert und liefert beides zurück). **Offen bleibt, ob
-  die Animation auf dem Gerät erscheint** — die Schrittform wurde erst danach
-  an Garmins eigenes Workout angeglichen und ist am Gerät noch ungeprüft.
+- Die Sportart `mobility` (11), die Übungskennungen und die Serienform sind am
+  echten Konto bestätigt: Ein temporäres Workout aus Einheit 24 kam mit
+  Wiederholungsgruppe, Timer (`time`), Wiederholungszählung (`reps`) und
+  Übungskennung unverändert zurück. **Offen bleibt, ob die Animation auf dem
+  Gerät erscheint** — das zeigt sich erst auf der Uhr.
 - Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
   und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
 - Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren

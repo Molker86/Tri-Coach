@@ -48,6 +48,19 @@ def schritte(workout, segment=0):
     return workout["workoutSegments"][segment]["workoutSteps"]
 
 
+def uebungsschritte(workout, segment=0):
+    """Die ausführbaren Schritte, Wiederholungsgruppen aufgelöst.
+
+    Bei Kraft und Mobility steckt die Übung im Kind einer Serie — „Wiederholen
+    4ד über einem Schritt von 45 s —, und die Kennung sitzt dort und nicht an
+    der Gruppe.
+    """
+    ausgepackt = []
+    for eintrag in schritte(workout, segment):
+        ausgepackt.extend(eintrag.get("workoutSteps") or [eintrag])
+    return ausgepackt
+
+
 # --------------------------------------------------------------------------
 # Der Aufbautext wird zu Schritten
 # --------------------------------------------------------------------------
@@ -120,8 +133,13 @@ def test_unverstandener_text_wird_ein_einziger_schritt():
     assert folge[0]["endConditionValue"] == 45 * 60
 
 
-def test_uebungsliste_wird_abschnitt_fuer_abschnitt_uebernommen():
-    """Was in der Notiz als Aufbau steht, muss auf der Uhr als Abschnitt stehen."""
+def test_uebungsliste_wird_zu_serien_mit_timer():
+    """Was in der Notiz als Aufbau steht, muss auf der Uhr als Serie stehen.
+
+    „2x45 s je Seite“ sind vier Haltephasen zu 45 s. Vorher stand dort *ein*
+    Schritt bis zur Rundentaste, und die Uhr zählte weder Sätze noch Sekunden;
+    der Athlet las die Zahlen in der Beschreibung und stoppte selbst.
+    """
     plan = workouts.baue_workout(
         einheit(
             sport="mobility",
@@ -131,29 +149,53 @@ def test_uebungsliste_wird_abschnitt_fuer_abschnitt_uebernommen():
             structure=(
                 "90/90-Hüftrotation 2x8 je Seite"
                 " / Hüftbeuger-Ausfallschritt 2x45 s je Seite"
-                " / Tractus- und Glutealdehnung 2x45 s je Seite"
-                " / Thoraxrotation 2x8 je Seite"
+                " / Kindhaltung 2x60 s"
+                " / Zwerchfellatmung 3 min"
+                " / Thoraxrotation nach Gefühl"
             ),
         ),
         zonen=ZONEN,
     )
     folge = schritte(plan)
 
-    # Vorher blieben zwei Schritte übrig: Übungen ohne Zeitangabe fielen weg,
-    # und aus „2x45 s je Seite“ wurde ein einziger Schritt über 45 Sekunden.
-    assert [s["description"] for s in folge] == [
-        "90/90-Hüftrotation 2x8 je Seite",
-        "Hüftbeuger-Ausfallschritt 2x45 s je Seite",
-        "Tractus- und Glutealdehnung 2x45 s je Seite",
-        "Thoraxrotation 2x8 je Seite",
+    # Vier Serien und ein Einzelschritt — die Zeile ohne Umfangsangabe bleibt,
+    # was sie war: ein Abschnitt bis zur Rundentaste.
+    assert [s["type"] for s in folge] == [
+        "RepeatGroupDTO",
+        "RepeatGroupDTO",
+        "RepeatGroupDTO",
+        "ExecutableStepDTO",
+        "ExecutableStepDTO",
     ]
-    assert all(s["endCondition"]["conditionTypeKey"] == "lap.button" for s in folge)
+    assert [s.get("numberOfIterations") for s in folge[:3]] == [4, 4, 2]
+
+    umfang = [
+        (s["endCondition"]["conditionTypeKey"], s["endConditionValue"])
+        for s in uebungsschritte(plan)
+    ]
+    assert umfang == [
+        ("reps", 8.0),  # „2x8 je Seite“ wird gezählt, nicht gestoppt
+        ("time", 45.0),
+        ("time", 60.0),
+        ("time", 180.0),
+        ("lap.button", 10.0),
+    ]
+
+    # Der Aufbautext bleibt am Schritt stehen; nur wo verdoppelt wurde, sagt
+    # ein Zusatz, dass ein Durchgang eine Seite ist.
+    beschreibungen = [s["description"] for s in uebungsschritte(plan)]
+    assert beschreibungen[0] == "90/90-Hüftrotation 2x8 je Seite — je Durchgang eine Seite"
+    assert beschreibungen[2] == "Kindhaltung 2x60 s"
+
     # Kein Herzfrequenzalarm über einer Dehnung.
-    assert all(s["targetType"]["workoutTargetTypeKey"] == "no.target" for s in folge)
+    assert all(
+        s["targetType"]["workoutTargetTypeKey"] == "no.target"
+        for s in uebungsschritte(plan)
+    )
     assert plan["estimatedDurationInSecs"] == 12 * 60
 
 
-def test_krafttext_wird_keine_wiederholungsgruppe():
+def test_krafttext_zaehlt_wiederholungen_und_stoppt_keine_sekunden():
     """„3x15 Leg Raise“ sind fünfzehn Wiederholungen, keine fünfzehn Sekunden."""
     plan = workouts.baue_workout(
         einheit(
@@ -170,17 +212,26 @@ def test_krafttext_wird_keine_wiederholungsgruppe():
     )
     folge = schritte(plan)
 
-    assert all(s["type"] == "ExecutableStepDTO" for s in folge)
-    # „mit Band“ gehört zur Übung, das Komma trennt einen Zusatz und keine Übung.
-    assert [s["description"] for s in folge] == [
-        "3x15 Side-Lying Leg Raise je Seite",
-        "3x40 s Side Plank je Seite",
-        "3x15 Monster Walks mit Band",
-        "3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt",
+    # „je Seite“ verdoppelt die Durchgänge: drei Sätze je Seite sind sechs.
+    assert [s["numberOfIterations"] for s in folge] == [6, 6, 3, 6]
+    assert [
+        (s["endCondition"]["conditionTypeKey"], s["endConditionValue"])
+        for s in uebungsschritte(plan)
+    ] == [
+        ("reps", 15.0),
+        ("time", 40.0),
+        ("reps", 15.0),
+        # Die „4 s“ beschreiben die Ausführung, den Umfang nennt „3x8“.
+        ("reps", 8.0),
     ]
-    # Und keine Übung wird zur Pause umgedeutet, bloß weil sie an zweiter
-    # Stelle steht.
-    assert {s["stepType"]["stepTypeKey"] for s in folge} == {"interval"}
+
+    # „mit Band“ gehört zur Übung, das Komma trennt einen Zusatz und keine Übung.
+    assert [s["description"] for s in uebungsschritte(plan)] == [
+        "3x15 Side-Lying Leg Raise je Seite — je Durchgang eine Seite",
+        "3x40 s Side Plank je Seite — je Durchgang eine Seite",
+        "3x15 Monster Walks mit Band",
+        "3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt — je Durchgang eine Seite",
+    ]
 
 
 def test_erkannte_uebungen_tragen_die_katalogkennung():
@@ -198,7 +249,7 @@ def test_erkannte_uebungen_tragen_die_katalogkennung():
         ),
         zonen=ZONEN,
     )
-    folge = schritte(plan)
+    folge = uebungsschritte(plan)
 
     assert [(s.get("category"), s.get("exerciseName")) for s in folge] == [
         ("HIP_STABILITY", "SIDE_LYING_LEG_RAISE"),
@@ -216,25 +267,34 @@ def test_uebungsschritt_hat_die_form_von_garmins_eigenen_workouts():
     """Die Kennung allein genügt nicht — die Uhr braucht die ganze Form.
 
     Abgelesen an Garmins „Ganzkörper-Mobilitäts-Warm-up“ (Workout 1336531040):
-    Dessen Schritte enden ebenfalls per Rundentaste, tragen dabei aber einen
-    Zahlenwert und die Gewichts-, Zug- und Materialfelder. Mit leerem
+    Dessen Schritte tragen die Gewichts-, Zug- und Materialfelder, und wo sie
+    per Rundentaste enden, steht dort trotzdem ein Zahlenwert. Mit leerem
     `endConditionValue` erkannte die Uhr den Schritt nicht als Übung.
     """
     plan = workouts.baue_workout(
         einheit(
             sport="mobility",
             duration_min=12,
-            structure="Katze-Kuh 10 Wiederholungen / Wadendehnung 2x30 s je Seite",
+            structure=(
+                "Katze-Kuh 10 Wiederholungen"
+                " / Wadendehnung 2x30 s je Seite"
+                " / Ausrollen nach Gefühl"
+            ),
         ),
         zonen=ZONEN,
     )
-    for schritt in schritte(plan):
-        assert schritt["endCondition"]["conditionTypeKey"] == "lap.button"
+    for schritt in uebungsschritte(plan):
         assert schritt["endConditionValue"] is not None
         assert schritt["weightValue"] == -1.0
         assert schritt["weightUnit"]["unitKey"] == "kilogram"
         assert schritt["strokeType"]["strokeTypeId"] == 0
         assert schritt["equipmentType"]["equipmentTypeId"] == 0
+
+    # Ohne Umfangsangabe bleibt es bei der Rundentaste — dann trägt der Schritt
+    # Garmins Platzhalter, weil `None` ihn nicht als Übung durchgehen ließ.
+    ohne_umfang = uebungsschritte(plan)[-1]
+    assert ohne_umfang["endCondition"]["conditionTypeKey"] == "lap.button"
+    assert ohne_umfang["endConditionValue"] == 10.0
 
 
 def test_ausdauerschritt_bleibt_ohne_uebungsfelder():
@@ -258,7 +318,7 @@ def test_mobility_geht_als_mobility_und_nicht_als_yoga():
         zonen=ZONEN,
     )
     assert plan["sportType"]["sportTypeKey"] == "mobility"
-    assert [s.get("exerciseName") for s in schritte(plan)] == [
+    assert [s.get("exerciseName") for s in uebungsschritte(plan)] == [
         "STRETCH_CAT_COW",
         "STRETCH_PIGEON_POSE",
     ]
