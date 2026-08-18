@@ -689,6 +689,104 @@ def raeume_ersetzte_auf(
     return _entferne_reihe(db, api, ersetzt, pause_s=pause_s)
 
 
+def vergiss_termin(db: Session, user_id: int, schedule_id: str) -> None:
+    """Merkt sich, dass ein Termin nicht mehr in Garmin steht.
+
+    Die Zuordnung bleibt bestehen, nur ihr Termin ist weg: Die Vorlage liegt
+    weiterhin im Pool, und die Einheit gilt im Plan wieder als zu übertragen.
+    Den Link zu löschen wäre falsch — der Pool-Slot bliebe zwar erhalten, die
+    Einheit fiele aber auf „offen" zurück und legte beim nächsten Lauf eine
+    zweite Vorlage neben die bestehende.
+    """
+    link = db.scalar(
+        select(GarminWorkoutLink).where(
+            GarminWorkoutLink.user_id == user_id,
+            GarminWorkoutLink.garmin_schedule_id == schedule_id,
+        )
+    )
+    if link is None:
+        return
+    link.garmin_schedule_id = None
+    db.commit()
+
+
+def eigene_workout_ids(db: Session, user_id: int) -> set[str]:
+    """Jede Workout-Kennung, die diese App für den Nutzer in Garmin hält.
+
+    Zwei Quellen, weil es zwei Zeitalter gibt: die fünfzehn dauerhaften
+    Pool-Vorlagen und den Altbestand von davor, der nur noch über
+    `GarminWorkoutLink` erreichbar ist. Was in keiner der beiden Listen steht,
+    hat der Athlet in Connect selbst gebaut — und bleibt unberührt.
+    """
+    pool = db.scalars(
+        select(GarminWorkoutPoolSlot.garmin_workout_id).where(
+            GarminWorkoutPoolSlot.user_id == user_id,
+            GarminWorkoutPoolSlot.garmin_workout_id.is_not(None),
+        )
+    ).all()
+    verknuepft = db.scalars(
+        select(GarminWorkoutLink.garmin_workout_id).where(
+            GarminWorkoutLink.user_id == user_id
+        )
+    ).all()
+    return {str(kennung) for kennung in (*pool, *verknuepft) if kennung}
+
+
+def raeume_monat_auf(
+    db: Session,
+    api: Any,
+    user_id: int,
+    jahr: int,
+    monat: int,
+    *,
+    pause_s: float | None = None,
+) -> UebertragungsErgebnis:
+    """Nimmt jeden eigenen Termin eines Kalendermonats aus Garmin zurück.
+
+    Dasselbe wie das Einzellöschen in der Kalenderansicht, nur für alles auf
+    einmal: **Es fällt nur der Termin**, nie die Vorlage. Die Pool-Vorlagen
+    sind dauerhaft und nehmen später den nächsten Inhalt auf — sie zu löschen
+    hieße, die fünfzehn Kennungen wegzuwerfen, um die herum die ganze
+    Übertragung gebaut ist.
+
+    **Gelesen wird der Monat, nicht die eigene Zuordnungstabelle.** Nur der
+    Kalender weiß, was in Garmin wirklich steht: Ein Termin ohne Zuordnung
+    (etwa aus einem mit `garmin_uebergehen` gelöschten Plan) käme sonst nie
+    weg, und genau der ist der Grund, warum es diesen Knopf gibt.
+
+    Ein Fehlschlag bei einem Termin hält die übrigen nicht auf. Die
+    Anfragesperre schon: Sie betrifft jeden weiteren Aufruf, und
+    Weitermachen verlängerte sie nur.
+    """
+    eigene = eigene_workout_ids(db, user_id)
+    if not eigene:
+        return UebertragungsErgebnis()
+
+    termine = [
+        eintrag
+        for eintrag in kalender_modul.hole_monat(api, jahr, monat)
+        if eintrag["art"] == "workout"
+        and eintrag["schedule_id"]
+        and eintrag["workout_id"] in eigene
+    ]
+
+    ergebnis = UebertragungsErgebnis()
+    pause = PAUSE_SEKUNDEN if pause_s is None else pause_s
+    for index, eintrag in enumerate(termine, start=1):
+        kennung = eintrag["schedule_id"]
+        fehler = nachsichtig(lambda: api.unschedule_workout(kennung))
+        if fehler:
+            ergebnis.fehler.append(f"{eintrag['titel']}: {fehler[:120]}")
+        else:
+            ergebnis.entfernt += 1
+            vergiss_termin(db, user_id, kennung)
+
+        if pause and index < len(termine):
+            time.sleep(pause)
+
+    return ergebnis
+
+
 def _entferne_reihe(
     db: Session,
     api: Any,

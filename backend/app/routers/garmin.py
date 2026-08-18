@@ -44,8 +44,10 @@ from ..schemas import (
     GarminEinheitStatusOut,
     GarminJobOut,
     GarminKalenderEintragOut,
+    GarminKalenderLeerenOut,
     GarminKalenderOut,
     GarminMfaIn,
+    GarminMonatIn,
     GarminPlanUebertragungOut,
     GarminSettingsIn,
     GarminStatusOut,
@@ -636,6 +638,40 @@ def loesche_kalendereintrag(
     _raeume_verknuepfung_auf(db, user.id, workout_id, schedule_id)
 
 
+@router.post("/kalender/leeren", response_model=GarminKalenderLeerenOut)
+def leere_kalendermonat(
+    data: GarminMonatIn, user: CurrentUser, db: DbSession
+) -> GarminKalenderLeerenOut:
+    """Nimmt alle eigenen Termine eines Monats aus dem Garmin-Kalender.
+
+    Der Knopf zum Einzellöschen, nur für den ganzen Monat: Angefasst wird
+    ausschließlich, was diese App dort hingelegt hat, und auch davon nur der
+    **Termin** — die Pool-Vorlagen bleiben in Garmins Bibliothek stehen. Was
+    der Athlet in Connect selbst eingeplant hat, bleibt unberührt. Wie die
+    Auswahl zustande kommt, steht bei `uebertragung.raeume_monat_auf`.
+
+    Im Anfrage-Thread statt als Job — dieselbe Abwägung wie beim Löschen eines
+    Plans: Es ist eine Anfrage je Termin, höchstens eine Handvoll, und ein
+    Löschen, das erst später wirkt, wäre schwerer zu verstehen als eines, das
+    ein paar Sekunden dauert. Das globale Schloss wird trotzdem genommen —
+    anders als beim Einzellöschen läuft hier eine **Reihe** von Schreibaufrufen,
+    und ein daneben laufender Übertragungslauf legte Termine an, die dieser
+    Lauf gerade wegräumt.
+    """
+    _konto_oder_fehler(db, user.id)
+
+    try:
+        with runner.exklusiver_direktaufruf():
+            with garmin_sitzung(db, user.id) as api:
+                ergebnis = uebertragung.raeume_monat_auf(
+                    db, api, user.id, data.jahr, data.monat
+                )
+    except GarminFehler as exc:
+        raise als_http(exc) from exc
+
+    return GarminKalenderLeerenOut(entfernt=ergebnis.entfernt, fehler=ergebnis.fehler)
+
+
 @router.post(
     "/kalender/{schedule_id}/verschieben", status_code=status.HTTP_204_NO_CONTENT
 )
@@ -681,6 +717,11 @@ def _raeume_verknuepfung_auf(
     db, user_id: int, workout_id: str | None, schedule_id: str
 ) -> None:
     """Hält die eigene Zuordnung mit dem nach, was in Garmin passiert ist."""
+    if not workout_id:
+        # Nur der Termin ist weg: Die Vorlage steht noch in der Bibliothek.
+        uebertragung.vergiss_termin(db, user_id, schedule_id)
+        return
+
     link = db.scalar(
         select(GarminWorkoutLink).where(
             GarminWorkoutLink.user_id == user_id,
@@ -689,12 +730,7 @@ def _raeume_verknuepfung_auf(
     )
     if link is None:
         return
-    if workout_id:
-        db.delete(link)
-    else:
-        # Nur der Termin ist weg: Die Vorlage steht noch in der Bibliothek und
-        # die Einheit gilt wieder als offen.
-        link.garmin_schedule_id = None
+    db.delete(link)
     db.commit()
 
 

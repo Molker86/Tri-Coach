@@ -657,6 +657,25 @@ class GarminVerschiebenIn(BaseModel):
     datum: date
 
 
+class GarminMonatIn(BaseModel):
+    """Welcher Kalendermonat gemeint ist."""
+
+    jahr: int = Field(ge=2000, le=2100)
+    monat: int = Field(ge=1, le=12)
+
+
+class GarminKalenderLeerenOut(BaseModel):
+    """Was das Leeren eines Kalendermonats bewirkt hat.
+
+    Ein Fehlschlag bei *einem* Termin hält die übrigen nicht auf — deshalb
+    zählt `entfernt` neben einer Liste von Meldungen, statt dass der ganze
+    Aufruf an einem einzelnen Eintrag scheitert.
+    """
+
+    entfernt: int = 0
+    fehler: list[str] = []
+
+
 class GarminDubletteOut(BaseModel):
     """Ein manueller Eintrag, den es nun auch aus Garmin gibt."""
 

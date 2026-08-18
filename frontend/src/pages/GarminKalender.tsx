@@ -155,6 +155,24 @@ export default function GarminKalender() {
     })
   }, [eintraege, plan, jahr, monat])
 
+  /**
+   * Die Termine dieses Monats, die diese App dort hingelegt hat. Dieselbe
+   * Auswahl trifft der Server noch einmal am frisch gelesenen Kalender — hier
+   * steht sie nur, damit der Knopf seine Zahl nennen kann. `plan_session_id`
+   * gehört dazu, weil ein Altbestand von vor dem Vorlagenpool zwar einer
+   * Planeinheit gehört, aber keine Pool-Marke trägt.
+   */
+  const eigeneTermine = useMemo(
+    () =>
+      eintraege.filter(
+        (eintrag) =>
+          eintrag.art === 'workout' &&
+          eintrag.schedule_id !== null &&
+          (eintrag.aus_tri_coach || eintrag.plan_session_id !== null),
+      ),
+    [eintraege],
+  )
+
   const laeuft = jobLaeuft(job)
 
   if (laden && verbunden === null) return <Loading text="Kalender wird geladen …" />
@@ -310,10 +328,56 @@ export default function GarminKalender() {
           </div>
         )}
 
-        <p className="small faint mt-1 mb-0">
+        <p className="small faint mt-1">
           Gestrichelt umrandet: geplant, aber noch nicht in Garmin. Antippen legt die
           Einheit auf die Uhr.
         </p>
+
+        <div className="row">
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={busy || laden || laeuft || eigeneTermine.length === 0}
+            onClick={() => {
+              if (
+                !confirm(
+                  `Alle ${eigeneTermine.length} geplanten Trainings aus ` +
+                    `${MONATE[monat - 1]} ${jahr} aus dem Garmin-Kalender nehmen? ` +
+                    'Die Vorlagen bleiben erhalten.',
+                )
+              )
+                return
+              void handle(
+                () => api.garminKalenderLeeren(jahr, monat),
+                (ergebnis) => {
+                  if (ergebnis.fehler.length > 0) {
+                    setFehler(
+                      `${ergebnis.entfernt} entfernt, ${ergebnis.fehler.length} nicht: ` +
+                        ergebnis.fehler.join(' · '),
+                    )
+                  } else {
+                    setErfolg(
+                      ergebnis.entfernt === 1
+                        ? 'Der Termin wurde aus dem Garmin-Kalender genommen.'
+                        : `${ergebnis.entfernt} Termine wurden aus dem Garmin-Kalender genommen.`,
+                    )
+                  }
+                  void ladeKalender()
+                },
+              )
+            }}
+          >
+            Alle geplanten Trainings entfernen
+            {eigeneTermine.length > 0 && ` (${eigeneTermine.length})`}
+          </button>
+          <span className="muted small">
+            {eigeneTermine.length === 0
+              ? `In ${MONATE[monat - 1]} liegt nichts von Tri-Coach im Garmin-Kalender.`
+              : 'Nimmt die Termine dieses Monats aus dem Kalender — deine ' +
+                'Tri-Coach-Vorlagen und alles, was du in Connect selbst eingeplant ' +
+                'hast, bleiben stehen. Die Einheiten warten danach wieder im Plan ' +
+                'auf die Übertragung.'}
+          </span>
+        </div>
       </div>
 
       {gewaehlt && (

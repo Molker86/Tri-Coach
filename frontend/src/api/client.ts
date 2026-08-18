@@ -6,6 +6,7 @@ import type {
   GarminEinheitStatus,
   GarminJob,
   GarminKalender,
+  GarminKalenderLeeren,
   GarminPlanUebertragung,
   GarminStatus,
   KiJob,
@@ -240,6 +241,15 @@ export const api = {
       `/garmin/kalender/${scheduleId}${workoutId ? `?workout_id=${workoutId}` : ''}`,
       { method: 'DELETE' },
     ),
+  /**
+   * Nimmt alle Tri-Coach-Termine eines Monats aus dem Kalender. Die Vorlagen
+   * bleiben — gelöscht wird nur der Eintrag im Zeitplan.
+   */
+  garminKalenderLeeren: (jahr: number, monat: number) =>
+    request<GarminKalenderLeeren>('/garmin/kalender/leeren', {
+      method: 'POST',
+      body: { jahr, monat },
+    }),
   garminKalenderVerschieben: (scheduleId: string, workoutId: string, datum: string) =>
     request<void>(`/garmin/kalender/${scheduleId}/verschieben`, {
       method: 'POST',

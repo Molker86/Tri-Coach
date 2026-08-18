@@ -748,6 +748,33 @@ das der Athlet von Hand wegräumen müsste. Antwortet Garmin in einer Form, die
 sähe sonst gleich aus — ein leerer Kalender ohne ein Wort dazu —, und der
 Bestandsabgleich schlösse aus dem Nichts, dass die eigenen Workouts weg sind.
 
+**Und er lässt sich monatsweise leeren** (`uebertragung.raeume_monat_auf`). Das
+Einzellöschen gab es von Anfang an; was fehlte, war der Griff für „räum das alles
+weg". Der Umfang ist bewusst **der angezeigte Monat** und nicht „alles ab heute":
+Der Kalender zeigt ohnehin einen Monat, die Kosten bleiben absehbar (eine Anfrage
+je Termin), und der Nutzer sieht vor dem Druck genau, was verschwindet — für die
+Folgemonate blättert er weiter und drückt erneut. „Alles ab heute" müsste
+stattdessen Monat für Monat blind nachladen, bis nichts mehr kommt.
+
+Drei Grenzen halten den Knopf davon ab, zu viel wegzuräumen. Es fällt nur der
+**Termin**, nie die Vorlage — die fünfzehn Pool-Kennungen sind der Kern der
+ganzen Übertragung, und genau sie will der Nutzer behalten. Was „eigen" ist,
+entscheidet die **Kennung und nicht der Titel** (`eigene_workout_ids`): die
+Pool-Vorlagen dieses Nutzers und der Altbestand aus `GarminWorkoutLink`; was der
+Athlet in Connect selbst eingeplant hat, bleibt stehen. Und **gelesen wird der
+Monat aus Garmin, nicht die eigene Zuordnungstabelle** — ein Termin, dessen Link
+mit `garmin_uebergehen` gestorben ist, steht nur noch dort, und er ist der
+Hauptgrund, warum es diesen Knopf überhaupt gibt.
+
+`vergiss_termin()` behält dabei die Zuordnung und löscht nur ihren Termin: Die
+Vorlage liegt weiter im Pool, die Einheit gilt im Plan wieder als zu übertragen.
+Den Link zu löschen ließe sie auf „offen" zurückfallen, und der nächste Lauf
+legte eine zweite Vorlage neben die bestehende. Der Lauf selbst arbeitet im
+Anfrage-Thread wie das Löschen eines Plans, nimmt aber anders als das
+Einzellöschen das **globale Schloss** (nicht blockierend, sonst 409): Hier läuft
+eine Reihe von Schreibaufrufen, und ein daneben laufender Übertragungslauf legte
+Termine an, die dieser Lauf gerade wegräumt.
+
 **Der Kalenderdienst zählt in anderen Einheiten als der Aktivitätsdienst.** Bei
 absolvierten Aktivitäten steht `duration` dort in **Millisekunden** und
 `distance` in **Zentimetern**, während dieselbe Ausfahrt über `get_activities`
@@ -1331,6 +1358,10 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   löschen?"), behält verwaiste Workouts in Garmin: Mit dem Plan stirbt die
   Zuordnung, und ohne sie fasst die App dort nichts mehr an. Der Kalender in
   der App zeigt sie weiterhin zum Entfernen an — das ist dann der einzige Weg.
+- Das **Leeren des Kalenders wirkt nur auf den angezeigten Monat**. Wer Termine
+  über mehrere Monate liegen hat, blättert weiter und drückt erneut. Ohne
+  Fortschrittsanzeige: Bei einer Handvoll Terminen dauert die Antwort ein paar
+  Sekunden (eine Anfrage und eine Sekunde Pause je Termin).
 - Der Bestandsabgleich prüft nur die Monate, in denen die App ihre Einheiten
   vermutet. Wer ein Workout in **Connect** auf einen anderen Monat schiebt, wird
   dort nicht gefunden; die Vorlage besteht aber noch, also wird die Zuordnung

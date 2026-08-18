@@ -1497,6 +1497,78 @@ def test_nur_termin_loeschen_laesst_die_vorlage_stehen(client, verbunden, fake):
     assert int(eigener["schedule_id"]) not in fake._termine
 
 
+def test_monat_leeren_nimmt_alle_eigenen_termine_und_laesst_die_vorlagen(
+    client, verbunden, fake
+):
+    """Der Knopf im Kalender: alles weg aus dem Zeitplan, nichts weg aus der Bibliothek."""
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    assert fake._termine
+    fake.aufrufe.clear()
+
+    antwort = client.post(
+        "/api/garmin/kalender/leeren",
+        json={"jahr": HEUTE.year, "monat": HEUTE.month},
+        headers=verbunden,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["entfernt"] == 2
+    assert antwort.json()["fehler"] == []
+
+    assert fake._termine == {}
+    # Die fünfzehn Pool-Vorlagen sind der Kern der ganzen Übertragung — an sie
+    # darf dieser Knopf nicht rühren.
+    assert len(fake._workouts) == 15
+    assert "delete_workout" not in fake.aufrufe
+
+    # Und die Einheiten warten wieder auf ihre Übertragung.
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    assert zustand["aktuell"] == 0
+    assert zustand["offen"] + zustand["geaendert"] == 2
+
+
+def test_monat_leeren_laesst_fremde_termine_stehen(client, verbunden, fake):
+    """Was der Athlet in Connect selbst eingeplant hat, gehört dieser App nicht."""
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    fremd = fake.upload_workout({"workoutName": "Eigener Longrun"})["workoutId"]
+    fremder_termin = fake.schedule_workout(fremd, HEUTE.isoformat())[
+        "workoutScheduleId"
+    ]
+
+    antwort = client.post(
+        "/api/garmin/kalender/leeren",
+        json={"jahr": HEUTE.year, "monat": HEUTE.month},
+        headers=verbunden,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["entfernt"] == 2
+
+    assert list(fake._termine) == [fremder_termin]
+    assert fremd in fake._workouts
+
+
+def test_monat_leeren_wartet_nicht_neben_einem_garmin_lauf(client, verbunden, fake):
+    """Eine Reihe von Schreibaufrufen neben einem Übertragungslauf: 409 statt Rennen."""
+    from app.garmin.runner import runner
+
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    vorher = dict(fake._termine)
+
+    with runner.exklusiver_direktaufruf():
+        antwort = client.post(
+            "/api/garmin/kalender/leeren",
+            json={"jahr": HEUTE.year, "monat": HEUTE.month},
+            headers=verbunden,
+        )
+
+    assert antwort.status_code == 409
+    assert "Garmin-Vorgang" in antwort.json()["detail"]
+    assert fake._termine == vorher
+
+
 def test_verschieben_legt_den_termin_auf_einen_anderen_tag(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)

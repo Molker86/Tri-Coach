@@ -413,6 +413,12 @@ export interface GarminKalender {
   eintraege: GarminKalenderEintrag[]
 }
 
+/** Was das Leeren eines Kalendermonats bewirkt hat. */
+export interface GarminKalenderLeeren {
+  entfernt: number
+  fehler: string[]
+}
+
 /** Ein manueller Eintrag, den es nun auch aus Garmin gibt. */
 export interface GarminDublette {
   manual_log_id: number
