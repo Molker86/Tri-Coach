@@ -116,6 +116,95 @@ def schwimmort(session: Any) -> str:
         return "open_water"
     return "pool"
 
+
+# --------------------------------------------------------------------------
+# Womit auf dem Rad gesteuert wird: Leistung oder Puls
+# --------------------------------------------------------------------------
+
+# Schlüssel aus `EQUIPMENT_OPTIONS` (frontend/src/constants.ts), die darüber
+# entscheiden, ob die Leistung überhaupt gemessen wird.
+AUSRUESTUNG_POWERMETER = "powermeter"
+AUSRUESTUNG_ROLLE = "smart_trainer"
+
+# Wörter, an denen eine Rolleneinheit auch ohne das Feld `bike_location` zu
+# erkennen ist — derselbe Rückfall wie beim Schwimmort und aus denselben
+# Gründen: Das Feld gibt es erst seit dieser Änderung, und über die
+# Zwischenablage antwortet womöglich eine KI, die den Prompt nicht kennt.
+#
+# **Gesucht wird allein im Titel**, ebenfalls wie dort: In Beschreibung und
+# Aufbau steht „Rolle" oft als Alternative („bei Regen auf der Rolle"), im
+# Titel dagegen benennt es die Einheit selbst. Und mit Wortgrenzen, weil
+# „einrollen" und „ausrollen" die Zeichenfolge sonst mitbrächten — ausgerechnet
+# die beiden Wörter, mit denen fast jeder Radaufbau anfängt und aufhört.
+_INDOOR_TITEL = re.compile(
+    r"\b(?:rolle|rollentraining|smart[\s-]?trainer|indoor|drinnen|zwift"
+    r"|ergometer|turbotrainer)\b",
+    re.IGNORECASE,
+)
+
+
+def radort(session: Any) -> str:
+    """`indoor` oder `outdoor` — die Angabe der KI vor dem Wortlaut.
+
+    Ohne Angabe und ohne Hinweis im Titel gilt „draußen". Diese Richtung ist
+    Absicht: Draußen ist der Normalfall, und die Annahme kostet im Zweifel nur
+    eine Pulssteuerung statt einer Wattsteuerung — umgekehrt stünde auf einer
+    Straßenausfahrt ein Wattziel, das ohne Powermeter niemand messen kann.
+    """
+    gesetzt = getattr(session, "bike_location", None)
+    if gesetzt in ("indoor", "outdoor"):
+        return str(gesetzt)
+
+    titel = str(getattr(session, "title", "") or "")
+    return "indoor" if _INDOOR_TITEL.search(titel) else "outdoor"
+
+
+def ausruestung_der_einheit(session: Any) -> list[str] | None:
+    """Die Ausrüstung aus dem Fragebogen, über Plan und Anfrage der Einheit.
+
+    Wird bewusst hier aus der Einheit gelesen statt als Parameter durchgereicht:
+    Sie hängt am Fragebogen und damit am Plan, nicht am Aufrufer, und jeder Weg
+    auf die Uhr (Block, Einzelübertragung, Fingerabdruck) muss dieselbe Antwort
+    bekommen. `None` heißt „nicht bekannt" und ist etwas anderes als eine leere
+    Liste: Wer nichts angekreuzt hat, hat nichts — wer gar keinen Fragebogen
+    hat, sagt damit nichts über sein Rad.
+    """
+    try:
+        plan = getattr(session, "plan", None)
+        anfrage = getattr(plan, "request", None)
+        ausruestung = getattr(anfrage, "equipment", None)
+    except Exception:  # noqa: BLE001 — abgelöste Instanz, Testdoppel, alles gleich
+        return None
+    if ausruestung is None:
+        return None
+    return [str(eintrag) for eintrag in ausruestung]
+
+
+def leistungssteuerung(session: Any) -> bool:
+    """Darf diese Radeinheit über Watt gesteuert werden?
+
+    Ein Zielkorridor steuert nur, was die Uhr auch misst. Für die Leistung
+    braucht sie eine Quelle, und die hat sie in genau zwei Fällen: ein
+    Powermeter am Rad — dann überall — oder die Rolle, die ihre Leistung selbst
+    meldet und sich von Garmin danach regeln lässt.
+
+    Fehlt beides, war die Wattvorgabe bisher schlimmer als keine: Auf der Uhr
+    stand ein Ziel ohne Messwert, der Korridor blieb leer, und der Puls — die
+    einzige Größe, die draußen tatsächlich vorliegt — wanderte als bloßer Text
+    in die Beschreibung. Eine Schlüsseleinheit über Schwellenintervalle war
+    damit unsteuerbar, obwohl der Plan sie sauber über die Herzfrequenz
+    beschrieben hatte.
+
+    Ohne bekannte Ausrüstung bleibt es beim bisherigen Verhalten: Nichts zu
+    wissen ist kein Beleg dafür, dass kein Powermeter am Rad sitzt.
+    """
+    ausruestung = ausruestung_der_einheit(session)
+    if ausruestung is None:
+        return True
+    if AUSRUESTUNG_POWERMETER in ausruestung:
+        return True
+    return radort(session) == "indoor" and AUSRUESTUNG_ROLLE in ausruestung
+
 # Vier Felder, die Garmins *eigene* Übungsworkouts an jedem Schritt tragen und
 # die dem unseren fehlten (abgelesen an „Ganzkörper-Mobilitäts-Warm-up“,
 # Workout 1336531040, aus Garmins Bibliothek). Ohne sie stand die Übungskennung
@@ -1126,6 +1215,7 @@ def _ziel(
     sport: str,
     zonen: dict[str, tuple[int, int]],
     ftp: int | None,
+    watt_steuerbar: bool = True,
 ) -> Zielvorgabe:
     """Zielkorridor eines Schritts. Mehr als ein Ziel je Schritt kennt Garmin
     nicht — deshalb entscheidet die Reihenfolge hier, was auf der Uhr steht.
@@ -1146,11 +1236,20 @@ def _ziel(
     Eine Wattzahl in der Erholung ist eine Anweisung an die Rolle und kein
     Alarm, der den Puls hochtriebe. Ohne bekannte FTP bleibt es beim Puls — eine
     Leistung, die niemand ausrechnen kann, ist keine.
+
+    Das alles gilt aber nur, wo die Leistung **gemessen** wird — draußen ohne
+    Powermeter steuert der Puls, siehe `leistungssteuerung()`. `watt_steuerbar`
+    trägt diese Entscheidung herein; sie wird einmal je Einheit getroffen und
+    nicht je Schritt, damit nicht ein Teil der Einheit über Watt und ein
+    anderer über den Puls liefe.
     """
     puls = _herzfrequenz(session, schritt, sport, zonen)
 
-    if sport == "bike" and (watt := _leistung(session, schritt, ftp)):
-        return Zielvorgabe(_ZIEL_LEISTUNG, watt[0], watt[1], _pulshinweis(schritt, puls))
+    if sport == "bike" and watt_steuerbar:
+        if watt := _leistung(session, schritt, ftp):
+            return Zielvorgabe(
+                _ZIEL_LEISTUNG, watt[0], watt[1], _pulshinweis(schritt, puls)
+            )
 
     if puls is not None:
         return Zielvorgabe(_ZIEL_HF, puls[0], puls[1])
@@ -1253,6 +1352,7 @@ def _block_json(
     zonen: dict[str, tuple[int, int]],
     ftp: int | None,
     kind_id: int,
+    watt_steuerbar: bool = True,
 ) -> tuple[dict[str, Any], int]:
     """Wiederholungsgruppe samt Kindern. Rückgabe: (JSON, nächste Reihenfolge)."""
     typ_id, typ_schluessel = _SCHRITT_TYPEN["repeat"]
@@ -1263,7 +1363,7 @@ def _block_json(
             _schritt_json(
                 schritt,
                 naechste,
-                _ziel(session, schritt, sport, zonen, ftp),
+                _ziel(session, schritt, sport, zonen, ftp, watt_steuerbar),
                 sport,
                 kind_id,
             )
@@ -1402,6 +1502,11 @@ def baue_workout(
     else:
         abschnitte = [(session.sport, elemente)]
 
+    # Einmal je Einheit entschieden, nicht je Schritt: Ein Workout, dessen
+    # Intervalle über Watt und dessen Ein-/Ausrollen über den Puls laufen,
+    # wechselt mitten in der Einheit die Steuergröße.
+    watt_steuerbar = leistungssteuerung(session)
+
     segmente: list[dict[str, Any]] = []
     reihenfolge = 1
     kind_id = 1
@@ -1411,7 +1516,8 @@ def baue_workout(
         for element in teil:
             if isinstance(element, Block):
                 gruppe, reihenfolge = _block_json(
-                    element, reihenfolge, session, sport, zonen, ftp, kind_id
+                    element, reihenfolge, session, sport, zonen, ftp, kind_id,
+                    watt_steuerbar,
                 )
                 schritte_json.append(gruppe)
                 kind_id += 1
@@ -1420,7 +1526,7 @@ def baue_workout(
                     _schritt_json(
                         element,
                         reihenfolge,
-                        _ziel(session, element, sport, zonen, ftp),
+                        _ziel(session, element, sport, zonen, ftp, watt_steuerbar),
                         sport,
                         None,
                     )

@@ -103,6 +103,10 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # werden wie bisher als Beckentraining behandelt, sofern nicht der
         # Rückfall in `workouts.schwimmort()` etwas anderes erkennt.
         "swim_location": "VARCHAR(16)",
+        # Rolle oder Straße. Bleibt an bestehenden Einheiten leer; dann
+        # entscheidet der Rückfall in `workouts.radort()` anhand des Titels,
+        # und ohne Hinweis gilt „draußen".
+        "bike_location": "VARCHAR(16)",
         # Der Bauplan der KI. Bleibt an bestehenden Einheiten leer — die
         # werden weiter aus ihrem Fließtext zerlegt.
         "steps_json": "JSON",

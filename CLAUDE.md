@@ -846,11 +846,35 @@ trotzdem nichts**: Die Übungen stehen dann im Wortlaut im Schritttext, so wie
 der Plan sie schreibt. Genau das war der Fehler — nicht die fehlende Verteilung,
 sondern die verschwundene Zeile.
 
-**Auf dem Rad steuert die Leistung, nicht der Puls — und zwar in jedem Schritt**
-(`_leistung`, `_ziel`). Bei `bike` gewinnt Watt vor jeder Herzfrequenzvorgabe:
-Auf dem Smarttrainer regelt Garmin das Gerät danach, und im Freien zeigt die
-Leistung sofort an, ob das Tempo stimmt, während der Puls Minuten
-hinterherzieht. Zuerst zählt die Angabe im **Schritttext**, denn Belastung und
+**Auf dem Rad steuert die Leistung — aber nur, wo sie gemessen wird**
+(`leistungssteuerung`, `radort`, `_leistung`, `_ziel`). Bei `bike` gewinnt Watt
+vor jeder Herzfrequenzvorgabe: Auf dem Smarttrainer regelt Garmin das Gerät
+danach, und im Freien zeigt die Leistung sofort an, ob das Tempo stimmt, während
+der Puls Minuten hinterherzieht. Ein Zielkorridor steuert allerdings nur, was die
+Uhr auch misst, und dafür braucht sie eine Quelle: ein **Powermeter am Rad**
+(`powermeter` im Fragebogen) — dann überall — oder die **Rolle**
+(`smart_trainer`), die ihre Leistung selbst meldet. Fehlt beides, steuert
+draußen der Puls.
+
+Das war der Fehler, der die Regel eingeschränkt hat: Ein Athlet mit Rolle, aber
+ohne Powermeter bekam auf einer Schlüsseleinheit über Schwellenintervalle *im
+Freien* an jedem Schritt ein Wattziel — aus der Zone hochgerechnet, weil die FTP
+im Profil stand (sie kommt ja von der Rolle). Auf der Uhr stand damit ein
+Korridor ohne Messwert, während der Puls — die einzige Größe, die dort
+tatsächlich vorliegt — als bloßer Text in die Beschreibung gewandert war. Der
+Plan hatte die Einheit sauber über die Herzfrequenz beschrieben, bis auf die Uhr
+kam sie unsteuerbar an. **Ohne bekannte Ausrüstung** (kein Fragebogen am Plan)
+bleibt es beim bisherigen Verhalten: Nichts zu wissen ist kein Beleg dafür, dass
+kein Powermeter am Rad sitzt. Eine **leere** Ausrüstungsliste ist dagegen eine
+Aussage — wer nichts angekreuzt hat, hat nichts.
+
+Entschieden wird **einmal je Einheit**, nicht je Schritt (`watt_steuerbar` durch
+`baue_workout` hindurch): Ein Workout, dessen Intervalle über Watt und dessen
+Ein- und Ausrollen über den Puls liefen, wechselte mitten in der Einheit die
+Steuergröße — genau der Zustand, gegen den die Regel unten überhaupt entstanden
+ist.
+
+Innerhalb dieser Grenze gilt die alte Reihenfolge unverändert. Zuerst zählt die Angabe im **Schritttext**, denn Belastung und
 Erholung haben je einen eigenen Korridor; danach das Feld `target_power`, und
 das nur über Arbeitsschritten — auf das Einrollen gelegt stünden dort die
 Intervallwatt; zuletzt die **Zone im Text**, umgerechnet über
@@ -875,7 +899,39 @@ schon selbst nennt (`_PULS_IM_TEXT`) — die KI schreibt ihn oft dazu, und zwei
 Korridore nebeneinander lesen sich wie ein Widerspruch. Er wird zuerst bemessen,
 damit er beim Kürzen auf Garmins Feldgrenze nicht als Erstes fällt.
 **Ohne bekannte FTP bleibt es beim Pulsziel**: Eine Leistung, die niemand
-ausrechnen kann, ist keine.
+ausrechnen kann, ist keine. Wo die Leistung gar nicht erst gemessen wird, gibt es
+umgekehrt nichts zu verdrängen — der Puls ist dann das Ziel, und die Wattzahlen
+der KI bleiben als Teil des Aufbautexts in der Beschreibung stehen.
+
+**Wo die Radeinheit stattfindet, sagt die KI** (`PlanSession.bike_location`,
+`workouts.radort`) — dieselbe Bauart wie `swim_location` und aus demselben Grund:
+Aus Titel und Aufbau ist der Ort nicht sicher abzulesen, und die Ausrüstung im
+Fragebogen nennt nur, was *möglich* ist. `SESSION_SCHEMA` trägt deshalb
+`bike_location` (`indoor` | `outdoor`), `PRINZIP_STEUERGROESSEN` verlangt es für
+jede Radeinheit und sagt der KI zugleich, dass Wattvorgaben ohne `powermeter`
+draußen nichts steuern. Unbekannte Werte fallen in `normalize_bike_location()`
+weg statt den Block zu kippen.
+
+**Der Rückfall liest nur den Titel**, für Blöcke von vor dem Feld und für
+Antworten über die Zwischenablage — und er läuft nur in eine Richtung: ohne
+Hinweis bleibt es bei „draußen". Auch diese Richtung ist Absicht. Sie kostet im
+Zweifel eine Pulssteuerung statt einer Wattsteuerung; umgekehrt stünde auf einer
+Straßenausfahrt ein Wattziel, das niemand messen kann. Gesucht wird mit
+**Wortgrenzen** (`_INDOOR_TITEL`), sonst zöge „rolle" aus *ein*rollen und
+*aus*rollen jede zweite Radeinheit auf die Rolle — die beiden Wörter, mit denen
+fast jeder Radaufbau anfängt und aufhört.
+
+**Die Ausrüstung kommt über den Plan an die Einheit**
+(`workouts.ausruestung_der_einheit`: Einheit → Plan → Anfrage → `equipment`),
+nicht als Parameter durch die halbe Übertragung. Sie hängt am Fragebogen und
+damit am Plan, nicht am Aufrufer, und so bekommt jeder Weg auf die Uhr dieselbe
+Antwort — Block, Einzelübertragung und der Fingerabdruckvergleich, der über
+„geändert" entscheidet. Daran hing eine stille Lücke: Ohne ausdrückliche
+`request_id` nahm der Export den zuletzt gespeicherten Fragebogen, der Plan
+behielt aber `request_id = NULL` und war damit von genau dem Fragebogen getrennt,
+aus dem er entstanden war. Aufgefallen ist das erst, als die Ausrüstung anfing,
+über den Inhalt des Workouts zu entscheiden. `plan_import._letzter_fragebogen()`
+trifft jetzt dieselbe Wahl wie der Export, für beide Auslöser.
 
 **Zwei Grammatiken, weil derselbe Text Verschiedenes bedeutet**
 (`zerlege_uebungsliste()` neben `zerlege_struktur()`). Bei Kraft und Mobility
@@ -1727,6 +1783,21 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   **keine FTP** stehen hat, bekommt auf dem Rad weiterhin Pulsziele — dann
   regelt der Smarttrainer in diesen Schritten nicht. Die FTP kommt aus Garmin
   (`sync.hole_leistungswerte`) oder von Hand aus der Profilseite.
+- **Ob die Radeinheit drinnen oder draußen stattfindet, kann die App nicht
+  nachprüfen** — sie glaubt `bike_location` bzw. dem Titel. Plant die KI eine
+  Einheit als `indoor`, die der Athlet dann doch auf der Straße fährt, steht
+  dort ein Wattziel ohne Messwert; umgekehrt fährt er auf der Rolle ohne
+  Regelung. Korrigieren lässt sich das nur über die Einzelanpassung („mach das
+  auf der Rolle"), nicht mit einem Schalter an der Einheit.
+- Die **Ausrüstung stammt aus dem Fragebogen des Plans**, und jeder Fragebogen
+  ist eine neue Zeile. Wer sich ein Powermeter kauft und den Fragebogen neu
+  ausfüllt, ändert damit **nicht** den laufenden Block: Der zeigt weiter auf die
+  alte Zeile und bleibt draußen pulsgesteuert. Erst der nächste Block greift.
+- **Pläne von vor dieser Änderung tragen `request_id = NULL`** und gelten
+  deshalb als „Ausrüstung unbekannt" — sie bekommen auf dem Rad weiterhin
+  Wattziele. Wer das für einen laufenden Block korrigieren will, trägt die
+  `request_id` von Hand nach; danach meldet der Abgleich die Radeinheiten als
+  „geändert" und lädt sie neu hoch.
 - **Die Satzpause zwischen zwei Durchgängen fehlt.** Eine Serie ist die
   Übung allein; Garmins `create_strength_set` legt dahinter noch einen
   Ruheschritt („60 s Pause“). Die Pläne der KI nennen selten eine, und ein

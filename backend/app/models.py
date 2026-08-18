@@ -223,6 +223,15 @@ class PlanSession(Base):
     # Beckentraining auf die Uhr — samt Bahnlänge, die im See nichts zählt.
     swim_location: Mapped[str | None] = mapped_column(String(16))
 
+    # Drinnen auf der Rolle oder draußen auf der Straße. Nur bei
+    # `sport == "bike"` (und am Radteil einer Koppeleinheit) belegt, und die
+    # Angabe entscheidet, **womit die Uhr steuert**: Watt kann sie nur vorgeben,
+    # wo die Leistung auch gemessen wird — auf dem Smart Trainer immer, draußen
+    # nur mit Wattmessung am Rad. Ohne sie ging jede Radeinheit mit
+    # Leistungskorridor auf die Uhr, und wer ohne Powermeter draußen fuhr, sah
+    # dort ein Ziel, das sein Rad nicht messen kann.
+    bike_location: Mapped[str | None] = mapped_column(String(16))
+
     # Der Bauplan der Einheit, so wie die KI ihn geliefert hat: die Schrittliste
     # aus `AIStepIn`. `structure` bleibt daneben stehen und ist der Text, den
     # der Athlet liest — hier steht dieselbe Einheit für die Uhr. Leer heißt,

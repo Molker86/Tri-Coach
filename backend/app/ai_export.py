@@ -783,6 +783,12 @@ SESSION_SCHEMA = {
         "Entscheidet, wie die Einheit auf der Uhr aufgezeichnet wird; "
         "eine Freiwassereinheit als Beckentraining zählt Bahnen statt Strecke"
     ),
+    "bike_location": (
+        "indoor | outdoor – nur bei sport=bike (und am Radteil von brick), "
+        "dort aber immer angeben. indoor heißt: auf der Rolle. Entscheidet, "
+        "womit die Uhr steuert — draußen ohne Wattmessung am Rad kann sie "
+        "keine Leistung messen, dort steuert die Herzfrequenz"
+    ),
 }
 
 RESPONSE_SCHEMA = {
@@ -969,6 +975,17 @@ gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe g
 wofür die Einheit gedacht ist und was unter `trainingswunsch.equipment` zur Verfügung \
 steht. Auch daraus baut die App das Workout: Eine Freiwassereinheit, die als \
 Beckentraining auf der Uhr landet, zählt Bahnen statt Strecke.
+
+Bei `bike` gehört ebenso `bike_location` dazu — `indoor` (auf der Rolle) oder \
+`outdoor` —, und daran hängt die **Steuergröße der ganzen Einheit**: Watt steuert nur, \
+wo die Leistung gemessen wird. Das ist der Fall auf der Rolle (`smart_trainer` unter \
+`trainingswunsch.equipment`) und mit Wattmessung am Rad (`powermeter`). Steht \
+`powermeter` **nicht** in der Ausrüstung, hat der Athlet draußen keinen Wattmesser: \
+Dann gib für Außeneinheiten keine Wattvorgaben, sondern steuere über \
+`target_hr_low`/`target_hr_high`, die Zonen in `steps` und RPE — eine Wattzahl wäre \
+dort ein Ziel ohne Messwert, und die Uhr zeigte einen leeren Korridor. Umgekehrt \
+gehört auf die Rolle die Leistung: Garmin regelt das Gerät danach, während der Puls \
+Minuten hinterherzieht.
 
 **Der Bauplan für die Uhr**: Gib zu jeder Einheit außer `rest` zusätzlich zu \
 `structure` das Feld `steps` an — denselben Aufbau, aber als Liste von \

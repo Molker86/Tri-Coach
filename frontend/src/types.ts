@@ -122,6 +122,7 @@ export interface PlanSession {
   rpe_target: number | null
   /** Nur bei Schwimmeinheiten: 'pool' oder 'open_water'. */
   swim_location: string | null
+  bike_location: string | null
   logged: boolean
   /** Wann diese Einheit einzeln angepasst wurde — sonst null. */
   angepasst_am: string | null

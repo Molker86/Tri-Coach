@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from . import plan_aufraeumen
-from .models import Plan, PlanSession
+from .models import Plan, PlanSession, TrainingRequest
 from .schemas import AIEinheitBody, AIEinheitImport, AIPlanBody, AIPlanImport
 from .zeit import jetzt_utc
 
@@ -198,6 +198,7 @@ def build_plan(
                     target_power=session.target_power,
                     rpe_target=session.rpe_target,
                     swim_location=session.swim_location,
+                    bike_location=session.bike_location,
                     steps_json=_schritte_json(session),
                 )
             )
@@ -300,6 +301,25 @@ class Uebernahme:
     garmin_hinweis: str | None = None
 
 
+def _letzter_fragebogen(db: Session, user_id: int) -> int | None:
+    """Der zuletzt gespeicherte Fragebogen — dieselbe Wahl, die der Export trifft.
+
+    Ohne ausdrückliche `request_id` nimmt `ai_export._lade_kontext()` den
+    jüngsten Fragebogen; der Plan behielt trotzdem `request_id = NULL` und war
+    damit von dem Fragebogen getrennt, aus dem er tatsächlich entstanden ist.
+    Das fiel erst auf, als die Ausrüstung anfing, über den Inhalt des Workouts
+    zu entscheiden: Ohne den Verweis wusste die Übertragung nicht, ob ein
+    Powermeter am Rad sitzt, und legte vorsichtshalber Watt auf jede Einheit.
+    """
+    zeile = (
+        db.query(TrainingRequest.id)
+        .filter(TrainingRequest.user_id == user_id)
+        .order_by(TrainingRequest.created_at.desc())
+        .first()
+    )
+    return zeile[0] if zeile else None
+
+
 def uebernimm_plan(
     db: Session,
     user_id: int,
@@ -319,7 +339,7 @@ def uebernimm_plan(
     die Datenbank unberührt.
     """
     body = parse_ai_response(raw)
-    plan = build_plan(body, user_id, request_id)
+    plan = build_plan(body, user_id, request_id or _letzter_fragebogen(db, user_id))
     warnings = validate_coverage(body, days)
 
     # Nur ein Plan ist gleichzeitig aktiv.
@@ -507,6 +527,7 @@ def uebernimm_einheit(
     session.target_power = neu.target_power
     session.rpe_target = neu.rpe_target
     session.swim_location = neu.swim_location
+    session.bike_location = neu.bike_location
     session.steps_json = _schritte_json(neu)
     session.angepasst_am = jetzt_utc()
     session.anpassungswunsch = wunsch

@@ -40,10 +40,22 @@ def einheit(**abweichend):
         rpe_target=8,
         order_in_day=0,
         swim_location=None,
+        bike_location=None,
         steps_json=None,
     )
     felder.update(abweichend)
     return SimpleNamespace(**felder)
+
+
+def mit_ausruestung(session, *schluessel):
+    """Hängt der Einheit den Fragebogen an, aus dem ihr Plan entstanden ist.
+
+    Denselben Weg geht `workouts.ausruestung_der_einheit()`: Einheit → Plan →
+    Anfrage → `equipment`. Ohne diese Kette weiß die App nichts über das Rad
+    und lässt es beim bisherigen Verhalten.
+    """
+    session.plan = SimpleNamespace(request=SimpleNamespace(equipment=list(schluessel)))
+    return session
 
 
 def schritte(workout, segment=0):
@@ -724,6 +736,114 @@ def test_prozentangabe_im_schritt_zaehlt_nur_mit_ftp_daneben():
         ftp=250,
     )
     assert schritte(ohne_ftp)[0]["targetType"]["workoutTargetTypeKey"] == "no.target"
+
+
+def _radeinheit(**abweichend):
+    """Die Schlüsseleinheit vom 19.08.: Schwellenintervalle über die Herzfrequenz."""
+    felder = dict(
+        sport="bike",
+        duration_min=60,
+        target_power="180-208 W",
+        structure=(
+            "9 min Einrollen Z1-Z2"
+            " / 3x8 min Schwelle Z4, dazwischen je 4 min locker rollen Z1"
+            " / 9 min Ausrollen Z1"
+        ),
+    )
+    felder.update(abweichend)
+    return einheit(**felder)
+
+
+def _zielarten(workout):
+    """Die Zielarten aller Schritte, Wiederholungsgruppen aufgelöst."""
+    arten = []
+    for schritt in schritte(workout):
+        kinder = schritt.get("workoutSteps") or [schritt]
+        arten += [k["targetType"]["workoutTargetTypeKey"] for k in kinder]
+    return set(arten)
+
+
+def test_ohne_wattmessung_steuert_draussen_der_puls():
+    """Ein Zielkorridor steuert nur, was die Uhr auch misst.
+
+    Der Athlet hat eine Rolle, aber kein Powermeter am Rad. Draußen stand
+    trotzdem an jedem Schritt ein Wattziel — aus der Zone hochgerechnet, weil
+    eine FTP im Profil steht —, und die Uhr zeigte dazu keinen Messwert. Die
+    Schlüsseleinheit war damit unsteuerbar, obwohl der Plan sie sauber über die
+    Herzfrequenz beschrieben hatte.
+    """
+    plan = workouts.baue_workout(
+        mit_ausruestung(
+            _radeinheit(bike_location="outdoor"), "smart_trainer", "hr_strap"
+        ),
+        zonen=ZONEN,
+        ftp=198,
+    )
+    assert _zielarten(plan) == {"heart.rate.zone"}
+
+    # Die Wattzahlen der KI verschwinden nicht, sie hören nur auf zu steuern:
+    # Was im Aufbautext steht, steht weiter in der Beschreibung.
+    belastung = schritte(plan)[1]["workoutSteps"][0]
+    assert (belastung["targetValueOne"], belastung["targetValueTwo"]) == (155.0, 170.0)
+
+
+def test_auf_der_rolle_steuert_die_leistung():
+    """Dieselbe Einheit drinnen: Garmin regelt das Gerät nach Watt."""
+    plan = workouts.baue_workout(
+        mit_ausruestung(
+            _radeinheit(bike_location="indoor"), "smart_trainer", "hr_strap"
+        ),
+        zonen=ZONEN,
+        ftp=198,
+    )
+    assert _zielarten(plan) == {"power.zone"}
+
+
+def test_mit_powermeter_gilt_die_leistung_auch_draussen():
+    """Wer die Wattmessung am Rad angekreuzt hat, misst überall."""
+    plan = workouts.baue_workout(
+        mit_ausruestung(
+            _radeinheit(bike_location="outdoor"), "smart_trainer", "powermeter"
+        ),
+        zonen=ZONEN,
+        ftp=198,
+    )
+    assert _zielarten(plan) == {"power.zone"}
+
+
+def test_ohne_bekannte_ausruestung_bleibt_es_bei_der_leistung():
+    """Nichts zu wissen ist kein Beleg dafür, dass kein Powermeter am Rad sitzt.
+
+    Betrifft Blöcke, die keinem Fragebogen zugeordnet sind — vor dieser
+    Änderung entstanden sie so, wenn der Export ohne `request_id` lief.
+    """
+    plan = workouts.baue_workout(
+        _radeinheit(bike_location="outdoor"), zonen=ZONEN, ftp=198
+    )
+    assert _zielarten(plan) == {"power.zone"}
+
+
+def test_ohne_angekreuzte_ausruestung_steuert_der_puls():
+    """Eine leere Liste ist etwas anderes als gar keine: Wer nichts hat, hat nichts."""
+    plan = workouts.baue_workout(
+        mit_ausruestung(_radeinheit(bike_location="outdoor")), zonen=ZONEN, ftp=198
+    )
+    assert _zielarten(plan) == {"heart.rate.zone"}
+
+
+def test_der_radort_kommt_notfalls_aus_dem_titel():
+    """Rückfall für Blöcke ohne das Feld und für KIs, die den Prompt nicht kennen."""
+    assert workouts.radort(einheit(title="Rollentraining: Schwellenintervalle")) == "indoor"
+    assert workouts.radort(einheit(title="Indoor-Einheit auf dem Smart Trainer")) == "indoor"
+    assert workouts.radort(einheit(title="Grundlagenfahrt Z2")) == "outdoor"
+
+    # Wortgrenzen, sonst zöge fast jeder Radaufbau die Rolle an sich: „einrollen"
+    # und „ausrollen" tragen die Zeichenfolge mitten im Wort.
+    assert workouts.radort(einheit(title="Lockeres Ausrollen am Sonntag")) == "outdoor"
+    assert workouts.radort(einheit(title="Kontrolle der Trittfrequenz")) == "outdoor"
+
+    # Das Feld schlägt den Wortlaut.
+    assert workouts.radort(einheit(title="Rollentraining", bike_location="outdoor")) == "outdoor"
 
 
 def test_schwimmeinheit_bekommt_bahnlaenge_und_zugart():

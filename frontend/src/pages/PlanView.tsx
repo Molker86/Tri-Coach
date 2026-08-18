@@ -815,6 +815,11 @@ function SessionDetail({
             {session.swim_location === 'open_water' ? '🌊 Freiwasser' : '🏊 Becken'}
           </span>
         )}
+        {session.sport === 'bike' && session.bike_location && (
+          <span className="badge">
+            {session.bike_location === 'indoor' ? '🏠 Rolle' : '🛣️ Draußen'}
+          </span>
+        )}
         <span className="badge">{sessionTypeLabel(session.session_type)}</span>
         {session.intensity_zone && (
           <span

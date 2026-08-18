@@ -65,6 +65,19 @@ SWIM_LOCATION_ALIASES = {
     "freiwasserschwimmen": "open_water", "outdoor": "open_water",
 }
 
+# Dasselbe fürs Rad. `indoor` heißt hier immer „auf der Rolle" — das ist der
+# einzige Ort, an dem drinnen Rad gefahren wird, und zugleich der einzige, an
+# dem die Leistung ohne Powermeter am Rad gemessen wird.
+BIKE_LOCATION_ALIASES = {
+    "indoor": "indoor", "drinnen": "indoor", "rolle": "indoor",
+    "smart_trainer": "indoor", "smarttrainer": "indoor", "trainer": "indoor",
+    "turbo": "indoor", "ergometer": "indoor", "zwift": "indoor",
+    "indoor_cycling": "indoor", "virtual_ride": "indoor",
+    "outdoor": "outdoor", "draussen": "outdoor", "draußen": "outdoor",
+    "strasse": "outdoor", "straße": "outdoor", "road": "outdoor",
+    "outdoor_cycling": "outdoor", "gravel": "outdoor", "mtb": "outdoor",
+}
+
 
 def normalize_sport(value: str) -> str:
     return SPORT_ALIASES.get(str(value).strip().lower(), str(value).strip().lower())
@@ -81,6 +94,19 @@ def normalize_swim_location(value: str | None) -> str | None:
     if value is None:
         return None
     return SWIM_LOCATION_ALIASES.get(str(value).strip().lower())
+
+
+def normalize_bike_location(value: str | None) -> str | None:
+    """Wie beim Schwimmort: Unbekanntes fällt weg, statt den Block zu kippen.
+
+    Der Rückfall ohne Angabe ist „draußen", und deshalb ist ein falsch
+    gedeuteter Wert hier besonders teuer: Er machte aus einer Straßenausfahrt
+    eine Rolleneinheit und legte damit einen Wattkorridor auf eine Uhr, die
+    ohne Powermeter nichts davon messen kann.
+    """
+    if value is None:
+        return None
+    return BIKE_LOCATION_ALIASES.get(str(value).strip().lower())
 
 
 def normalize_day(value: str) -> str:
@@ -340,6 +366,7 @@ class AISessionIn(BaseModel):
     target_power: str | None = None
     rpe_target: int | None = Field(None, ge=RPE_MIN, le=RPE_MAX)
     swim_location: str | None = None
+    bike_location: str | None = None
     # Leer ist kein Fehler: Dann baut `workouts.baue_workout()` die Einheit wie
     # bisher aus `structure`. Der Zerleger bleibt der Rückfall für Blöcke aus
     # der Zeit vor diesem Feld und für Antworten fremder KIs.
@@ -360,6 +387,11 @@ class AISessionIn(BaseModel):
     @classmethod
     def _norm_schwimmort(cls, v: str | None) -> str | None:
         return normalize_swim_location(v)
+
+    @field_validator("bike_location")
+    @classmethod
+    def _norm_radort(cls, v: str | None) -> str | None:
+        return normalize_bike_location(v)
 
     @model_validator(mode="before")
     @classmethod
@@ -487,6 +519,7 @@ class PlanSessionOut(BaseModel):
     target_power: str | None = None
     rpe_target: int | None = None
     swim_location: str | None = None
+    bike_location: str | None = None
     logged: bool = False
     # Einzeln nachträglich angepasst. Beide Felder fehlen an allem, was seit
     # der Planung des Blocks unverändert steht.
