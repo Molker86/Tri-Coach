@@ -36,7 +36,7 @@ und zwei Quellen dafür liefen unweigerlich auseinander.
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from garminconnect.workout import ConditionType, SportType, StepType, TargetType
@@ -212,6 +212,20 @@ class Block:
     schritte: list[Schritt] = field(default_factory=list)
 
 
+@dataclass
+class Variante:
+    """Eine Übung und die Zahl der Runden, in denen sie drankommt.
+
+    „6x1 min Technik: 2x Abschlagschwimmen, 2x Fingerspitzen ziehen,
+    2x einarmig“ — die Zahlen hinter dem Doppelpunkt zählen keine Schritte,
+    sondern verteilen drei Übungen auf die sechs Runden der Serie.
+    """
+
+    anzahl: int
+    name: str
+    wortlaut: str
+
+
 Element = Schritt | Block
 
 
@@ -229,6 +243,10 @@ _SEGMENT_TRENNER = re.compile(r"[,;\n·•]|\s[–—-]\s|→|->|\s\|\s")
 _TEIL_TRENNER = re.compile(r"\s+/\s+|\s+mit\s+|\s+\+\s+|\s+dann\s+", re.IGNORECASE)
 
 _WIEDERHOLUNG = re.compile(r"^(?:dann\s+)?(\d{1,2})\s*(?:x|×|\*)\s*(.+)$", re.IGNORECASE)
+
+# Dieselbe Schreibweise, aber *innerhalb* eines Schritts: „1 min Technik: 2x
+# Abschlagschwimmen“. Nicht gierig, damit der vordere Teil die Dauer behält.
+_VARIANTE_IM_TEXT = re.compile(r"^(.*?\S)\s*[:,-]?\s*(\d{1,2})\s*(?:x|×|\*)\s*(\S.*)$")
 
 # Kurzschreibweise für die Pause: „P30s“, „TP 90 s“, „P: 2 min“. Wird vor dem
 # Zerlegen in Klartext übersetzt, damit ein einziger Trennweg genügt.
@@ -414,6 +432,81 @@ def _als_block(text: str) -> Block | None:
     return Block(anzahl=anzahl, schritte=schritte)
 
 
+def _als_variante(text: str) -> Variante | None:
+    """„2x Abschlagschwimmen (Catch-up)“ — eine Übung, keine zwei Schritte.
+
+    Ohne Zeit- und Streckenangabe kann die Zahl keine Schritte zählen: Sie sagt,
+    in wie vielen Runden der zuvor eröffneten Serie diese Übung drankommt.
+    Genau daran scheiterte die Zeile bisher — `_baue_schritt()` fand kein Maß
+    und gab None zurück, und die Übung fiel still weg.
+    """
+    treffer = _WIEDERHOLUNG.match(text.strip())
+    if not treffer:
+        return None
+    anzahl = int(treffer.group(1))
+    name = treffer.group(2).strip(" .:,")
+    if not 1 <= anzahl <= 60 or not name:
+        return None
+    if _messung(name) != (None, None):
+        return None
+    return Variante(anzahl=anzahl, name=name, wortlaut=text.strip(" .:,"))
+
+
+def _variante_im_text(text: str) -> tuple[str, Variante] | None:
+    """Die erste Übung steckt im Schritt der Serie selbst.
+
+    „6x1 min Technik: 2x Abschlagschwimmen (Catch-up)“ — nach dem Abtrennen der
+    Serienzahl bleibt Dauer *und* erste Übung in einer Zeile. Rückgabe ist der
+    Text ohne sie („1 min Technik“) und die Übung.
+    """
+    treffer = _VARIANTE_IM_TEXT.match(text.strip())
+    if not treffer:
+        return None
+    basis = treffer.group(1).strip(" .:,")
+    # Die Dauer muss im vorderen Teil bleiben, die Übung ohne Maß dastehen —
+    # sonst ist die Zahl eine Schrittzahl und keine Rundenzahl.
+    if not basis or _messung(basis) == (None, None):
+        return None
+    if (variante := _als_variante(f"{treffer.group(2)}x {treffer.group(3)}")) is None:
+        return None
+    return basis, variante
+
+
+def _verteile_varianten(
+    elemente: list[Element], serie: Block, varianten: list[Variante]
+) -> None:
+    """Verteilt die Technikübungen auf die Runden der Serie.
+
+    Aus „6 ד über einem Schritt werden drei Serien zu zwei Runden, jede mit
+    ihrer Übung im Schritttext — und mit der Serienpause, die zu jeder Runde
+    gehört. Nur wenn die Rundenzahlen zusammen die Serie ergeben: Geht die
+    Rechnung nicht auf, ist die Verteilung nicht belegt, und geraten wird hier
+    so wenig wie überall sonst. Verschluckt wird trotzdem nichts — dann stehen
+    die Übungen im Wortlaut im Schritttext, so wie der Plan sie schreibt.
+    """
+    stelle = next(i for i, e in enumerate(elemente) if e is serie)
+    kopf = serie.schritte[0]
+
+    basis, alle = kopf.text, list(varianten)
+    if (eingebaut := _variante_im_text(kopf.text)) is not None:
+        basis, erste = eingebaut
+        alle.insert(0, erste)
+
+    if sum(v.anzahl for v in alle) != serie.anzahl:
+        kopf.text = ", ".join([kopf.text, *(v.wortlaut for v in varianten)])[:512]
+        return
+
+    elemente[stelle : stelle + 1] = [
+        Block(
+            anzahl=v.anzahl,
+            schritte=[replace(s) for s in serie.schritte],
+        )
+        for v in alle
+    ]
+    for block, variante in zip(elemente[stelle : stelle + len(alle)], alle):
+        block.schritte[0].text = f"{basis}: {variante.name}"
+
+
 def zerlege_struktur(struktur: str | None) -> list[Element]:
     """Zerlegt den Aufbautext in Schritte und Wiederholungsblöcke.
 
@@ -431,6 +524,11 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
     Pause zu erkennen gibt. Alles andere schließt die Gruppe: Ein „10 min
     Ausrollen“ nach einer Serie gehört nicht in sie hinein.
 
+    Und eine Zeile ohne jedes Maß kann trotzdem etwas sagen: „2x Fingerspitzen
+    ziehen (Fingertip Drag)“ zählt keine Schritte, sondern Runden der zuvor
+    eröffneten Serie. Solche Übungen werden gesammelt und am Ende der Serie
+    verteilt (`_verteile_varianten`), statt mangels Zeitangabe wegzufallen.
+
     Gibt eine leere Liste zurück, wenn nichts sicher zu erkennen war — der
     Aufrufer baut dann einen einzigen Schritt über die geplante Dauer.
     """
@@ -440,6 +538,17 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
     text = _PAUSE_KURZ.sub("mit Pause ", struktur)
     elemente: list[Element] = []
     offen: Block | None = None  # zuletzt eröffnete Serie, noch ohne Pause
+    # Dieselbe Serie, solange noch Übungen zu ihr gehören können. Getrennt von
+    # `offen`, weil die Pause die Serie schließt, die Übungen aber auch hinter
+    # ihr stehen dürfen.
+    serie: Block | None = None
+    varianten: list[Variante] = []
+
+    def schliesse_serie() -> None:
+        nonlocal serie, varianten
+        if serie is not None and varianten:
+            _verteile_varianten(elemente, serie, varianten)
+        serie, varianten = None, []
 
     for segment in _SEGMENT_TRENNER.split(text):
         segment = (segment or "").strip(" .\t")
@@ -447,14 +556,20 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
             continue
 
         if (block := _als_block(segment)) is not None:
+            schliesse_serie()
             elemente.append(block)
-            offen = block
+            offen = serie = block
+            continue
+
+        if serie is not None and (variante := _als_variante(segment)) is not None:
+            varianten.append(variante)
             continue
 
         for teil in _TEIL_TRENNER.split(segment):
             if (block := _als_block(teil)) is not None:
+                schliesse_serie()
                 elemente.append(block)
-                offen = block
+                offen = serie = block
                 continue
 
             if (schritt := _baue_schritt(teil)) is None:
@@ -469,9 +584,11 @@ def zerlege_struktur(struktur: str | None) -> list[Element]:
                 offen = None
                 continue
 
+            schliesse_serie()
             elemente.append(schritt)
             offen = None
 
+    schliesse_serie()
     return elemente
 
 

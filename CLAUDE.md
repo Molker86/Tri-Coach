@@ -734,6 +734,28 @@ Cooldown-Schritt („4x6 min Z4 / 10 min Ausrollen Z1“), wird die Zeile als Bl
 ganz abgelehnt und Teil für Teil neu gelesen — viermal ausrollen ergibt keine
 Einheit.
 
+**Eine Zahl ohne Maß zählt Runden, nicht Schritte** (`_als_variante`,
+`_verteile_varianten`). „6x1 min Technik: 2x Abschlagschwimmen (Catch-up),
+2x Fingerspitzen ziehen (Fingertip Drag), 2x einarmig (Single-Arm)“ — die drei
+Zahlen hinter dem Doppelpunkt verteilen Übungen auf die sechs Runden, sie zählen
+keine Schritte. Als Schritt gelesen ergaben sie keinen: `_baue_schritt()` fand
+weder Zeit noch Strecke und gab `None` zurück, und die Zeile fiel **still weg**
+— auf der Uhr stand sechsmal die erste Übung, die beiden anderen kamen im ganzen
+Workout nicht mehr vor. Erkannt wird deshalb als *Variante*, was eine
+Wiederholungszahl trägt, aber kein Maß, und einer offenen Serie folgt. Die erste
+Übung steckt dabei meist im Schritt der Serie selbst („1 min Technik:
+2x Abschlagschwimmen“) und wird von `_variante_im_text()` herausgelöst — nicht
+gierig, damit die Dauer im vorderen Teil bleibt.
+
+**Verteilt wird nur, wenn die Rechnung aufgeht**: 2 + 2 + 2 = 6, und dann ist die
+Lesart eindeutig — aus einer Serie über sechs Runden werden drei über je zwei,
+jede mit ihrer Übung im Schritttext und jede mit der Serienpause, die zu jeder
+Runde gehört. Stimmt die Summe nicht, ist nicht belegt, welche Übung in welcher
+Runde läuft, und geraten wird hier so wenig wie sonst. **Verschluckt wird
+trotzdem nichts**: Die Übungen stehen dann im Wortlaut im Schritttext, so wie
+der Plan sie schreibt. Genau das war der Fehler — nicht die fehlende Verteilung,
+sondern die verschwundene Zeile.
+
 **Auf dem Rad steuert die Leistung, nicht der Puls — und zwar in jedem Schritt**
 (`_leistung`, `_ziel`). Bei `bike` gewinnt Watt vor jeder Herzfrequenzvorgabe:
 Auf dem Smarttrainer regelt Garmin das Gerät danach, und im Freien zeigt die

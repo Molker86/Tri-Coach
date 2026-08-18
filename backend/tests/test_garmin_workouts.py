@@ -529,6 +529,62 @@ def test_die_serienpause_im_wasser_gehoert_in_die_gruppe():
     assert pause["stepType"]["stepTypeKey"] == "recovery"
 
 
+def test_die_technikuebungen_verteilen_sich_auf_die_runden():
+    """„6x1 min Technik: 2x A, 2x B, 2x C" — die Zahlen zählen keine Schritte.
+
+    Ohne Zeitangabe baute `_baue_schritt()` aus den beiden hinteren Übungen
+    nichts und ließ sie fallen: Auf der Uhr stand sechsmal die erste. Die
+    Rundenzahlen ergeben aber genau die Serie, also ist die Verteilung
+    eindeutig — drei Serien zu zwei Runden, jede mit ihrer Übung und mit der
+    Pause, die zu jeder Runde gehört.
+    """
+    elemente = workouts.zerlege_struktur(
+        "6x1 min Technik: 2x Abschlagschwimmen (Catch-up),"
+        " 2x Fingerspitzen ziehen (Fingertip Drag), 2x einarmig (Single-Arm),"
+        " je 30 s lockeres Treiben"
+    )
+
+    assert [e.anzahl for e in elemente] == [2, 2, 2]
+    assert [e.schritte[0].text for e in elemente] == [
+        "1 min Technik: Abschlagschwimmen (Catch-up)",
+        "1 min Technik: Fingerspitzen ziehen (Fingertip Drag)",
+        "1 min Technik: einarmig (Single-Arm)",
+    ]
+    for block in elemente:
+        assert [s.art for s in block.schritte] == ["interval", "recovery"]
+        assert [s.dauer_s for s in block.schritte] == [60.0, 30.0]
+
+
+def test_die_uebung_darf_auch_ganz_ohne_eigene_zeile_kommen():
+    """Die erste Übung steckt nicht immer im Schritt der Serie."""
+    elemente = workouts.zerlege_struktur(
+        "6x100 m Kraul, 2x mit Pull-Buoy, 2x mit Paddles, 2x ohne Hilfsmittel, 20 s Pause"
+    )
+    assert [e.anzahl for e in elemente] == [2, 2, 2]
+    assert elemente[2].schritte[0].text == "100 m Kraul: ohne Hilfsmittel"
+    assert elemente[2].schritte[0].distanz_m == 100
+
+
+def test_ohne_aufgehende_rechnung_wird_nichts_verteilt_und_nichts_verschluckt():
+    """2 + 2 sind nicht 6 — welche Übung in welcher Runde läuft, ist unklar.
+
+    Geraten wird dann nicht. Verlorengehen dürfen die Übungen trotzdem nicht:
+    Sie stehen im Wortlaut im Schritttext, so wie der Plan sie schreibt.
+    """
+    elemente = workouts.zerlege_struktur(
+        "6x1 min Technik: 2x Abschlag, 2x einarmig, je 30 s Treiben"
+    )
+    assert [e.anzahl for e in elemente] == [6]
+    assert elemente[0].schritte[0].text == "1 min Technik: 2x Abschlag, 2x einarmig"
+
+
+def test_eine_serie_mit_maß_bleibt_eine_serie():
+    """Trägt die Zeile ein Maß, zählt die Zahl Schritte und keine Runden."""
+    elemente = workouts.zerlege_struktur("4x6 min bei 195-210 W, 3x30 s Trittfrequenz 105")
+    assert [type(e) for e in elemente] == [workouts.Block, workouts.Block]
+    assert [e.anzahl for e in elemente] == [4, 3]
+
+
 def test_antreiben_ist_keine_pause():
     """„treiben" zählt nur als eigenes Wort — sonst zöge „antreiben" mit."""
     assert workouts._art("2 min Beine antreiben") == "interval"
