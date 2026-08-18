@@ -523,8 +523,9 @@ def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
 def _uebungselement(teil: str) -> Element:
     """Eine Übungszeile als Schritt — mit Serie darum, wenn sie Sätze nennt."""
     durchgaenge, dauer_s, wiederholungen, je_seite = _uebungsumfang(teil)
+    uebung = uebungen.finde(teil)
 
-    text = teil.strip()
+    text = _beschriftung(teil, uebung)
     if je_seite and durchgaenge > 1:
         text = f"{text} — je Durchgang eine Seite"
 
@@ -535,11 +536,57 @@ def _uebungselement(teil: str) -> Element:
         dauer_s=dauer_s,
         wiederholungen=wiederholungen,
         text=text,
-        uebung=uebungen.finde(teil),
+        uebung=uebung,
     )
     if durchgaenge < 2:
         return schritt
     return Block(anzahl=durchgaenge, schritte=[schritt])
+
+
+# Punkt 9 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
+# englischen Namen in Klammern. Davor steht der deutsche Name, dahinter der
+# Umfang: „Seitstütz (Side Plank) 3x40 s je Seite“.
+_ENGLISCHE_KLAMMER = re.compile(r"^[^(]*\(\s*(?P<englisch>[^)]+?)\s*\)\s*(?P<rest>.*)$")
+
+# Ein Klammerinhalt mit Umlaut ist kein englischer Name, sondern ein deutscher
+# Nachsatz.
+_DEUTSCHE_ZEICHEN = re.compile(r"[äöüßÄÖÜ]")
+
+
+def _beschriftung(teil: str, uebung: uebungen.Uebung | None) -> str:
+    """Der Schritttext — ohne den deutschen Namen, wenn der Titel ihn schon trägt.
+
+    Die Überschrift eines Übungsschritts kommt allein aus `category` und
+    `exerciseName`, und Garmin zeigt sie in der Sprache seiner App: Bei einem
+    Katalogtreffer steht die deutsche Bezeichnung also bereits oben. Sie
+    darunter zu wiederholen ließe den englischen Namen wie einen Zusatz
+    aussehen; so trägt jede Zeile ihren Namen genau einmal — oben deutsch von
+    Garmin, unten englisch aus dem Plan.
+
+    Ohne Treffer bleibt der Text unverändert. Der Titel ist dann „--“, und der
+    deutsche Name in der Beschreibung ist das Einzige, was die Übung überhaupt
+    noch benennt — ihn dort gegen den englischen zu tauschen nähme dem Schritt
+    seine letzte lesbare Bezeichnung.
+
+    Zwei Proben halten den Tausch davon ab, einen Ausführungshinweis zum Namen
+    zu machen. Ein Umlaut verrät den deutschen Nachsatz, und der Umfang muss
+    die Zeile unverändert überstehen: „3x12 Liegestütze (Push-Up)“ nennt ihn
+    *vor* der Klammer und stünde sonst ohne. Was trotzdem durchrutscht, kostet
+    nur die Beschriftung — welche Bewegung gemeint ist, sagen Titel und
+    Animation.
+    """
+    text = teil.strip()
+    if uebung is None:
+        return text
+    treffer = _ENGLISCHE_KLAMMER.match(text)
+    if treffer is None or _DEUTSCHE_ZEICHEN.search(treffer["englisch"]):
+        return text
+    ohne_deutsch = " ".join(
+        stueck for stueck in (treffer["englisch"], treffer["rest"].strip()) if stueck
+    )
+    if _uebungsumfang(ohne_deutsch) != _uebungsumfang(text):
+        return text
+    return ohne_deutsch
 
 
 # Sätze mal Umfang: „3x15“, „2x45 s“, „4 x 2 min“. Die Einheit ist optional —

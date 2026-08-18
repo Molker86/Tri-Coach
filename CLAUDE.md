@@ -778,6 +778,28 @@ Bezeichnung kommt ohne aus, und genau die steht in der Klammer („Child's Pose�
 fiele sonst auf „hamstring“ zusammen und zöge jede Zeile an sich, in der das Wort
 vorkommt.
 
+**Oben deutsch, unten englisch — jede Sprache genau einmal**
+(`workouts._beschriftung`). Die Überschrift eines Übungsschritts ist **kein
+freies Feld**: Sie kommt allein aus `category`/`exerciseName`, und Garmin
+übersetzt den Katalognamen in die Sprache seiner App. Bei einem Treffer steht
+die deutsche Bezeichnung also bereits oben, und der Aufbautext darunter
+wiederholte sie — „Taubenstellung (Pigeon Pose) 2x45 s je Seite“ unter einer
+Überschrift, die schon „Taubenstellung“ sagt. Der deutsche Name fällt deshalb
+aus der Beschreibung, der englische aus der Klammer rückt an seine Stelle. Über
+alle Kraft- und Mobility-Einheiten der Datenbank betrifft das 61 von 71
+Schritten.
+
+**Ohne Treffer bleibt die Zeile unangetastet** — und das ist der Kern der Regel.
+Der Titel ist dann „--“ (siehe „Bekannte Grenzen“), und der deutsche Name in der
+Beschreibung ist das Einzige, was die Übung überhaupt noch benennt; ihn dort
+gegen den englischen zu tauschen nähme dem Schritt seine letzte lesbare
+Bezeichnung. Zwei Proben halten den Tausch zusätzlich davon ab, mehr
+wegzunehmen als den Namen: Ein **Umlaut** in der Klammer verrät den deutschen
+Ausführungshinweis („Wandsitz (Rücken flach an der Wand)“), und der **Umfang
+muss die Zeile unverändert überstehen** — „3x12 Liegestütze (Push-Up)“ nennt ihn
+*vor* der Klammer und stünde sonst ohne. Was trotzdem durchrutscht, kostet nur
+die Beschriftung: Welche Bewegung gemeint ist, sagen Titel und Animation.
+
 **Mobility geht als Garmins „Mobility“, nicht mehr als Yoga**
 (`SPORT_ZU_GARMIN`, `SportType.MOBILITY` = 11). Der Übungskatalog hängt an der
 Sportart des Workouts — Garmin lässt in Connect nicht einmal zu, eine Yogapose
@@ -1440,7 +1462,9 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   Die Überschrift des Schritts kommt in Connect wie auf der Uhr allein aus
   `category`/`exerciseName`, ein Feld für einen eigenen Namen gibt es im
   Schritt-DTO nicht (an einem zurückgelesenen Workout nachgezählt). Ein
-  namenloser Schritt steht dort als „--“ über seiner Beschreibung. Wer eine
+  namenloser Schritt steht dort als „--“ über seiner Beschreibung — die deshalb
+  in diesem Fall den deutschen Namen behält (siehe „Oben deutsch, unten
+  englisch“). Wer eine
   Lücke bemerkt, trägt sie in `SYNONYME` nach; `test_garmin_uebungen.py` prüft,
   dass jede Entsprechung im Katalog existiert.
 - Ein paar Bewegungen führt der Katalog **nur mit Gerät**, obwohl der Plan sie

@@ -1943,3 +1943,88 @@ def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_removed"] == 0
     assert len(fake._workouts) == 15
+
+
+def test_bei_katalogtreffer_traegt_die_beschreibung_den_englischen_namen():
+    """Oben Garmins deutsche Bezeichnung, unten der englische Name.
+
+    Die Überschrift eines Übungsschritts kommt allein aus `category` und
+    `exerciseName`; Garmin übersetzt sie in die Sprache seiner App. Der
+    deutsche Name aus dem Plan steht damit schon oben und wird in der
+    Beschreibung durch den englischen aus der Klammer ersetzt — jede Zeile
+    nennt ihre Übung genau einmal je Sprache.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="mobility",
+            duration_min=20,
+            structure=(
+                "Hüftbeuger-Dehnung (Hip Flexor Stretch) 2x45 s je Seite"
+                " / Taubenstellung (Pigeon Pose) 2x45 s je Seite"
+                " / Katze-Kuh (Cat-Cow) 10 Wdh."
+            ),
+        ),
+        zonen=ZONEN,
+    )
+
+    assert [s["description"] for s in uebungsschritte(plan)] == [
+        "Hip Flexor Stretch 2x45 s je Seite — je Durchgang eine Seite",
+        "Pigeon Pose 2x45 s je Seite — je Durchgang eine Seite",
+        "Cat-Cow 10 Wdh",
+    ]
+
+
+def test_ohne_katalogtreffer_bleibt_der_deutsche_name_stehen():
+    """Was Garmin nicht kennt, behält seine Bezeichnung in der Beschreibung.
+
+    Faszienrollen führt Garmins Katalog nicht, der Titel bleibt dort leer
+    („--“). Den deutschen Namen gegen den englischen zu tauschen nähme dem
+    Schritt die einzige Bezeichnung, die der Athlet dann noch sieht.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="mobility",
+            duration_min=15,
+            structure=(
+                "Faszienrolle Gesäß (Foam Roll Glutes) 90 s je Seite"
+                " / Taubenstellung (Pigeon Pose) 2x45 s je Seite"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = uebungsschritte(plan)
+
+    assert folge[0].get("exerciseName") is None
+    assert folge[0]["description"] == (
+        "Faszienrolle Gesäß (Foam Roll Glutes) 90 s je Seite"
+        " — je Durchgang eine Seite"
+    )
+    assert folge[1]["description"].startswith("Pigeon Pose")
+
+
+def test_der_tausch_laesst_umfang_und_ausfuehrungshinweis_unangetastet():
+    """Zwei Proben halten ihn davon ab, mehr wegzunehmen als den Namen.
+
+    Steht der Umfang *vor* der Klammer, nähme der Tausch ihn mit; und ein
+    deutscher Ausführungshinweis in der Klammer ist kein englischer Name.
+    Beides erkennt die Zeile an sich selbst, ohne zu raten.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            duration_min=20,
+            structure=(
+                "3x12 Liegestütze (Push-Up)"
+                " / Wandsitz (Rücken flach an der Wand) 3x30 s"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = uebungsschritte(plan)
+
+    # Der Umfang steht vor der Klammer — die Zeile bleibt, wie sie ist.
+    assert folge[0]["exerciseName"] == "PUSH_UP"
+    assert folge[0]["description"] == "3x12 Liegestütze (Push-Up)"
+    # Ein Umlaut verrät den deutschen Nachsatz.
+    assert folge[1]["exerciseName"] == "BODY_WEIGHT_WALL_SQUAT"
+    assert folge[1]["description"] == "Wandsitz (Rücken flach an der Wand) 3x30 s"
