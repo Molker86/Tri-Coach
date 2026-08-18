@@ -265,11 +265,16 @@ _ART_SCHLUESSELWOERTER: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "recovery",
         # „dazwischen“ ist das verlässlichste Wort für eine Serienpause: Es
-        # steht nie über einer Belastung, und gerade auf dem Rad heißt die
-        # Pause selten „Pause“, sondern „lockeres Kurbeln bei 110-130 W“.
+        # steht nie über einer Belastung. Sonst heißt die Pause je nach
+        # Sportart anders und selten „Pause“ — auf dem Rad „lockeres Kurbeln
+        # bei 110-130 W“, im Wasser „je 30 s lockeres Treiben“.
         ("pause", "trabpause", "gehpause", "serienpause", "erholung", "trabend",
          "locker traben", "recovery", "abtrab", "dazwischen", "locker kurbeln",
-         "lockeres kurbeln", "locker rollen", "lockeres rollen"),
+         "lockeres kurbeln", "locker rollen", "lockeres rollen",
+         # Mit führendem Leerzeichen, sonst zöge „antreiben“ mit. „locker
+         # schwimmen“ fehlt bewusst: Das ist im Wasser genauso oft der
+         # Hauptteil („20 min locker schwimmen“) wie eine Pause.
+         " treiben", " trudeln"),
     ),
 )
 

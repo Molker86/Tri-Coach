@@ -496,6 +496,45 @@ def test_smarttrainer_einheit_kommt_vollstaendig_auf_die_uhr():
     assert folge[2]["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
 
 
+def test_die_serienpause_im_wasser_gehoert_in_die_gruppe():
+    """Am echten Plan aufgefallen: „6 Mal" mit nur einem Schritt darin.
+
+    Die Pause stand wie vorgesehen hinter dem Komma, hieß aber „je 30 s
+    lockeres Treiben" — die Pausenwörter kannten Rad und Lauf, nicht das
+    Wasser. Als Belastung gelesen fiel sie aus der Serie heraus und stand als
+    eigener Abschnitt dahinter: sechs Technikminuten am Stück und eine
+    einzelne halbe Minute Treiben.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="swim",
+            duration_min=45,
+            structure=(
+                "8 min locker einschwimmen ufernah"
+                " / 6x1 min Technik: 2x Abschlagschwimmen (Catch-up),"
+                " 2x einarmig (Single-Arm), je 30 s lockeres Treiben"
+                " / 5 min locker ausschwimmen Z1"
+            ),
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert [s["stepType"]["stepTypeKey"] for s in folge] == ["warmup", "repeat", "cooldown"]
+
+    gruppe = folge[1]
+    assert gruppe["numberOfIterations"] == 6
+    belastung, pause = gruppe["workoutSteps"]
+    assert (belastung["endConditionValue"], pause["endConditionValue"]) == (60.0, 30.0)
+    assert pause["stepType"]["stepTypeKey"] == "recovery"
+
+
+def test_antreiben_ist_keine_pause():
+    """„treiben" zählt nur als eigenes Wort — sonst zöge „antreiben" mit."""
+    assert workouts._art("2 min Beine antreiben") == "interval"
+    assert workouts._art("30 s lockeres Treiben") == "recovery"
+
+
 def test_auf_dem_rad_bekommt_jeder_schritt_eine_leistungsvorgabe():
     """Auch Ein- und Ausrollen — sonst fällt die Rolle mittendrin aus der Regelung.
 

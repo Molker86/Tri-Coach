@@ -722,8 +722,13 @@ Zwei Regeln halten die Gruppe zusammen. Die **Serienpause steht oft hinter dem
 Komma** und damit im nächsten Abschnitt („…, dazwischen 3 min bei 110-130 W“);
 sie wandert deshalb in die zuletzt eröffnete Gruppe *hinein* statt dahinter —
 aber nur, solange diese erst einen Schritt hat und die Zeile sich selbst als
-Pause zu erkennen gibt. Dafür kennt `_ART_SCHLUESSELWOERTER` „dazwischen“ und
-„lockeres Kurbeln“: Auf dem Rad heißt die Pause selten „Pause“. Und **Ein- und
+Pause zu erkennen gibt. **Daran hängt die Vollständigkeit der Serie**, und die
+Pause heißt je nach Sportart anders: `_ART_SCHLUESSELWOERTER` kennt deshalb
+neben „dazwischen“ auch „lockeres Kurbeln“ (Rad), „locker traben“ (Lauf) und
+„Treiben“/„Trudeln“ (Wasser) — als Belastung gelesen fällt die Pause aus der
+Gruppe heraus, und auf der Uhr steht „6 ד über einem einzigen Schritt. Die
+beiden Wasserwörter tragen ein führendes Leerzeichen, sonst zöge „antreiben“
+mit; „locker schwimmen“ fehlt bewusst, weil das ebenso oft der Hauptteil ist. Und **Ein- und
 Ausrollen gehören nie in eine Serie**: Enthält der Rumpf einen Warmup- oder
 Cooldown-Schritt („4x6 min Z4 / 10 min Ausrollen Z1“), wird die Zeile als Block
 ganz abgelehnt und Teil für Teil neu gelesen — viermal ausrollen ergibt keine
