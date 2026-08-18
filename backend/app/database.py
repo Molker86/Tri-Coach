@@ -93,6 +93,18 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "garmin_workout_links": {
         "pool_slot_id": "INTEGER REFERENCES garmin_workout_pool_slots(id)",
     },
+    # Eine einzelne Einheit nachträglich anpassen. Beide Spalten bleiben an
+    # bestehenden Einheiten leer — das heißt korrekt „unverändert seit der
+    # Planung des Blocks".
+    "plan_sessions": {
+        "angepasst_am": "DATETIME",
+        "anpassungswunsch": "TEXT",
+    },
+    # Dieselbe Anpassung als Lauf: welche Einheit, mit welchem Wunsch.
+    "ai_jobs": {
+        "plan_session_id": "INTEGER",
+        "wunsch": "TEXT",
+    },
 }
 
 # Das Gegenstück: Spalten, die aus dem Modell verschwunden sind. Sie einfach

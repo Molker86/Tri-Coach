@@ -2,7 +2,11 @@
 
 Ein Monat kostet **eine** Anfrage (`/calendar-service/year/…/month/…`) und
 liefert alles, was in Connect im Kalender steht: geplante Workouts, absolvierte
-Aktivitäten, Wettkämpfe, Notizen. Deshalb wird hier nichts zwischengespeichert
+Aktivitäten, Wettkämpfe, Notizen — und Messwerte wie die tägliche Wiegung, die
+Garmin ohne Namen führt und die hier ihren Namen bekommen (`_ersatzname`).
+Gezeigt wird alles: Diese Ansicht soll den echten Stand drüben wiedergeben,
+und ein weggelassener Eintrag wäre eine Lücke, die niemand bemerkt. Deshalb
+wird hier auch nichts zwischengespeichert
 — eine Kopie in der Datenbank wäre nach der ersten Änderung in Connect falsch,
 und der ganze Zweck der Ansicht ist, den *echten* Stand zu zeigen.
 
@@ -48,6 +52,8 @@ def _art(eintrag: dict[str, Any]) -> str:
 # 32:25 Minuten „32417 min" und aus 9,34 km „933,66 km".
 _MS_JE_SEKUNDE = 1000
 _CM_JE_METER = 100
+# Gewichte kommen wie überall bei Garmin in Gramm (`mapping.gewicht_kg`).
+_GRAMM_JE_KILO = 1000
 
 
 def _dauer_sekunden(eintrag: dict[str, Any], art: str) -> float | None:
@@ -88,6 +94,56 @@ def _typkey(eintrag: dict[str, Any]) -> str | None:
     return str(wert) if wert is not None else None
 
 
+def _titel(eintrag: dict[str, Any]) -> str | None:
+    """Der Name des Eintrags — `None`, wenn Garmin gar keinen führt."""
+    wert = erster_wert(eintrag, ("title",), ("workoutName",), ("activityName",))
+    text = str(wert).strip() if wert is not None else ""
+    return text or None
+
+
+def _kilogramm(gramm: Any) -> str | None:
+    """Garmins Gramm als deutsche Kilogrammangabe — „89,68 kg", „91 kg".
+
+    Bewusst nicht über `mapping.gewicht_kg()`: Das rundet auf 100 g, was fürs
+    Profil reicht. Hier stehen die Wiegungen nebeneinander, und die zweite
+    Stelle ist genau das, was man in dieser Ansicht ablesen will.
+    """
+    wert = als_zahl(gramm)
+    if wert is None:
+        return None
+    text = f"{wert / _GRAMM_JE_KILO:.2f}".rstrip("0").rstrip(".")
+    return f"{text.replace('.', ',')} kg"
+
+
+def _ersatzname(eintrag: dict[str, Any]) -> str:
+    """Ein Name für die Einträge, die Garmin ohne Titel führt.
+
+    Der Kalenderdienst führt nicht nur Termine, sondern alles, was am Tag
+    steht: Wiegungen (`itemType: "weight"`), Nickerchen, Abzeichen. Connect
+    malt das als kleines Tagesabzeichen und zeigt es deshalb nicht als
+    Eintrag; hier ist es eine Zeile — und als solche erwünscht, denn wann man
+    sich gewogen hat, gehört in den Kalender.
+
+    **Verworfen wird nichts.** Was diese App nicht beim Namen kennt, trägt
+    wenigstens Garmins eigene Gattungsbezeichnung: Ein stillschweigend
+    weggelassener Eintrag wäre in dieser Ansicht der schlimmere Fehler, denn
+    ihr einziger Zweck ist zu zeigen, was drüben wirklich steht. Aus
+    demselben Grund wird die Gattung **nicht übersetzt** — sie ist Garmins
+    Wort, kein Text dieser App, wie `garmin_typ` daneben auch.
+    """
+    typ = str(hole(eintrag, "itemType", default="") or "").strip()
+    match typ.lower():
+        case "weight":
+            if (gewicht := _kilogramm(hole(eintrag, "weight"))) is not None:
+                return gewicht
+        case "nap":
+            # Ohne Dauer: `duration` steht hier ohne Einheitsangabe da, und die
+            # Regel dieses Moduls gilt auch hier — lieber keine Zahl als eine
+            # um Faktor 1000 falsche.
+            return "Nickerchen"
+    return typ or "Ohne Titel"
+
+
 def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
     """Ein Kalendereintrag in den Begriffen dieser App. `None` = unbrauchbar."""
     tag = als_datum(
@@ -97,6 +153,7 @@ def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     art = _art(roh)
+    titel = _titel(roh) or _ersatzname(roh)
     typkey = _typkey(roh)
     dauer_s = _dauer_sekunden(roh, art)
     distanz_m = _distanz_meter(roh, art)
@@ -116,15 +173,7 @@ def eintrag_aus_garmin(roh: dict[str, Any]) -> dict[str, Any] | None:
         "activity_id": (
             str(hole(roh, "activityId")) if hole(roh, "activityId") is not None else None
         ),
-        "titel": str(
-            erster_wert(
-                roh,
-                ("title",),
-                ("workoutName",),
-                ("activityName",),
-                default="Ohne Titel",
-            )
-        ),
+        "titel": titel,
         "sportart": sport_aus_typkey(typkey),
         "garmin_typ": typkey,
         "dauer_min": als_ganzzahl(dauer_s / 60) if dauer_s else None,

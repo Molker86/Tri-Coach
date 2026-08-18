@@ -1,6 +1,8 @@
 from datetime import date, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import AfterValidator
 from sqlalchemy.orm import selectinload
 
 from .. import ai_export, plan_import
@@ -8,12 +10,17 @@ from ..deps import CurrentUser, DbSession
 from ..garmin import uebertragung
 from ..garmin.errors import GarminFehler, GarminNichtVerbunden
 from ..garmin.verbindung import als_http, garmin_sitzung
+from ..garmin import automatik
 from ..models import (
     GarminWorkoutLink,
     Plan,
+    PlanSession,
     SessionLog,
 )
 from ..schemas import (
+    WUNSCH_MAX,
+    EinheitAnpassenIn,
+    EinheitAnpassungOut,
     ExportOut,
     PlanDeleteOut,
     PlanImportIn,
@@ -21,6 +28,7 @@ from ..schemas import (
     PlanOut,
     PlanSessionOut,
     PlanSummaryOut,
+    putze_wunsch,
 )
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
@@ -51,6 +59,46 @@ def _owned_plan(db, plan_id: int, user_id: int) -> Plan:
     if plan is None or plan.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan nicht gefunden.")
     return plan
+
+
+def anpassbare_einheit(db, plan_session_id: int, user_id: int) -> PlanSession:
+    """Die Einheit — sofern sie dem Nutzer gehört und sich noch ändern lässt.
+
+    Öffentlich, weil der KI-Router dieselbe Prüfung braucht: Beide Wege in eine
+    Anpassung (Knopf und eingefügte Antwort) müssen dieselben Grenzen ziehen,
+    sonst ließe der eine zu, was der andere ablehnt.
+
+    Zwei Grenzen, und beide sind inhaltlich:
+
+    * **Vergangene Tage nicht.** „Nachträglich ändern" heißt: nach der Planung
+      des Blocks, nicht nach dem Tag. Eine Einheit von gestern umzuschreiben
+      änderte nichts mehr an dem, was stattgefunden hat — es verfälschte nur
+      den Soll-Ist-Vergleich, aus dem der nächste Block entsteht (`_geplant_war`
+      im Export).
+    * **Bereits absolvierte nicht.** Hängt ein Training daran, ist die Einheit
+      Vergangenheit, auch wenn ihr Tag noch läuft.
+    """
+    session = db.get(PlanSession, plan_session_id)
+    if session is None or session.plan.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Einheit nicht gefunden.")
+
+    if session.date < date.today():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Diese Einheit liegt in der Vergangenheit und lässt sich nicht mehr "
+            "anpassen. Für die kommenden Tage kannst du stattdessen neu planen.",
+        )
+
+    if db.query(SessionLog.id).filter(
+        SessionLog.plan_session_id == session.id
+    ).first():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Zu dieser Einheit ist bereits ein Training erfasst — sie lässt "
+            "sich nicht mehr anpassen.",
+        )
+
+    return session
 
 
 def _to_plan_out(db, plan: Plan, user_id: int) -> PlanOut:
@@ -170,6 +218,85 @@ def validate_plan(data: PlanImportIn, user: CurrentUser) -> PlanImportOut:
             ],
         ),
         warnings=plan_import.validate_coverage(body, data.days),
+    )
+
+
+# --------------------------------------------------------------------------
+# Eine einzelne Einheit anpassen
+#
+# Der Weg über die Zwischenablage, Gegenstück zu `POST /api/ki/einheit`. Beide
+# benutzen dieselben zwei Funktionen (`ai_export.erzeuge_einheit_export` und
+# `plan_import.uebernimm_einheit`) — der Handweg ist hier keine Notlösung,
+# sondern die Rückfallebene für einen abgelaufenen Zugang, ein aufgebrauchtes
+# Kontingent oder eine andere KI.
+# --------------------------------------------------------------------------
+
+
+@router.get("/sessions/{plan_session_id}/anpassung-export", response_model=ExportOut)
+def einheit_anpassung_export(
+    plan_session_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    # Dieselbe Prüfung wie am Anfragekörper (`EinheitAnpassenIn`): Ein Feld
+    # voller Leerzeichen käme sonst als leere Aufgabe im Prompt an.
+    wunsch: Annotated[
+        str,
+        Query(
+            max_length=WUNSCH_MAX,
+            description="Was an der Einheit anders werden soll, im Wortlaut.",
+        ),
+        AfterValidator(putze_wunsch),
+    ],
+) -> ExportOut:
+    """Prompt + Datenpaket, um genau diese Einheit anpassen zu lassen."""
+    session = anpassbare_einheit(db, plan_session_id, user.id)
+    try:
+        export = ai_export.erzeuge_einheit_export(db, user, session, wunsch)
+    except ai_export.ExportFehler as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return ExportOut(
+        prompt=export.prompt, payload=export.payload, combined=export.prompt
+    )
+
+
+@router.post("/sessions/{plan_session_id}/anpassen", response_model=EinheitAnpassungOut)
+def einheit_anpassen(
+    plan_session_id: int,
+    data: EinheitAnpassenIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> EinheitAnpassungOut:
+    """Übernimmt die angepasste Einheit und bringt sie auf die Uhr."""
+    session = anpassbare_einheit(db, plan_session_id, user.id)
+
+    try:
+        ergebnis = plan_import.uebernimm_einheit(db, session, data.raw, data.wunsch)
+    except plan_import.PlanImportError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    return _anpassung_antwort(db, user.id, ergebnis)
+
+
+def _anpassung_antwort(db, user_id: int, ergebnis) -> EinheitAnpassungOut:
+    """Die gemeinsame Antwort beider Wege — samt dem Gang nach Garmin.
+
+    Der Gang nach Garmin steht **hier** und nicht in `uebernimm_einheit`: Das
+    Übernehmen soll auch ohne verbundenes Konto vollständig sein, und der
+    Import einer Antwort hat nichts mit dem Kalender einer Gegenstelle zu tun.
+    Denselben Schnitt macht `plan_import.uebernimm_plan`, nur dass dort ein Job
+    anläuft — für eine einzelne Einheit sind es zwei Anfragen.
+    """
+    garmin, hinweis = automatik.uebertrage_geaenderte_einheit(
+        db, user_id, ergebnis.session
+    )
+    ausgabe = PlanSessionOut.model_validate(ergebnis.session)
+    return EinheitAnpassungOut(
+        session=ausgabe,
+        begruendung=ergebnis.begruendung,
+        warnings=ergebnis.warnings,
+        garmin=garmin,
+        garmin_hinweis=hinweis,
     )
 
 

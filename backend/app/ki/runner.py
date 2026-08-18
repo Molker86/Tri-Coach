@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 
 ENDZUSTAENDE = frozenset({"done", "failed", "cancelled", "interrupted"})
 
+# Die Jobart, die eine einzelne Planeinheit anpasst statt einen ganzen Block.
+# Als Konstante, weil drei Stellen sie prüfen und ein Tippfehler still den
+# falschen Lauf startete.
+EINHEIT = "einheit"
+
 # Ob Läufe in einen eigenen Thread abgegeben werden. Die Tests stellen das ab
 # und lassen synchron laufen — sonst müsste jeder Test den Fortschritt abfragen
 # und wäre von der Zeit abhängig.
@@ -68,9 +73,16 @@ class KiRunner:
         request_id: int | None = None,
         start_date: date | None = None,
         days: int = 7,
+        plan_session_id: int | None = None,
+        wunsch: str | None = None,
         im_hintergrund: bool | None = None,
     ) -> int:
-        """Legt den Job an und startet ihn. Gibt die Job-Kennung zurück."""
+        """Legt den Job an und startet ihn. Gibt die Job-Kennung zurück.
+
+        `kind="einheit"` passt eine einzelne Planeinheit an — dann sind
+        `plan_session_id` und `wunsch` belegt und `request_id`/`start_date`
+        bedeutungslos, weil Fragebogen und Tag aus der Einheit selbst kommen.
+        """
         im_hintergrund = IM_HINTERGRUND if im_hintergrund is None else im_hintergrund
         with SessionLocal() as db:
             job = KiJob(
@@ -80,7 +92,13 @@ class KiRunner:
                 request_id=request_id,
                 start_date=start_date,
                 days=days,
-                message="Der Planungslauf wird vorbereitet …",
+                plan_session_id=plan_session_id,
+                wunsch=wunsch,
+                message=(
+                    "Die Anpassung wird vorbereitet …"
+                    if kind == EINHEIT
+                    else "Der Planungslauf wird vorbereitet …"
+                ),
             )
             db.add(job)
             db.commit()
@@ -114,9 +132,6 @@ class KiRunner:
                 self._abgebrochen.discard(job_id)
 
     def _lauf(self, db, job_id: int, user_id: int) -> None:
-        from .. import ai_export, plan_import
-        from . import client
-
         job = db.get(KiJob, job_id)
         user = db.get(User, user_id)
         if job is None or user is None:
@@ -130,50 +145,10 @@ class KiRunner:
         db.commit()
 
         try:
-            export = ai_export.erzeuge_export(
-                db,
-                user,
-                request_id=job.request_id,
-                start_date=job.start_date,
-                days=job.days,
-            )
-
-            job.progress_pct = 20
-            job.message = "Claude plant den Block — das dauert einige Minuten …"
-            db.commit()
-
-            # Wer abbricht, während der Lauf noch am Schloss wartet, hat noch
-            # keinen Prozess zum Töten — deshalb hier noch einmal nachsehen.
-            if job_id in self._abgebrochen:
-                raise _Abgebrochen()
-
-            antwort = client.rufe_claude(
-                export.prompt,
-                modell=einstellungen.model or None,
-                effort=einstellungen.effort or None,
-                bei_start=lambda prozess: self._prozesse.__setitem__(job_id, prozess),
-            )
-
-            job.progress_pct = 80
-            job.model_used = antwort.modell
-            job.cost_usd = antwort.kosten_usd
-            job.duration_ms = antwort.dauer_ms
-            job.message = "Die Antwort wird geprüft und übernommen …"
-            db.commit()
-
-            ergebnis = plan_import.uebernimm_plan(
-                db,
-                user_id,
-                antwort.text,
-                request_id=job.request_id,
-                days=job.days,
-            )
-
-            job.state = "done"
-            job.progress_pct = 100
-            job.plan_id = ergebnis.plan.id
-            job.finished_at = _now()
-            job.message = _erfolgsmeldung(ergebnis, antwort.modell)
+            if job.kind == EINHEIT:
+                self._einheit_lauf(db, job, user, einstellungen)
+            else:
+                self._block_lauf(db, job, user, einstellungen)
             _setze_status(einstellungen, "ready", None)
             db.commit()
 
@@ -188,12 +163,14 @@ class KiRunner:
                 if job is not None:
                     job.state = "cancelled"
                     job.finished_at = _now()
-                    job.message = "Der Planungslauf wurde abgebrochen."
+                    job.message = "Der Lauf wurde abgebrochen."
                     db.commit()
                 return
 
+            from .. import plan_import
+
             if not isinstance(exc, (KiFehler, plan_import.PlanImportError)):
-                logger.exception("Planungslauf fehlgeschlagen")
+                logger.exception("Lauf gegen die KI fehlgeschlagen")
             # Zurückrollen, bevor der Fehler notiert wird: Ein halb geschriebener
             # Plan darf nicht stehen bleiben, und die Sitzung wäre sonst
             # unbrauchbar.
@@ -203,6 +180,124 @@ class KiRunner:
             if job is not None:
                 _notiere_fehler(job, einstellungen, exc)
                 db.commit()
+
+    def _block_lauf(self, db, job: KiJob, user: User, einstellungen: KiSettings) -> None:
+        """Der ganze nächste Block — der Regelfall."""
+        from .. import ai_export, plan_import
+
+        export = ai_export.erzeuge_export(
+            db,
+            user,
+            request_id=job.request_id,
+            start_date=job.start_date,
+            days=job.days,
+        )
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            export.prompt,
+            "Claude plant den Block — das dauert einige Minuten …",
+        )
+
+        job.message = "Die Antwort wird geprüft und übernommen …"
+        db.commit()
+
+        ergebnis = plan_import.uebernimm_plan(
+            db,
+            user.id,
+            antwort.text,
+            request_id=job.request_id,
+            days=job.days,
+        )
+
+        job.plan_id = ergebnis.plan.id
+        _fertig(job, _erfolgsmeldung(ergebnis, antwort.modell))
+
+    def _einheit_lauf(
+        self, db, job: KiJob, user: User, einstellungen: KiSettings
+    ) -> None:
+        """Genau eine Einheit, angepasst an den Wunsch des Athleten.
+
+        Derselbe Ablauf wie beim Block, nur mit einem anderen Export, einem
+        anderen Parser und einem Nachlauf: Die geänderte Einheit geht sofort auf
+        die Uhr, und was von der alten dort steht, wird dabei ersetzt oder
+        entfernt. Der Nachlauf steht **im Lauf** und nicht dahinter, damit sein
+        Ergebnis in derselben Meldung landet — sonst stünde „angepasst" da,
+        während auf der Uhr noch die alte Vorgabe liegt.
+        """
+        from .. import ai_export, plan_import
+        from ..garmin import automatik
+        from ..models import PlanSession
+
+        # Ob die Einheit *angepasst werden darf*, hat der Endpunkt geprüft
+        # (`routers.plans.anpassbare_einheit`) — hier bleibt die Frage, ob es
+        # sie überhaupt noch gibt: Zwischen dem Knopfdruck und diesem Punkt
+        # liegen Minuten, in denen ihr Plan gelöscht worden sein kann.
+        session = db.get(PlanSession, job.plan_session_id)
+        if session is None or session.plan.user_id != user.id:
+            raise _EinheitFehlt()
+        wunsch = job.wunsch or ""
+
+        export = ai_export.erzeuge_einheit_export(db, user, session, wunsch)
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            export.prompt,
+            "Claude passt die Einheit an …",
+        )
+
+        job.message = "Die Antwort wird geprüft und übernommen …"
+        db.commit()
+
+        ergebnis = plan_import.uebernimm_einheit(db, session, antwort.text, wunsch)
+        job.plan_id = session.plan_id
+
+        garmin, hinweis = automatik.uebertrage_geaenderte_einheit(db, user.id, session)
+        _fertig(job, _einheit_meldung(ergebnis, garmin, hinweis))
+
+    def _frage_claude(
+        self,
+        db,
+        job: KiJob,
+        einstellungen: KiSettings,
+        prompt: str,
+        meldung: str,
+    ):
+        """Der Aufruf selbst — für beide Aufgaben derselbe.
+
+        Hier steht auch die Buchführung darüber, **welches Modell tatsächlich
+        geantwortet hat**: Es gibt keinen stillen Rückfall, und ein Block oder
+        eine Einheit von einem schwächeren Modell sähe sonst aus wie eine von
+        Opus.
+        """
+        from . import client
+
+        job.progress_pct = 20
+        job.message = meldung
+        db.commit()
+
+        # Wer abbricht, während der Lauf noch am Schloss wartet, hat noch
+        # keinen Prozess zum Töten — deshalb hier noch einmal nachsehen.
+        if job.id in self._abgebrochen:
+            raise _Abgebrochen()
+
+        antwort = client.rufe_claude(
+            prompt,
+            modell=einstellungen.model or None,
+            effort=einstellungen.effort or None,
+            bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
+        )
+
+        job.progress_pct = 80
+        job.model_used = antwort.modell
+        job.cost_usd = antwort.kosten_usd
+        job.duration_ms = antwort.dauer_ms
+        db.commit()
+        return antwort
 
     def markiere_unterbrochene_jobs(self) -> int:
         """Räumt Läufe auf, die einen Neustart der App nicht überlebt haben.
@@ -230,6 +325,15 @@ class KiRunner:
 
 class _Abgebrochen(Exception):
     """Der Nutzer hat den Lauf beendet — kein Fehler, sondern eine Entscheidung."""
+
+
+class _EinheitFehlt(Exception):
+    """Die anzupassende Einheit war beim Übernehmen nicht mehr da."""
+
+    meldung = (
+        "Die Einheit, die angepasst werden sollte, gibt es nicht mehr — "
+        "vermutlich wurde ihr Plan inzwischen gelöscht oder abgelöst."
+    )
 
 
 def _einstellungen(db, user_id: int) -> KiSettings:
@@ -266,14 +370,52 @@ def _notiere_fehler(job: KiJob, einstellungen: KiSettings, exc: Exception) -> No
         status = "rate_limited"
     elif isinstance(exc, KiFehler):
         status = "error"
+    elif isinstance(exc, _EinheitFehlt):
+        # Am Zugang zur KI liegt es nicht: Sie hat sauber geantwortet, nur ist
+        # der Empfänger der Antwort verschwunden. Den Status stehen zu lassen
+        # ist hier richtig — sonst stünde an jedem Knopf der App eine Warnung
+        # über einen Zugang, mit dem nichts ist.
+        status = None
     else:
         # Auch der Importfehler landet hier — die KI hat geantwortet, nur nicht
         # in einer Form, die sich lesen ließ.
         status = "error"
-        meldung = meldung or "Der Planungslauf ist mit einem Fehler abgebrochen."
+        meldung = meldung or "Der Lauf ist mit einem Fehler abgebrochen."
 
     job.message = meldung
-    _setze_status(einstellungen, status, meldung)
+    if status is not None:
+        _setze_status(einstellungen, status, meldung)
+
+
+def _fertig(job: KiJob, meldung: str) -> None:
+    """Schließt einen Lauf erfolgreich ab."""
+    job.state = "done"
+    job.progress_pct = 100
+    job.finished_at = _now()
+    job.message = meldung
+
+
+def _einheit_meldung(ergebnis, garmin: str, hinweis: str | None) -> str:
+    """Was aus der Anpassung geworden ist — in einem Satz.
+
+    Die Begründung der KI steht mit drin, weil sie die einzige Stelle ist, an
+    der der Athlet erfährt, ob sie seinem Wunsch gefolgt ist. Sie kann lang
+    werden; die Meldung ist der Ort, an dem sie ohnehin gelesen wird, also
+    bleibt sie ganz stehen.
+    """
+    teile = [f'Einheit angepasst: „{ergebnis.session.title}".']
+    if ergebnis.begruendung:
+        teile.append(ergebnis.begruendung)
+    if garmin == "uebertragen":
+        teile.append("Sie liegt in der neuen Fassung im Garmin-Kalender.")
+    elif garmin == "entfernt":
+        teile.append("Der Tag ist jetzt frei — die alte Vorgabe wurde aus dem "
+                     "Garmin-Kalender genommen.")
+    if hinweis:
+        teile.append(hinweis)
+    if ergebnis.warnings:
+        teile.append("Hinweis: " + " ".join(ergebnis.warnings[:2]))
+    return " ".join(teile)
 
 
 def _erfolgsmeldung(ergebnis, modell: str | None) -> str:

@@ -217,6 +217,15 @@ class PlanSession(Base):
     target_power: Mapped[str | None] = mapped_column(String(64))
     rpe_target: Mapped[int | None] = mapped_column(Integer)
 
+    # Einzeln nachträglich angepasst: Der Wunsch des Athleten im Wortlaut und
+    # wann die KI ihn umgesetzt hat. Steht an der Einheit und nicht bloß am
+    # Job, weil der Job irgendwann aus der Liste rutscht — die Einheit trägt
+    # ihre Abweichung vom ursprünglichen Block dagegen dauerhaft, und ohne den
+    # Wortlaut wäre in der Ansicht nicht mehr zu erkennen, warum sie anders
+    # aussieht als der Rest.
+    angepasst_am: Mapped[datetime | None] = mapped_column(DateTime)
+    anpassungswunsch: Mapped[str | None] = mapped_column(Text)
+
     plan: Mapped[Plan] = relationship(back_populates="sessions")
     log: Mapped["SessionLog | None"] = relationship(
         back_populates="plan_session", uselist=False
@@ -585,8 +594,8 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # manual — „auto" steht nur noch an Läufen aus der Zeit vor dem Wegfall
-    # der Automatik.
+    # manual | einheit — „auto" steht nur noch an Läufen aus der Zeit vor dem
+    # Wegfall der Automatik.
     kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
     # queued | running | done | failed | cancelled | interrupted
@@ -597,6 +606,13 @@ class KiJob(Base):
     request_id: Mapped[int | None] = mapped_column(Integer)
     start_date: Mapped[date | None] = mapped_column(Date)
     days: Mapped[int] = mapped_column(Integer, default=7)
+
+    # Nur bei `kind == "einheit"` belegt: welche Einheit angepasst wurde und
+    # mit welchem Wunsch. Der Wortlaut steht auch hier, nicht nur an der
+    # Einheit — ein gescheiterter Lauf hat nichts geschrieben, und ohne den
+    # Wunsch am Job wüsste niemand mehr, woran er gescheitert ist.
+    plan_session_id: Mapped[int | None] = mapped_column(Integer)
+    wunsch: Mapped[str | None] = mapped_column(Text)
 
     plan_id: Mapped[int | None] = mapped_column(Integer)
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)

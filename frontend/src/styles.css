@@ -639,7 +639,9 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 }
 
 .session-card:hover { background: var(--surface-3); }
-.session-card.is-rest { border-left-color: var(--text-faint); opacity: 0.75; cursor: default; }
+/* Der Ruhetag bleibt blass, ist aber anklickbar: Aus einer Einheit kann Ruhe
+   werden, und ohne diesen Weg käme man an sie danach nie wieder heran. */
+.session-card.is-rest { border-left-color: var(--text-faint); opacity: 0.75; }
 .session-card.is-logged { border-left-color: var(--success); }
 
 .session-icon { font-size: 1.2rem; line-height: 1.3; }

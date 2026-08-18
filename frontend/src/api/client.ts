@@ -1,6 +1,7 @@
 import type {
   AiExport,
   AuthResponse,
+  EinheitAnpassung,
   GarminConnectResult,
   GarminDublette,
   GarminEinheitStatus,
@@ -274,6 +275,28 @@ export const api = {
   kiJob: (id: number) => request<KiJob>(`/ki/jobs/${id}`),
   kiAbbrechen: (id: number) =>
     request<KiJob>(`/ki/jobs/${id}/abbrechen`, { method: 'POST' }),
+  /**
+   * Eine einzelne Einheit anpassen lassen. Läuft als Job wie die Blockplanung
+   * — der Server bringt die neue Fassung danach selbst auf die Uhr.
+   */
+  kiEinheitAnpassen: (planSessionId: number, wunsch: string) =>
+    request<KiJob>('/ki/einheit', {
+      method: 'POST',
+      body: { plan_session_id: planSessionId, wunsch },
+    }),
+
+  // Dieselbe Anpassung über die Zwischenablage — die Rückfallebene ohne
+  // hinterlegten Claude-Zugang.
+  einheitAnpassungExport: (planSessionId: number, wunsch: string) =>
+    request<AiExport>(
+      `/plans/sessions/${planSessionId}/anpassung-export` +
+        `?wunsch=${encodeURIComponent(wunsch)}`,
+    ),
+  einheitAnpassen: (planSessionId: number, raw: string, wunsch: string) =>
+    request<EinheitAnpassung>(`/plans/sessions/${planSessionId}/anpassen`, {
+      method: 'POST',
+      body: { raw, wunsch },
+    }),
 }
 
 /** Zustände, in denen ein Abgleich beendet ist. */

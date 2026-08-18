@@ -1456,6 +1456,81 @@ def test_kalender_erfindet_keine_dauer_aus_einem_deutungsfreien_feld():
     assert workout["distanz_km"] is None
 
 
+def test_kalender_benennt_garmins_namenlose_tageseintraege():
+    """Eine Wiegung ist kein Termin, gehört aber trotzdem in den Kalender.
+
+    Am echten Konto kamen für August 2026 53 Einträge, darunter 16 mit
+    `itemType: "weight"` und einer mit `"nap"` — alle ohne `title`, ohne
+    `workoutId`, ohne `activityId`. Sie standen deshalb als „Ohne Titel" da.
+    Die Felder stammen aus der abgelesenen Antwort, nicht aus einer Vermutung:
+    Das Gewicht kommt in Gramm, die Differenz zur Vormessung daneben.
+    """
+    wiegung = kalender.eintrag_aus_garmin({
+        "id": 1787028093924,
+        "itemType": "weight",
+        "date": "2026-08-18",
+        "title": None,
+        "weight": 89680.0,
+        "difference": -1299.0,
+        "workoutId": None,
+        "activityTypeId": None,
+    })
+    assert wiegung is not None
+    # Zwei Nachkommastellen, deutsches Komma — genau das steht auf der Waage.
+    assert wiegung["titel"] == "89,68 kg"
+    assert wiegung["art"] == "sonstiges"
+
+    # Glatte Kilogramm ohne angehängte Nullen.
+    glatt = kalender.eintrag_aus_garmin({
+        "itemType": "weight", "date": "2026-08-16", "title": None, "weight": 91000.0,
+    })
+    assert glatt["titel"] == "91 kg"
+
+    nickerchen = kalender.eintrag_aus_garmin({
+        "itemType": "nap",
+        "date": "2026-07-29",
+        "title": None,
+        "duration": 2940,
+        "napStartTimeLocal": "2026-07-29T07:59:46",
+    })
+    assert nickerchen["titel"] == "Nickerchen"
+    # `duration` trägt hier keine Einheit im Namen — dieselbe Regel wie beim
+    # Workout: lieber keine Zahl als eine um Faktor 1000 falsche.
+    assert nickerchen["dauer_min"] is None
+
+
+def test_kalender_zeigt_auch_was_er_nicht_benennen_kann():
+    """Nichts wird verworfen — der Kalender soll den echten Stand zeigen.
+
+    Was diese App nicht kennt, trägt Garmins eigene Gattungsbezeichnung. Ein
+    stillschweigend weggelassener Eintrag wäre hier der schlimmere Fehler:
+    Niemand bemerkt eine Lücke in einer Ansicht, die den fremden Kalender
+    wiedergeben soll.
+    """
+    abzeichen = kalender.eintrag_aus_garmin({
+        "itemType": "badge", "date": "2026-08-18", "title": None,
+    })
+    assert abzeichen is not None
+    assert abzeichen["titel"] == "badge"
+
+    # Eine Wiegung ohne Messwert fällt auf ihre Gattung zurück statt zu
+    # verschwinden.
+    ohne_wert = kalender.eintrag_aus_garmin({
+        "itemType": "weight", "date": "2026-08-18", "title": None, "weight": None,
+    })
+    assert ohne_wert["titel"] == "weight"
+
+    # Erst ohne jede Angabe bleibt der alte Rückfall.
+    nichts = kalender.eintrag_aus_garmin({"date": "2026-08-18"})
+    assert nichts["titel"] == "Ohne Titel"
+
+    notiz = kalender.eintrag_aus_garmin({
+        "itemType": "note", "date": "2026-08-18", "title": "Radservice",
+    })
+    assert notiz["art"] == "sonstiges"
+    assert notiz["titel"] == "Radservice"
+
+
 def test_kalendereintrag_loescht_keine_pool_vorlage(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)

@@ -7,9 +7,10 @@ korrekter Plan nicht an Formalien scheitert.
 """
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -330,6 +331,30 @@ class AIPlanImport(BaseModel):
     plan: AIPlanBody
 
 
+class AIEinheitBody(BaseModel):
+    """Die Antwort auf eine Einzelanpassung: genau eine Einheit.
+
+    Kein Datum und kein Tag darum herum — der Tag steht fest, geändert wird der
+    Inhalt. Die Begründung ist die einzige Stelle, an der der Athlet erfährt,
+    ob die KI seinem Wunsch gefolgt ist und woran es sonst lag.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    einheit: AISessionIn
+    begruendung: str | None = None
+
+
+class AIEinheitImport(BaseModel):
+    """Wurzelobjekt. Toleriert {"einheit": {...}} wie das flache Objekt."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: str | None = None
+    einheit: AISessionIn
+    begruendung: str | None = None
+
+
 class PlanImportIn(BaseModel):
     raw: str  # der eingefügte JSON-Text
     request_id: int | None = None
@@ -364,6 +389,10 @@ class PlanSessionOut(BaseModel):
     target_power: str | None = None
     rpe_target: int | None = None
     logged: bool = False
+    # Einzeln nachträglich angepasst. Beide Felder fehlen an allem, was seit
+    # der Planung des Blocks unverändert steht.
+    angepasst_am: datetime | None = None
+    anpassungswunsch: str | None = None
 
 
 class PlanOut(BaseModel):
@@ -716,6 +745,11 @@ class KiJobOut(BaseModel):
     start_date: date | None = None
     days: int
     plan_id: int | None = None
+    # Nur bei `kind == "einheit"`: welche Einheit angepasst wurde, mit welchem
+    # Wunsch. Die Oberfläche hängt sich daran, wenn sie einen laufenden
+    # Anpassungslauf einer bestimmten Einheit zuordnen will.
+    plan_session_id: int | None = None
+    wunsch: str | None = None
     progress_pct: int
     model_used: str | None = None
     cost_usd: float | None = None
@@ -756,3 +790,65 @@ class KiPlanenIn(BaseModel):
     request_id: int | None = None
     start_date: date | None = None
     days: int = Field(7, ge=1, le=14)
+
+
+# Ein Wunsch von unter drei Zeichen ist keiner — und die KI bekäme eine Aufgabe
+# ohne Inhalt, die sie mit einer beliebigen Änderung beantwortete. Nach oben
+# begrenzt, weil der Text unverändert in den Prompt geht.
+WUNSCH_MIN = 3
+WUNSCH_MAX = 2000
+
+
+def putze_wunsch(wert: str) -> str:
+    """Rand-Leerraum weg — und was dann nichts mehr ist, ist kein Wunsch.
+
+    Ohne das Putzen käme ein Feld voller Leerzeichen durch die Längenprüfung
+    und stünde als leere Aufgabe im Prompt; die KI beantwortete sie dann mit
+    einer beliebigen Änderung.
+    """
+    geputzt = wert.strip()
+    if len(geputzt) < WUNSCH_MIN:
+        raise ValueError(
+            "Beschreibe in einem Satz, was an der Einheit anders werden soll."
+        )
+    return geputzt
+
+
+# Ein Typ statt zweier gleicher Feldangaben: Beide Wege in eine Anpassung
+# (Knopf und eingefügte Antwort) nehmen denselben Wunsch entgegen.
+Wunsch = Annotated[
+    str, Field(max_length=WUNSCH_MAX), AfterValidator(putze_wunsch)
+]
+
+
+class KiEinheitIn(BaseModel):
+    """Eine einzelne Einheit von der KI anpassen lassen."""
+
+    plan_session_id: int
+    wunsch: Wunsch
+
+
+class EinheitAnpassenIn(BaseModel):
+    """Der Handweg: die Antwort der KI zu einer Einheit, eingefügt.
+
+    `wunsch` reist mit, obwohl der Server ihn für die Anpassung nicht mehr
+    braucht — er wird an der Einheit vermerkt. Ohne ihn stünde dort eine
+    angepasste Einheit ohne den Satz, der sie erklärt.
+    """
+
+    raw: str
+    wunsch: Wunsch
+
+
+class EinheitAnpassungOut(BaseModel):
+    """Was aus der Anpassung geworden ist — samt dem Weg auf die Uhr."""
+
+    session: PlanSessionOut
+    # Was die KI zu ihrer Änderung sagt. Die einzige Stelle, an der der Athlet
+    # erfährt, ob sie seinem Wunsch gefolgt ist.
+    begruendung: str | None = None
+    warnings: list[str] = []
+    # Was in Garmin geschehen ist: "uebertragen", "entfernt" oder "keine" —
+    # und der Grund, falls nichts geschah.
+    garmin: str = "keine"
+    garmin_hinweis: str | None = None

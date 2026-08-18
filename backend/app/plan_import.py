@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from . import plan_aufraeumen
 from .models import Plan, PlanSession
-from .schemas import AIPlanBody, AIPlanImport
+from .schemas import AIEinheitBody, AIEinheitImport, AIPlanBody, AIPlanImport
+from .zeit import jetzt_utc
 
 
 class PlanImportError(ValueError):
@@ -317,4 +318,166 @@ def uebernimm_plan(
         warnings=warnings,
         garmin_job_id=job_id,
         garmin_hinweis=hinweis,
+    )
+
+
+# --------------------------------------------------------------------------
+# Eine einzelne Einheit anpassen
+#
+# Derselbe Zuschnitt wie beim Block: ein toleranter Parser, der Codefences und
+# Begleittext abfängt, und eine Übernahme, die beide Auslöser bedienen —
+# eingefügter Text und die Antwort, die der Server selbst geholt hat.
+# --------------------------------------------------------------------------
+
+# Schlüssel, unter denen Modelle die eine Einheit ablegen. Die App verlangt
+# `einheit`; „session" kostet nichts und fängt den naheliegenden englischen
+# Rückfall ab.
+_EINHEIT_SCHLUESSEL = ("einheit", "session")
+
+
+def parse_einheit_antwort(raw: str) -> AIEinheitBody:
+    """Liest die Antwort auf eine Einzelanpassung.
+
+    Toleriert dieselben drei Formen wie der Blockparser: die verlangte Hülle,
+    ein anders benanntes Feld darum herum und das nackte Einheitenobjekt. Ein
+    Plan im Blockformat wird dagegen **abgelehnt** statt aufgefaltet — er wäre
+    die Antwort auf eine andere Frage, und die erste Einheit daraus zu nehmen
+    hieße raten, welche gemeint ist.
+    """
+    if not raw or not raw.strip():
+        raise PlanImportError("Es wurde kein Text eingefügt.")
+
+    candidate = _extract_json_object(_strip_fences(raw))
+
+    try:
+        data: Any = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise PlanImportError(
+            f"Das eingefügte JSON ist nicht lesbar (Zeile {exc.lineno}, "
+            f"Spalte {exc.colno}): {exc.msg}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise PlanImportError("Die oberste Ebene der Antwort ist kein JSON-Objekt.")
+
+    if "plan" in data or "days" in data or "weeks" in data:
+        raise PlanImportError(
+            "Die Antwort enthält einen ganzen Trainingsblock, erwartet war eine "
+            "einzelne Einheit. Bitte den Text für die Anpassung kopieren — er "
+            "verlangt ausdrücklich nur die eine Einheit."
+        )
+
+    for schluessel in _EINHEIT_SCHLUESSEL:
+        if isinstance(data.get(schluessel), dict):
+            data = {**data, "einheit": data[schluessel]}
+            break
+    else:
+        # Das flache Objekt: Die Einheit steht ohne Hülle da. Erkennbar an
+        # `sport` — ohne das Feld wäre es ohnehin keine Einheit.
+        if "sport" not in data:
+            raise PlanImportError(
+                "In der Antwort war keine Einheit zu finden. Erwartet wird ein "
+                'Objekt mit dem Schlüssel "einheit".'
+            )
+        data = {"einheit": data}
+
+    try:
+        gelesen = AIEinheitImport.model_validate(data)
+    except ValidationError as exc:
+        raise PlanImportError(_readable_validation_error(exc)) from exc
+
+    return AIEinheitBody(einheit=gelesen.einheit, begruendung=gelesen.begruendung)
+
+
+def pruefe_einheit(body: AIEinheitBody) -> list[str]:
+    """Nicht-blockierende Hinweise zur angepassten Einheit.
+
+    Dieselbe Linie wie bei `validate_coverage()`: Was sich melden lässt, wird
+    gemeldet; abgelehnt wird nichts. Eine Einheit ohne Dauer ist brauchbar, ein
+    abgelehnter Lauf gegen die KI dagegen teuer — die Antwort wird nirgends
+    gespeichert, er wäre also ganz verloren.
+    """
+    warnings: list[str] = []
+    einheit = body.einheit
+
+    if einheit.verworfene_zielwerte:
+        warnings.append(
+            "Unbrauchbare Steuerungsgröße verworfen "
+            f"({', '.join(einheit.verworfene_zielwerte)}). Der Wert fehlt an "
+            "dieser Einheit; ein verworfener Zielpuls heißt außerdem, dass sie "
+            "ohne Herzfrequenzkorridor auf die Uhr geht."
+        )
+
+    # Ohne Dauer hat das Workout auf der Uhr keinen Anhaltspunkt für seine
+    # Länge — `garmin/workouts.py` baut den Ersatzschritt über `duration_min`.
+    if einheit.sport != "rest" and not einheit.duration_min:
+        warnings.append(
+            "Die angepasste Einheit nennt keine Dauer. Auf der Uhr steht sie "
+            "dann ohne Zeitvorgabe."
+        )
+
+    return warnings
+
+
+@dataclass(slots=True)
+class EinheitUebernahme:
+    session: PlanSession
+    begruendung: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    # Ob die Einheit danach überhaupt noch auf die Uhr gehört. Ein „rest" als
+    # Antwort heißt: Sie fällt aus, und was von ihr in Garmin steht, muss weg.
+    war_uebertragbar: bool = False
+
+
+def uebernimm_einheit(
+    db: Session, session: PlanSession, raw: str, wunsch: str
+) -> EinheitUebernahme:
+    """Schreibt die angepasste Fassung in die bestehende Planeinheit.
+
+    **Dieselbe Zeile, nicht eine neue.** Daran hängt der ganze Weg zurück auf
+    die Uhr: `GarminWorkoutLink` zeigt auf `plan_session_id`, und eine neue
+    Einheit ließe die alte samt ihrem Termin im fremden Kalender zurück. So
+    findet die Übertragung danach ihre Zuordnung wieder, ersetzt den Inhalt der
+    Pool-Vorlage und behält den Termin.
+
+    Nicht angetastet werden Datum, Reihenfolge und Zugehörigkeit: Der Tag steht
+    fest (das sagt auch der Prompt), und die Einheit bleibt an ihrem Platz im
+    Block.
+
+    Wirft `PlanImportError`, wenn die Antwort nicht zu lesen ist; dann bleibt
+    die Datenbank unberührt.
+    """
+    body = parse_einheit_antwort(raw)
+    warnings = pruefe_einheit(body)
+    neu = body.einheit
+
+    session.sport = neu.sport
+    session.session_type = neu.type
+    session.title = neu.title
+    session.description = neu.description
+    session.structure = neu.structure
+    session.purpose = neu.purpose
+    session.duration_min = neu.duration_min
+    session.distance_km = neu.distance_km
+    session.intensity_zone = neu.intensity_zone
+    session.target_hr_low = neu.target_hr_low
+    session.target_hr_high = neu.target_hr_high
+    session.target_pace = neu.target_pace
+    session.target_power = neu.target_power
+    session.rpe_target = neu.rpe_target
+    session.angepasst_am = jetzt_utc()
+    session.anpassungswunsch = wunsch
+
+    # `Plan.raw_json` bleibt bewusst, wie es war: Dort steht die KI-Antwort im
+    # Original, also der Block, wie er einmal geplant wurde. Die Anpassung
+    # dorthin zu schreiben machte aus dem Original ein Gemisch aus zwei
+    # Antworten — was gilt, steht ohnehin in den Einheiten.
+    db.commit()
+    db.refresh(session)
+
+    return EinheitUebernahme(
+        session=session,
+        begruendung=body.begruendung,
+        warnings=warnings,
+        war_uebertragbar=neu.sport != "rest",
     )

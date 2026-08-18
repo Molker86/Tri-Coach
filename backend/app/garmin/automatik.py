@@ -27,11 +27,19 @@ from sqlalchemy.orm import Session
 
 from ..config import GARMIN_SYNC_HOUR
 from ..database import SessionLocal
-from ..models import GarminAccount, Plan
+from ..models import (
+    AthleteProfile,
+    GarminAccount,
+    GarminWorkoutLink,
+    Plan,
+    PlanSession,
+)
 from ..zeit import liegt_in_der_zukunft
-from . import uebertragung
+from . import uebertragung, workouts
+from .errors import GarminFehler, GarminNichtVerbunden
 from .runner import runner
 from .sync import standard_zeitraum
+from .verbindung import garmin_sitzung
 
 logger = logging.getLogger(__name__)
 
@@ -174,3 +182,138 @@ def starte_uebertragung_fuer_neuen_plan(
     return runner.starte_uebertragung(
         user_id, plan.id, "push" if uebertragen else "cleanup", ab=date.today()
     ), None
+
+
+# --------------------------------------------------------------------------
+# Eine einzeln geänderte Einheit auf die Uhr bringen
+# --------------------------------------------------------------------------
+
+
+def uebertrage_geaenderte_einheit(
+    db: Session, user_id: int, session: PlanSession
+) -> tuple[str, str | None]:
+    """Bringt eine gerade angepasste Einheit in den Garmin-Kalender.
+
+    **Im Anfrage- bzw. Planungsthread, nicht als Job** — dieselbe Abwägung wie
+    beim Löschen einer einzelnen Einheit: Es sind zwei bis drei Anfragen, und
+    ein Fortschrittsbalken dafür wäre Umstand ohne Nutzen. Das globale Schloss
+    wird trotzdem genommen (nicht blockierend), damit nicht daneben ein
+    Übertragungslauf denselben Pool-Slot belegt.
+
+    Drei Fälle, und der zweite ist der eigentliche Grund für diese Funktion:
+
+    * Die Einheit ist weiter übertragbar → `uebertrage_einheit` ersetzt den
+      Inhalt der Pool-Vorlage an derselben Kennung und behält den Termin. Auf
+      der Uhr steht danach die neue Fassung, nicht zwei nebeneinander.
+    * Aus der Einheit ist **Ruhe** geworden → sie gehört nicht mehr auf die Uhr,
+      und was von ihr in Garmin steht, muss weg. Ohne diesen Zweig bliebe die
+      alte Vorgabe an einem Tag stehen, an dem der Athlet ausdrücklich nicht
+      trainieren soll — der irreführendste aller Zustände.
+    * Nichts zu tun (kein Konto, nichts in Garmin und Automatik aus,
+      vergangener Tag).
+
+    **Ein Fehlschlag wird gemeldet, nicht geworfen.** Die Einheit ist zu diesem
+    Zeitpunkt bereits angepasst und gespeichert; den ganzen Vorgang an Garmin
+    scheitern zu lassen nähme dem Athleten seine Anpassung für einen Grund, der
+    nichts mit ihr zu tun hat. Er bekommt stattdessen den Satz dazu und den
+    Knopf im Trainingsplan.
+
+    Rückgabe: was geschehen ist ("uebertragen", "entfernt", "keine") und ein
+    Hinweis, falls der Nutzer wissen muss, warum nichts geschah.
+    """
+    konto = db.scalar(select(GarminAccount).where(GarminAccount.user_id == user_id))
+    if konto is None:
+        return "keine", None
+
+    link = db.scalar(
+        select(GarminWorkoutLink).where(
+            GarminWorkoutLink.plan_session_id == session.id
+        )
+    )
+    uebertragbar = workouts.ist_uebertragbar(session.sport)
+
+    # Ein Workout von gestern hilft auf der Uhr niemandem mehr — dieselbe Grenze
+    # wie in `planbare_einheiten`. Steht dort noch etwas, räumt es der nächste
+    # Abgleich über `raeume_vergangene_auf` weg.
+    if session.date < date.today():
+        return "keine", None
+
+    # Ohne Zuordnung steht von dieser Einheit nichts in Garmin. Dann entscheidet
+    # die Automatik, ob sie überhaupt hinkommt — genau wie bei einem frisch
+    # übernommenen Block. Liegt sie dagegen schon dort, wird sie auf jeden Fall
+    # angefasst: Das Wegräumen dessen, was diese App selbst hingelegt hat, hängt
+    # nicht am Schalter fürs Hinlegen.
+    if link is None and not (uebertragbar and konto.auto_push_enabled):
+        return "keine", None
+
+    was = (
+        "die geänderte Einheit steht nicht auf der Uhr"
+        if uebertragbar
+        else "die entfallene Einheit steht weiter im Garmin-Kalender"
+    )
+    # Wohin der Nutzer sich wenden kann, ist je Fall ein anderer Ort: Eine
+    # Einheit, aus der Ruhe geworden ist, taucht im Trainingsplan gar nicht
+    # mehr auf (`planbare_einheiten` lässt Ruhetage aus) — dort führte der
+    # Verweis ins Leere. Der Kalender dieser App zeigt sie dagegen weiterhin.
+    wohin = (
+        " Du kannst sie im Trainingsplan erneut übertragen."
+        if uebertragbar
+        else " Im Garmin-Kalender dieser App lässt sie sich von Hand entfernen."
+    )
+
+    if konto.status == "token_expired":
+        return "keine", (
+            konto.status_message
+            or f"Die Anmeldung bei Garmin ist abgelaufen — {was}."
+        ) + wohin
+
+    if liegt_in_der_zukunft(konto.rate_limited_until):
+        return "keine", (
+            f"Garmin hat die Verbindung vorerst gesperrt — {was}." + wohin
+        )
+
+    try:
+        with runner.exklusiver_direktaufruf():
+            with garmin_sitzung(db, user_id) as api:
+                if not uebertragbar:
+                    fehler = uebertragung.entferne_link(db, api, link)
+                    if fehler:
+                        raise GarminFehler(fehler)
+                    return "entfernt", None
+
+                profil = _profil(db, user_id)
+                uebertragung.uebertrage_einheit(
+                    db,
+                    api,
+                    user_id,
+                    session,
+                    zonen=workouts.zonen_aus_profil(profil),
+                    ftp=getattr(profil, "ftp_watts", None),
+                )
+    except GarminNichtVerbunden:
+        return "keine", None
+    except GarminFehler as exc:
+        db.rollback()
+        return "keine", f"{exc.meldung} — {was}." + wohin
+    except Exception:  # noqa: BLE001
+        # Bewusst **alles**: Die Bibliothek wirft nicht nur übersetzte Fehler,
+        # sondern auch alles, was `requests` unterwegs auslöst. Der Athlet hat
+        # seine Anpassung an dieser Stelle längst; sie an einem Netzfehler
+        # scheitern zu lassen, wäre die falsche Rangfolge — und im Planungslauf
+        # stünde am Ende „fehlgeschlagen" über einer Einheit, die tadellos
+        # angepasst wurde.
+        logger.exception("Übertragung der angepassten Einheit fehlgeschlagen")
+        # Zurückrollen, bevor der Lauf weitergeht: Was der abgebrochene
+        # Schreibweg an halben Änderungen hinterlassen hat, dürfte sonst mit
+        # dem nächsten `commit` des Aufrufers mitgehen.
+        db.rollback()
+        return "keine", (
+            f"Die Übertragung an Garmin ist fehlgeschlagen — {was}." + wohin
+        )
+
+    return "uebertragen", None
+
+
+def _profil(db: Session, user_id: int) -> AthleteProfile | None:
+    """Das Athletenprofil — daraus kommen Herzfrequenzzonen und FTP."""
+    return db.scalar(select(AthleteProfile).where(AthleteProfile.user_id == user_id))

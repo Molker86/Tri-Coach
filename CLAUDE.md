@@ -30,6 +30,15 @@ ebenso mit. Der Knopf im Trainingsplan bleibt für alles, was danach kommt
 App bringt dafür einen eigenen Kalender mit — Monatsansicht, verschieben, aus
 Garmin löschen.
 
+**Einzelne Einheiten lassen sich nachträglich per Freitext ändern.** Wer im
+Trainingsplan eine Einheit öffnet, schreibt in einem Satz hinein, was anders
+werden soll („nur 40 Minuten Zeit", „Knie zwickt", „lieber schwimmen") — die KI
+bekommt denselben vollen Kontext wie beim Planen eines Blocks, dazu den Block,
+in dem die Einheit steht, und schreibt die eine Einheit neu. Der Tag bleibt.
+Anschließend geht die neue Fassung von selbst auf die Uhr und ersetzt dort die
+alte; wird Ruhe daraus, verschwindet der Termin. Siehe „Eine einzelne Einheit
+wird angepasst, nicht ersetzt".
+
 **Und die Mitte kann die App inzwischen selbst: Sie fragt Claude direkt.**
 Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — aber
 **immer erst auf Knopfdruck**: Von selbst entsteht kein Block, siehe „Geplant
@@ -65,7 +74,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 281 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 315 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -157,6 +166,104 @@ Tag nach dem Blockende fürs Anhängen — **nie rückwirkend**, ein vor einer W
 ausgelaufener Block startete sonst in der Vergangenheit. Datiert wird in Ortszeit,
 weil `toISOString()` hierzulande abends bereits den Folgetag liefert und ein Block
 „ab heute" dann einen Tag zu spät anfinge.
+
+**Eine einzelne Einheit wird angepasst, nicht ersetzt** (`ai_export.erzeuge_einheit_export`,
+`plan_import.uebernimm_einheit`, `garmin.automatik.uebertrage_geaenderte_einheit`).
+Neben „Block neu planen" fehlte der kleine Eingriff: Der Plan stimmt, nur die
+Einheit von heute passt nicht mehr — eine Stunde weniger Zeit, ein zwickendes
+Knie, Lust auf eine andere Sportart. Dafür den ganzen Block wegzuwerfen wäre die
+teure Antwort auf eine kleine Frage, und die Resttage entstünden neu, obwohl an
+ihnen nichts falsch war. Der Athlet schreibt deshalb in einem Satz, was anders
+werden soll, und bekommt genau diese eine Einheit zurück.
+
+**Der Kontext ist derselbe wie beim ganzen Block** — Profil, Zonen, vier Wochen
+Historie, Fitnessdaten. Eine Anpassung ist eine Trainingsentscheidung wie jede
+andere; sie auf die Einheit und den Wunsch zu verkürzen hieße, sie ausgerechnet
+dort ohne Belastungslage zu treffen, wo der Athlet vom Plan abweichen will.
+Deshalb baut `_lade_kontext()` beide Pakete, und dazu kommt, was nur diese
+Aufgabe braucht: der Wunsch im Wortlaut, die bisherige Fassung der Einheit und —
+über `_blockumfeld()` — **der ganze Block mit der anzupassenden Einheit
+markiert**. Ohne ihn entschiede die KI im luftleeren Raum: `aktueller_plan` in
+der Historie nennt nur Titel und Zeitraum, aber die 48-h-Regel hängt daran, was
+am Vortag steht.
+
+**Der Tag steht fest.** Verschieben kann der Athlet selbst — im Kalender, und
+dort zieht die Planeinheit mit um. Geändert wird der Inhalt; `uebernimm_einheit`
+liest aus der Antwort deshalb gar kein Datum. Geschrieben wird in **dieselbe
+Zeile**, nicht in eine neue: Daran hängt der ganze Weg zurück auf die Uhr, denn
+`GarminWorkoutLink` zeigt auf `plan_session_id`. Eine neue Einheit ließe die
+alte samt Termin im fremden Kalender zurück.
+
+**Ein eigener Prompt, aber geteilte Punkte 9 und 10.** Beim Block entscheidet die
+KI über Zusammensetzung, Reihenfolge und Umfang; hier steht all das fest, und ein
+Blockprompt mit angehängter Ausnahme lud zuverlässig dazu ein, den Rest gleich
+mitzuplanen. Geteilt wird deshalb nur, woran unmittelbar der Workout-Bau hängt:
+`PRINZIP_ERGAENZUNG` (der englische Übungsname in Klammern entscheidet über die
+Animation auf der Uhr) und `PRINZIP_STEUERGROESSEN` (aus denselben Korridoren
+baut die App das Workout), dazu `SESSION_SCHEMA` als Feldliste beider
+Antwortformate. Zwei Kopien liefen auseinander, und dann bekäme dieselbe Einheit
+je nach Weg einen anderen Aufbau. Die **Nummer** kommt aus der jeweiligen
+Vorlage, der Text steht ohne sie.
+
+Dabei ist eine stille Falle aufgefallen: `.format()` setzt Werte ein, **ohne sie
+erneut zu formatieren** — ein Platzhalter in `FITNESSREGELN_*` bliebe wörtlich
+stehen. Nötig war das trotzdem, denn beide Fassungen endeten mit „Nenne in
+`summary`" bzw. „in `coaching_notes`", und keins der beiden Felder gibt es im
+Antwortformat der Einzelanpassung: eine Aufforderung, danebenzuschreiben. Das
+Feld heißt jetzt `{begruendungsfeld}` und wird von `_fitnessregeln()` gesetzt,
+bevor der Wert in die Vorlage geht.
+
+**Der Wunsch hat Vorrang, ist aber kein Freibrief.** Der Prompt sagt ausdrücklich,
+dass der Athlet seinen Tag kennt und die KI seine Belastungslage — und dass ein
+schädlicher Wunsch **so weit wie vertretbar** zu erfüllen ist, mit einem Satz
+dazu in `begruendung`. Dieses Feld ist die einzige Stelle, an der der Athlet
+erfährt, ob die KI ihm gefolgt ist; deshalb steht es in der Meldung des Jobs und
+bleibt dort stehen, bis er es wegklickt.
+
+**Aus einer Einheit darf Ruhe werden** — und dann muss der Termin weg. Das ist
+der eigentliche Grund für `uebertrage_geaenderte_einheit()`: Bliebe die alte
+Vorgabe an einem Tag stehen, an dem ausdrücklich nicht trainiert werden soll,
+wäre das der irreführendste aller Zustände. Sonst ersetzt `uebertrage_einheit()`
+den Inhalt der Pool-Vorlage an derselben Kennung und behält den Termin — „altes
+weg, neues hin" ist im Pool-Betrieb genau das. Läuft alles im Anfrage- bzw.
+Planungsthread, nicht als Job: zwei bis drei Anfragen, ein Fortschrittsbalken
+dafür wäre Umstand ohne Nutzen. Das globale Schloss wird trotzdem genommen
+(nicht blockierend), sonst belegte ein danebenlaufender Übertragungslauf
+denselben Slot.
+
+**Ein Fehlschlag gegen Garmin wird gemeldet, nicht geworfen** — und zwar für
+*jede* Ausnahme, nicht nur die übersetzten: Die Bibliothek lässt auch alles
+durch, was `requests` unterwegs auslöst. Die Einheit ist an dieser Stelle längst
+angepasst und gespeichert; sie an einem Netzfehler scheitern zu lassen wäre die
+falsche Rangfolge, und am Job stünde „fehlgeschlagen" über einer Einheit, die
+tadellos angepasst wurde. Wohin der Hinweis verweist, hängt am Fall: auf den
+Trainingsplan, wenn die Einheit dort noch steht — und auf den Garmin-Kalender,
+wenn Ruhe daraus wurde, denn Ruhetage lässt `planbare_einheiten` aus.
+
+**Ob die Automatik greift, entscheidet die Zuordnung, nicht der Schalter.** Steht
+von der Einheit noch nichts in Garmin, gilt `auto_push_enabled` wie bei einem
+frisch übernommenen Block. Liegt sie dort schon, wird sie auf jeden Fall
+angefasst: Das Wegräumen dessen, was diese App selbst hingelegt hat, hängt nicht
+am Schalter fürs Hinlegen — dieselbe Unterscheidung wie beim `cleanup`-Lauf.
+
+**Zwei Grenzen, beide inhaltlich** (`routers.plans.anpassbare_einheit`, geprüft
+von beiden Wegen). Vergangene Tage nicht: „Nachträglich ändern" heißt nach der
+*Planung*, nicht nach dem Tag — eine Einheit von gestern umzuschreiben änderte
+nichts an dem, was stattgefunden hat, verfälschte aber `_geplant_war` im nächsten
+Export. Und absolvierte nicht: Hängt ein Training daran, ist sie Vergangenheit,
+auch wenn ihr Tag noch läuft.
+
+**Ruhetage lassen sich seit dieser Änderung anklicken** (`SessionCard.onOpen`).
+Vorher war ein `rest`-Eintrag tot; jetzt kann aus einer Einheit Ruhe werden, und
+ohne den Weg zurück wäre sie unerreichbar — man hätte sich selbst eine Falle
+gebaut. Der Dialog lässt bei ihnen den leeren „Vorgaben"-Block und den Satz zum
+Erfassen weg.
+
+**Und wie überall: zwei Auslöser, ein Weg.** `POST /api/ki/einheit` startet einen
+Lauf im `KiRunner` (`kind = "einheit"`, dieselben Zustände, derselbe Abbruch),
+`GET …/anpassung-export` und `POST …/anpassen` bedienen die Zwischenablage. Beide
+benutzen dieselben zwei Funktionen — `test_der_handweg_liefert_denselben_prompt`
+vergleicht die erzeugten Texte Zeichen für Zeichen, damit sie es bleiben.
 
 **Anmeldung ohne Passwort, per Kontoauswahl.** `/api/auth/users` liefert alle
 Konten als `{id, username}`, `/api/auth/login` nimmt nur noch eine `user_id` und
@@ -1249,9 +1356,19 @@ ist keine Aussage über sie. Ohne den Satz deutet ein Sprachmodell die Leerstell
 — entweder als „hat sich nicht gemeldet, also war es hart" oder als stille
 Bestätigung — und richtet den Block an einer einzelnen bewerteten Einheit aus.
 
+Punkt 9 und Punkt 10 stehen **nicht** in der Vorlage, sondern als
+`PRINZIP_ERGAENZUNG` und `PRINZIP_STEUERGROESSEN` daneben: Der Prompt für die
+Einzelanpassung setzt dieselben Texte an anderer Stelle ein (siehe „Eine
+einzelne Einheit wird angepasst"). Wer sie ändert, ändert beide Aufgaben — das
+ist die Absicht. Die Nummer gehört in die Vorlage, nicht in den Text.
+
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
-`plan_import.py`.
+`plan_import.py`. Die Felder einer Einheit stehen dafür einmal in
+`SESSION_SCHEMA` und werden von `RESPONSE_SCHEMA` wie
+`EINHEIT_RESPONSE_SCHEMA` benutzt; ein neues Feld muss zusätzlich in
+`AISessionIn` und in `plan_import.uebernimm_einheit()` — sonst kommt es beim
+Anpassen einer einzelnen Einheit nicht an.
 
 ## Die KI im Server (`ki/`)
 
@@ -1383,6 +1500,29 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   `acuteTrainingLoadDTO.dailyTrainingLoadAcute` — die App speichert es längst
   als `garmin_load_acute`. Die Spalte `weekly_training_load` bleibt als
   Altlast stehen; wer sie füllen will, holt sie von dort.
+- **Die Einzelanpassung ändert nur den Inhalt, nie den Tag.** Verschieben geht
+  über den Garmin-Kalender der App (dort zieht die Planeinheit mit um), und
+  mehrere Einheiten auf einmal gibt es nicht — dafür ist „Neu planen ab heute"
+  da. `Plan.raw_json` bleibt dabei bewusst die ursprüngliche KI-Antwort: Was
+  gilt, steht in den Einheiten; die Anpassung dorthin zu schreiben machte aus
+  dem Original ein Gemisch aus zwei Antworten.
+- Ein **Sportartwechsel an einer bereits übertragenen Einheit** („mach lieber
+  Schwimmen draus") schickt über `update_workout` ein neues `sportType` an eine
+  bestehende Kennung — genau der Weg, der laut „Vorlage und Termin sind zwei
+  Dinge" gegen ein echtes Konto ungeprüft ist. Bisher trat er nur beim
+  Wiederverwenden eines freien Pool-Slots auf; mit der Einzelanpassung ist er
+  ein Alltagsfall. Lehnt Garmin ihn ab, bleibt die Anpassung in der App stehen
+  und der Hinweis nennt den Grund — der Termin trägt dann noch die alte
+  Sportart.
+- Eine angepasste Einheit **kostet ein eigenes Kontingent** aus dem Abo — ein
+  Lauf mit Opus bei `max`, wie beim ganzen Block. Wer an einem Tag mehrere
+  Einheiten einzeln anpasst, zahlt das mehrfach; die Aufgabe ist kleiner, der
+  Prompt aber fast gleich groß, weil derselbe Kontext mitgeht.
+- Wird aus einer Einheit **Ruhe** und Garmin nimmt den Termin nicht zurück,
+  taucht sie im Trainingsplan nicht mehr auf (Ruhetage lässt
+  `planbare_einheiten` aus). Der verwaiste Termin steht dann nur noch im
+  Garmin-Kalender der App und ist dort von Hand zu entfernen; der Hinweis am
+  Lauf sagt das.
 - Keine Diagramme — Verlauf und Wochenübersicht sind Tabellen.
 - Kein Alembic. Neue Spalten werden im Migrationshelfer in `database.py`
   eingetragen und beim Start ergänzt, entfallene über `_ENTFALLENE_SPALTEN`

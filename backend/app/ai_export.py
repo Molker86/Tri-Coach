@@ -19,7 +19,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
-from .models import AthleteProfile, Plan, SessionLog, TrainingRequest, User, WellnessDay
+from .models import (
+    AthleteProfile,
+    Plan,
+    PlanSession,
+    SessionLog,
+    TrainingRequest,
+    User,
+    WellnessDay,
+)
 from .schemas import WEEKDAYS
 from .sportscience import (
     PACE_ZONEN_ANTEIL_LAUF,
@@ -52,6 +60,20 @@ HISTORY_WEEKS = 4
 
 # Ab diesem RPE gilt eine Einheit als intensiv (48-h-Regel).
 HARD_SESSION_RPE = 7
+
+# Der Wochentag im deutschen Fließtext des Anpassungsprompts. Im Payload
+# bleiben die englischen Schlüssel aus `WEEKDAYS` stehen — sie müssen zu
+# `verfuegbare_tage` aus dem Fragebogen passen —, aber „die Einheit am
+# 2026-08-18 (tuesday)" mitten in einem deutschen Satz liest sich wie ein Fehler.
+WOCHENTAG_DEUTSCH = {
+    "monday": "Montag",
+    "tuesday": "Dienstag",
+    "wednesday": "Mittwoch",
+    "thursday": "Donnerstag",
+    "friday": "Freitag",
+    "saturday": "Samstag",
+    "sunday": "Sonntag",
+}
 
 DISCIPLINE_LABEL = {
     "run": "Laufen",
@@ -381,6 +403,94 @@ def _ersatz_block(plan: Plan | None, start: date) -> dict[str, Any] | None:
     }
 
 
+def _einheit_felder(session: Any) -> dict[str, Any]:
+    """Eine Planeinheit in derselben Sprache, die die Antwort spricht.
+
+    Die Schlüssel sind die des Antwortformats (`SESSION_SCHEMA`) und nicht die
+    deutschen des Payloads: Die KI soll die Einheit nicht übersetzen, sondern
+    dieselben Felder zurückgeben, die sie hier sieht — verändert, wo der Wunsch
+    es verlangt, und unverändert, wo nicht.
+    """
+    felder = {
+        "sport": session.sport,
+        "type": session.session_type,
+        "title": session.title,
+        "description": session.description,
+        "structure": session.structure,
+        "purpose": session.purpose,
+        "duration_min": session.duration_min,
+        "distance_km": session.distance_km,
+        "intensity_zone": session.intensity_zone,
+        "target_hr_low": session.target_hr_low,
+        "target_hr_high": session.target_hr_high,
+        "target_pace": session.target_pace,
+        "target_power": session.target_power,
+        "rpe_target": session.rpe_target,
+    }
+    return {k: v for k, v in felder.items() if v is not None}
+
+
+def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
+    """Der ganze laufende Block, mit der zu ändernden Einheit markiert.
+
+    Ohne ihn entschiede die KI über eine Einheit im luftleeren Raum: Sie sähe
+    nicht, dass am Vortag ein Intervalltraining steht und am Folgetag die lange
+    Einheit — also genau das, woran die 48-h-Regel und die
+    Intensitätsverteilung hängen. `trainingshistorie.aktueller_plan` nennt nur
+    Titel und Zeitraum; für diese Aufgabe reicht das nicht.
+    """
+    tage: dict[str, list[dict[str, Any]]] = {}
+    for eintrag in sorted(plan.sessions, key=lambda s: (s.date, s.order_in_day)):
+        zeile: dict[str, Any] = {
+            "sportart": eintrag.sport,
+            "typ": eintrag.session_type,
+            "titel": eintrag.title,
+            "dauer_min": eintrag.duration_min,
+            "intensitaetszone": eintrag.intensity_zone,
+        }
+        if eintrag.id == session.id:
+            # Die Markierung steht an der Einheit selbst und nicht nur oben im
+            # Prompt: Bei zwei Einheiten desselben Sports am selben Tag wäre
+            # sonst nicht zu erkennen, welche von beiden gemeint ist.
+            zeile["dies_ist_die_anzupassende_einheit"] = True
+        tage.setdefault(eintrag.date.isoformat(), []).append(zeile)
+
+    return {
+        "titel": plan.title,
+        "start": plan.start_date.isoformat(),
+        "ende": plan.end_date.isoformat(),
+        "ausrichtung": plan.summary,
+        "hinweise_zur_steuerung": plan.coaching_notes,
+        "tage": [
+            {
+                "datum": tag,
+                "wochentag": WEEKDAYS[date.fromisoformat(tag).weekday()],
+                "einheiten": einheiten,
+            }
+            for tag, einheiten in tage.items()
+        ],
+    }
+
+
+def _anpassung_block(
+    session: PlanSession, plan: Plan, wunsch: str
+) -> dict[str, Any]:
+    """Was angepasst werden soll, in wessen Auftrag und in welchem Umfeld."""
+    block: dict[str, Any] = {
+        "wunsch_des_athleten": wunsch,
+        "datum": session.date.isoformat(),
+        "wochentag": WEEKDAYS[session.date.weekday()],
+        "bisherige_einheit": _einheit_felder(session),
+        "block": _blockumfeld(plan, session),
+    }
+    # Beim zweiten Anlauf steht der vorige Wunsch mit dabei. Ohne ihn läse die
+    # KI die bereits angepasste Einheit als ursprüngliche Planung und nähme die
+    # erste Anpassung womöglich wieder zurück.
+    if session.anpassungswunsch:
+        block["frueherer_anpassungswunsch"] = session.anpassungswunsch
+    return block
+
+
 def _gerundet(wert: float | None, stellen: int = 1) -> float | None:
     return None if wert is None else round(wert, stellen)
 
@@ -529,7 +639,15 @@ def build_payload(
     wellness: list[WellnessDay] | None = None,
     start_date: date | None = None,
     days: int = PLAN_DAYS_DEFAULT,
+    ersetzt_block: bool = True,
 ) -> dict[str, Any]:
+    """Das Datenpaket zum Athleten — Zustand, Wunsch, Verlauf, Zeitraum.
+
+    `ersetzt_block=False` lässt `ersetzt_laufenden_block` weg. Beim Anpassen
+    einer einzelnen Einheit liegt der „Zeitraum" zwar mitten im laufenden
+    Block, verdrängt ihn aber nicht — der Hinweis behauptete dort, die
+    Resttage entfielen, und die KI räumte sie in ihrer Antwort mit weg.
+    """
     age = calc_age(profile.birth_date) if profile else None
     zones = hr_zones(
         profile.max_hr if profile else None,
@@ -551,7 +669,7 @@ def build_payload(
         ],
     }
 
-    ersatz = _ersatz_block(plan, start)
+    ersatz = _ersatz_block(plan, start) if ersetzt_block else None
     if ersatz is not None:
         zeitraum["ersetzt_laufenden_block"] = ersatz
 
@@ -597,6 +715,52 @@ def build_payload(
 # Prompt
 # --------------------------------------------------------------------------
 
+# Die Felder einer Einheit. Steht für sich, weil zwei Antwortformate darauf
+# zeigen: der ganze Block und die einzeln angepasste Einheit. Zwei Kopien
+# liefen mit dem ersten neuen Feld auseinander — und dann stünde in der einen
+# Aufgabe ein Feld, das die andere nicht kennt.
+SESSION_SCHEMA = {
+    "sport": "run | bike | swim | strength | mobility | brick | rest",
+    "type": (
+        "recovery | easy | endurance | tempo | threshold | "
+        "vo2max | intervals | long | technique | race_pace | "
+        "strength | mobility | brick | test | rest"
+    ),
+    "title": "string – kurzer Name der Einheit",
+    "description": "string – was gemacht wird",
+    "structure": (
+        "string – konkreter Aufbau, z.B. "
+        "'15 min Einlaufen Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen'. "
+        "Bei strength und mobility stattdessen eine Übungsliste, "
+        "eine Übung je Abschnitt, getrennt durch ' / ', z.B. "
+        "'3x12 Liegestütze (Push-up) / 3x40 s Seitstütz (Side Plank) je Seite'"
+    ),
+    "purpose": "string – physiologisches Ziel der Einheit",
+    "duration_min": 60,
+    "distance_km": 10.0,
+    "intensity_zone": "Z1 | Z2 | Z3 | Z4 | Z5 | gemischt",
+    "target_hr_low": (
+        "Zahl 40-230 – untere Grenze in bpm, z.B. 130. "
+        "Bei strength, mobility und rest weglassen — "
+        "0 ist kein gültiger Wert"
+    ),
+    "target_hr_high": (
+        "Zahl 40-230 – obere Grenze in bpm, z.B. 145. "
+        "Bei strength, mobility und rest weglassen — "
+        "0 ist kein gültiger Wert"
+    ),
+    "target_pace": (
+        "string – Laufen in min/km ('5:30-5:50 min/km'), "
+        "Schwimmen in min/100m ('1:50 min/100m'), "
+        "Radfahren in km/h ('30-33 km/h')"
+    ),
+    "target_power": "string – z.B. '210-230 W'",
+    "rpe_target": (
+        "Zahl 1-10 – geplante Anstrengung, z.B. 4. "
+        "Bei rest weglassen — 0 ist kein gültiger Wert"
+    ),
+}
+
 RESPONSE_SCHEMA = {
     "schema_version": "2.0",
     "plan": {
@@ -607,52 +771,21 @@ RESPONSE_SCHEMA = {
         "days": [
             {
                 "date": "YYYY-MM-DD",
-                "sessions": [
-                    {
-                        "sport": "run | bike | swim | strength | mobility | brick | rest",
-                        "type": (
-                            "recovery | easy | endurance | tempo | threshold | "
-                            "vo2max | intervals | long | technique | race_pace | "
-                            "strength | mobility | brick | test | rest"
-                        ),
-                        "title": "string – kurzer Name der Einheit",
-                        "description": "string – was gemacht wird",
-                        "structure": (
-                            "string – konkreter Aufbau, z.B. "
-                            "'15 min Einlaufen Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen'. "
-                            "Bei strength und mobility stattdessen eine Übungsliste, "
-                            "eine Übung je Abschnitt, getrennt durch ' / ', z.B. "
-                            "'3x12 Liegestütze (Push-up) / 3x40 s Seitstütz (Side Plank) je Seite'"
-                        ),
-                        "purpose": "string – physiologisches Ziel der Einheit",
-                        "duration_min": 60,
-                        "distance_km": 10.0,
-                        "intensity_zone": "Z1 | Z2 | Z3 | Z4 | Z5 | gemischt",
-                        "target_hr_low": (
-                            "Zahl 40-230 – untere Grenze in bpm, z.B. 130. "
-                            "Bei strength, mobility und rest weglassen — "
-                            "0 ist kein gültiger Wert"
-                        ),
-                        "target_hr_high": (
-                            "Zahl 40-230 – obere Grenze in bpm, z.B. 145. "
-                            "Bei strength, mobility und rest weglassen — "
-                            "0 ist kein gültiger Wert"
-                        ),
-                        "target_pace": (
-                            "string – Laufen in min/km ('5:30-5:50 min/km'), "
-                            "Schwimmen in min/100m ('1:50 min/100m'), "
-                            "Radfahren in km/h ('30-33 km/h')"
-                        ),
-                        "target_power": "string – z.B. '210-230 W'",
-                        "rpe_target": (
-                            "Zahl 1-10 – geplante Anstrengung, z.B. 4. "
-                            "Bei rest weglassen — 0 ist kein gültiger Wert"
-                        ),
-                    }
-                ],
+                "sessions": [SESSION_SCHEMA],
             }
         ],
     },
+}
+
+# Das Antwortformat der Einzelanpassung. Genau eine Einheit, kein Tag und kein
+# Datum darum herum: Der Tag steht fest, geändert wird der Inhalt.
+EINHEIT_RESPONSE_SCHEMA = {
+    "schema_version": "1.0",
+    "einheit": SESSION_SCHEMA,
+    "begruendung": (
+        "string – 1-3 Sätze: was du geändert hast, warum, und falls du dem "
+        "Wunsch nicht in vollem Umfang gefolgt bist, woran das lag"
+    ),
 }
 
 
@@ -721,29 +854,8 @@ welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort
 zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
 Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
 diesen Block sinnvoll passt.
-9. **Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
-Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
-Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist \
-`structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
-durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
-Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
-3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout \
-auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
-Bewegungsanimation zur Übung erscheint.
-10. **Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
-aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
-`tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den \
-gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile \
-anzusetzen: Aus denselben Korridoren baut die App anschließend das Workout für die Uhr. \
-Fehlt ein Zonenblock, ist der zugehörige Schwellenwert nicht hinterlegt; leite die \
-Vorgabe dann aus Pace und `hf_schnitt` vergleichbarer Einheiten in \
-`trainingshistorie.einheiten` ab und **erfinde keinen Schwellenwert**. Gilt eine \
-Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu \
-füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an \
-`strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
-Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
-gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
-`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen.
+9. {prinzip_ergaenzung}
+10. {prinzip_steuergroessen}
 11. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
 **geschätzt** — `rpe_quelle` nennt, woraus ("hf_zonen", "trainingseffekt", \
 "hf_schnitt"); stütze dich dann stärker auf `hf_schnitt`, `trimp` und \
@@ -794,12 +906,52 @@ Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 """
 
 
+# Zwei Prinzipien, die sich beide Aufgaben teilen — der ganze Block und die
+# einzeln angepasste Einheit. Sie stehen für sich, weil an ihnen unmittelbar
+# der Workout-Bau hängt: Punkt 9 entscheidet über die Bewegungsanimation auf
+# der Uhr (`garmin/uebungen.py` liest den englischen Namen aus der Klammer),
+# Punkt 10 über den Zielkorridor, den das Gerät regelt. Zwei Fassungen davon
+# liefen auseinander, und dann bekäme dieselbe Einheit je nach Weg, auf dem sie
+# entstanden ist, einen anderen Aufbau. Die Nummer kommt aus der Vorlage: In
+# der Einzelanpassung stehen sie an anderer Stelle.
+#
+# Achtung beim Ändern: Beide Texte gehen durch `.format()`. Geschweifte
+# Klammern müssten verdoppelt werden.
+PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
+Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
+Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist \
+`structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
+durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
+Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
+3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout \
+auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
+Bewegungsanimation zur Übung erscheint."""
+
+PRINZIP_STEUERGROESSEN = """**Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
+aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
+`tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den \
+gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile \
+anzusetzen: Aus denselben Korridoren baut die App anschließend das Workout für die Uhr. \
+Fehlt ein Zonenblock, ist der zugehörige Schwellenwert nicht hinterlegt; leite die \
+Vorgabe dann aus Pace und `hf_schnitt` vergleichbarer Einheiten in \
+`trainingshistorie.einheiten` ab und **erfinde keinen Schwellenwert**. Gilt eine \
+Größe für die Einheit nicht, **lass das Feld weg**, statt es mit einem Platzhalter zu \
+füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten, nicht an \
+`strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
+Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
+gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
+`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen."""
+
+
 # Punkt 2 der Trainingsprinzipien. Zwei Fassungen, weil Regeln zu Daten, die
 # nicht vorliegen, die KI zum Erfinden einladen: Wer keine Uhr trägt, bekommt
 # ausdrücklich gesagt, woran sie sich stattdessen halten soll.
 #
-# Achtung beim Ändern: Der Text geht durch `.format()`. Geschweifte Klammern
-# müssten verdoppelt werden.
+# Beide Fassungen tragen `{begruendungsfeld}`: Welches Feld die Entscheidung
+# begründet, hängt an der Aufgabe — beim Block `summary`, bei der einzelnen
+# Einheit `begruendung`. Eingesetzt wird das von `_fitnessregeln()` und **nicht**
+# vom umgebenden `.format()`: Das setzt Werte ein, ohne sie erneut zu
+# formatieren, ein Platzhalter im Wert bliebe also wörtlich stehen.
 FITNESSREGELN_MIT_DATEN = """2. **Erholungslage aus den Fitnessdaten**: `fitnessdaten.aktuell` und \
 `fitnessdaten.auffaelligkeiten` beschreiben den Zustand von *heute*, während die \
 `wochenuebersicht` die Vergangenheit beschreibt. Für einen so kurzen Block ist das die \
@@ -824,8 +976,8 @@ Anstrengung stammt. Sagen beide dasselbe, nimm den Block deutlich zurück.
 unterschlafen: Streiche die intensive Einheit und kürze die längste Einheit um etwa \
 ein Fünftel. Ein `stress_tagesmittel` über 50 oder eine niedrige Körperbatterie an \
 mehreren Tagen heißt: Umfang halten, Intensität zurücknehmen.
-   - Nenne in `summary` ausdrücklich, welcher dieser Werte deine Entscheidung \
-getragen hat."""
+   - Nenne in `{begruendungsfeld}` ausdrücklich, welcher dieser Werte deine \
+Entscheidung getragen hat."""
 
 FITNESSREGELN_OHNE_DATEN = """2. **Keine Gerätedaten vorhanden**: Für diesen Athleten ist keine Uhr verbunden. Es \
 liegen weder Schlaf-, HRV- noch Erholungswerte vor, und `trainingshistorie.einheiten` \
@@ -833,8 +985,99 @@ ist leer oder unvollständig — absolvierte Trainings kommen ausschließlich au
 von Hand trägt der Athlet nichts nach. Stütze dich deshalb allein auf \
 `trainingswunsch`, `athlet` und die verfügbaren Wochentage, halte Umfang und Intensität \
 niedriger als bei bekannter Belastungslage und plane im Zweifel die konservativere \
-Variante. Nenne in `coaching_notes` ausdrücklich, dass der Block ohne Belastungsdaten \
-entstanden ist."""
+Variante. Nenne in `{begruendungsfeld}` ausdrücklich, dass ohne Belastungsdaten geplant \
+wurde."""
+
+
+# --------------------------------------------------------------------------
+# Eine einzelne Einheit anpassen
+#
+# Warum ein eigener Prompt und nicht der Blockprompt mit einem Zusatz: Die
+# Aufgabe ist eine andere. Beim Block entscheidet die KI über Zusammensetzung,
+# Reihenfolge und Umfang; hier steht all das fest, und geändert wird der Inhalt
+# genau einer Einheit — ihr Tag, ihre Rolle im Block und die Einheiten darum
+# herum sind Randbedingung, nicht Gestaltungsraum. Ein Blockprompt mit
+# angehängter Ausnahme lud zuverlässig dazu ein, den Rest gleich mitzuplanen.
+#
+# Geteilt wird, woran der Workout-Bau hängt: die Übungsliste (`{prinzip_ergaenzung}`),
+# die Steuerungsgrößen (`{prinzip_steuergroessen}`) und die Fitnessregeln.
+# --------------------------------------------------------------------------
+
+EINHEIT_PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer. \
+Der Athlet hat einen fertigen Trainingsblock vor sich und möchte **genau eine Einheit** \
+daraus anders haben: die Einheit am {datum} ({wochentag}).
+
+## Sein Wunsch, im Wortlaut
+„{wunsch}“
+
+## Aufgabe
+Schreibe diese eine Einheit neu, sodass sie den Wunsch erfüllt und zugleich in den \
+Block passt, in dem sie steht. Alles unter `einheit_anpassen` beschreibt sie und ihr \
+Umfeld: `bisherige_einheit` ist die aktuelle Fassung, `block` der ganze Trainingsblock \
+mit den Einheiten davor und danach — die anzupassende ist dort markiert.
+
+Der Wunsch des Athleten ist der Anlass und hat Vorrang vor dem, was du sonst geplant \
+hättest. Er ist aber **keine Anweisung, die Trainingslehre auszusetzen**: Er kennt \
+seinen Tag, du kennst seine Belastungslage. Führt der Wunsch zu einer Einheit, die dem \
+Athleten schadet — eine harte Einheit auf einer bereits gestörten Erholungslage, ein \
+Reiz weniger als 48 h nach dem letzten, drei intensive Tage hintereinander —, dann \
+erfülle ihn **so weit, wie es vertretbar ist**, und sage in `begruendung` klar, wo du \
+warum abgewichen bist. Erfinde dabei nichts hinzu, worum niemand gebeten hat: Was der \
+Wunsch nicht berührt, bleibt so, wie es war.
+
+## Was feststeht und nicht geändert werden darf
+- **Der Tag.** Die Einheit bleibt am {datum}. Verschieben kann der Athlet selbst.
+- **Die übrigen Einheiten des Blocks.** Du änderst genau eine; die anderen bleiben \
+unangetastet, auch wenn du sie anders geplant hättest. Der nächste Block wird ohnehin \
+frisch geplant.
+- **Das Antwortformat.** Genau eine Einheit, kein Tag und kein Datum darum herum.
+
+Die Sportart darfst du wechseln, wenn der Wunsch das verlangt („lieber schwimmen"), und \
+auch `"sport": "rest"` ist eine zulässige Antwort, wenn Wunsch und Datenlage für Ruhe \
+sprechen — dann fällt die Einheit ersatzlos aus und wird von der Uhr genommen.
+
+## Verbindliche Trainingsprinzipien
+1. **Der Platz im Block**: Sieh in `einheit_anpassen.block` nach, was am Vortag und am \
+Folgetag steht. Mindestens 48 h zwischen zwei intensiven Einheiten, und nach einer \
+langen Einheit am Folgetag nichts Hartes — das gilt hier genauso, nur dass die \
+Nachbarn schon feststehen. Ändert der Wunsch die Intensität nach oben, ist das die \
+erste Prüfung.
+{fitnessregeln}
+3. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt die letzten \
+{historie_wochen} Wochen. Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: \
+nicht mehr, sondern weniger. `tage_seit_letzter_intensiver_einheit` und \
+`tage_seit_letzter_einheit_je_sportart` gelten unverändert.
+4. **Spezifität**: Die Einheit behält ihre Rolle im Block, soweit der Wunsch sie nicht \
+gerade aufhebt. Wer „kürzer" sagt, will keine andere Trainingswirkung, sondern \
+dieselbe in weniger Zeit — kürze dann zuerst den lockeren Teil und erhalte den Reiz.
+5. {prinzip_ergaenzung}
+6. {prinzip_steuergroessen}
+7. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
+**geschätzt** — `rpe_quelle` nennt, woraus. Steht dort „athlet", hat er die Einheit in \
+Garmin Connect selbst bewertet; das wiegt schwerer als jede Schätzung. Dasselbe gilt \
+für `befinden_0_10`. **Beide Felder fehlen an den meisten Einheiten**, und das ist \
+keine Aussage über sie — leite aus ihrem Fehlen nichts ab.
+
+## Ausgabeformat — zwingend einhalten
+Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
+davor oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
+
+Struktur:
+{schema}
+
+Regeln für die Ausgabe:
+- Genau **eine** Einheit unter `einheit`. Kein `days`, kein `date`, kein `plan`.
+- Gib **alle** Felder an, die für die neue Einheit gelten — auch die, die sich nicht \
+geändert haben. Was fehlt, ist danach leer.
+- `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
+- `begruendung` sagt in 1-3 Sätzen, was du geändert hast und warum. Bist du dem Wunsch \
+nicht in vollem Umfang gefolgt, steht hier woran es lag — das ist die einzige Stelle, \
+an der der Athlet es erfährt.
+- Alle Texte auf Deutsch.
+
+## Athletendaten
+{payload}
+"""
 
 
 # Steht nur im Prompt, wenn der neue Block einen laufenden überlappt. Ohne den
@@ -854,9 +1097,25 @@ ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht \
 stattgefunden, auch wenn es im bisherigen Block stand."""
 
 
+def _fitnessregeln(payload: dict[str, Any], begruendungsfeld: str) -> str:
+    """Punkt 2 der Prinzipien, in der Fassung, die zu den Daten passt.
+
+    Ohne verbundenes Konto entfällt der Fitnessblock, und der Prompt sagt das
+    ausdrücklich — Regeln zu Daten, die es nicht gibt, laden zum Erfinden ein.
+    `begruendungsfeld` benennt das Feld, in dem die Entscheidung zu begründen
+    ist; das ist je Aufgabe ein anderes, und ein Verweis auf ein Feld, das das
+    Antwortformat gar nicht kennt, ist eine Aufforderung zum Danebenschreiben.
+    """
+    vorlage = (
+        FITNESSREGELN_MIT_DATEN
+        if payload.get("fitnessdaten")
+        else FITNESSREGELN_OHNE_DATEN
+    )
+    return vorlage.format(begruendungsfeld=begruendungsfeld)
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
-    hat_fitnessdaten = bool(payload.get("fitnessdaten"))
     ersetzt = period.get("ersetzt_laufenden_block")
     return PROMPT_TEMPLATE.format(
         tage=period.get("tage", PLAN_DAYS_DEFAULT),
@@ -874,10 +1133,29 @@ def build_prompt(payload: dict[str, Any]) -> str:
                 start=period.get("startdatum", ""),
             )
         ),
-        fitnessregeln=(
-            FITNESSREGELN_MIT_DATEN if hat_fitnessdaten else FITNESSREGELN_OHNE_DATEN
-        ),
+        fitnessregeln=_fitnessregeln(payload, "summary"),
+        prinzip_ergaenzung=PRINZIP_ERGAENZUNG,
+        prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
         schema=json.dumps(RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
+        payload=json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
+
+def build_einheit_prompt(payload: dict[str, Any]) -> str:
+    """Der Prompt für die Anpassung genau einer Einheit."""
+    anpassung = payload.get("einheit_anpassen", {})
+    wochentag = anpassung.get("wochentag", "")
+    return EINHEIT_PROMPT_TEMPLATE.format(
+        datum=anpassung.get("datum", ""),
+        wochentag=WOCHENTAG_DEUTSCH.get(wochentag, wochentag),
+        # `.format()` setzt Werte ein, ohne sie erneut zu formatieren — ein
+        # Wunsch mit geschweiften Klammern kann hier also nichts anrichten.
+        wunsch=anpassung.get("wunsch_des_athleten", ""),
+        historie_wochen=HISTORY_WEEKS,
+        fitnessregeln=_fitnessregeln(payload, "begruendung"),
+        prinzip_ergaenzung=PRINZIP_ERGAENZUNG,
+        prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
+        schema=json.dumps(EINHEIT_RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
     )
 
@@ -897,20 +1175,23 @@ class Export:
     prompt: str
 
 
-def erzeuge_export(
-    db: Session,
-    user: User,
-    *,
-    request_id: int | None = None,
-    start_date: date | None = None,
-    days: int = PLAN_DAYS_DEFAULT,
-) -> Export:
-    """Holt alles Nötige aus der Datenbank und baut Datenpaket und Prompt.
+@dataclass(slots=True)
+class _Kontext:
+    """Alles, was der Athlet an Daten mitbringt — für beide Aufgaben dasselbe."""
 
-    Eine Funktion für beide Auslöser: den Knopf, der den Text zum Kopieren
-    anzeigt, und den Lauf, der ihn selbst an die KI schickt. Zwei Fassungen
-    liefen mit dem ersten neuen Feld auseinander — und der automatische Weg
-    würde dann etwas anderes planen als der von Hand.
+    request: TrainingRequest | None
+    logs: list[SessionLog]
+    plan: Plan | None
+    wellness: list[WellnessDay]
+
+
+def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
+    """Holt Fragebogen, Historie, aktiven Block und Fitnessdaten.
+
+    Steht für sich, weil zwei Aufgaben denselben Kontext brauchen: der ganze
+    Block und die einzeln angepasste Einheit. Zwei Ladefunktionen liefen mit
+    dem ersten neuen Feld auseinander, und dann entschiede die Anpassung auf
+    einer schmaleren Grundlage als die Planung.
     """
     if request_id is not None:
         training_request = db.get(TrainingRequest, request_id)
@@ -952,14 +1233,78 @@ def erzeuge_export(
         .all()
     )
 
+    return _Kontext(
+        request=training_request, logs=logs, plan=plan, wellness=wellness
+    )
+
+
+def erzeuge_export(
+    db: Session,
+    user: User,
+    *,
+    request_id: int | None = None,
+    start_date: date | None = None,
+    days: int = PLAN_DAYS_DEFAULT,
+) -> Export:
+    """Holt alles Nötige aus der Datenbank und baut Datenpaket und Prompt.
+
+    Eine Funktion für beide Auslöser: den Knopf, der den Text zum Kopieren
+    anzeigt, und den Lauf, der ihn selbst an die KI schickt. Zwei Fassungen
+    liefen mit dem ersten neuen Feld auseinander — und der automatische Weg
+    würde dann etwas anderes planen als der von Hand.
+    """
+    kontext = _lade_kontext(db, user, request_id)
+
     payload = build_payload(
         user=user,
         profile=user.profile,
-        request=training_request,
-        logs=logs,
-        plan=plan,
-        wellness=wellness,
+        request=kontext.request,
+        logs=kontext.logs,
+        plan=kontext.plan,
+        wellness=kontext.wellness,
         start_date=start_date,
         days=days,
     )
     return Export(payload=payload, prompt=build_prompt(payload))
+
+
+def erzeuge_einheit_export(
+    db: Session, user: User, session: PlanSession, wunsch: str
+) -> Export:
+    """Datenpaket und Prompt, um genau eine Einheit anzupassen.
+
+    Der Kontext ist **derselbe** wie beim Planen eines ganzen Blocks: Profil,
+    Fragebogen, Zonen, vier Wochen Historie und die Fitnessdaten. Eine
+    Anpassung ist eine Trainingsentscheidung wie jede andere — sie auf die
+    Einheit selbst und den Wunsch zu verkürzen hieße, sie ausgerechnet dort
+    ohne Belastungslage zu treffen, wo der Athlet vom Plan abweichen will.
+
+    Dazu kommt, was nur diese Aufgabe braucht: der Wunsch im Wortlaut, die
+    bisherige Fassung der Einheit und der Block, in dem sie steht.
+    """
+    plan = session.plan
+    if plan.user_id != user.id:
+        raise ExportFehler("Einheit nicht gefunden.")
+
+    kontext = _lade_kontext(db, user, plan.request_id)
+
+    payload = build_payload(
+        user=user,
+        profile=user.profile,
+        request=kontext.request,
+        logs=kontext.logs,
+        # Der Block, in dem die Einheit steht — nicht der gerade aktive. Beide
+        # sind fast immer derselbe; angepasst wird aber auch in einem
+        # stillgelegten Block, und dann beschriebe der aktive das falsche
+        # Umfeld.
+        plan=plan,
+        wellness=kontext.wellness,
+        start_date=session.date,
+        days=1,
+        # Hier wird nichts verdrängt: Der Block bleibt, eine Einheit darin
+        # ändert sich. Der Ersatzhinweis behauptete das Gegenteil.
+        ersetzt_block=False,
+    )
+    payload["einheit_anpassen"] = _anpassung_block(session, plan, wunsch)
+
+    return Export(payload=payload, prompt=build_einheit_prompt(payload))

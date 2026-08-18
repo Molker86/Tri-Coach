@@ -121,6 +121,10 @@ export interface PlanSession {
   target_power: string | null
   rpe_target: number | null
   logged: boolean
+  /** Wann diese Einheit einzeln angepasst wurde — sonst null. */
+  angepasst_am: string | null
+  /** Der Wunsch, auf den hin sie angepasst wurde, im Wortlaut. */
+  anpassungswunsch: string | null
 }
 
 export interface Plan {
@@ -442,14 +446,22 @@ export type KiJobState =
 
 export interface KiJob {
   id: number
-  /** 'auto' nur noch an Läufen von vor dem Wegfall der automatischen Planung. */
-  kind: 'manual' | 'auto'
+  /**
+   * 'einheit' passt eine einzelne Planeinheit an, 'manual' plant einen ganzen
+   * Block. 'auto' steht nur noch an Läufen von vor dem Wegfall der
+   * automatischen Planung.
+   */
+  kind: 'manual' | 'auto' | 'einheit'
   state: KiJobState
   started_at: string
   finished_at: string | null
   start_date: string | null
   days: number
   plan_id: number | null
+  /** Nur bei kind === 'einheit': welche Einheit angepasst wird. */
+  plan_session_id: number | null
+  /** Nur bei kind === 'einheit': der Wunsch im Wortlaut. */
+  wunsch: string | null
   progress_pct: number
   /** Welches Modell tatsächlich geantwortet hat — es gibt keinen stillen Rückfall. */
   model_used: string | null
@@ -476,4 +488,16 @@ export interface KiStatus {
   einstellungen: KiSettings | null
   aktiver_job: KiJob | null
   letzter_job: KiJob | null
+}
+
+/** Was aus einer einzeln angepassten Einheit geworden ist. */
+export interface EinheitAnpassung {
+  session: PlanSession
+  /** Was die KI zu ihrer Änderung sagt — auch, wo sie dem Wunsch nicht folgte. */
+  begruendung: string | null
+  warnings: string[]
+  /** Was in Garmin geschehen ist. */
+  garmin: 'uebertragen' | 'entfernt' | 'keine'
+  /** Warum dort nichts geschah, sofern es einen Grund gibt, den man kennen muss. */
+  garmin_hinweis: string | null
 }
