@@ -17,7 +17,14 @@ from sqlalchemy.orm import Session
 
 from . import plan_aufraeumen
 from .models import Plan, PlanSession, TrainingRequest
-from .schemas import AIEinheitBody, AIEinheitImport, AIPlanBody, AIPlanImport
+from .schemas import (
+    AIEinheitBody,
+    AIEinheitImport,
+    AIPlanBody,
+    AIPlanImport,
+    AISessionIn,
+    AIStepIn,
+)
 from .zeit import jetzt_utc
 
 
@@ -206,6 +213,64 @@ def build_plan(
     return plan
 
 
+# Wie weit die Summe der Schritte von der geplanten Dauer abweichen darf, bevor
+# es einen Hinweis wert ist. Ein Bauplan rechnet nie auf die Minute auf: Ein
+# Streckenschritt hängt an der Pace, und ein paar Sekunden Übergang zählt
+# niemand mit.
+_DAUER_TOLERANZ = 0.2
+
+
+def _schrittzeit(schritte: list[AIStepIn]) -> float | None:
+    """Die Gesamtzeit des Bauplans — oder `None`, wenn sie niemand kennt.
+
+    Nur wenn *jeder* Schritt eine Dauer trägt, ist die Summe eine Aussage.
+    Sobald eine Strecke oder eine Wiederholungszahl darunter liegt, hängt die
+    Zeit an Pace und Ausführung, und eine Abweichung von `duration_min` wäre
+    kein Fehler, sondern der Normalfall.
+    """
+    gesamt = 0.0
+    for schritt in schritte:
+        if schritt.repeat and schritt.steps:
+            innen = _schrittzeit(schritt.steps)
+            if innen is None:
+                return None
+            gesamt += schritt.repeat * innen
+        elif schritt.duration_s:
+            gesamt += schritt.duration_s
+        else:
+            return None
+    return gesamt
+
+
+def _dauer_weicht_ab(einheit: AISessionIn) -> str | None:
+    """„Krafteinheit" (20 min geplant, 14 min im Bauplan) — oder nichts.
+
+    Der Prompt verlangt, dass `duration_min` die Summe der Schritte ist. Läuft
+    beides auseinander, beschreiben Aufbautext und Bauplan zwei verschiedene
+    Einheiten — meistens, weil die Satzpausen fehlen.
+    """
+    if not einheit.duration_min or not einheit.steps:
+        return None
+    summe = _schrittzeit(einheit.steps)
+    if not summe:
+        return None
+    geplant = einheit.duration_min * 60
+    if abs(summe - geplant) <= _DAUER_TOLERANZ * geplant:
+        return None
+    return (
+        f"„{einheit.title}“ ({einheit.duration_min} min geplant, "
+        f"{round(summe / 60)} min im Bauplan)"
+    )
+
+
+def _gekuerzt(eintraege: list[str], trenner: str = ", ") -> str:
+    """Die ersten drei, der Rest gezählt — die Form der übrigen Hinweise."""
+    gezeigt = trenner.join(eintraege[:3])
+    if len(eintraege) > 3:
+        return f"{gezeigt} (und {len(eintraege) - 3} weitere)"
+    return gezeigt
+
+
 def validate_coverage(
     body: AIPlanBody, expected_days: int | None = None
 ) -> list[str]:
@@ -257,10 +322,9 @@ def validate_coverage(
         if einheit.verworfene_zielwerte
     ]
     if verworfen:
-        shown = "; ".join(verworfen[:3])
-        suffix = f" (und {len(verworfen) - 3} weitere)" if len(verworfen) > 3 else ""
         warnings.append(
-            f"Unbrauchbare Steuerungsgröße verworfen: {shown}{suffix}. Der Wert "
+            "Unbrauchbare Steuerungsgröße verworfen: "
+            f"{_gekuerzt(verworfen, '; ')}. Der Wert "
             "fehlt an diesen Einheiten; ein verworfener Zielpuls heißt außerdem, "
             "dass sie ohne Herzfrequenzkorridor auf die Uhr gehen."
         )
@@ -276,13 +340,53 @@ def validate_coverage(
         if einheit.sport != "rest" and not einheit.steps
     ]
     if ohne_bauplan:
-        shown = ", ".join(ohne_bauplan[:3])
-        suffix = f" (und {len(ohne_bauplan) - 3} weitere)" if len(ohne_bauplan) > 3 else ""
         warnings.append(
-            f"Ohne Schrittliste geliefert: {shown}{suffix}. Diese Einheiten "
+            f"Ohne Schrittliste geliefert: {_gekuerzt(ohne_bauplan)}. Diese Einheiten "
             "werden für die Uhr aus ihrem Aufbautext zerlegt — das ist der "
             "bisherige Weg und funktioniert, trifft den Aufbau aber nicht so "
             "sicher wie eine Schrittliste."
+        )
+
+    # Mehrere Maße an einem Schritt hat `AISessionIn._raeume_masse` bereits
+    # bereinigt. Auch das darf nicht stillschweigend passieren: Auf der Uhr
+    # steht dann ein Timer, wo Wiederholungen gemeint waren — oder umgekehrt.
+    doppelt = [
+        f"„{einheit.title}“ ({', '.join(einheit.verworfene_masse)})"
+        for tag in body.days
+        for einheit in tag.sessions
+        if einheit.verworfene_masse
+    ]
+    if doppelt:
+        warnings.append(
+            f"Mehrfach bemaßte Schritte bereinigt: {_gekuerzt(doppelt, '; ')}. "
+            "Die Uhr schaltet nach genau einem Maß weiter; der überzählige "
+            "Wert ist weggefallen."
+        )
+
+    verschachtelt = [
+        f"„{einheit.title}“"
+        for tag in body.days
+        for einheit in tag.sessions
+        if einheit.verschachtelte_gruppen
+    ]
+    if verschachtelt:
+        warnings.append(
+            f"Serie in einer Serie geliefert: {_gekuerzt(verschachtelt)}. "
+            "Garmin kennt keine Gruppe in einer Gruppe — die innere wird auf "
+            "der Uhr ausgeschrieben."
+        )
+
+    abweichend = [
+        hinweis
+        for tag in body.days
+        for einheit in tag.sessions
+        if (hinweis := _dauer_weicht_ab(einheit))
+    ]
+    if abweichend:
+        warnings.append(
+            f"Dauer und Bauplan passen nicht zusammen: "
+            f"{_gekuerzt(abweichend, '; ')}. Auf der Uhr gilt der Bauplan; "
+            "fehlt dort Zeit, fehlen meist die Pausen zwischen den Sätzen."
         )
 
     return warnings
@@ -467,6 +571,27 @@ def pruefe_einheit(body: AIEinheitBody) -> list[str]:
         warnings.append(
             "Die angepasste Einheit kam ohne Schrittliste. Sie wird für die "
             "Uhr aus ihrem Aufbautext zerlegt."
+        )
+
+    if einheit.verworfene_masse:
+        warnings.append(
+            "Mehrfach bemaßte Schritte bereinigt "
+            f"({', '.join(einheit.verworfene_masse)}). Die Uhr schaltet nach "
+            "genau einem Maß weiter; der überzählige Wert ist weggefallen."
+        )
+
+    if einheit.verschachtelte_gruppen:
+        warnings.append(
+            "Die Einheit kam mit einer Serie in einer Serie. Garmin kennt "
+            "keine Gruppe in einer Gruppe — die innere wird auf der Uhr "
+            "ausgeschrieben."
+        )
+
+    if (abweichung := _dauer_weicht_ab(einheit)) is not None:
+        warnings.append(
+            f"Dauer und Bauplan passen nicht zusammen: {abweichung}. Auf der "
+            "Uhr gilt der Bauplan; fehlt dort Zeit, fehlen meist die Pausen "
+            "zwischen den Sätzen."
         )
 
     # Ohne Dauer hat das Workout auf der Uhr keinen Anhaltspunkt für seine

@@ -760,23 +760,55 @@ SESSION_SCHEMA = {
         "Bei rest weglassen — 0 ist kein gültiger Wert"
     ),
     "steps": (
-        "Liste – derselbe Aufbau wie in `structure`, aber als Bauplan für die "
-        "Uhr. Ein Eintrag je Abschnitt, in der Reihenfolge des Trainings. "
+        "Liste – der Bauplan der Einheit für die Uhr, und die verbindliche "
+        "Fassung: Die App baut das Workout WÖRTLICH daraus. Sie rechnet nichts "
+        "nach, ergänzt keine Pause und rät keinen Umfang — was hier nicht "
+        "steht, steht auch auf der Uhr nicht. Pflicht bei jeder Einheit außer "
+        "`rest`. Ein Eintrag je Abschnitt, in der Reihenfolge des Trainings. "
         "Felder je Eintrag: `kind` (warmup | interval | recovery | cooldown | "
-        "rest), `duration_s` ODER `distance_m` (bei strength/mobility "
-        "stattdessen oder zusätzlich `reps` für gezählte Wiederholungen), "
-        "`zone` ('Z2' oder 'Z1-Z2'), `text` (kurze Beschriftung des Schritts). "
-        "Eine Serie ist EIN Eintrag mit `repeat` (Zahl der Durchgänge) und "
-        "`steps` (die Schritte darin, Belastung und Pause je als eigener "
-        "Eintrag mit eigenem `kind`) — nicht ausgeschrieben. "
-        "Bei strength und mobility zusätzlich `exercise_en` mit dem "
-        "englischen Übungsnamen aus der Klammer, bei brick zusätzlich `sport` "
-        "je Eintrag (bike | run | swim) — daran wechselt die Uhr die Disziplin. "
-        "Beispiel: [{'kind':'warmup','duration_s':900,'zone':'Z1-Z2', "
-        "'text':'Einlaufen'}, {'repeat':5,'steps':[{'kind':'interval', "
-        "'distance_m':1000,'zone':'Z4','text':'zügig'},{'kind':'recovery', "
-        "'duration_s':120,'text':'Trabpause'}]}, {'kind':'cooldown', "
-        "'duration_s':600,'zone':'Z1','text':'Auslaufen'}]"
+        "rest), genau ein Maß, `zone` ('Z2' oder 'Z1-Z2'), `text`. "
+        "(1) GENAU EIN MASS je Eintrag: `duration_s` ODER `distance_m` ODER "
+        "`reps` (gezählte Wiederholungen, nur bei strength und mobility) — nie "
+        "zwei davon. Die Uhr schaltet nach genau einem Maß weiter, ein zweites "
+        "wird verworfen. "
+        "(2) Eine Serie ist EIN Eintrag mit `repeat` und `steps`, nicht "
+        "ausgeschrieben. `repeat` ist die Zahl der Durchgänge, WIE DIE UHR SIE "
+        "ZÄHLT: Eine Übung je Seite zählt beide Seiten, drei Sätze je Seite "
+        "sind also `repeat: 6`. Die App verdoppelt nichts. "
+        "(3) PAUSEN SIND EIGENE EINTRÄGE: die Satzpause als `kind: 'rest'` mit "
+        "`duration_s` innerhalb der Gruppe, die Pause zwischen zwei Übungen "
+        "als weiterer Eintrag dahinter. Ohne sie laufen die Sätze auf der Uhr "
+        "nahtlos ineinander, und die angezeigte Zeit ist reine Arbeitszeit. "
+        "(4) `text` beschreibt GENAU DIESEN EINEN SCHRITT — einen Satz, ein "
+        "Intervall, eine Pause. Niemals die ganze Übung, niemals die Satzzahl, "
+        "niemals die Haltedauer: Beides zeigt die Uhr über dem Schritt bereits "
+        "als Zähler und Timer, und ein 'Seitstütz 3x40 s' über einem "
+        "40-Sekunden-Schritt widerspricht ihr. "
+        "(5) Was ein Schritt sein kann, gehört nicht in die Prosa: "
+        "'im 8-min-Einrollen 4x 10 s hohe Trittfrequenz' ist keine "
+        "Beschreibung, sondern eine Gruppe aus Einrollen und Antritt. "
+        "(6) Nur EINE Gruppenebene — eine Gruppe in einer Gruppe kennt die Uhr "
+        "nicht. Was sich so nicht ausdrücken lässt, wird als Folge einzelner "
+        "Einträge ausgeschrieben. "
+        "(7) `duration_min` ist die Summe aller Schritte samt Pausen und "
+        "Durchgängen, auf ganze Minuten gerundet; Streckenschritte mit der "
+        "geplanten Pace gerechnet. "
+        "Bei strength und mobility zusätzlich `exercise_en` mit dem englischen "
+        "Übungsnamen aus der Klammer, bei brick zusätzlich `sport` je Eintrag "
+        "(bike | run | swim) — daran wechselt die Uhr die Disziplin. "
+        "Beispiel Intervalle: [{'kind':'warmup','duration_s':900, "
+        "'zone':'Z1-Z2','text':'Einlaufen'}, {'repeat':5,'steps':[ "
+        "{'kind':'interval','distance_m':1000,'zone':'Z4','text':'zügig'}, "
+        "{'kind':'recovery','duration_s':120,'text':'Trabpause'}]}, "
+        "{'kind':'cooldown','duration_s':600,'zone':'Z1','text':'Auslaufen'}]. "
+        "Beispiel Kraft, drei Sätze je Seite mit 20 s Pause: [{'repeat':6, "
+        "'steps':[{'kind':'interval','duration_s':40,'exercise_en':'Side "
+        "Plank','text':'halten, je Durchgang eine Seite'},{'kind':'rest', "
+        "'duration_s':20,'text':'Seitenwechsel'}]}]. "
+        "Beispiel Einrollen mit Antritten: [{'repeat':4,'steps':[ "
+        "{'kind':'warmup','duration_s':110,'zone':'Z2','text':'locker'}, "
+        "{'kind':'interval','duration_s':10,'text':'110 rpm, gleiche "
+        "Leistung'}]}]"
     ),
     "swim_location": (
         "pool | open_water – nur bei sport=swim, dort aber immer angeben. "
@@ -955,7 +987,12 @@ durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deut
 Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
 3x40 s je Seite", "Hüftbrücke (Glute Bridge) 3x15"). Diese Einheiten gehen als Workout \
 auf die Uhr, und der englische Name entscheidet darüber, ob dort die \
-Bewegungsanimation zur Übung erscheint."""
+Bewegungsanimation zur Übung erscheint. `structure` bleibt dabei die Lesefassung \
+für den Athleten; dieselbe Übungsliste gehört zusätzlich als Bauplan in `steps`, \
+und beide müssen zahlenmäßig zusammenpassen — drei Sätze je Seite sind dort \
+`repeat: 6`. Die Satzpause gehört in `steps`, auch wenn `structure` sie nicht \
+nennt: Ohne sie hängt der Athlet zwischen zwei Sätzen an einer Uhr, die schon \
+weitergeschaltet hat."""
 
 PRINZIP_STEUERGROESSEN = """**Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
 aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
@@ -991,11 +1028,38 @@ Minuten hinterherzieht.
 `structure` das Feld `steps` an — denselben Aufbau, aber als Liste von \
 Abschnitten. `structure` ist der Text, den der Athlet liest; `steps` ist das, \
 woraus die App das Workout für die Uhr baut. **Beide müssen dieselbe Einheit \
-beschreiben.** Schreibe eine Serie als *einen* Eintrag mit `repeat` und den \
-Schritten darin, nicht ausgeschrieben, und gib Belastung und Pause je als \
-eigenen Eintrag mit eigenem `kind` an. Jeder Eintrag außerhalb von \
-`strength` und `mobility` braucht ein Maß — `duration_s` oder `distance_m`; \
-ein Abschnitt ohne beides steuert auf der Uhr nichts und fällt weg."""
+beschreiben.** Die App baut das Workout **wörtlich** aus `steps`: Sie rechnet \
+nichts nach, ergänzt keine Pause und rät keinen Umfang. Was du nicht sagst, \
+steht auf der Uhr nicht — und was du in Prosa sagst statt in einem Schritt, \
+kommt dort nie an. Sechs Regeln, alle sechs verbindlich:
+
+* **Genau ein Maß je Eintrag** — `duration_s` ODER `distance_m` ODER `reps` \
+(gezählte Wiederholungen, nur bei `strength` und `mobility`), nie zwei davon. \
+Die Uhr schaltet nach genau einem Maß weiter; ein zweites wird verworfen. Ein \
+Eintrag außerhalb von `strength` und `mobility` **ohne** jedes Maß steuert \
+nichts und fällt weg.
+* **Eine Serie ist *ein* Eintrag** mit `repeat` und den Schritten darin, nicht \
+ausgeschrieben — und `repeat` zählt die Durchgänge so, **wie die Uhr sie \
+zählt**. Eine Übung je Seite zählt beide Seiten: Drei Sätze je Seite sind \
+`repeat: 6`, nicht 3. Die App verdoppelt nichts mehr.
+* **Pausen sind eigene Einträge.** Die Satzpause steht als `kind: "rest"` mit \
+`duration_s` *innerhalb* der Gruppe, die Pause zwischen zwei Übungen als \
+eigener Eintrag dahinter. Fehlt sie, laufen die Sätze auf der Uhr nahtlos \
+ineinander, und die angezeigte Abschnittszeit ist reine Arbeitszeit.
+* **`text` beschreibt genau diesen einen Schritt** — einen Satz, ein Intervall, \
+eine Pause. Nie die ganze Übung, nie die Satzzahl, nie die Haltedauer: Die Uhr \
+zeigt beides über dem Schritt schon als Zähler und Timer. „Seitstütz 3x40 s je \
+Seite" über einem Schritt von 40 s widerspricht dem, was daneben steht.
+* **Teilsegmente werden ausgeschrieben, nicht beschrieben.** „Im 8-min-Einrollen \
+4x 10 s hohe Trittfrequenz" ist keine Beschreibung, sondern eine Gruppe aus \
+Einrollen und Antritt — sonst fährt der Athlet acht Minuten gleichmäßig, weil \
+die Uhr nichts anderes anzeigt. Dabei gibt es nur **eine** Gruppenebene: Eine \
+Gruppe in einer Gruppe kennt die Uhr nicht; was sich so nicht ausdrücken lässt, \
+schreibst du als Folge einzelner Einträge aus.
+* **`duration_min` ist die Summe der Schritte** samt Pausen und Durchgängen, auf \
+ganze Minuten gerundet; Streckenschritte mit der geplanten Pace gerechnet. \
+Stimmt die Summe nicht mit der Vorgabe überein, beschreiben Text und Bauplan \
+zwei verschiedene Einheiten."""
 
 
 # Punkt 2 der Trainingsprinzipien. Zwei Fassungen, weil Regeln zu Daten, die

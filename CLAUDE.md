@@ -718,6 +718,38 @@ Schrittliste `steps`, die `workouts.Schritt` und `workouts.Block` spiegelt:
 `kind`, `duration_s`/`distance_m`/`reps`, `zone`, `text`, `exercise_en`, und
 eine Serie als *ein* Eintrag mit `repeat` und den Schritten darin.
 
+**Der Bauplan ist die wörtliche Fassung, nicht die ungefähre.** Ein Screenshot
+aus Connect hat gezeigt, wozu „ungefähr" reicht: Über „Seitstütz 3x40 s je
+Seite" stand dort **4:00** — arithmetisch richtig (sechs Durchgänge zu 40 s,
+weil „je Seite" verdoppelt), und trotzdem las der Athlet einen Widerspruch,
+weil die ganze Übungszeile als Beschreibung *eines* 40-Sekunden-Schritts
+danebenstand. Punkt 10 nennt deshalb sechs Regeln, und jede nimmt der App eine
+Entscheidung ab, die ihr nicht zusteht:
+
+* **Genau ein Maß je Eintrag.** `_schritt_json()` nimmt Distanz vor Zeit vor
+  Wiederholungen und lässt den Rest still fallen — bei Kraft die falsche Wahl,
+  denn „3x12 in 30 s" ist eine Wiederholungszahl. Was doppelt kommt, räumt
+  `AISessionIn._raeume_masse()` **nach der Sportart** auf (bei `strength` und
+  `mobility` gewinnt `reps`, sonst `distance_m`) und meldet es.
+* **`repeat` zählt die Durchgänge, wie die Uhr sie zählt** — drei Sätze je
+  Seite sind `repeat: 6`. Verdoppelt wird im Bauplanweg nichts mehr; das tut
+  nur noch der Zerleger, der aus „je Seite" zurückrechnen muss.
+* **Pausen sind eigene Einträge** (`kind: "rest"` in der Gruppe). Ohne sie ist
+  die angezeigte Abschnittszeit reine Arbeitszeit — genau die Lücke, die
+  bisher als bekannte Grenze in diesem Dokument stand.
+* **`text` beschreibt einen Schritt**, nie die ganze Übung: Satzzahl und
+  Haltedauer zeigt die Uhr darüber schon selbst.
+* **Teilsegmente werden ausgeschrieben.** „Im 8-min-Einrollen 4x 10 s hohe
+  Trittfrequenz" ist eine Gruppe aus Einrollen und Antritt, keine Beschreibung
+  — als Prosa kam davon auf der Uhr nichts an.
+* **`duration_min` ist die Summe der Schritte.** Läuft beides auseinander,
+  beschreiben Text und Bauplan zwei verschiedene Einheiten.
+
+Nur **eine** Gruppenebene: Garmin verschachtelt `RepeatGroupDTO` nicht. Kommt
+trotzdem eine zweite, schreibt `_gruppenkinder()` ihre Schritte aus, statt sie
+als Blattschritt zu lesen — so war es, und ohne eigenes Maß fiel der ganze
+Teilblock stumm weg.
+
 **Der Zerleger bleibt, er rückt nur auf Platz zwei.** `baue_workout()` nimmt
 den Bauplan, sonst den Fließtext, sonst den Ersatzschritt. Löschen ginge nicht
 und soll es auch nicht: In der Datenbank stehen Blöcke aus der Zeit vor dem
@@ -740,7 +772,14 @@ zulässig ist. Bleibt nichts übrig, ist das die Antwort „kein Bauplan".
 (`validate_coverage`, `pruefe_einheit`). Dieselbe Linie wie überall beim Import
 — Warnung statt Ablehnung —, aber hier aus einem eigenen Grund: Ohne den
 Hinweis fiele nie auf, dass der zweite Kanal gar nicht trägt. Der Block sähe
-gut aus, die Uhr bekäme weiter zerlegte Prosa, und niemand wüsste es.
+gut aus, die Uhr bekäme weiter zerlegte Prosa, und niemand wüsste es. Genau so
+ist es passiert: In Plan 4 kam **jede** Kraft- und Mobility-Einheit mit
+`"steps": null`, und der beanstandete Workout entstand deshalb aus dem
+Fließtext. Neben der fehlenden Liste melden beide Wege inzwischen drei weitere
+Dinge — mehrfach bemaßte Schritte, eine Serie in der Serie, und eine
+Schrittsumme, die nicht zu `duration_min` passt. Letzteres nur, wenn *jeder*
+Schritt eine Dauer trägt: Bei einer Streckeneinheit hängt die Zeit an der Pace,
+und eine Abweichung wäre der Normalfall statt ein Befund.
 
 **Zwei Beschreibungen derselben Einheit können auseinanderlaufen** — das ist
 der Preis, und er ist bewusst bezahlt. `structure` bleibt, weil der Athlet es
@@ -963,11 +1002,19 @@ Umfang und „4 s“ ein Zusatz zur Ausführung. Nennt eine Zeile gar keinen Umf
 bleibt es beim Schritt bis zur Rundentaste — geraten wird auch hier nicht.
 
 **„je Seite“ verdoppelt die Durchgänge**, denn die Angabe gilt je Satz *und*
-Seite: „2x45 s je Seite“ sind vier Haltephasen, nicht zwei. Damit die Gruppe
-lesbar bleibt, hängt an den Schritttext „— je Durchgang eine Seite“; ohne ihn
-stünde „Wiederholen 4×“ über einer Zeile, die „2x45 s“ sagt, und das läse sich
-wie ein Fehler. Dieselbe Verdopplung gilt für „pro Bein“, „je Richtung“ und
-„beidseitig“.
+Seite: „2x45 s je Seite“ sind vier Haltephasen, nicht zwei. Dieselbe
+Verdopplung gilt für „pro Bein“, „je Richtung“ und „beidseitig“. An den
+Schritttext hängt dabei „— je Durchgang eine Seite“, sonst stünde
+„Wiederholen 4×“ über einer Zeile, die von zwei Sätzen spricht.
+
+**Und der Umfang fällt aus dem Schritttext heraus** (`_ohne_umfang`, gespeist
+aus demselben `_umfangstreffer()` wie die Zerlegung selbst — zwei Stellen, die
+dieselbe Angabe suchen, fänden irgendwann verschiedene). Die Durchgänge zählt
+die Gruppe, die Sekunden hält der Timer; bliebe „3x40 s je Seite“ zusätzlich im
+Text stehen, läse der Athlet auf der Uhr „3x40 s“ unter einer Zeile, die 4:00
+anzeigt. Genau das stand im beanstandeten Screenshot. Bleibt nach dem Kürzen
+nichts übrig (eine Zeile, die nur „3x40 s“ sagt), bleibt die ganze Zeile
+stehen: Eine leere Beschriftung wäre schlechter als eine doppelte.
 
 **Eine benannte Übung wird auf der Uhr vorgemacht** (`garmin/uebungen.py`).
 Garmin zeigt zu einem Workout-Schritt eine Bewegungsanimation — aber nur, wenn
@@ -1538,7 +1585,14 @@ ist die Absicht. Die Nummer gehört in die Vorlage, nicht in den Text.
 Punkt 10 verlangt außerdem die **Schrittliste** `steps` — den Bauplan der
 Einheit für die Uhr, neben `structure` als Text für den Athleten. Wer den einen
 ändert, prüft den anderen mit: Der Prompt verlangt, dass beide dieselbe Einheit
-beschreiben, und die App hat keine Möglichkeit, das nachzurechnen.
+beschreiben. Die sechs Regeln dazu (ein Maß je Eintrag, `repeat` wie die Uhr
+zählt, Pausen als eigene Einträge, `text` je Schritt, Teilsegmente
+ausgeschrieben, `duration_min` als Summe) stehen im Absatz „Der Bauplan für die
+Uhr“ und noch einmal ausführlicher in `SESSION_SCHEMA["steps"]` — beide Texte
+gehören zusammen geändert. Nachrechnen kann die App davon nur die Summe, und
+auch die nur, wenn jeder Schritt eine Dauer trägt (`plan_import._schrittzeit`);
+alles Übrige bleibt eine Zusage der KI, die `validate_coverage()` bestenfalls
+melden kann.
 
 Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
 `RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
@@ -1798,13 +1852,20 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   Wattziele. Wer das für einen laufenden Block korrigieren will, trägt die
   `request_id` von Hand nach; danach meldet der Abgleich die Radeinheiten als
   „geändert" und lädt sie neu hoch.
-- **Die Satzpause zwischen zwei Durchgängen fehlt.** Eine Serie ist die
-  Übung allein; Garmins `create_strength_set` legt dahinter noch einen
-  Ruheschritt („60 s Pause“). Die Pläne der KI nennen selten eine, und ein
-  geratener Wert stünde als Vorgabe auf der Uhr — der Athlet drückt zwischen
-  den Durchgängen weiter selbst weiter. Ebenso bleibt ein **Zusatzgewicht**
-  ungelesen: `weightValue` steht fest auf „ohne“ (-1), auch wenn „mit 8 kg
-  Kurzhantel“ in der Zeile steht.
+- **Die Satzpause kommt von der KI oder gar nicht.** Der Prompt verlangt sie
+  jetzt als eigenen `rest`-Eintrag in der Serie; liefert die KI keine, bleibt
+  die Serie die Übung allein, und der Athlet drückt zwischen den Durchgängen
+  weiter selbst weiter. Geraten wird nach wie vor nichts — ein erfundener Wert
+  stünde als Vorgabe auf der Uhr. Der **Zerlegerweg** hat gar keine: Aus
+  „3x40 s je Seite“ lässt sich keine Pause ablesen, Blöcke von vor dieser
+  Änderung und Antworten über die Zwischenablage bleiben deshalb ohne. Ebenso
+  bleibt ein **Zusatzgewicht** ungelesen: `weightValue` steht fest auf „ohne“
+  (-1), auch wenn „mit 8 kg Kurzhantel“ in der Zeile steht.
+- **Der Prompt verlangt den Bauplan, erzwingen kann ihn niemand.** `steps` ist
+  Pflicht laut Punkt 10, aber die Antwort geht durch keinen Schemazwang
+  (`--json-schema` liegt weiter „in der Hinterhand“). Fehlt die Liste, greift
+  der Zerleger und der Hinweis sagt es — die Einheit geht dann ohne
+  Satzpausen und mit verdoppelten Durchgängen auf die Uhr, so wie vorher.
 - **Der Umfang wird nur in drei Schreibweisen erkannt** (`_uebungsumfang`):
   „3x40 s“, „3x15“ und die einzelne Angabe mit Einheit. Wer „45 s halten,
   3 Durchgänge“ schreibt, bekommt einen Durchgang; „Wiederholen bis zur

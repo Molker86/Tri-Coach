@@ -765,19 +765,45 @@ def _element_aus_eintrag(eintrag: Any, sport: str) -> Element | None:
     kinder = eintrag.get("steps")
     anzahl = eintrag.get("repeat")
     if isinstance(anzahl, int) and anzahl >= 2 and isinstance(kinder, list):
-        # Eine Gruppe trägt nur Schritte, keine weitere Gruppe: Garmin
-        # verschachtelt `RepeatGroupDTO` nicht, und `_block_json` erwartet
-        # flache Kinder.
-        inhalt = [
-            schritt
-            for kind in kinder
-            if isinstance(schritt := _schritt_aus_eintrag(kind, sport), Schritt)
-        ]
+        inhalt = _gruppenkinder(kinder, sport)
         if inhalt:
             return Block(anzahl=anzahl, schritte=inhalt)
         return None
 
     return _schritt_aus_eintrag(eintrag, sport)
+
+
+# Eine Gruppe, deren Kinder ausgeschrieben werden, kann rechnerisch groß
+# werden. Die Grenze ist keine Fachfrage, sondern eine Reißleine gegen eine
+# Antwort, die 40 mal 40 sagt.
+_MAX_GRUPPENKINDER = 60
+
+
+def _gruppenkinder(kinder: list[Any], sport: str) -> list[Schritt]:
+    """Die Schritte einer Gruppe — eine innere Gruppe wird ausgeschrieben.
+
+    Garmin verschachtelt `RepeatGroupDTO` nicht, und `_block_json` erwartet
+    flache Kinder; der Prompt verlangt deshalb nur eine Gruppenebene. Kommt
+    trotzdem eine zweite, werden ihre Schritte so oft hintereinandergehängt,
+    wie sie laufen sollen. Sie als Blattschritt zu lesen — so war es — hieß,
+    den ganzen Teilblock stillschweigend zu verlieren: Ohne eigenes Maß fällt
+    er weg, und auf der Uhr fehlte er, ohne dass irgendwo ein Wort dazu stünde.
+    """
+    inhalt: list[Schritt] = []
+    for kind in kinder:
+        if not isinstance(kind, dict):
+            continue
+        enkel = kind.get("steps")
+        anzahl = kind.get("repeat")
+        if isinstance(anzahl, int) and anzahl >= 2 and isinstance(enkel, list):
+            runde = _gruppenkinder(enkel, sport)
+            for _ in range(anzahl):
+                inhalt.extend(runde)
+        elif isinstance(schritt := _schritt_aus_eintrag(kind, sport), Schritt):
+            inhalt.append(schritt)
+        if len(inhalt) >= _MAX_GRUPPENKINDER:
+            return inhalt[:_MAX_GRUPPENKINDER]
+    return inhalt
 
 
 def _schritt_aus_eintrag(eintrag: Any, sport: str) -> Schritt | None:
@@ -863,8 +889,14 @@ def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
 
     „je Seite“ (auch „pro Bein“, „je Richtung“, „beidseitig“) verdoppelt die
     Durchgänge, denn die Angabe gilt je Satz *und* Seite. Der Zusatz im
-    Schritttext sagt, dass ein Durchgang eine Seite ist — sonst läse sich
-    „Wiederholen 4×“ neben „2x45 s je Seite“ wie ein Widerspruch.
+    Schritttext sagt, dass ein Durchgang eine Seite ist.
+
+    Der **Umfang selbst fällt aus dem Schritttext** (`_ohne_umfang`): Die
+    Durchgänge zählt die Gruppe, die Sekunden hält der Timer. Bliebe „2x45 s je
+    Seite“ zusätzlich als Beschriftung stehen, läse der Athlet in Connect
+    „2x45 s“ unter einer Zeile, die 3:00 anzeigt — vier Haltephasen zu 45 s.
+    Genau dieser Widerspruch stand dort, und er sah aus wie ein Rechenfehler
+    der App.
 
     Steht in einer Zeile **kein** Umfang, bleibt es beim bisherigen Schritt bis
     zur Rundentaste: Geraten wird auch hier nicht. Unter zwei erkannten Übungen
@@ -891,6 +923,13 @@ def _uebungselement(teil: str) -> Element:
     uebung = uebungen.finde(teil)
 
     text = _beschriftung(teil, uebung)
+    if dauer_s or wiederholungen:
+        # Den Umfang trägt jetzt die Gruppe (Durchgänge) und der Schritt
+        # (Timer oder Zähler). Bliebe er zusätzlich im Text stehen, stünde
+        # „3x40 s je Seite“ unter einer Zeile, die 4:00 anzeigt — sechs
+        # Durchgänge zu 40 s. Der Athlet läse einen Widerspruch, den die Uhr
+        # nicht hat.
+        text = _ohne_umfang(text)
     if je_seite and durchgaenge > 1:
         text = f"{text} — je Durchgang eine Seite"
 
@@ -984,29 +1023,62 @@ _MAX_WIEDERHOLUNGEN = 200
 _MIN_DAUER_S, _MAX_DAUER_S = 5.0, 1800.0
 
 
-def _uebungsumfang(teil: str) -> tuple[int, float | None, int | None, bool]:
-    """(Durchgänge, Dauer je Durchgang, Wiederholungen, „je Seite“).
+def _umfangstreffer(
+    teil: str,
+) -> tuple[re.Match[str], int, float | None, int | None] | None:
+    """(Treffer, Sätze, Dauer je Satz, Wiederholungen) — oder nichts.
 
     Die Satzform wird zuerst gesucht: In „3x8 Step-Downs je Seite, 4 s
     exzentrisch abgesenkt“ ist „3x8“ der Umfang und „4 s“ ein Zusatz zur
     Ausführung. Ohne Satzform zählt die erste Angabe mit Einheit.
-    """
-    je_seite = bool(_JE_SEITE.search(teil))
-    seiten = 2 if je_seite else 1
 
+    Der Treffer selbst wird mitgegeben, weil `_ohne_umfang()` genau diese
+    Spanne aus dem Text nimmt. Beides aus derselben Quelle: Zwei Stellen, die
+    dieselbe Angabe suchen, fänden irgendwann verschiedene.
+    """
     if (treffer := _UEBUNG_SAETZE.search(teil)) is not None:
         saetze = int(treffer.group(1))
         dauer, wiederholungen = _umfangswert(treffer.group(2), treffer.group(3))
         if 2 <= saetze <= _MAX_SAETZE and (dauer or wiederholungen):
-            return saetze * seiten, dauer, wiederholungen, je_seite
+            return treffer, saetze, dauer, wiederholungen
 
     if (treffer := _UEBUNG_UMFANG.search(teil)) is not None:
         dauer, wiederholungen = _umfangswert(treffer.group(1), treffer.group(2))
         if dauer or wiederholungen:
-            return seiten, dauer, wiederholungen, je_seite
+            return treffer, 1, dauer, wiederholungen
 
-    # Ohne erkannten Umfang bleibt es beim Schritt bis zur Rundentaste.
-    return 1, None, None, je_seite
+    return None
+
+
+def _uebungsumfang(teil: str) -> tuple[int, float | None, int | None, bool]:
+    """(Durchgänge, Dauer je Durchgang, Wiederholungen, „je Seite“)."""
+    je_seite = bool(_JE_SEITE.search(teil))
+    seiten = 2 if je_seite else 1
+
+    treffer = _umfangstreffer(teil)
+    if treffer is None:
+        # Ohne erkannten Umfang bleibt es beim Schritt bis zur Rundentaste.
+        return 1, None, None, je_seite
+
+    _, saetze, dauer, wiederholungen = treffer
+    return saetze * seiten, dauer, wiederholungen, je_seite
+
+
+def _ohne_umfang(teil: str) -> str:
+    """Die Umfangsangabe heraus — Gruppe und Schritt tragen sie schon.
+
+    Ließe das Kürzen nichts übrig — eine Zeile, die nur „3x40 s“ sagt und die
+    Übung nicht benennt —, bleibt sie unverändert: Eine leere Beschriftung
+    wäre schlechter als eine doppelte Angabe.
+    """
+    treffer = _umfangstreffer(teil)
+    if treffer is None:
+        return teil
+
+    spanne = treffer[0]
+    gekuerzt = teil[: spanne.start()] + teil[spanne.end() :]
+    gekuerzt = re.sub(r"\s{2,}", " ", gekuerzt).strip(" ,.;\t")
+    return gekuerzt or teil
 
 
 def _umfangswert(zahl: str, einheit: str | None) -> tuple[float | None, int | None]:

@@ -304,6 +304,40 @@ def test_ein_zweiter_anlauf_kennt_den_ersten_wunsch(client, auth, monkeypatch):
 # --------------------------------------------------------------------------
 
 
+def test_die_hinweise_zum_bauplan_ueberleben_die_zweite_validierung():
+    """Der Weg über `AIEinheitImport` → `AIEinheitBody` validiert zweimal.
+
+    Der zweite Lauf sieht eine längst bereinigte Einheit, findet also nichts
+    mehr — und setzte die Notiz des ersten zurück. Die Warnung verschwand
+    damit genau dort, wo sie hingehört: an der einen Einheit, die der Athlet
+    gerade ändern lässt.
+    """
+    from app.plan_import import parse_einheit_antwort, pruefe_einheit
+
+    roh = json.dumps({
+        "einheit": {
+            "sport": "strength",
+            "type": "strength",
+            "title": "Rumpf",
+            "duration_min": 20,
+            "structure": "3x12 Liegestütze (Push-up)",
+            "steps": [{
+                "repeat": 2,
+                "steps": [{
+                    "repeat": 3,
+                    "steps": [{"kind": "interval", "reps": 12, "duration_s": 30}],
+                }],
+            }],
+        },
+        "begruendung": "kürzer",
+    })
+    hinweise = " ".join(pruefe_einheit(parse_einheit_antwort(roh)))
+
+    assert "Mehrfach bemaßte Schritte bereinigt" in hinweise
+    assert "duration_s=30" in hinweise
+    assert "Serie in einer Serie" in hinweise
+
+
 def test_vergangene_einheiten_bleiben_unangetastet(client, auth):
     plan = lege_block_an(client, auth, ab=HEUTE - timedelta(days=2))
     gestern = einheit_am(plan, HEUTE - timedelta(days=1))

@@ -359,6 +359,108 @@ def test_import_verwirft_unbrauchbares_rpe_statt_abzulehnen(client, auth):
     assert "rpe_target=15" in warnungen
 
 
+def test_import_laesst_je_schritt_ein_mass_stehen(client, auth):
+    """Zwei Maße an einem Schritt sind eine Angabe zu viel, kein Fehler.
+
+    `workouts._schritt_json()` nimmt in fester Reihenfolge Distanz, Zeit,
+    Wiederholungen. Bei Kraft ist das die falsche Wahl: „3x12 in 30 s“ ist
+    eine Wiederholungszahl, und die Uhr zählte stattdessen dreißig Sekunden
+    herunter — still, ohne dass es irgendwo aufgefallen wäre.
+    """
+    start = date.today() + timedelta(days=90)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"] = [{
+        "sport": "strength",
+        "type": "strength",
+        "title": "Rumpfkraft",
+        "structure": "3x12 Liegestütze (Push-up)",
+        "duration_min": 10,
+        "steps": [{
+            "repeat": 3,
+            "steps": [
+                {"kind": "interval", "reps": 12, "duration_s": 30, "text": "Push-up"},
+                {"kind": "rest", "duration_s": 60, "text": "Pause"},
+            ],
+        }],
+    }]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+
+    warnungen = " ".join(body["warnings"])
+    assert "Mehrfach bemaßte Schritte bereinigt" in warnungen
+    assert "duration_s=30" in warnungen
+
+    # Und geblieben ist bei Kraft die Wiederholungszahl, nicht der Timer:
+    # `steps` steht nicht in der Ausgabe, also am Schema nachgesehen.
+    from app.schemas import AISessionIn
+
+    gelesen = AISessionIn.model_validate(plan["plan"]["days"][0]["sessions"][0])
+    satz = gelesen.steps[0].steps[0]
+    assert (satz.reps, satz.duration_s) == (12, None)
+
+
+def test_import_meldet_wenn_dauer_und_bauplan_auseinanderlaufen(client, auth):
+    """Fehlt im Bauplan die Zeit, fehlen meist die Pausen zwischen den Sätzen.
+
+    Der Prompt verlangt, dass `duration_min` die Summe der Schritte ist. Läuft
+    beides auseinander, beschreiben Aufbautext und Bauplan zwei verschiedene
+    Einheiten — und auf der Uhr gilt der Bauplan.
+    """
+    start = date.today() + timedelta(days=120)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"] = [{
+        "sport": "mobility",
+        "type": "mobility",
+        "title": "Mobility kurz",
+        "structure": "Taubenstellung (Pigeon Pose) 2x45 s je Seite",
+        "duration_min": 20,
+        "steps": [{
+            "repeat": 4,
+            "steps": [{"kind": "interval", "duration_s": 45, "text": "halten"}],
+        }],
+    }]
+    # Eine Streckeneinheit hat keine Summe und darf deshalb nichts melden.
+    plan["plan"]["days"][1]["sessions"][0]["steps"] = [
+        {"kind": "interval", "distance_m": 10000, "text": "Dauerlauf"}
+    ]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+
+    warnungen = [w for w in response.json()["warnings"] if "Bauplan" in w]
+    passend = [w for w in warnungen if "Dauer und Bauplan" in w]
+    assert len(passend) == 1
+    assert "Mobility kurz" in passend[0]
+    assert "20 min geplant, 3 min im Bauplan" in passend[0]
+
+
+def test_import_meldet_die_serie_in_der_serie(client, auth):
+    """Garmin kennt keine Gruppe in einer Gruppe — die innere wird ausgeschrieben."""
+    start = date.today() + timedelta(days=150)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"][0]["steps"] = [{
+        "repeat": 2,
+        "steps": [{
+            "repeat": 3,
+            "steps": [{"kind": "interval", "duration_s": 30, "text": "schnell"}],
+        }],
+    }]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+
+    warnungen = " ".join(response.json()["warnings"])
+    assert "Serie in einer Serie geliefert" in warnungen
+
+
 def test_import_accepts_old_week_format(client, auth):
     """KI-Antworten mit Wochenebene werden auf Tage heruntergezogen."""
     start = date.today() + timedelta(days=60)

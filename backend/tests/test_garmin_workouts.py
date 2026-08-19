@@ -195,11 +195,12 @@ def test_uebungsliste_wird_zu_serien_mit_timer():
         ("lap.button", 10.0),
     ]
 
-    # Der Aufbautext bleibt am Schritt stehen; nur wo verdoppelt wurde, sagt
-    # ein Zusatz, dass ein Durchgang eine Seite ist.
+    # Der Umfang steht nicht mehr im Text: Die Gruppe zählt die Durchgänge,
+    # der Schritt hält den Timer. „2x8“ neben einer Zeile, die vier Durchgänge
+    # anzeigt, wäre der Widerspruch, den der Athlet auf der Uhr liest.
     beschreibungen = [s["description"] for s in uebungsschritte(plan)]
-    assert beschreibungen[0] == "90/90-Hüftrotation 2x8 je Seite — je Durchgang eine Seite"
-    assert beschreibungen[2] == "Kindhaltung 2x60 s"
+    assert beschreibungen[0] == "90/90-Hüftrotation je Seite — je Durchgang eine Seite"
+    assert beschreibungen[2] == "Kindhaltung"
 
     # Kein Herzfrequenzalarm über einer Dehnung.
     assert all(
@@ -239,12 +240,14 @@ def test_krafttext_zaehlt_wiederholungen_und_stoppt_keine_sekunden():
         ("reps", 8.0),
     ]
 
-    # „mit Band“ gehört zur Übung, das Komma trennt einen Zusatz und keine Übung.
+    # „mit Band“ gehört zur Übung, das Komma trennt einen Zusatz und keine
+    # Übung. Der Umfang selbst fällt aus dem Text — er steht an der Gruppe und
+    # am Schritt —, der Ausführungshinweis „4 s exzentrisch“ bleibt.
     assert [s["description"] for s in uebungsschritte(plan)] == [
-        "3x15 Side-Lying Leg Raise je Seite — je Durchgang eine Seite",
-        "3x40 s Side Plank je Seite — je Durchgang eine Seite",
-        "3x15 Monster Walks mit Band",
-        "3x8 Step-Downs je Seite, 4 s exzentrisch abgesenkt — je Durchgang eine Seite",
+        "Side-Lying Leg Raise je Seite — je Durchgang eine Seite",
+        "Side Plank je Seite — je Durchgang eine Seite",
+        "Monster Walks mit Band",
+        "Step-Downs je Seite, 4 s exzentrisch abgesenkt — je Durchgang eine Seite",
     ]
 
 
@@ -274,7 +277,7 @@ def test_erkannte_uebungen_tragen_die_katalogkennung():
         (None, None),
     ]
     # Die Kennung ersetzt den Aufbautext nicht, sie tritt daneben.
-    assert folge[2]["description"] == "3x12 Liegestütze"
+    assert folge[2]["description"] == "Liegestütze"
 
 
 def test_uebungsschritt_hat_die_form_von_garmins_eigenen_workouts():
@@ -2319,9 +2322,9 @@ def test_bei_katalogtreffer_traegt_die_beschreibung_den_englischen_namen():
     )
 
     assert [s["description"] for s in uebungsschritte(plan)] == [
-        "Hip Flexor Stretch 2x45 s je Seite — je Durchgang eine Seite",
-        "Pigeon Pose 2x45 s je Seite — je Durchgang eine Seite",
-        "Cat-Cow 10 Wdh",
+        "Hip Flexor Stretch je Seite — je Durchgang eine Seite",
+        "Pigeon Pose je Seite — je Durchgang eine Seite",
+        "Cat-Cow",
     ]
 
 
@@ -2347,7 +2350,7 @@ def test_ohne_katalogtreffer_bleibt_der_deutsche_name_stehen():
 
     assert folge[0].get("exerciseName") is None
     assert folge[0]["description"] == (
-        "Faszienrolle Gesäß (Foam Roll Glutes) 90 s je Seite"
+        "Faszienrolle Gesäß (Foam Roll Glutes) je Seite"
         " — je Durchgang eine Seite"
     )
     assert folge[1]["description"].startswith("Pigeon Pose")
@@ -2373,12 +2376,14 @@ def test_der_tausch_laesst_umfang_und_ausfuehrungshinweis_unangetastet():
     )
     folge = uebungsschritte(plan)
 
-    # Der Umfang steht vor der Klammer — die Zeile bleibt, wie sie ist.
+    # Der Umfang steht vor der Klammer — der deutsche Name bleibt deshalb
+    # stehen, statt gegen den englischen getauscht zu werden. Die Zahlen
+    # fallen anschließend trotzdem heraus: Sie stehen an Gruppe und Schritt.
     assert folge[0]["exerciseName"] == "PUSH_UP"
-    assert folge[0]["description"] == "3x12 Liegestütze (Push-Up)"
+    assert folge[0]["description"] == "Liegestütze (Push-Up)"
     # Ein Umlaut verrät den deutschen Nachsatz.
     assert folge[1]["exerciseName"] == "BODY_WEIGHT_WALL_SQUAT"
-    assert folge[1]["description"] == "Wandsitz (Rücken flach an der Wand) 3x30 s"
+    assert folge[1]["description"] == "Wandsitz (Rücken flach an der Wand)"
 
 
 # --------------------------------------------------------------------------
@@ -2493,6 +2498,120 @@ def test_bauplan_nennt_die_uebung_beim_namen():
     schritt = schritte(plan)[0]["workoutSteps"][0]
     assert schritt["category"] == "PLANK"
     assert "SIDE_PLANK" in schritt["exerciseName"]
+
+
+def test_satzpause_kommt_aus_dem_bauplan_auf_die_uhr():
+    """Die Serie ist Übung *und* Pause — sonst ist die Zeit nur Arbeitszeit.
+
+    Vorher stand in einer Kraftserie nur die Übung: Auf der Uhr lief ein Satz
+    in den nächsten, und die angezeigten „4:00“ waren sechs mal vierzig
+    Sekunden ohne eine Sekunde Erholung dazwischen. Die Pause plant jetzt die
+    KI, und sie steht als eigener Schritt in der Gruppe.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="strength",
+            duration_min=6,
+            structure="Seitstütz (Side Plank) 3x40 s je Seite",
+            steps_json=[{
+                "repeat": 6,
+                "steps": [
+                    {
+                        "kind": "interval",
+                        "duration_s": 40,
+                        "exercise_en": "Side Plank",
+                        "text": "halten, je Durchgang eine Seite",
+                    },
+                    {"kind": "rest", "duration_s": 20, "text": "Seitenwechsel"},
+                ],
+            }],
+        ),
+        zonen=ZONEN,
+    )
+    gruppe = schritte(plan)[0]
+
+    assert gruppe["numberOfIterations"] == 6
+    kinder = gruppe["workoutSteps"]
+    assert [k["stepType"]["stepTypeKey"] for k in kinder] == ["interval", "rest"]
+    assert [k["endConditionValue"] for k in kinder] == [40.0, 20.0]
+    # Ein Alarm in der Erholung triebe genau den Puls hoch, der sinken soll —
+    # und über einer Übung gibt es ohnehin keinen Korridor.
+    assert all(
+        k["targetType"]["workoutTargetTypeKey"] == "no.target" for k in kinder
+    )
+    # Der Schritttext nennt den Umfang nicht: Den zählt die Gruppe.
+    assert kinder[0]["description"] == "halten, je Durchgang eine Seite"
+
+
+def test_teilsegmente_im_einrollen_werden_eigene_schritte():
+    """„4x 10 s Antritt im Einrollen“ gehört auf die Uhr, nicht in die Prosa.
+
+    Als Beschreibung des Warmup-Schritts kam davon nichts an: Der Athlet
+    fuhr acht Minuten gleichmäßig, weil die Uhr nichts anderes anzeigte.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="bike",
+            duration_min=8,
+            structure="8 min Einrollen Z2 mit 4x 10 s hoher Trittfrequenz",
+            steps_json=[{
+                "repeat": 4,
+                "steps": [
+                    {"kind": "warmup", "duration_s": 110, "zone": "Z2", "text": "locker"},
+                    {"kind": "interval", "duration_s": 10, "text": "110 rpm"},
+                ],
+            }],
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert len(folge) == 1
+    assert folge[0]["type"] == "RepeatGroupDTO"
+    assert folge[0]["numberOfIterations"] == 4
+    kinder = folge[0]["workoutSteps"]
+    assert [k["stepType"]["stepTypeKey"] for k in kinder] == ["warmup", "interval"]
+    assert [k["endConditionValue"] for k in kinder] == [110.0, 10.0]
+
+
+def test_serie_in_der_serie_wird_ausgeschrieben_statt_verloren():
+    """Garmin verschachtelt keine Gruppen — verschwinden darf sie trotzdem nicht.
+
+    Vorher las `_element_aus_eintrag` die innere Gruppe als Blattschritt.
+    Ohne eigenes Maß fiel sie weg, und der ganze Teilblock fehlte auf der Uhr,
+    ohne dass irgendwo ein Wort dazu stand.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="run",
+            duration_min=20,
+            structure="2x (3x 30 s schnell / 60 s Trab)",
+            steps_json=[{
+                "repeat": 2,
+                "steps": [
+                    {
+                        "repeat": 3,
+                        "steps": [
+                            {"kind": "interval", "duration_s": 30, "text": "schnell"},
+                            {"kind": "recovery", "duration_s": 60, "text": "Trab"},
+                        ],
+                    },
+                    {"kind": "recovery", "duration_s": 180, "text": "Serienpause"},
+                ],
+            }],
+        ),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+
+    assert len(folge) == 1
+    kinder = folge[0]["workoutSteps"]
+    # Dreimal das Paar aus der inneren Gruppe, dann die Serienpause.
+    assert [k["endConditionValue"] for k in kinder] == [
+        30.0, 60.0, 30.0, 60.0, 30.0, 60.0, 180.0,
+    ]
+    # Und keine Gruppe in der Gruppe: Die Kinder sind alle ausführbare Schritte.
+    assert all(k["type"] == "ExecutableStepDTO" for k in kinder)
 
 
 def test_bauplan_ueberlebt_den_weg_durch_den_import():

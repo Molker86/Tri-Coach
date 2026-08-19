@@ -300,6 +300,13 @@ STEP_KIND_ALIASES = {
 }
 
 
+# Die beiden Sportarten, deren Einheiten aus gezählten Übungen bestehen statt
+# aus einem Zeitverlauf — dieselbe Menge wie `workouts.UEBUNGSSPORTARTEN`. Hier
+# steht sie noch einmal, weil `schemas` sonst `garmin.workouts` und damit
+# `garminconnect` mitziehen müsste, nur um zwei Wörter zu kennen.
+_UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
+
+
 class AIStepIn(BaseModel):
     """Ein Schritt der Einheit, so wie die KI ihn liefert.
 
@@ -378,6 +385,13 @@ class AISessionIn(BaseModel):
     # nicht unsere Buchführung darüber.
     verworfene_zielwerte: list[str] = Field(default_factory=list, exclude=True)
 
+    # Dieselbe Buchführung für den Bauplan: Was `_raeume_masse()` an einem
+    # Schritt weggeworfen hat ("duration_s=30"), und wie oft eine Gruppe eine
+    # weitere Gruppe enthielt. Beides meldet `plan_import`, beides bleibt aus
+    # `Plan.raw_json` heraus.
+    verworfene_masse: list[str] = Field(default_factory=list, exclude=True)
+    verschachtelte_gruppen: int = Field(0, exclude=True)
+
     @field_validator("sport")
     @classmethod
     def _norm_sport(cls, v: str) -> str:
@@ -423,9 +437,63 @@ class AISessionIn(BaseModel):
             bereinigt[feld] = zielwert
 
         # Immer setzen, nie aus den Eingangsdaten übernehmen: Das Feld ist
-        # unsere Notiz und kein Teil des KI-Formats.
+        # unsere Notiz und kein Teil des KI-Formats. Dasselbe gilt für die
+        # Buchführung des Bauplans — die füllt `_raeume_masse()` danach, und
+        # was in der Antwort danebenstünde, wäre eine fremde Behauptung.
         bereinigt["verworfene_zielwerte"] = verworfen
+        bereinigt.pop("verworfene_masse", None)
+        bereinigt.pop("verschachtelte_gruppen", None)
         return bereinigt
+
+    @model_validator(mode="after")
+    def _raeume_masse(self) -> "AISessionIn":
+        """Lässt je Schritt genau ein Maß stehen — und merkt sich den Rest.
+
+        `workouts._schritt_json()` nimmt in fester Reihenfolge Distanz, dann
+        Zeit, dann Wiederholungen und lässt den Rest still fallen. Bei Kraft
+        ist das die falsche Wahl: „3x12 in 30 s" ist eine Wiederholungszahl,
+        und die Uhr zählte stattdessen dreißig Sekunden herunter. Der Prompt
+        verlangt deshalb genau ein Maß; hier wird aufgeräumt, was trotzdem
+        doppelt kommt — nach der Sportart, die das Modell hier kennt und der
+        Emitter nicht.
+
+        Abgelehnt wird nichts: Ein Lauf gegen die KI wird nirgends
+        gespeichert, ein Validierungsfehler kostete den ganzen Block.
+        Erfunden wird ebenso wenig — der überzählige Wert fällt weg, er wird
+        nicht umgerechnet.
+        """
+        vorzug = (
+            ("reps", "duration_s", "distance_m")
+            if self.sport in _UEBUNGSSPORTARTEN
+            else ("distance_m", "duration_s", "reps")
+        )
+        verworfen: list[str] = []
+        verschachtelt = 0
+
+        def durchgehen(schritte: list[AIStepIn], in_gruppe: bool) -> None:
+            nonlocal verschachtelt
+            for schritt in schritte:
+                if schritt.repeat and schritt.steps:
+                    if in_gruppe:
+                        verschachtelt += 1
+                    durchgehen(schritt.steps, True)
+                    continue
+                belegt = [feld for feld in vorzug if getattr(schritt, feld) is not None]
+                for feld in belegt[1:]:
+                    verworfen.append(f"{feld}={getattr(schritt, feld)}")
+                    setattr(schritt, feld, None)
+
+        durchgehen(self.steps, False)
+        # Nur ergänzen, nie zurücksetzen: Wird dieselbe Einheit ein zweites Mal
+        # validiert — `parse_einheit_antwort()` baut aus `AIEinheitImport` ein
+        # `AIEinheitBody` —, ist sie längst bereinigt. Der zweite Lauf findet
+        # dann nichts mehr und löschte die Notiz des ersten, und mit ihr die
+        # Warnung beim Übernehmen.
+        if verworfen:
+            self.verworfene_masse = [*self.verworfene_masse, *verworfen]
+        if verschachtelt:
+            self.verschachtelte_gruppen = verschachtelt
+        return self
 
 
 class AIDayIn(BaseModel):
