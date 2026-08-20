@@ -91,6 +91,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Bestehende Verbindungen bekommen die Automatik eingeschaltet — genau
         # wie ein neu verbundenes Konto.
         "auto_push_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+        # Die Abgleichstunde stand einmal als Konstante in `config.py` und war
+        # damit nicht einstellbar. Bestehende Konten bekommen die neue Vorgabe
+        # 10 statt der bisherigen 9 — ändern lässt sie sich danach in den
+        # Einstellungen.
+        "sync_hour": "INTEGER NOT NULL DEFAULT 10",
     },
     # Zählwerke für die Gegenrichtung: geplante Einheiten nach Garmin schieben.
     "garmin_sync_jobs": {
@@ -124,6 +129,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "ai_jobs": {
         "plan_session_id": "INTEGER",
         "wunsch": "TEXT",
+    },
+    # Der Claude-Zugang je Nutzer, verschlüsselt. Vorher gab es ihn nur als
+    # Add-on-Option in der Umgebung; bestehende Datenbanken haben die Spalte
+    # nicht. Leer heißt weiterhin „nimm den aus der Umgebung".
+    "ki_settings": {
+        "token_encrypted": "TEXT",
     },
 }
 
@@ -162,6 +173,28 @@ _ENTFALLENE_SPALTEN: dict[str, tuple[str, ...]] = {
 # dem ersten Start gibt es die Quellspalte nicht mehr und der Schritt entfällt.
 _UMZUZIEHENDE_SPALTEN: tuple[tuple[str, str, str], ...] = (
     ("wellness_days", "recovery_time_h", "recovery_time_min"),
+)
+
+# Altwerte, die beim Nachrüsten einer Spalte zurückzusetzen sind:
+# `(Tabelle, Auslöserspalte, UPDATE)`. Läuft genau einmal — nämlich in dem Lauf,
+# der die Auslöserspalte tatsächlich ergänzt hat.
+#
+# Der eine Fall dahinter: `ki_settings.auto_plan_enabled` gab es schon einmal,
+# für eine automatische Planung, die später wieder entfernt wurde. Die Spalte
+# blieb als Altlast stehen — samt der Zustimmung von damals. Jetzt, wo sie
+# wieder gelesen wird, spränge die Planung bei genau den Nutzern von selbst an,
+# die sie vor Monaten einmal eingeschaltet hatten: ein Opus-Lauf am Tag aus
+# ihrem Abo-Kontingent, den niemand bestellt hat. Eingeschaltet wird sie
+# deshalb neu, in den Einstellungen.
+#
+# Der Auslöser ist `token_encrypted`, weil dessen Fehlen genau die Datenbanken
+# kennzeichnet, die vor dieser Änderung entstanden sind.
+_ZURUECKZUSETZENDE_ALTWERTE: tuple[tuple[str, str, str], ...] = (
+    (
+        "ki_settings",
+        "token_encrypted",
+        "UPDATE ki_settings SET auto_plan_enabled = 0, last_auto_plan_on = NULL",
+    ),
 )
 
 _KANN_SPALTEN_LOESCHEN = sqlite3.sqlite_version_info >= (3, 35)
@@ -222,6 +255,23 @@ def _ergaenze_spalten(connection: Connection) -> list[str]:
                 )
                 ergaenzt.append(f"{tabelle}.{name}")
     return ergaenzt
+
+
+def _setze_altwerte_zurueck(connection: Connection, ergaenzt: list[str]) -> list[str]:
+    """Räumt Werte auf, die eine nachgerüstete Spalte erst wieder bedeutsam macht.
+
+    Nur im Lauf der Ergänzung: `ergaenzt` nennt die Spalten, die dieser Start
+    tatsächlich angelegt hat. Danach greift nichts mehr — die Einstellung des
+    Nutzers bliebe sonst bei jedem Neustart wieder stehen.
+    """
+    zurueckgesetzt: list[str] = []
+    for tabelle, ausloeser, anweisung in _ZURUECKZUSETZENDE_ALTWERTE:
+        if f"{tabelle}.{ausloeser}" not in ergaenzt:
+            continue
+        ergebnis = connection.exec_driver_sql(anweisung)
+        if ergebnis.rowcount:
+            zurueckgesetzt.append(f"{tabelle} ({ergebnis.rowcount})")
+    return zurueckgesetzt
 
 
 def _uebertrage_spalten(connection: Connection) -> list[str]:
@@ -296,7 +346,8 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
-        _ergaenze_spalten(connection)
+        ergaenzt = _ergaenze_spalten(connection)
+        _setze_altwerte_zurueck(connection, ergaenzt)
         _uebertrage_spalten(connection)
         _entferne_spalten(connection)
         for ddl in _NACHGEREICHTE_INDIZES:

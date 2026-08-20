@@ -1290,3 +1290,112 @@ def test_erholungszeit_zieht_von_stunden_nach_minuten_um(tmp_path):
     # Zweiter Lauf: Quellspalte ist weg, also passiert nichts mehr.
     with alt.begin() as verbindung:
         assert _uebertrage_spalten(verbindung) == []
+
+
+def test_die_abgleichstunde_kommt_vom_konto(client, verbunden):
+    """Einstellbar heißt einstellbar — die Konstante ist nur noch die Vorgabe.
+
+    Sie stand einmal als `GARMIN_SYNC_HOUR` in `config.py` und war damit im
+    laufenden Prozess unveränderlich. Der Test hält beide Richtungen fest: Vor
+    der eingestellten Stunde passiert nichts, ab ihr läuft es — und zwar auch
+    dann, wenn sie von der Vorgabe abweicht.
+    """
+    from datetime import datetime
+
+    from app.garmin.automatik import starte_faellige_syncs
+
+    # Wie im Test darüber: Nur das eigene Konto darf fällig werden.
+    with SessionLocal() as db:
+        eigenes = db.scalar(select(GarminAccount).order_by(GarminAccount.id.desc()))
+        for konto in db.scalars(select(GarminAccount)).all():
+            konto.auto_sync_enabled = konto.id == eigenes.id
+        db.commit()
+
+    antwort = client.put(
+        "/api/garmin/settings", json={"sync_hour": 6}, headers=verbunden
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["sync_hour"] == 6
+
+    heute = datetime.now()
+    assert starte_faellige_syncs(heute.replace(hour=5, minute=30)) == 0
+    assert starte_faellige_syncs(heute.replace(hour=6, minute=0)) == 1
+
+
+def test_mitternacht_ist_eine_gueltige_stunde(client, verbunden):
+    """Null ist ein Wert, kein fehlender Wert.
+
+    `konto.sync_hour or GARMIN_SYNC_HOUR` hätte hier lautlos zehn ergeben, und
+    der Nutzer bekäme eine andere Zeit als die eingestellte.
+    """
+    from datetime import datetime
+
+    from app.garmin.automatik import starte_faellige_syncs
+
+    with SessionLocal() as db:
+        eigenes = db.scalar(select(GarminAccount).order_by(GarminAccount.id.desc()))
+        for konto in db.scalars(select(GarminAccount)).all():
+            konto.auto_sync_enabled = konto.id == eigenes.id
+        db.commit()
+
+    client.put("/api/garmin/settings", json={"sync_hour": 0}, headers=verbunden)
+    assert starte_faellige_syncs(datetime.now().replace(hour=0, minute=5)) == 1
+
+
+def test_die_alte_zustimmung_zur_automatik_zaehlt_nicht_mehr(tmp_path):
+    """`auto_plan_enabled` gab es schon einmal — und stand in echten Datenbanken auf 1.
+
+    Die Spalte stammt aus einer automatischen Planung, die später wieder
+    entfernt wurde; sie blieb als Altlast stehen, samt der Zustimmung von
+    damals. Jetzt, wo sie wieder gelesen wird, spränge die Planung bei genau
+    den Nutzern von selbst an, die sie vor Monaten einmal eingeschaltet hatten
+    — ein Opus-Lauf am Tag aus ihrem Abo-Kontingent, den niemand bestellt hat.
+    """
+    import sqlalchemy as sa
+
+    from app.database import _ergaenze_spalten, _setze_altwerte_zurueck
+
+    pfad = tmp_path / "alt.db"
+    alt = sa.create_engine(f"sqlite:///{pfad}")
+    with alt.begin() as verbindung:
+        # Das Schema von vor dem Token — mit der Altlast auf 1.
+        verbindung.exec_driver_sql(
+            """
+            CREATE TABLE ki_settings (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                model VARCHAR(48) NOT NULL DEFAULT '',
+                effort VARCHAR(12) NOT NULL DEFAULT '',
+                auto_plan_enabled BOOLEAN NOT NULL DEFAULT 0,
+                plan_days INTEGER NOT NULL DEFAULT 7,
+                last_auto_plan_on DATE,
+                status VARCHAR(24) NOT NULL DEFAULT 'ready',
+                status_message TEXT
+            )
+            """
+        )
+        verbindung.exec_driver_sql(
+            "INSERT INTO ki_settings (id, user_id, auto_plan_enabled,"
+            " last_auto_plan_on) VALUES (1, 1, 1, '2026-01-01')"
+        )
+
+    with alt.begin() as verbindung:
+        ergaenzt = _ergaenze_spalten(verbindung)
+        assert "ki_settings.token_encrypted" in ergaenzt
+        assert _setze_altwerte_zurueck(verbindung, ergaenzt)
+
+    with alt.begin() as verbindung:
+        zeile = verbindung.exec_driver_sql(
+            "SELECT auto_plan_enabled, last_auto_plan_on FROM ki_settings"
+        ).fetchone()
+    assert zeile == (0, None)
+
+    # Und der zweite Start lässt die Einstellung des Nutzers in Ruhe: Sonst
+    # stünde der Schalter nach jedem Neustart wieder auf aus.
+    with alt.begin() as verbindung:
+        verbindung.exec_driver_sql("UPDATE ki_settings SET auto_plan_enabled = 1")
+        assert _setze_altwerte_zurueck(verbindung, _ergaenze_spalten(verbindung)) == []
+        zeile = verbindung.exec_driver_sql(
+            "SELECT auto_plan_enabled FROM ki_settings"
+        ).fetchone()
+    assert zeile == (1,)

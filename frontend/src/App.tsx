@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import { Loading } from './components/ui'
 import { useAuth } from './auth/AuthContext'
 import Dashboard from './pages/Dashboard'
+import Einstellungen from './pages/Einstellungen'
 import GarminKalender from './pages/GarminKalender'
 import GarminPage from './pages/GarminPage'
 import History from './pages/History'
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="/profil" element={<Protected><ProfilePage /></Protected>} />
       <Route path="/garmin" element={<Protected><GarminPage /></Protected>} />
       <Route path="/garmin-kalender" element={<Protected><GarminKalender /></Protected>} />
+      <Route path="/einstellungen" element={<Protected><Einstellungen /></Protected>} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

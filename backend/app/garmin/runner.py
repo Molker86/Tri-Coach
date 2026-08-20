@@ -174,6 +174,15 @@ class SyncRunner:
                 self._aktiver_job = None
                 self._abbruch.pop(job_id, None)
 
+        # Der nächste Block, sobald die Daten da sind — und **erst nach dem
+        # Schloss**: Der Planungslauf stößt an seinem Ende selbst eine
+        # Garmin-Übertragung an, und die liefe sonst gegen ein Schloss, das
+        # dieser Faden noch hält. Der Import steht in der Funktion, weil
+        # `ki.automatik` über den Runner auf `garmin.automatik` zurückgreift.
+        from ..ki import automatik as ki_automatik
+
+        ki_automatik.plane_nach_abgleich(user_id, job_id)
+
     def _lauf(
         self,
         db,

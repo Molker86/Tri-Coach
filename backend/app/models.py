@@ -21,6 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .config import GARMIN_SYNC_HOUR
 from .database import Base
 
 
@@ -398,6 +399,12 @@ class GarminAccount(Base):
     rate_limited_until: Mapped[datetime | None] = mapped_column(DateTime)
 
     auto_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Ab welcher Ortszeit-Stunde ein neuer Tag abgeglichen werden darf. Am Konto
+    # und nicht in der Umgebung, weil `config.py` beim Import gelesen wird und im
+    # laufenden Prozess unveränderlich ist — eine Umgebungsvariable ließe sich in
+    # der Oberfläche nicht umstellen. `config.GARMIN_SYNC_HOUR` ist damit nur
+    # noch die Vorgabe für ein neu verbundenes Konto.
+    sync_hour: Mapped[int] = mapped_column(Integer, default=GARMIN_SYNC_HOUR)
     profile_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Ob ein frisch übernommener Block von selbst auf die Uhr geht. Vorgabe an:
     # Wer ein Konto verbindet, will seinen Plan dort haben — und ein Block über
@@ -611,8 +618,12 @@ class KiSettings(Base):
     Athletenwerte — Puls, Gewicht, Schwellen —, keine Einstellungen einer
     Anbindung. Dieselbe Trennung wie bei `GarminAccount`.
 
-    Kein Token hier: Der Abo-Zugang gilt für das ganze Add-on und steht in der
-    Umgebung (`config.CLAUDE_OAUTH_TOKEN`), nicht je Nutzer.
+    Der Token steht hier — je Nutzer und verschlüsselt. Er stand einmal nur in
+    der Umgebung (`config.CLAUDE_OAUTH_TOKEN`, gespeist aus den
+    Add-on-Optionen); dafür musste man die App verlassen, ihn in Home Assistant
+    eintragen und das Add-on neu starten, und er lag als Klartext in
+    `/data/options.json` und damit in jedem Backup. Beides fällt weg. Die
+    Umgebungsvariable bleibt als Rückfall, wenn hier nichts steht.
     """
 
     __tablename__ = "ki_settings"
@@ -624,14 +635,23 @@ class KiSettings(Base):
     model: Mapped[str] = mapped_column(String(48), default="")
     effort: Mapped[str] = mapped_column(String(12), default="")
 
-    # Altlasten der entfallenen Automatik. Sie stehen hier, weil sie in
-    # bestehenden Datenbanken NOT NULL sind: Aus dem Modell entfernt, ohne die
-    # Spalte zu löschen, schlüge das Anlegen einer Einstellungszeile fehl —
-    # SQLAlchemy schriebe sie nicht mehr mit, und einen Vorgabewert kennt die
-    # Datei nicht. Gelesen wird nichts davon mehr.
+    # Der Abo-Zugang, mit demselben Verfahren wie das Garmin-Token gesichert
+    # (`crypto.py`). Gedeckt ist damit die Kopie der Datenbank ohne den
+    # Schlüssel — genau der Fall, den ein Home-Assistant-Backup erzeugt.
+    token_encrypted: Mapped[str | None] = mapped_column(Text)
+
+    # Ob nach dem täglichen Garmin-Abgleich von selbst ein Block entsteht.
+    # Vorgabe aus: Ein Lauf kostet spürbar vom Kontingent des Abos, und was
+    # Kontingent verbraucht, schaltet der Nutzer selbst ein.
     auto_plan_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    plan_days: Mapped[int] = mapped_column(Integer, default=7)
+    # Der Tagesriegel dazu — verhindert einen zweiten Lauf am selben Tag, etwa
+    # nach einem Neustart. Wird nur fortgeschrieben, wenn wirklich einer startet.
     last_auto_plan_on: Mapped[date | None] = mapped_column(Date)
+    # Altlast: Die Blocklänge der Automatik kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
+    # Die Spalte steht hier, weil sie in bestehenden Datenbanken NOT NULL ist —
+    # aus dem Modell entfernt, ohne die Spalte zu löschen, schlüge das Anlegen
+    # einer Einstellungszeile fehl.
+    plan_days: Mapped[int] = mapped_column(Integer, default=7)
 
     status: Mapped[str] = mapped_column(String(24), default="ready")
     # ready | error | token_expired | rate_limited

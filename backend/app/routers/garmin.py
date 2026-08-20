@@ -197,8 +197,12 @@ def aendere_einstellungen(
     data: GarminSettingsIn, user: CurrentUser, db: DbSession
 ) -> GarminAccount:
     konto = _konto_oder_fehler(db, user.id)
+    # Teil-Update wie beim Profil, und `None` wird übersprungen: Ein
+    # ausdrücklich geschicktes `null` löschte sonst die Abgleichstunde, und das
+    # Konto fiele lautlos auf die Vorgabe zurück.
     for feld, wert in data.model_dump(exclude_unset=True).items():
-        setattr(konto, feld, wert)
+        if wert is not None:
+            setattr(konto, feld, wert)
     db.commit()
     db.refresh(konto)
     return konto

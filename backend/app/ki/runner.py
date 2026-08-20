@@ -289,6 +289,7 @@ class KiRunner:
             prompt,
             modell=einstellungen.model or None,
             effort=einstellungen.effort or None,
+            token=client.token_aus(einstellungen.token_encrypted),
             bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
         )
 

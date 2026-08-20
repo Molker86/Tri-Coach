@@ -3,6 +3,10 @@
    ========================================================================== */
 
 :root {
+  /* Formularfelder und Scrollbalken folgen dem, nicht der Systemwahl —
+     die kann seit dem Schalter von der Seite abweichen. */
+  color-scheme: light;
+
   --bg: #f6f7f9;
   --surface: #ffffff;
   --surface-2: #f0f2f5;
@@ -42,40 +46,46 @@
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #11161c;
-    --surface: #1a212a;
-    --surface-2: #212a35;
-    --surface-3: #2b3644;
-    --border: #303b49;
-    --border-strong: #43526480;
+/* Dunkel steht unter einem ausdrücklichen Attribut statt in einer
+   Medienabfrage: Der Schalter in den Einstellungen muss die Systemwahl
+   überstimmen können, und eine zweite Fassung derselben Palette für den
+   Schalterfall liefe irgendwann gegen diese hier auseinander. Wer „System"
+   wählt, bekommt das Attribut von `theme.ts` gesetzt — vor dem ersten
+   Zeichnen durch das Inline-Skript in `index.html`. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
 
-    --text: #e8edf3;
-    --text-muted: #a3b0bf;
-    --text-faint: #78889a;
+  --bg: #11161c;
+  --surface: #1a212a;
+  --surface-2: #212a35;
+  --surface-3: #2b3644;
+  --border: #303b49;
+  --border-strong: #43526480;
 
-    --accent: #2fb4ab;
-    --accent-hover: #45c9c0;
-    --accent-soft: #17332f;
-    --accent-text: #06201f;
+  --text: #e8edf3;
+  --text-muted: #a3b0bf;
+  --text-faint: #78889a;
 
-    --danger: #f2837a;
-    --danger-soft: #3a1f1d;
-    --warning: #e0a758;
-    --warning-soft: #382a17;
-    --success: #63c68d;
-    --success-soft: #14301f;
+  --accent: #2fb4ab;
+  --accent-hover: #45c9c0;
+  --accent-soft: #17332f;
+  --accent-text: #06201f;
 
-    --zone-1: #6ba3d6;
-    --zone-2: #4fb87c;
-    --zone-3: #e0b53c;
-    --zone-4: #ea8846;
-    --zone-5: #e15b5b;
+  --danger: #f2837a;
+  --danger-soft: #3a1f1d;
+  --warning: #e0a758;
+  --warning-soft: #382a17;
+  --success: #63c68d;
+  --success-soft: #14301f;
 
-    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 14px rgb(0 0 0 / 25%);
-    --shadow-lg: 0 8px 30px rgb(0 0 0 / 40%);
-  }
+  --zone-1: #6ba3d6;
+  --zone-2: #4fb87c;
+  --zone-3: #e0b53c;
+  --zone-4: #ea8846;
+  --zone-5: #e15b5b;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 14px rgb(0 0 0 / 25%);
+  --shadow-lg: 0 8px 30px rgb(0 0 0 / 40%);
 }
 
 *,
@@ -369,7 +379,11 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   flex: none;
 }
 
-.check-row .field-hint { margin: 0.15rem 0 0; }
+/* `display: block` ist hier nicht kosmetisch: Im Formularfeld ist der Hinweis
+   ein `<div>` und steht von selbst in einer eigenen Zeile, im Schalter dagegen
+   ein `<span>` — dort lief er bisher hinter der Beschriftung weiter, sodass
+   Text und Erklärung einen einzigen Absatz bildeten. */
+.check-row .field-hint { display: block; margin: 0.15rem 0 0; }
 
 /* ==========================================================================
    Buttons
@@ -863,6 +877,23 @@ td {
 tr:last-child td { border-bottom: none; }
 
 .table-wrap { overflow-x: auto; }
+
+/* Ein Knopf, der wie Text aussieht — für Zellen, deren Inhalt anklickbar ist.
+   Eine Zeile mit `onClick` täte es optisch auch, wäre aber für Tastatur und
+   Vorlesehilfe kein Bedienelement. Zurückgenommen werden hier die Vorgaben des
+   Browsers, nicht `.btn`: Diese Knöpfe tragen die Klasse gar nicht erst. */
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.linklike:hover { color: var(--accent); }
 
 .zone-dot {
   display: inline-block;

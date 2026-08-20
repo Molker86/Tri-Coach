@@ -40,14 +40,23 @@ alte; wird Ruhe daraus, verschwindet der Termin. Siehe „Eine einzelne Einheit
 wird angepasst, nicht ersetzt".
 
 **Und die Mitte kann die App inzwischen selbst: Sie fragt Claude direkt.**
-Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — aber
-**immer erst auf Knopfdruck**: Von selbst entsteht kein Block, siehe „Geplant
-wird nur auf Zuruf".
+Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — und wer
+will, auch das nicht mehr: Ein Schalter in den Einstellungen lässt den nächsten
+Block **nach dem täglichen Garmin-Abgleich** von selbst entstehen. Ab Werk ist
+er aus, denn jeder Lauf kostet Kontingent; siehe „Geplant wird auf Zuruf — oder
+nach dem Abgleich".
 Aufgerufen wird **Claude Code headless** als Unterprozess, nicht die API mit
 Token-Abrechnung: Das Abo war da, und ein Aufruf am Tag kostet darüber nichts
 extra. Der Weg über die Zwischenablage bleibt vollständig erhalten — als
 Rückfallebene für einen abgelaufenen Zugang, ein aufgebrauchtes Kontingent oder
 eine andere KI.
+
+**Was die App ohne Zutun tut, steht unter „Einstellungen".** Abgleich an/aus
+samt Uhrzeit, Übertragung auf die Uhr, Profilübernahme, der Claude-Zugang
+(verschlüsselt in der Datenbank statt im Klartext in den Add-on-Optionen),
+automatische Planung, Modell und Denktiefe — dazu Hell/Dunkel. Und auf der
+Startseite öffnet jede Einheit denselben Dialog wie im Trainingsplan: ansehen,
+per Freitext anpassen lassen.
 
 ## Ursprüngliche Anforderungen
 
@@ -74,7 +83,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 367 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 385 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -99,15 +108,19 @@ Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
 erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
 Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
 (`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
-`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 9).
+`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 10
+— nur noch die **Vorgabe** für ein neu verbundenes Konto; maßgeblich ist
+`GarminAccount.sync_hour` aus den Einstellungen).
 
 Für die KI-Planung: `CLAUDE_CODE_OAUTH_TOKEN` (der Abo-Zugang; den Namen gibt
-Claude Code vor, der Unterprozess liest genau diese Variable). Lokal genügt
-stattdessen eine angemeldete CLI — geprüft wird nicht die Variable, sondern
+Claude Code vor, der Unterprozess liest genau diese Variable) — inzwischen der
+**Rückfall**, denn Vorrang hat das Token aus den Einstellungen. Lokal genügt
+statt beidem eine angemeldete CLI; geprüft wird nicht die Variable, sondern
 `claude auth status`. Dazu `TRI_KI_CLI` (Pfad zum Programm, Vorgabe `claude`),
 `TRI_KI_MODELL` (Vorgabe `opus`), `TRI_KI_EFFORT` (Vorgabe `max`) und
 `TRI_KI_TIMEOUT_S` (Vorgabe 900). Ein Gegenstück zu `TRI_GARMIN_AUTOSYNC` gibt
-es hier **nicht**: Die Planung hat keine Schleife, die man abschalten müsste.
+es hier **nicht**: Die automatische Planung hängt am Abgleich, hat also keine
+eigene Schleife — `TRI_GARMIN_AUTOSYNC=0` legt beides zugleich still.
 
 ## Architekturentscheidungen (und warum)
 
@@ -413,7 +426,86 @@ Zahlenfeld einträgt, prüft vorher, ob ein fehlender Wert wirklich harmloser is
 als ein abgelehnter Block.
 
 **Kein UI-Framework.** `styles.css` ist ein kleines Designsystem mit
-CSS-Variablen und Hell/Dunkel-Umschaltung über `prefers-color-scheme`.
+CSS-Variablen und Hell/Dunkel-Umschaltung.
+
+**Welche Farben gelten, entscheidet JavaScript — nicht die Medienabfrage**
+(`theme.ts`, `:root[data-theme='dark']`). Die App folgte einmal allein
+`prefers-color-scheme`. Ein Schalter dafür bräuchte im CSS eine **zweite
+Fassung aller dunklen Tokens**: einmal in der Medienabfrage für „System",
+einmal unter dem Attribut für die ausdrückliche Wahl. Zwei Kopien derselben
+Palette laufen irgendwann auseinander, und eine halb dunkle Oberfläche ist
+schwer zu bemerken.
+
+Aufgelöst wird deshalb im Browser: Die Wahl (`system` | `light` | `dark`) steht
+in `localStorage['tricoach.theme']` — bei „System" fragt `matchMedia`. Das
+Ergebnis geht **immer** als ausdrückliches `data-theme` auf `<html>`, und das
+CSS kennt nur noch diesen einen Fall. Gesetzt wird es zweimal: von einem
+Inline-Skript im `<head>` der `index.html` **vor dem ersten Zeichnen** (sonst
+blitzt die helle Fassung auf, bevor React geladen ist — die Logik steht dort
+doppelt und gehört mitgezogen), und danach von `theme.ts` bei jeder Änderung.
+`beobachteSystemfarbe()` in `main.tsx` hält „System" außerdem am
+Systemschalter: Ohne den Beobachter bliebe die App bis zum Neuladen in der
+Farbe, die beim Öffnen galt — am Telefon, wo abends automatisch umgeschaltet
+wird, der Normalfall. Er steht dort und nicht in einem `useEffect`, weil er so
+lange lebt wie die Seite und im StrictMode sonst zweimal anliefe. `color-scheme`
+steht ebenfalls an beiden `:root`-Regeln, damit Formularfelder und Scrollbalken
+der Seite folgen und nicht der Systemwahl. Am Konto gespeichert wird nichts:
+Wer die App auf zwei Geräten öffnet, stellt sie zweimal ein — bei einer Frage
+der Darstellung richtig so.
+
+**Was ohne Zutun läuft, steht an einem Ort** (`pages/Einstellungen.tsx`). Die
+Schalter dafür gab es teils schon, aber verstreut: die Garmin-Automatik mitten
+auf der Verbindungsseite, Modell und Denktiefe der KI **überhaupt nur über die
+API** (`api.kiSettings` hatte keinen Aufrufer), und der Claude-Zugang
+ausschließlich in den Add-on-Optionen — wofür man die App verlassen, Home
+Assistant öffnen und das Add-on neu starten musste. Drei Karten: Garmin
+(Abgleich an/aus, Abgleichzeit, Übertragung auf die Uhr, Profilübernahme),
+KI-Planung (Token, automatische Planung, Modell, Denktiefe) und Darstellung.
+
+Gespeichert wird **sofort, ohne Speichern-Knopf** — dieselbe Handhabung wie
+bisher auf der Garmin-Seite. Die eine Ausnahme ist der Token: Ein Zugang, der
+beim Tippen zeichenweise gespeichert würde, stünde die halbe Zeit als
+unbrauchbar da. Und solange einer hinterlegt ist, steht das Feld **nicht
+offen**: Der Wert lässt sich nicht zurücklesen, ein leeres Feld sähe also aus,
+als wäre keiner da — stattdessen „✓ hinterlegt" mit *Ersetzen* und *Entfernen*
+(das schickt `token: ""`, was der Router ausdrücklich als Löschen liest).
+
+`POST /api/ki/pruefen` gibt es nur für den Knopf „Verbindung prüfen": Die
+Auskunft „angemeldet" wird eine Minute lang gehalten, und ohne einen Weg am
+Cache vorbei zeigte der Knopf ausgerechnet nach dem Eintragen eines Tokens
+nichts Neues.
+
+Auf der Garmin-Seite stehen die drei Häkchen dafür nicht mehr, nur ein Verweis.
+`api.garminSettings` bleibt — es wird jetzt von der Einstellungsseite gerufen.
+Dabei überspringt `PUT /api/garmin/settings` neuerdings `None` wie der
+KI-Router: Ein ausdrücklich geschicktes `null` löschte sonst die Abgleichstunde,
+und das Konto fiele lautlos auf die Vorgabe zurück.
+
+**Die Trainingsvorschau auf der Startseite ist anklickbar** — und teilt sich
+dafür die Bauteile mit dem Trainingsplan (`components/SessionCard.tsx`,
+`SessionDetail.tsx`, `AnpassungsKarte.tsx`, `useEinheitAnpassung.ts`). Die
+„Heute"-Karte war eine als `<div>` **nachgebaute** `SessionCard`: tot, und
+nebenbei ohne Zone, Garmin-Marke und „✎ angepasst", weil beim Nachbauen niemandem
+auffällt, was fehlt. Wer eine Einheit ansehen oder umschreiben lassen wollte,
+musste erst die Seite wechseln.
+
+Das Herausziehen ging ohne Umbau: Die einzige Datenabhängigkeit des Dialogs ist
+`session`, alles andere sind Rückrufe — und `api.activePlan()` liefert dasselbe
+`PlanSessionOut` wie im Plan (beide gehen durch `_to_plan_out`). Es braucht
+also **keine neue API**. An der Seite hing nur die Job-Maschinerie, und die
+steht jetzt im Hook; zwei Kopien der Abfrageschleife liefen beim nächsten
+Zustand des Laufs auseinander. `AnpassungsKarte` steht auf beiden Seiten
+**außerhalb** des Dialogs: Die Begründung der KI ist die einzige Stelle, an der
+der Athlet erfährt, ob sie seinem Wunsch gefolgt ist, und sie beim Schließen zu
+verschlucken wäre genau der falsche Moment.
+
+In „Als Nächstes" bleibt es bei der kompakten Tabelle; anklickbar ist der Titel
+als **echter Knopf** (`.linklike`) und nicht die Zeile mit `onClick` — eine
+anklickbare Zeile ist für Tastatur und Vorlesehilfe kein Bedienelement. Das
+Dashboard lädt seither über ein `reload()` statt eines einmaligen Effekts:
+Nach einer angepassten Einheit steht eine andere Vorgabe im Plan. `garminZustand`
+bleibt dort leer — dafür zusätzlich `api.garminWorkoutStatus()` zu holen wäre
+eine Anfrage für eine Randnotiz.
 
 **Der Pfad-Prefix kommt zur Laufzeit, nicht aus dem Build.** Ingress liefert die
 App unter `/api/hassio_ingress/<token>/` aus, nicht unter `/`. Absolute Pfade
@@ -432,13 +524,16 @@ aufgelöst würden. Wer im Frontend eine Adresse selbst zusammenbaut, muss
 `BASE_PATH` mitnehmen — Router-`Link`s und `navigate()` erledigen das von allein,
 `window.location` dagegen nicht (deshalb `useLocation()` in `PlanView.tsx`).
 
-**Am Telefon trägt die Navigation unten, nicht oben.** Die Kopfleiste mit sechs
-Wegen nebeneinander funktioniert am Schreibtisch; auf einem Telefon bräuchte sie
+**Am Telefon trägt die Navigation unten, nicht oben.** Die Kopfleiste mit
+sieben Wegen nebeneinander funktioniert am Schreibtisch; auf einem Telefon bräuchte sie
 drei Zeilen und stünde bei jedem Scrollen im Weg. Unterhalb von 860 px entfällt
 sie deshalb ganz (`.topbar-app`), stattdessen blendet `Layout.tsx` eine feste
 Leiste am unteren Rand ein: Übersicht, Plan, Garmin, Verlauf und „Mehr“ —
-hinter „Mehr“ liegt ein Blatt mit Garmin-Kalender, Neues Training, Meine Daten
-und Abmelden. Den Platz, an dem einmal „Erfassen“ stand, hat Garmin bekommen:
+hinter „Mehr“ liegt ein Blatt mit Garmin-Kalender, Neues Training, Meine Daten,
+Einstellungen und Abmelden. Die vier unten sind das Maximum: `.mobile-nav` steht
+im CSS auf `repeat(5, 1fr)` (vier Wege plus „Mehr“), ein fünfter spränge die
+Leiste. Deshalb liegt „Einstellungen“ hinter „Mehr“ — und es passt dorthin, weil
+man die Seite einmal einrichtet und danach selten wieder öffnet. Den Platz, an dem einmal „Erfassen“ stand, hat Garmin bekommen:
 Von dort kommen die absolvierten Einheiten, also gehört der Abgleich in den
 Alltag und nicht hinter „Mehr“. Orientierung geht dabei nicht verloren, weil jede Seite ihre
 Überschrift selbst trägt. Zwei Dinge hängen daran: `.page` braucht unten Platz
@@ -578,6 +673,23 @@ gedeckten Fenster und ist damit der Weg, einen Zeitraum trotz vorhandener Daten
 erneut zu holen. Der automatische Abgleich (`automatik.py`) benutzt denselben
 Zuschnitt; für bestehende Datenbanken ist `synced_through` leer, der erste
 Abgleich nach dem Update holt also einmal das ganze Jahr.
+
+**Wann abgeglichen wird, steht am Konto** (`GarminAccount.sync_hour`,
+`automatik._abgleichstunde`). Die Stunde war einmal die Konstante
+`GARMIN_SYNC_HOUR` und damit im laufenden Prozess unveränderlich — eine
+Umgebungsvariable lässt sich in der Oberfläche nicht umstellen. Jetzt steht sie
+je Konto in der Datenbank und ist in den Einstellungen wählbar; die Konstante
+ist nur noch die Vorgabe für ein neu verbundenes Konto (und wechselte dabei von
+9 auf **10 Uhr**). Der Riegel wanderte dafür aus dem Kopf von
+`starte_faellige_syncs` in die Schleife über die Konten: Jeder Aufwacher öffnet
+seither eine Sitzung, statt vorher billig zurückzukehren — bei SQLite auf
+demselben Rechner folgenlos, und anders geht „je Nutzer eine Stunde" nicht.
+Geprüft wird ausdrücklich gegen `None` und **nicht** mit `or`: Mitternacht ist
+eine gültige Einstellung, und `0 or 10` ergäbe zehn.
+
+Volle Stunden, keine Minuten: Die Schleife wacht viertelstündlich auf, der
+Abgleich beginnt also innerhalb der Viertelstunde danach. Eine Minutenangabe
+wäre eine Genauigkeit, die es gar nicht gibt.
 
 **Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
 `BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach
@@ -1579,6 +1691,21 @@ paar Zeilen `ALTER TABLE ADD COLUMN`, idempotent bei jedem Start, sind billiger
 als Alembic. Neue Spalten gehören dort eingetragen, sonst brechen bestehende
 Datenbanken.
 
+**Und ein dritter Fall: `_ZURUECKZUSETZENDE_ALTWERTE`.** Manchmal genügt es
+nicht, eine Spalte zu ergänzen — manchmal steht in einer alten schon ein Wert,
+den erst die neue Fassung wieder bedeutsam macht. Der Anlass war
+`ki_settings.auto_plan_enabled`: Die Spalte stammt aus einer automatischen
+Planung, die später entfernt wurde und deren Zustimmung von damals in echten
+Datenbanken stehen blieb. Wieder gelesen spränge die Planung bei genau den
+Nutzern von selbst an, die sie vor Monaten einmal eingeschaltet hatten — ein
+Opus-Lauf am Tag aus ihrem Abo-Kontingent, den niemand bestellt hat.
+
+Ausgelöst wird über die **neu ergänzte Spalte**: `_ergaenze_spalten()` gibt
+zurück, was dieser Start tatsächlich angelegt hat, und `token_encrypted`
+kennzeichnet genau die Datenbanken von vor der Änderung. Der Schritt läuft
+damit exakt einmal — bei jedem Start zu greifen hieße, die Einstellung des
+Nutzers nach jedem Neustart wieder umzulegen.
+
 **Und in die Gegenrichtung: `_ENTFALLENE_SPALTEN`.** Eine Spalte, die aus dem
 Modell fällt, könnte in der Datei liegen bleiben — SQLAlchemy stört sich nicht
 an etwas, das es nicht kennt. Bei Gesundheitsdaten ist das keine Option: Die
@@ -1892,26 +2019,71 @@ lief mit **null Warnungen** durch. Ein striktes Schema wäre ein zweiter, eigene
 Fehlerpfad — und eine Fessel für genau das Modell, von dem hier die beste
 Antwort erwartet wird. Bleibt in der Hinterhand.
 
-**Geplant wird nur auf Zuruf.** Es gab hier einmal eine Automatik: eine zweite
-Viertelstundenschleife neben der von Garmin (`ki/automatik.py`), die den
-nächsten Block anlegte, sobald der alte auslief. Sie ist **ganz entfernt** —
-Schleife, `TRI_KI_AUTOPLAN`, `TRI_KI_PLAN_HOUR`, der Schalter je Nutzer und
-seine Tests. Der Grund ist nicht technisch: Ein Trainingsblock ist eine
-Entscheidung, und ein Plan, der über Nacht von selbst entsteht, steht am Morgen
-auf der Uhr, ohne dass ihn jemand bestellt hätte — und hat dabei stillschweigend
-vom Kontingent des Abos genommen, das man daneben selbst braucht. Geblieben sind
-der Knopf („Block jetzt planen") und der Weg über die Zwischenablage. Der Preis
-ist ausdrücklich in Kauf genommen: **Läuft ein Block aus, geschieht nichts.**
-Das Dashboard weist darauf hin (`blockStatus()`), mehr nicht.
+**Geplant wird auf Zuruf — oder nach dem Abgleich, wenn man darum bittet**
+(`ki/automatik.py`, `KiSettings.auto_plan_enabled`). Es gab hier einmal eine
+Automatik mit einer **eigenen Viertelstundenschleife**, die den nächsten Block
+anlegte, sobald der alte auslief; sie wurde entfernt, weil ein Plan, der über
+Nacht von selbst entsteht, am Morgen auf der Uhr steht, ohne dass ihn jemand
+bestellt hätte. Zurück ist die Funktion, nicht die Bauart — und beide
+Unterschiede sind der Punkt.
 
-Was davon in der Datenbank bleibt, ist Absicht: `auto_plan_enabled`,
-`plan_days` und `last_auto_plan_on` stehen weiter an `KiSettings`, weil sie in
-bestehenden Datenbanken NOT NULL sind — aus dem Modell entfernt, ohne die Spalte
-zu löschen, schlüge das Anlegen einer Einstellungszeile fehl. Gelesen wird
-nichts davon mehr, und aus `KiSettingsOut`/`KiSettingsIn` sind sie heraus.
-`test_es_gibt_keine_automatische_planung` schreibt die Regel fest: Der Test
-verlangt, dass sich `app.ki.automatik` nicht importieren lässt — eine Schleife,
-die wieder einzöge, fiele sonst erst am aufgebrauchten Kontingent auf.
+**Kein zweiter Loop.** Ausgelöst wird am Ende eines erfolgreichen
+*automatischen* Abgleichs, aus `garmin/runner._fuehre_aus` heraus. Das ist
+nicht bloß sparsamer: Es garantiert die Reihenfolge, die `_datenstand` und
+Punkt 2 des Prompts ohnehin voraussetzen — erst die Daten, dann der Block.
+Zwei unabhängige Wecker könnten sie vertauschen, und die KI läse die Lücke als
+Ruhetag und plante Aufbau auf einen Tag, an dem hart trainiert wurde. Gerufen
+wird **nach** dem Schloss des Garmin-Runners, nicht darin: Der Planungslauf
+stößt an seinem Ende selbst eine Übertragung an, die sonst gegen ein Schloss
+liefe, das derselbe Faden noch hält. Der Import steht in der Funktion, weil
+`ki/runner` über `garmin.automatik` zurückgreift.
+
+**Und der Schalter steht je Nutzer, ab Werk aus.** Nicht in der Umgebung: Ein
+Wert aus `config.py` ließe sich ohne Neustart nicht ändern, und was Kontingent
+verbraucht, schaltet der Nutzer selbst ein (Einstellungen → KI-Planung). Fünf
+Riegel, jeder mit eigenem Grund: der Abgleich muss `kind="auto"` **und** `done`
+sein (ein Abgleich per Knopfdruck will Daten, nicht ungefragt Kontingent),
+`auto_plan_enabled` muss stehen, `last_auto_plan_on` nicht heute sein, ein
+Fragebogen vorliegen (sonst scheiterte der Lauf sicher und kostete trotzdem),
+und der Zugang tragen. Geplant wird dann **ab heute** mit `PLAN_DAYS_DEFAULT` —
+der laufende Block wird ersetzt, wie bei „Neu planen ab heute". Ein Fehlschlag
+wird protokolliert und verschluckt: Der Aufrufer ist ein Abgleich, der gerade
+erfolgreich war, und der darf daran nicht nachträglich scheitern.
+
+`plan_days` bleibt Altlast an `KiSettings` (NOT NULL in bestehenden
+Datenbanken); die Blocklänge kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
+
+**Die alte Zustimmung zählt nicht.** `auto_plan_enabled` stand in echten
+Datenbanken auf 1 — von damals. Die Spalte wieder zu lesen hätte die Planung
+bei genau den Nutzern anspringen lassen, die sie vor Monaten einmal
+eingeschaltet hatten. `database._ZURUECKZUSETZENDE_ALTWERTE` setzt sie deshalb
+genau einmal zurück: in dem Lauf, der `ki_settings.token_encrypted` ergänzt —
+dessen Fehlen kennzeichnet die Datenbanken von vor dieser Änderung. Danach
+greift nichts mehr, sonst stünde der Schalter nach jedem Neustart wieder auf
+aus.
+
+`test_die_planung_hat_keine_eigene_schleife` hält fest, was gilt: kein
+`automatik_schleife` im Modul, kein `KI_AUTOPLAN`/`KI_PLAN_HOUR` in der
+Konfiguration, und **genau ein** `asyncio.create_task` in `main.py` — eine
+Weckschleife, die wieder einzöge, fiele sonst erst am aufgebrauchten Kontingent
+auf, und dann an einem Tag ohne Plan.
+
+**Der Zugang steht in der App, verschlüsselt** (`KiSettings.token_encrypted`,
+`client.token_aus`). Er kam einmal ausschließlich aus den Add-on-Optionen —
+dafür musste man die App verlassen, ihn in Home Assistant eintragen und das
+Add-on neu starten, und er lag als Klartext in `/data/options.json` und damit
+in jedem Backup. Jetzt liegt er je Nutzer in der Datenbank, mit demselben
+Verfahren gesichert wie das Garmin-Token (`crypto.py`); die Umgebungsvariable
+bleibt als Rückfall, die Anmeldung der CLI als letzter. Herausgegeben wird er
+**nie** — `KiSettingsOut` trägt nur `token_status` (`fehlt` | `hinterlegt` |
+`unlesbar`). Der dritte Wert ist kein Luxus: Nach einem Wechsel von
+`TRI_SECRET_KEY` ist der Geheimtext unlesbar, und das sieht sonst aus wie „kein
+Token" — heilbar ist es aber nur durch erneutes Eintragen. `token_aus()` gibt
+dafür `None` zurück statt zu werfen, damit ein unlesbarer Eintrag den Rückfall
+nicht blockiert. Und der Cache in `ist_angemeldet()` hängt seither **am Token**:
+Ein einziger Eintrag beantwortete die Frage für Nutzer B mit dem Ergebnis von
+Nutzer A, und ein frisch eingetragener Token gälte eine Minute lang als
+ungültig.
 
 **Die Umgebung des Unterprozesses wird zusammengestellt, nicht geerbt**
 (`_umgebung()`). Beim ersten Ende-zu-Ende-Lauf aufgefallen: Wer die App aus
@@ -1929,10 +2101,12 @@ niemand hinter einem Firmenproxy hinauskäme. Ein herumliegender
 
 **Verfügbarkeit wird am Programm geprüft, nicht an der Umgebung.**
 `ist_angemeldet()` ruft `claude auth status` auf, statt nachzusehen, ob eine
-Variable gesetzt ist. Im Add-on kommt der Zugang als Token, bei der lokalen
-Entwicklung aus der Anmeldung der CLI selbst — die Frage ist in beiden Fällen
-dieselbe, die Antwort steht nur an verschiedenen Orten. Das Ergebnis wird eine
-Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
+Variable gesetzt ist. Der Zugang kommt aus den Einstellungen des Nutzers, aus
+der Add-on-Option oder aus der Anmeldung der CLI selbst — die Frage ist in allen
+drei Fällen dieselbe, die Antwort steht nur an verschiedenen Orten. Das Ergebnis
+wird eine Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess
+startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
+`POST /api/ki/pruefen` geht mit `erzwinge=True` daran vorbei.
 
 ## Bekannte Grenzen / mögliche nächste Schritte
 
@@ -2028,7 +2202,8 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   Ausführungsspalten an `session_logs` (`hr_zone_seconds`, `garmin_abschnitte`,
   `garmin_compliance`, `garmin_workout_id`) sowie
   `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
-  kommen über den Helfer.
+  kommen über den Helfer — ebenso `garmin_accounts.sync_hour` und
+  `ki_settings.token_encrypted`.
 - **Die vier Ausführungsspalten bleiben an bestehenden Einheiten leer.** Die
   Zonenzeiten stehen zwar in der Listenantwort, die übrigen drei im
   Aktivitätsdetail — beides wird für zurückliegende Tage nicht noch einmal
@@ -2204,12 +2379,14 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   nicht: Dort zieht die Planeinheit mit um.
 - Für den Netzbetrieb fehlen HTTPS, eine echte Authentifizierung vor der App,
   gesetzter `TRI_SECRET_KEY` und angepasste CORS-Herkünfte (`config.py`).
-- Das **Claude-Token liegt im Klartext** in `/data/options.json` und wandert
-  damit in jedes Home-Assistant-Backup — anders als das Garmin-Token, das genau
-  deshalb verschlüsselt wird (`crypto.py`). Bewusst so: Für Add-on-Optionen ist
-  das der übliche Weg, die Oberfläche maskiert das Feld (`password?`), und ein
-  zweiter Ablageort wäre ein zweiter Weg, die Anmeldung zu verlieren. Wer das
-  nicht will, lässt die Option leer und plant weiter über die Zwischenablage.
+- Das **Claude-Token aus der Add-on-Option liegt weiterhin im Klartext** in
+  `/data/options.json` und wandert damit in jedes Home-Assistant-Backup. Wer das
+  nicht will, lässt die Option leer und trägt den Zugang stattdessen unter
+  Einstellungen → KI-Planung ein — dort liegt er verschlüsselt (`crypto.py`).
+  Gedeckt ist damit dieselbe Lage wie beim Garmin-Token: die Kopie der Datenbank
+  ohne den Schlüssel. **Nicht** gedeckt ist Zugriff auf die Maschine selbst.
+  Und ein Wechsel von `TRI_SECRET_KEY` macht ihn unlesbar; das meldet
+  `token_status`, heilbar ist es nur durch erneutes Eintragen.
 - **Das Kontingent teilt sich mit der eigenen Claude-Nutzung.** Ein Lauf mit
   Opus bei `max` verbraucht spürbar vom Fünf-Stunden-Fenster des Abos; ein Lauf
   am Tag ist unkritisch, wer daneben viel mit Claude arbeitet, kann trotzdem ins
@@ -2217,10 +2394,21 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   fehlt an dem Tag.
 - **Der Zugang läuft irgendwann ab.** Die App kann das nur melden, nicht
   erneuern — die Meldung nennt deshalb ausdrücklich `claude setup-token`.
-- **Ein ausgelaufener Block bleibt ausgelaufen.** Seit dem Wegfall der Automatik
-  entsteht der nächste erst, wenn jemand plant — bis dahin steht auf der Uhr
-  nichts Neues, und im Kalender bleibt der letzte übertragene Block liegen, bis
-  ein Abgleich seine vergangenen Tage abräumt.
+- **Ohne den Schalter bleibt ein ausgelaufener Block ausgelaufen.** Ab Werk ist
+  die automatische Planung aus; bis jemand plant, steht auf der Uhr nichts Neues,
+  und im Kalender bleibt der letzte übertragene Block liegen, bis ein Abgleich
+  seine vergangenen Tage abräumt. Das Dashboard weist auf den Zustand hin
+  (`blockStatus()`), mehr nicht.
+- **Mit dem Schalter wird der laufende Block täglich überbügelt.** Das ist
+  gewollt — der Export trägt `ersetzt_laufenden_block`, `raeume_abgeloeste_plaene`
+  räumt hinterher auf. Wer ihn setzt und drei Tage nicht hinsieht, hat trotzdem
+  drei Blöcke geplant bekommen, von denen zwei nie eine Einheit trugen. Und es
+  kostet **jeden Tag** einen Opus-Lauf aus demselben Kontingent, das man daneben
+  selbst benutzt.
+- **Die automatische Planung hängt am Abgleich.** Ohne verbundenes Garmin-Konto
+  gibt es keinen, und damit auch keinen Auslöser — dann bleibt es beim Knopf.
+  Ebenso, wenn `TRI_GARMIN_AUTOSYNC=0` steht oder der Abgleich scheitert: Ein
+  Block auf dem Datenstand von gestern wäre schlechter als keiner.
 - Die Zuordnung von Fehlertexten der CLI zu eigenen Fehlern (`_ordne_fehler_ein`)
   geht über **Textbausteine**, weil es für Anmelde- und Kontingentfehler kein
   maschinenlesbares Feld gibt — `api_error_status` bleibt leer, wenn die Anfrage

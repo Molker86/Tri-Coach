@@ -280,6 +280,8 @@ export interface GarminAccount {
   synced_through: string | null
   rate_limited_until: string | null
   auto_sync_enabled: boolean
+  /** Ortszeit-Stunde, ab der abgeglichen wird. Einstellbar, Vorgabe 10. */
+  sync_hour: number
   profile_sync_enabled: boolean
   auto_push_enabled: boolean
 }
@@ -481,6 +483,23 @@ export interface KiSettings {
   effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   status: 'ready' | 'error' | 'token_expired' | 'rate_limited'
   status_message: string | null
+  /** Ob nach dem täglichen Garmin-Abgleich von selbst ein Block entsteht. */
+  auto_plan_enabled: boolean
+  last_auto_plan_on: string | null
+  /**
+   * Die Lage des Tokens, nie der Token selbst. `unlesbar` heißt: hinterlegt,
+   * aber der Schlüssel passt nicht mehr — dann hilft nur neu eintragen.
+   */
+  token_status: 'fehlt' | 'hinterlegt' | 'unlesbar'
+}
+
+/** Was sich schreiben lässt. `token` geht nur hinein, nie heraus. */
+export interface KiSettingsIn {
+  model: string
+  effort: KiSettings['effort']
+  auto_plan_enabled: boolean
+  /** Leerer String löscht den hinterlegten Zugang. */
+  token: string
 }
 
 export interface KiStatus {

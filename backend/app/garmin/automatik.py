@@ -62,8 +62,6 @@ async def automatik_schleife() -> None:
 def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
     """Startet für jedes fällige Konto einen Abgleich. Gibt deren Anzahl zurück."""
     jetzt = jetzt or datetime.now()
-    if jetzt.hour < GARMIN_SYNC_HOUR:
-        return 0
     if runner.laeuft_gerade() is not None:
         return 0
 
@@ -79,6 +77,13 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
         ).all()
 
         for konto in konten:
+            # Die Stunde steht am Konto, nicht global: Sie ist in den
+            # Einstellungen wählbar, und `GARMIN_SYNC_HOUR` ist nur noch die
+            # Vorgabe. Der Preis ist, dass jeder Aufwacher eine Sitzung öffnet,
+            # statt vorher billig zurückzukehren — bei SQLite auf demselben
+            # Rechner folgenlos, und anders geht „je Nutzer eine Stunde" nicht.
+            if jetzt.hour < _abgleichstunde(konto):
+                continue
             if konto.last_sync_at is not None and _als_datum(konto.last_sync_at) >= heute:
                 continue
             if liegt_in_der_zukunft(konto.rate_limited_until):
@@ -101,6 +106,16 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
             break
 
     return gestartet
+
+
+def _abgleichstunde(konto: GarminAccount) -> int:
+    """Ab welcher Ortszeit-Stunde dieses Konto abgeglichen werden darf.
+
+    Ausdrücklich gegen `None` geprüft und nicht `or`: Mitternacht ist eine
+    gültige Einstellung, und `0 or 10` ergäbe zehn — der Nutzer bekäme lautlos
+    eine andere Zeit als die eingestellte.
+    """
+    return konto.sync_hour if konto.sync_hour is not None else GARMIN_SYNC_HOUR
 
 
 def _als_datum(zeitpunkt: datetime) -> date:

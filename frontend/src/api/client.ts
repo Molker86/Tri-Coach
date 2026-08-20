@@ -12,6 +12,7 @@ import type {
   GarminStatus,
   KiJob,
   KiSettings,
+  KiSettingsIn,
   KiStatus,
   Plan,
   PlanDeleteResult,
@@ -196,6 +197,7 @@ export const api = {
   garminDisconnect: () => request<void>('/garmin/connection', { method: 'DELETE' }),
   garminSettings: (data: {
     auto_sync_enabled?: boolean
+    sync_hour?: number
     profile_sync_enabled?: boolean
     auto_push_enabled?: boolean
   }) =>
@@ -259,9 +261,14 @@ export const api = {
 
   // KI-Planung im Server — der Weg ohne Zwischenablage.
   kiStatus: () => request<KiStatus>('/ki/status'),
-  // Modell und Denktiefe je Nutzer. Ohne Oberfläche — wer sie von der Vorgabe
-  // wegstellen will, ruft die API selbst auf.
-  kiSettings: (data: Partial<KiSettings>) =>
+  // Fragt Claude Code erneut, statt die zwischengespeicherte Auskunft zu
+  // nehmen — sonst zeigte „Verbindung prüfen" bis zu eine Minute lang den
+  // alten Stand, also gerade nach dem Eintragen eines Tokens nichts Neues.
+  kiPruefen: () => request<KiStatus>('/ki/pruefen', { method: 'POST' }),
+  // Modell, Denktiefe, Automatik und der Zugang — bedient von der
+  // Einstellungsseite. Der Token geht nur hinein: Zurück kommt allein
+  // `token_status`.
+  kiSettings: (data: Partial<KiSettingsIn>) =>
     request<KiSettings>('/ki/settings', { method: 'PUT', body: data }),
   kiPlanen: (startDate?: string, days?: number, requestId?: number) =>
     request<KiJob>('/ki/planen', {

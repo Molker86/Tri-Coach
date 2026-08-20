@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { to: '/verlauf', label: 'Verlauf' },
   { to: '/garmin', label: 'Garmin' },
   { to: '/profil', label: 'Meine Daten' },
+  { to: '/einstellungen', label: 'Einstellungen' },
 ]
 
 /** Was am Telefon unten in die Leiste kommt.
@@ -32,10 +33,18 @@ const MOBILE_PRIMARY = [
   { to: '/verlauf', label: 'Verlauf', icon: IconChart },
 ]
 
+/** Und was dahinter liegt.
+ *
+ * „Einstellungen" gehört bewusst hierher und nicht nach unten: Die untere
+ * Leiste steht im CSS auf fünf Spalten (vier Wege plus „Mehr"), ein fünfter
+ * Weg spränge sie. Und sie ist eine Seite, die man einmal einrichtet und
+ * danach selten wieder öffnet.
+ */
 const MOBILE_MORE = [
   { to: '/garmin-kalender', label: 'Garmin-Kalender' },
   { to: '/neues-training', label: 'Neues Training' },
   { to: '/profil', label: 'Meine Daten' },
+  { to: '/einstellungen', label: 'Einstellungen' },
 ]
 
 export default function Layout({ children }: { children: ReactNode }) {

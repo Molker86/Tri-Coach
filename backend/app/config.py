@@ -51,21 +51,30 @@ GARMIN_AUTOSYNC = os.environ.get("TRI_GARMIN_AUTOSYNC", "1").strip() not in {
     "false",
     "no",
 }
-# Ortszeit-Stunde, ab der ein neuer Tag abgeglichen werden darf. Neun Uhr: Die
+# Ortszeit-Stunde, ab der ein neuer Tag abgeglichen werden darf. Zehn Uhr: Die
 # Nachtdaten (Schlaf, HRV, Trainingsreife) sind bis dahin sicher fertig und die
 # Uhr hat nach dem Aufstehen synchronisiert — vor dem Frühsport gilt der Tag bei
 # Garmin sonst noch als unvollständig.
-GARMIN_SYNC_HOUR = int(os.environ.get("TRI_GARMIN_SYNC_HOUR", "9"))
+#
+# **Steuert den Abgleich nicht mehr selbst.** Maßgeblich ist
+# `GarminAccount.sync_hour`, und den stellt der Nutzer in den Einstellungen.
+# Dieser Wert ist nur die Vorgabe für ein neu verbundenes Konto und der
+# Rückfall, falls die Spalte einmal leer ist.
+GARMIN_SYNC_HOUR = int(os.environ.get("TRI_GARMIN_SYNC_HOUR", "10"))
 
 
 # --------------------------------------------------------------------------
 # KI-Planung über Claude Code
 # --------------------------------------------------------------------------
 
-# Der Abo-Zugang. Den Namen gibt die CLI vor — der Unterprozess erwartet ihn
-# ohnehin so, ein eigener TRI_-Name wäre nur eine zweite Schreibweise für
-# dasselbe. Leer heißt: Die Funktion ist nicht verfügbar, die Oberfläche zeigt
-# weiterhin nur den Weg über die Zwischenablage.
+# Der Abo-Zugang aus der Umgebung. Den Namen gibt die CLI vor — der Unterprozess
+# erwartet ihn ohnehin so, ein eigener TRI_-Name wäre nur eine zweite
+# Schreibweise für dasselbe.
+#
+# **Der Rückfall, nicht die erste Wahl.** Vorrang hat das Token, das der Nutzer
+# in den Einstellungen einträgt (`KiSettings.token_encrypted`); dieses hier gilt,
+# wenn dort nichts steht. Sind beide leer, darf die CLI ihre eigene Anmeldung
+# benutzen — in der lokalen Entwicklung der Normalfall.
 CLAUDE_OAUTH_TOKEN = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
 
 # Pfad zum Binary. Als Variable, damit ein Test ihn auf `/bin/false` ziehen kann
@@ -84,6 +93,9 @@ KI_EFFORT = os.environ.get("TRI_KI_EFFORT", "max").strip() or "max"
 # hängender Prozess nicht bis zum Neustart stehen bleibt.
 KI_TIMEOUT_S = int(os.environ.get("TRI_KI_TIMEOUT_S", "900"))
 
-# Kein Schalter für automatisches Planen: Es gibt keins. Ein Block entsteht nur,
-# wenn jemand ihn anstößt — anders als der Garmin-Abgleich, der von selbst läuft
-# und deshalb `TRI_GARMIN_AUTOSYNC` hat.
+# Kein Schalter für automatisches Planen in der Umgebung: Der steht je Nutzer in
+# der Datenbank (`KiSettings.auto_plan_enabled`) und ist in den Einstellungen zu
+# erreichen. Und keine eigene Schleife dafür — ausgelöst wird ein Block am Ende
+# eines erfolgreichen automatischen Garmin-Abgleichs (`ki/automatik.py`), womit
+# die Reihenfolge garantiert ist, die der Prompt ohnehin voraussetzt: erst die
+# Daten, dann der Block. `TRI_GARMIN_AUTOSYNC` schaltet damit beides zugleich ab.

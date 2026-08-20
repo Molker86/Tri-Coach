@@ -6,12 +6,14 @@ gegen einen nachgebildeten Unterprozess, weil dort die Grenze zum fremden
 Programm liegt und ein Fehlschlag sonst erst am echten Konto auffiele.
 """
 
-import importlib
 import json
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
+from app import main as app_main
+from app.ki import automatik as ki_automatik
 from app.ki import client as ki_client
 from app.ki import runner as ki_runner
 from app.ki.errors import KiKontingentErschoepft, KiTokenUngueltig
@@ -33,10 +35,14 @@ def synchron(monkeypatch):
     """Läufe laufen im Test synchron — sonst bräuchte jeder eine Abfrageschleife."""
     monkeypatch.setattr(ki_runner, "IM_HINTERGRUND", False)
     # Die Anmeldung wird nicht gegen das echte Programm geprüft.
-    monkeypatch.setattr(ki_client, "ist_angemeldet", lambda erzwinge=False: True)
+    monkeypatch.setattr(
+        ki_client, "ist_angemeldet", lambda token=None, erzwinge=False: True
+    )
     import app.routers.ki as ki_router
 
-    monkeypatch.setattr(ki_router, "ist_angemeldet", lambda erzwinge=False: True)
+    monkeypatch.setattr(
+        ki_router, "ist_angemeldet", lambda token=None, erzwinge=False: True
+    )
 
 
 def antwort_json(start: date, tage: int = 7, titel: str = "Blockplan") -> str:
@@ -245,20 +251,200 @@ def test_einstellungen_sind_teil_updates(client, auth):
 
 
 # --------------------------------------------------------------------------
-# Kein Lauf ohne Knopfdruck
+# Kein Lauf ohne Zutun — der Schalter entscheidet, nicht die Uhr
 # --------------------------------------------------------------------------
 
 
-def test_es_gibt_keine_automatische_planung():
-    """Die Entscheidung als Test: Ein Block entsteht nur, wenn jemand ihn anstößt.
+def test_die_planung_hat_keine_eigene_schleife():
+    """Ein Block entsteht am Ende eines Abgleichs, nicht auf eigenen Verdacht.
 
-    Nirgends sonst ließe sich das nachprüfen — eine Schleife, die wieder
-    einzöge, fiele erst am aufgebrauchten Kontingent des Abos auf, und dann an
-    einem Tag ohne Plan.
+    Die Sorge dahinter ist dieselbe wie vorher, als es hier gar keine Automatik
+    gab: Eine zweite Weckschleife fiele erst am aufgebrauchten Kontingent des
+    Abos auf, und dann an einem Tag ohne Plan. Sie hätte außerdem keine
+    Reihenfolge — käme sie dem Abgleich zuvor, plante die KI auf einem
+    Datenstand von gestern.
+
+    Der Schalter steht deshalb je Nutzer in der Datenbank und nicht in der
+    Umgebung: In `config.py` wäre er ein Wert, den man ohne Neustart nicht
+    ändern kann.
     """
     from app import config
+    from app.ki import automatik
 
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("app.ki.automatik")
+    assert not hasattr(automatik, "automatik_schleife")
     assert not hasattr(config, "KI_AUTOPLAN")
     assert not hasattr(config, "KI_PLAN_HOUR")
+
+    # Genau eine Schleife im Lebenszyklus der App, und die gehört Garmin.
+    quelle = (Path(app_main.__file__)).read_text()
+    assert quelle.count("asyncio.create_task(") == 1
+    assert "automatik_schleife()" in quelle
+
+
+def nutzer_id(auth: dict[str, str]) -> int:
+    """Die Kennung aus dem Bearer-Token — kürzer als eine Suche über die E-Mail."""
+    from app.security import decode_access_token
+
+    return decode_access_token(auth["Authorization"].removeprefix("Bearer "))
+
+
+def abgleich_job(auth, *, kind="auto", state="done") -> tuple[int, int]:
+    """Ein abgeschlossener Abgleich, wie ihn der Garmin-Runner hinterlässt."""
+    from app.database import SessionLocal
+    from app.models import GarminSyncJob
+
+    user_id = nutzer_id(auth)
+    with SessionLocal() as db:
+        job = GarminSyncJob(
+            user_id=user_id,
+            kind=kind,
+            state=state,
+            range_start=HEUTE,
+            range_end=HEUTE,
+            day_loop_start=HEUTE,
+        )
+        db.add(job)
+        db.commit()
+        return user_id, job.id
+
+
+def test_nach_dem_abgleich_entsteht_ein_block(client, auth, monkeypatch):
+    """Der eingeschaltete Fall: Abgleich fertig, Block da."""
+    lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    user_id, job_id = abgleich_job(auth)
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is not None
+    assert client.get("/api/plans/active", headers=auth).json() is not None
+
+
+def test_ohne_schalter_entsteht_nichts(client, auth, monkeypatch):
+    """Vorgabe aus: Wer nicht darum bittet, bekommt keinen Lauf auf seine Rechnung."""
+    lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+
+    user_id, job_id = abgleich_job(auth)
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+
+
+def test_ein_abgleich_per_knopfdruck_plant_nicht(client, auth, monkeypatch):
+    """„Jetzt synchronisieren" will Daten — dass es Kontingent kostet, sieht man nicht."""
+    lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    user_id, job_id = abgleich_job(auth, kind="manual")
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+
+
+def test_ein_gescheiterter_abgleich_plant_nicht(client, auth, monkeypatch):
+    """Ohne frische Daten wäre der Block auf einem Stand von gestern gebaut."""
+    lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    user_id, job_id = abgleich_job(auth, state="failed")
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+
+
+def test_nur_ein_block_je_tag(client, auth, monkeypatch):
+    """Der Tagesriegel — er hält auch über einen Neustart hinweg."""
+    lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    user_id, job_id = abgleich_job(auth)
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is not None
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+
+
+def test_ohne_fragebogen_entsteht_nichts(client, auth, monkeypatch):
+    """Der Lauf scheiterte sicher und kostete trotzdem Kontingent."""
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    user_id, job_id = abgleich_job(auth)
+    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+
+
+# --------------------------------------------------------------------------
+# Der Zugang steht in der App, nicht in der Umgebung
+# --------------------------------------------------------------------------
+
+
+def test_der_token_wird_verschluesselt_abgelegt(client, auth):
+    """Er liegt in derselben Datei, die in jedes Home-Assistant-Backup wandert."""
+    from app.database import SessionLocal
+    from app.models import KiSettings
+
+    antwort = client.put(
+        "/api/ki/settings", json={"token": "sk-ant-oat01-geheim"}, headers=auth
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["token_status"] == "hinterlegt"
+
+    with SessionLocal() as db:
+        zeile = db.query(KiSettings).filter_by(user_id=nutzer_id(auth)).one()
+        assert zeile.token_encrypted
+        assert "sk-ant-oat01-geheim" not in zeile.token_encrypted
+        assert ki_client.token_aus(zeile.token_encrypted) == "sk-ant-oat01-geheim"
+
+
+def test_der_token_verlaesst_die_api_nie(client, auth):
+    """Weder die Einstellungen noch der Status geben ihn heraus."""
+    client.put("/api/ki/settings", json={"token": "sk-ant-oat01-geheim"}, headers=auth)
+
+    zustand = client.get("/api/ki/status", headers=auth).json()
+    assert "sk-ant-oat01-geheim" not in json.dumps(zustand)
+    assert zustand["einstellungen"]["token_status"] == "hinterlegt"
+
+
+def test_ein_leerer_token_loescht(client, auth):
+    """Der Knopf „Entfernen" — ein leerer String ist hier eine Anweisung."""
+    client.put("/api/ki/settings", json={"token": "sk-ant-oat01-geheim"}, headers=auth)
+    antwort = client.put("/api/ki/settings", json={"token": ""}, headers=auth)
+    assert antwort.json()["token_status"] == "fehlt"
+
+
+def test_andere_felder_lassen_den_token_stehen(client, auth):
+    """Teil-Update: Wer die Denktiefe ändert, verliert seinen Zugang nicht."""
+    client.put("/api/ki/settings", json={"token": "sk-ant-oat01-geheim"}, headers=auth)
+    antwort = client.put("/api/ki/settings", json={"effort": "high"}, headers=auth)
+    assert antwort.json()["token_status"] == "hinterlegt"
+    assert antwort.json()["effort"] == "high"
+
+
+def test_ein_unlesbarer_token_ist_kein_absturz(client, auth):
+    """Nach einem Wechsel von `TRI_SECRET_KEY` steht dort Unsinn.
+
+    Er darf weder eine Ausnahme werfen noch als gültiger Zugang durchgehen —
+    und die Oberfläche muss den Unterschied zu „keiner hinterlegt" sehen, weil
+    nur erneutes Eintragen hilft.
+    """
+    from app.database import SessionLocal
+    from app.models import KiSettings
+
+    client.put("/api/ki/settings", json={"token": "sk-ant-oat01-geheim"}, headers=auth)
+    with SessionLocal() as db:
+        zeile = db.query(KiSettings).filter_by(user_id=nutzer_id(auth)).one()
+        zeile.token_encrypted = "kein-gueltiger-geheimtext"
+        db.commit()
+
+    assert ki_client.token_aus("kein-gueltiger-geheimtext") is None
+    zustand = client.get("/api/ki/status", headers=auth).json()
+    assert zustand["einstellungen"]["token_status"] == "unlesbar"
+
+
+def test_der_token_des_nutzers_geht_dem_der_umgebung_vor(monkeypatch):
+    """Wer ihn in der App einträgt, meint ihn."""
+    monkeypatch.setattr(ki_client, "CLAUDE_OAUTH_TOKEN", "aus-der-umgebung")
+
+    assert ki_client._umgebung()["CLAUDE_CODE_OAUTH_TOKEN"] == "aus-der-umgebung"
+    assert ki_client._umgebung("aus-der-app")["CLAUDE_CODE_OAUTH_TOKEN"] == "aus-der-app"
+
+
+def test_ohne_jeden_token_bleibt_die_variable_ungesetzt(monkeypatch):
+    """Ein leer gesetzter Wert verdeckte die Anmeldung der CLI selbst."""
+    monkeypatch.setattr(ki_client, "CLAUDE_OAUTH_TOKEN", "")
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in ki_client._umgebung()

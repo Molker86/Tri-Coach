@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { AnpassungsKarte } from '../components/AnpassungsKarte'
+import { SessionCard } from '../components/SessionCard'
+import { SessionDetail } from '../components/SessionDetail'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
-import { sessionTypeLabel, sportIcon, sportLabel } from '../constants'
+import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
+import { sportIcon } from '../constants'
 import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
-import type { Plan, Profile, Stats, WellnessDay } from '../types'
+import type { Plan, PlanSession, Profile, Stats, WellnessDay } from '../types'
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
@@ -150,8 +154,12 @@ export default function Dashboard() {
   const [wellness, setWellness] = useState<WellnessDay[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<PlanSession | null>(null)
 
-  useEffect(() => {
+  // Als eigene Funktion und nicht nur im Effekt: Nach einer angepassten Einheit
+  // steht eine andere Vorgabe im Plan, und die Übersicht zeigte sonst bis zum
+  // Neuladen der Seite die alte.
+  const reload = useCallback(() => {
     Promise.all([
       api.activePlan(),
       api.stats(),
@@ -169,6 +177,13 @@ export default function Dashboard() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => reload(), [reload])
+
+  // Dieselbe Anpassung wie im Trainingsplan — der Hook trägt Abfrageschleife
+  // und Fortschritt, damit beide Seiten nicht zwei Fassungen davon haben.
+  const anpassungLauf = useEinheitAnpassung(reload, setError)
+  const anpassung = anpassungLauf.anpassung
 
   if (loading) return <Loading />
   if (error) return <Alert kind="error">{error}</Alert>
@@ -188,6 +203,34 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* Außerhalb des Dialogs, wie im Trainingsplan: Der Lauf dauert Minuten,
+          und wer den Dialog zwischendurch schließt, verlöre sonst sowohl den
+          Fortschritt als auch die Begründung der KI. */}
+      {anpassung && (
+        <AnpassungsKarte
+          job={anpassung}
+          onAbbrechen={anpassungLauf.abbrechen}
+          onSchliessen={anpassungLauf.vergiss}
+        />
+      )}
+
+      {selected && (
+        <SessionDetail
+          session={selected}
+          kiVerfuegbar={anpassungLauf.kiVerfuegbar}
+          anpassungLaeuft={anpassungLauf.laeuft}
+          onLauf={(job) => {
+            anpassungLauf.beobachte(job)
+            setSelected(null)
+          }}
+          onUebernommen={() => {
+            setSelected(null)
+            reload()
+          }}
+          onClose={() => setSelected(null)}
+        />
+      )}
+
       <div className="page-header">
         <div>
           <h1>Übersicht</h1>
@@ -297,37 +340,17 @@ export default function Dashboard() {
                   )} bis ${formatDay(plan.end_date)}.`}
             </p>
           ) : (
+            /* Dieselbe Karte wie im Trainingsplan, nicht mehr eine nachgebaute:
+               Sie war hier ein toter `<div>` ohne Zone, Garmin-Marke und
+               „angepasst" — und ohne Weg zum Dialog. Wer eine Einheit ansehen
+               oder umschreiben lassen wollte, musste erst die Seite wechseln. */
             <div className="session-list">
               {todaySessions.map((session) => (
-                <div
-                  className={`session-card ${session.sport === 'rest' ? 'is-rest' : ''} ${
-                    session.logged ? 'is-logged' : ''
-                  }`}
+                <SessionCard
                   key={session.id}
-                >
-                  <span className="session-icon">{sportIcon(session.sport)}</span>
-                  <span className="session-body">
-                    <span className="session-head">
-                      <span className="session-title">{session.title}</span>
-                      {session.logged && (
-                        <span className="badge badge-success">✓ erfasst</span>
-                      )}
-                    </span>
-                    <span className="session-meta">
-                      <span>{sportLabel(session.sport)}</span>
-                      <span>{sessionTypeLabel(session.session_type)}</span>
-                      {session.duration_min ? <span>{session.duration_min} min</span> : null}
-                      {session.target_hr_low && session.target_hr_high ? (
-                        <span>
-                          {session.target_hr_low}–{session.target_hr_high} bpm
-                        </span>
-                      ) : null}
-                    </span>
-                    {session.structure && (
-                      <span className="session-structure">{session.structure}</span>
-                    )}
-                  </span>
-                </div>
+                  session={session}
+                  onOpen={() => setSelected(session)}
+                />
               ))}
 
               {/* Kein Knopf zum Erfassen mehr: Die Einheit gilt als absolviert,
@@ -354,7 +377,15 @@ export default function Dashboard() {
                         })}
                       </td>
                       <td className="cell-title">
-                        {sportIcon(session.sport)} {session.title}
+                        {/* Ein Knopf und nicht die ganze Zeile mit `onClick`:
+                            Eine anklickbare Zeile ist für Tastatur und
+                            Vorlesehilfe kein Bedienelement. */}
+                        <button
+                          className="linklike"
+                          onClick={() => setSelected(session)}
+                        >
+                          {sportIcon(session.sport)} {session.title}
+                        </button>
                       </td>
                       <td
                         className="nowrap muted small"

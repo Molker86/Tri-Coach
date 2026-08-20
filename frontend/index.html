@@ -11,6 +11,25 @@
     />
     <meta name="color-scheme" content="light dark" />
     <title>Tri-Coach – Dein Trainingsplan</title>
+    <!-- Die Farbwahl muss vor dem ersten Zeichnen stehen, sonst blitzt die
+         helle Fassung auf, bevor React geladen ist. Deshalb hier inline und
+         nicht in `theme.ts` — das läuft erst im Modul. Die Logik ist
+         dieselbe; ändert sich eine, gehört die andere mitgezogen. -->
+    <script>
+      (function () {
+        var wahl = null
+        try {
+          wahl = localStorage.getItem('tricoach.theme')
+        } catch (e) {
+          /* Privater Modus ohne Speicher: dann eben die Systemwahl. */
+        }
+        var dunkel =
+          wahl === 'dark' ||
+          (wahl !== 'light' &&
+            matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dunkel ? 'dark' : 'light'
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

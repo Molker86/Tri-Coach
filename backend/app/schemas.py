@@ -742,12 +742,16 @@ class GarminAccountOut(BaseModel):
     synced_through: date | None = None
     rate_limited_until: UtcDatetime | None = None
     auto_sync_enabled: bool
+    sync_hour: int
     profile_sync_enabled: bool
     auto_push_enabled: bool
 
 
 class GarminSettingsIn(BaseModel):
     auto_sync_enabled: bool | None = None
+    # Volle Stunden: Die Automatik wacht viertelstündlich auf, eine
+    # Minutenangabe wäre eine Genauigkeit, die es gar nicht gibt.
+    sync_hour: int | None = Field(None, ge=0, le=23)
     profile_sync_enabled: bool | None = None
     auto_push_enabled: bool | None = None
 
@@ -967,6 +971,12 @@ class KiSettingsOut(BaseModel):
     effort: str
     status: str
     status_message: str | None = None
+    auto_plan_enabled: bool
+    last_auto_plan_on: date | None = None
+    # **Nie der Token selbst**, nur seine Lage. „unlesbar" heißt: gespeichert,
+    # aber der `TRI_SECRET_KEY` passt nicht mehr dazu — dann hilft nur neu
+    # eintragen, und das muss die Oberfläche sagen können.
+    token_status: Literal["fehlt", "hinterlegt", "unlesbar"] = "fehlt"
 
 
 class KiSettingsIn(BaseModel):
@@ -975,6 +985,12 @@ class KiSettingsIn(BaseModel):
     # Leerer String heißt ausdrücklich „Vorgabe aus der Konfiguration".
     model: str | None = Field(None, max_length=48)
     effort: Literal["", "low", "medium", "high", "xhigh", "max"] | None = None
+    auto_plan_enabled: bool | None = None
+    # Der Zugang im Klartext — er wird verschlüsselt abgelegt und nie wieder
+    # herausgegeben. Ein leerer String löscht ausdrücklich; deshalb wird das
+    # Feld im Router eigens behandelt und nicht über die Teil-Update-Schleife,
+    # die `None` überspringt und `""` als Wert durchreichte.
+    token: str | None = Field(None, max_length=512)
 
 
 class KiStatusOut(BaseModel):

@@ -40,6 +40,7 @@ from ..config import (
     KI_MODELL,
     KI_TIMEOUT_S,
 )
+from ..crypto import EntschluesselungFehlgeschlagen, entschluessle
 from .errors import (
     KiAbgelehnt,
     KiAntwortUnbrauchbar,
@@ -80,8 +81,13 @@ _KONTINGENT_HINWEISE = (
 
 # Wie lange die Auskunft „angemeldet" gilt, bevor erneut nachgesehen wird. Der
 # Aufruf kostet nur Millisekunden, aber die Statusseite fragt bei jedem Laden.
+#
+# Je Token gemerkt, nicht global: Seit der Zugang je Nutzer hinterlegt wird,
+# beantwortete ein einzelner Eintrag die Frage für Nutzer B mit dem Ergebnis von
+# Nutzer A — und ein frisch eingetragener Token gälte eine Minute lang als
+# ungültig, weil er den Eintrag des leeren vorfindet.
 _ANMELDUNG_CACHE_S = 60
-_anmeldung_cache: tuple[float, bool] = (0.0, False)
+_anmeldung_cache: dict[str, tuple[float, bool]] = {}
 
 
 @dataclass(slots=True)
@@ -94,7 +100,24 @@ class Antwort:
     dauer_ms: int | None = None
 
 
-def _umgebung() -> dict[str, str]:
+def token_aus(geheimtext: str | None) -> str | None:
+    """Der Klartext-Zugang aus der Datenbank, oder None.
+
+    Ein unlesbarer Geheimtext — in der Praxis heißt das: `TRI_SECRET_KEY` wurde
+    gewechselt — ist hier kein Absturz, sondern schlicht „kein Token": Der
+    Rückfall auf die Add-on-Option und die Anmeldung der CLI greift dann wie bei
+    einem leeren Feld. Sichtbar wird der Unterschied über `token_status` in den
+    Einstellungen, denn heilen lässt er sich nur durch erneutes Eintragen.
+    """
+    if not geheimtext:
+        return None
+    try:
+        return entschluessle(geheimtext)
+    except EntschluesselungFehlgeschlagen:
+        return None
+
+
+def _umgebung(token: str | None = None) -> dict[str, str]:
     """Die Umgebung des Unterprozesses — bewusst zusammengestellt, nicht geerbt.
 
     Der Grund ist am eigenen Rechner aufgefallen: Wer die App aus einer
@@ -109,6 +132,9 @@ def _umgebung() -> dict[str, str]:
     HTTPS-Verbindung braucht. Der Token wird nur gesetzt, wenn es ihn gibt:
     Ohne ihn — also bei der lokalen Entwicklung — soll die CLI ihre eigene
     Anmeldung benutzen dürfen, und ein leer gesetzter Wert verdeckte die.
+
+    `token` ist der Zugang aus den Einstellungen des Nutzers. Er geht dem aus
+    der Umgebung vor: Wer ihn in der App einträgt, meint ihn.
     """
     durchgereicht = (
         "PATH",
@@ -142,21 +168,21 @@ def _umgebung() -> dict[str, str]:
         for name in durchgereicht
         if (wert := os.environ.get(name)) is not None
     }
-    if CLAUDE_OAUTH_TOKEN:
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = CLAUDE_OAUTH_TOKEN
+    if wirksam := (token or CLAUDE_OAUTH_TOKEN):
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = wirksam
     return env
 
 
-def ist_angemeldet(erzwinge: bool = False) -> bool:
-    """Ob Claude Code einen brauchbaren Zugang hat.
+def ist_angemeldet(token: str | None = None, erzwinge: bool = False) -> bool:
+    """Ob Claude Code mit diesem Zugang arbeiten kann.
 
-    Bewusst nicht „ist die Umgebungsvariable gesetzt": Im Add-on kommt der
-    Zugang als Token, bei der lokalen Entwicklung aus der Anmeldung der CLI
-    selbst. Gefragt wird deshalb das Programm, nicht die Umgebung.
+    Bewusst nicht „ist die Umgebungsvariable gesetzt": Der Zugang kommt aus den
+    Einstellungen des Nutzers, aus der Add-on-Option oder aus der Anmeldung der
+    CLI selbst. Gefragt wird deshalb das Programm, nicht die Umgebung.
     """
-    global _anmeldung_cache
+    schluessel = token or ""
 
-    gemessen, wert = _anmeldung_cache
+    gemessen, wert = _anmeldung_cache.get(schluessel, (0.0, False))
     if not erzwinge and time.monotonic() - gemessen < _ANMELDUNG_CACHE_S:
         return wert
 
@@ -166,14 +192,14 @@ def ist_angemeldet(erzwinge: bool = False) -> bool:
             capture_output=True,
             text=True,
             timeout=30,
-            env=_umgebung(),
+            env=_umgebung(token),
         )
         daten = json.loads(lauf.stdout or "{}")
         wert = bool(daten.get("loggedIn"))
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         wert = False
 
-    _anmeldung_cache = (time.monotonic(), wert)
+    _anmeldung_cache[schluessel] = (time.monotonic(), wert)
     return wert
 
 
@@ -215,12 +241,16 @@ def rufe_claude(
     modell: str | None = None,
     effort: str | None = None,
     timeout_s: int | None = None,
+    token: str | None = None,
     bei_start: Callable[[subprocess.Popen], None] | None = None,
 ) -> Antwort:
     """Schickt den Prompt an Claude Code und gibt den Antworttext zurück.
 
     Der Prompt geht über **stdin**, nicht über die Kommandozeile: Das Datenpaket
     ist gut fünfzig Kilobyte groß.
+
+    `token` ist der Zugang aus den Einstellungen des Nutzers; ohne ihn gilt der
+    aus der Umgebung, sonst die Anmeldung der CLI selbst.
 
     `bei_start` bekommt den laufenden Prozess gereicht. Darüber kann der Runner
     ihn abbrechen — anders käme er nicht an ihn heran, und ein Lauf, der
@@ -252,7 +282,7 @@ def rufe_claude(
                 stderr=subprocess.PIPE,
                 text=True,
                 cwd=leeres_verzeichnis,
-                env=_umgebung(),
+                env=_umgebung(token),
             )
         except FileNotFoundError as exc:
             raise KiCliFehlt() from exc

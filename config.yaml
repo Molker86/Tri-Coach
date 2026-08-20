@@ -3,7 +3,7 @@ description: Trainingsplanung für Ausdauersport
 # Der Store bietet ein Update erst an, wenn diese Zahl größer ist als die
 # installierte — bei einem lokal gebauten Add-on gibt es keinen anderen
 # Auslöser. Jeder Stand, der auf den Pi soll, braucht hier eine neue Version.
-version: 4.1.0
+version: 4.2.0
 slug: tricoach
 url: https://github.com/Molker86/Tri-Coach
 arch:
@@ -24,6 +24,11 @@ panel_title: Tri-Coach
 # Rechner mit Claude Code über `claude setup-token`. Bleibt er leer, entfällt
 # die Funktion und es bleibt beim Weg über die Zwischenablage — die App
 # funktioniert vollständig ohne ihn.
+#
+# **Der bequemere Weg ist inzwischen die App selbst**: Unter Einstellungen →
+# KI-Planung eingetragen, liegt der Zugang verschlüsselt in der Datenbank statt
+# im Klartext hier, und ein Wechsel braucht keinen Neustart des Add-ons. Diese
+# Option bleibt als Rückfall und gilt, wenn in der App nichts steht.
 #
 # `password?` statt `str?`: Die Oberfläche maskiert den Wert dann. Er liegt
 # trotzdem im Klartext in /data/options.json und wandert damit in jedes
