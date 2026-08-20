@@ -457,6 +457,22 @@ der Wochentag rückt in die Zelle, weil es keine Spaltenüberschrift mehr gibt.
 Dieselbe Überlegung wie bei den Tabellen: Eine zweite Darstellung liefe mit der
 ersten auseinander.
 
+**„Heute" wird bei jedem Rendern neu bestimmt, nicht beim Laden der App**
+(`useHeute()` in `GarminKalender.tsx`). Die Tagesmarkierung im Kalender hing an
+einer modulweiten Konstante, und weil alle Routen statisch in `App.tsx` liegen,
+war das genau ein Aufruf: der Moment, in dem der Tab aufging. Eine Sitzung über
+Mitternacht markierte am Morgen weiter den Vortag — am Telefon der Normalfall,
+denn dort schläft ein Tab, statt zu schließen. Kein Zeitzonenfehler: `iso()`
+liest die Ortszeitanteile und nicht `toISOString()`.
+
+Der Haken an der naheliegenden Lösung ist, dass ein Wert je Rendern nur hilft,
+wenn gerendert wird — ein offener Kalender tut das über Nacht nicht. Deshalb ein
+Zeitgeber auf den nächsten Tagesbeginn (feuert genau einmal, statt im Minutentakt
+zu fragen) **und** `visibilitychange`, weil Telefone Zeitgeber im Hintergrund
+drosseln und nicht nachholen — dieselbe Überlegung wie bei `pollJob`. Ein Aufruf
+ohne Tageswechsel kostet nichts: Gleicher Tag heißt gleicher String, und React
+verwirft die Zuweisung von selbst.
+
 **Tabellen werden auf schmalen Bildschirmen zu Karten.** Acht Spalten passen nur
 mit Querscrollen auf ein Telefon, und was man wegschieben muss, sieht man nicht.
 `.table-cards` bricht deshalb unterhalb von 640 px jede Zeile in eine Karte auf:
