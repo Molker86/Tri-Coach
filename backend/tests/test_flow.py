@@ -193,6 +193,41 @@ def test_ai_export_contains_context(client, auth):
     assert "Olympische Distanz" in data["prompt"]
 
 
+def test_der_prompt_verlangt_arbeit_an_der_beschwerde(client, auth):
+    """`verletzungen_einschraenkungen` reiste mit, aber kein Prinzip zeigte darauf.
+
+    Der Freitext stand im Payload, und die KI hat ihn beim Ausdauerteil auch von
+    sich aus gelesen — die Ergänzungseinheiten dagegen wichen der betroffenen
+    Region aus, weil Punkt 9 den Wechsel der Körperregion verlangt und nichts
+    dagegenstand. Genau umgekehrt ist es richtig: Ein Läuferknie wird in Kraft
+    und Mobility behandelt, nicht umgangen.
+    """
+    beschwerde = "leichtes Läuferknie rechts, dazu Beschwerden im rechten Gesäß"
+    assert (
+        client.put("/api/profile", headers=auth, json={"injuries": beschwerde}).status_code
+        == 200
+    )
+    try:
+        data = client.get("/api/plans/export", headers=auth).json()
+        prompt = data["prompt"]
+
+        assert data["payload"]["athlet"]["verletzungen_einschraenkungen"] == beschwerde
+
+        # Das Feld wird namentlich aufgerufen. Ohne diesen Verweis war es die
+        # Eigeninitiative des Modells, ob es überhaupt hineinsah.
+        assert "`athlet.verletzungen_einschraenkungen`" in prompt
+        # Und zwar in beide Richtungen: als Bremse und als Auftrag.
+        assert "**Als Bremse**" in prompt
+        assert "**Als Auftrag**" in prompt
+        assert "**auszusparen, ist die falsche Antwort**" in prompt
+        # Punkt 6 darf über die Beschwerde nicht hinwegplanen.
+        assert "Die Punkte 1 bis 4 und 13 sind" in prompt
+        # Und die Abwechslungsregel aus Punkt 9 gilt nur für gesunde Regionen.
+        assert "Diese Abwechslungsregel gilt für gesunde" in prompt
+    finally:
+        client.put("/api/profile", headers=auth, json={"injuries": None})
+
+
 def test_ai_export_honours_block_length(client, auth):
     start = date.today() + timedelta(days=2)
     response = client.get(

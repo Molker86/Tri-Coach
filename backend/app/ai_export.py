@@ -1039,8 +1039,8 @@ auch über den Blockanfang hinaus: Prüfe `tage_seit_letzter_intensiver_einheit`
 du am ersten Tag hart planst. Nach einer langen Einheit am Folgetag nichts Hartes.
 5. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. \
 Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlänge.
-6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 sind Bremsen \
-— sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block \
+6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 und 13 sind \
+Bremsen — sie sagen, wann du zurücknehmen musst. Greift keine davon, wird aufgebaut: Der Block \
 enthält dann mindestens einen gezielten Reiz (VO2max, Schwelle, Tempo oder eine lange \
 Einheit über der gewohnten Dauer), und die Wochenlast darf gegenüber \
 `trainingshistorie.letzte_volle_woche` um bis zu etwa 10 % steigen. Ein Block, der nur aus Z2 besteht, \
@@ -1059,8 +1059,8 @@ gefordert und keiner ausgeschlossen. Leite die Zusammensetzung des Blocks aus \
 `trainingshistorie.einheiten` und `wochenuebersicht` ab — aus Dauer, Intensität und \
 Sportart der letzten Wochen ergibt sich, was zuletzt gefehlt hat und was den größten \
 Fortschritt bringt. Über mehrere Blöcke hinweg soll kein Reiztyp dauerhaft ausfallen. \
-Das ist ausdrücklich **kein Freibrief**: Die Bremsen aus den Punkten 1 bis 4 und die \
-Intensitätsverteilung aus Punkt 3 gelten unverändert. "Bestmöglich" heißt der stärkste \
+Das ist ausdrücklich **kein Freibrief**: Die Bremsen aus den Punkten 1 bis 4 und 13 \
+und die Intensitätsverteilung aus Punkt 3 gelten unverändert. "Bestmöglich" heißt der stärkste \
 Reiz, den die aktuelle Erholungslage trägt, nicht der härteste denkbare. Begründe in \
 `summary`, woran du in der Historie erkannt hast, dass dieser Block jetzt so aussehen \
 muss.
@@ -1112,6 +1112,28 @@ der Vorgabe. `workout_einhaltung_pct` ist Garmins eigene Bewertung (0-100), wie 
 das Workout eingehalten wurde; ein niedriger Wert bei hoher geplanter Dauer heißt, \
 dass die Einheit abgebrochen wurde — plane die nächste kleiner, nicht größer. Alle \
 drei fehlen an vielen Einheiten; ihr Fehlen ist keine Aussage.
+13. **Beschwerden und Einschränkungen**: `athlet.verletzungen_einschraenkungen` ist \
+der Freitext des Athleten über seinen Körper — die einzige Angabe im ganzen Paket, die \
+kein Gerät gemessen hat, und deshalb die, an der du nicht vorbeiplanen darfst. Steht \
+dort etwas, gilt es für diesen Block. Sie wirkt in **zwei** Richtungen, und die zweite \
+wird leicht übersehen:
+    - **Als Bremse** auf die betroffene Belastung: Umfang, Intensität, Untergrund und \
+Bewegungsform der Ausdauereinheiten so wählen, dass die Beschwerde nicht provoziert \
+wird. Verlege den Reiz auf eine Disziplin, die sie nicht berührt, statt ihn zu \
+streichen — bei drei Disziplinen ist das fast immer möglich.
+    - **Als Auftrag** an das Ergänzungstraining aus Punkt 9: Eine Beschwerde, die sich \
+behandeln lässt, gehört in Kraft und Mobility **hinein**, nicht darum herum. Leite aus \
+der Beschreibung die wahrscheinliche Ursache ab — typisch ist eine abgeschwächte oder \
+verkürzte Muskelgruppe oberhalb des schmerzenden Gelenks — und plane die Übungen, die \
+sie angehen. Nennt der Athlet mehrere Beschwerden, prüfe, ob sie zusammenhängen, und \
+behandle die gemeinsame Ursache statt jede für sich.
+    Die betroffene Region **auszusparen, ist die falsche Antwort**: Das nimmt dem \
+Athleten genau die Arbeit weg, die seine Beschwerde beheben würde, und die \
+Abwechslungsregel aus Punkt 9 ist kein Grund dafür. Ist die Region akut gereizt, plane \
+sie schmerzfrei — isometrisch statt dynamisch, kleinerer Bewegungsumfang, weniger Last \
+—, nicht gar nicht. Solange eine Beschwerde genannt ist, enthält der Block mindestens \
+eine Einheit, die sie angeht. Sage dann in `summary` in einem Satz, wie er das tut. Ist das \
+Feld leer, gibt es nichts zu berücksichtigen — erfinde dann keine Einschränkung dazu.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
@@ -1160,9 +1182,12 @@ Schlüsseleinheit. Mobility kurz und regelmäßig — regelmäßig heißt aber *
 dasselbe noch einmal**: Sieh in `trainingshistorie.einheiten` nach, was die letzte \
 Kraft- oder Mobility-Einheit enthielt (`geplant_war.aufbau`, sonst `notiz`), und \
 wechsle Übungsauswahl und Körperregion. Dieselbe Region an zwei aufeinanderfolgenden \
-Tagen ist ein Fehler, kein Aufbau. Gibt es einen Grund dafür — eine Region, die \
-laut Fragebogen oder Historie akut zwickt —, ist die Wiederholung richtig; dann \
-sage in `{begruendungsfeld}` in einem Satz, warum. Bei `strength` und `mobility` ist \
+Tagen ist ein Fehler, kein Aufbau. **Diese Abwechslungsregel gilt für gesunde \
+Regionen.** Nennt `athlet.verletzungen_einschraenkungen` eine Beschwerde, ist die \
+zugehörige Region die Ausnahme: Sie wird gezielt und wiederholt angegangen, bis die \
+Beschwerde weg ist, und abgewechselt wird um sie herum. Sie auszulassen, weil sie \
+zuletzt schon drankam, ist dann der Fehler — nicht die Wiederholung. Sage dann in \
+`{begruendungsfeld}` in einem Satz, welche Beschwerde diese Einheit angeht. Bei `strength` und `mobility` ist \
 `structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
 durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
 Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
@@ -1361,6 +1386,13 @@ dieselbe in weniger Zeit — kürze dann zuerst den lockeren Teil und erhalte de
 Garmin Connect selbst bewertet; das wiegt schwerer als jede Schätzung. Dasselbe gilt \
 für `befinden_0_10`. **Beide Felder fehlen an den meisten Einheiten**, und das ist \
 keine Aussage über sie — leite aus ihrem Fehlen nichts ab.
+8. **Beschwerden und Einschränkungen**: `athlet.verletzungen_einschraenkungen` ist der \
+Freitext des Athleten über seinen Körper. Steht dort etwas, gilt es auch für diese \
+Einheit — unabhängig davon, ob der Wunsch sie erwähnt: Umfang, Intensität, Untergrund \
+und Bewegungsform so wählen, dass die Beschwerde nicht provoziert wird. Und wird die \
+Einheit zu Kraft oder Mobility, ist die betroffene Region das Erste, was **hinein**\
+gehört, nicht das Erste, was ausgelassen wird — eine behandelbare Beschwerde wird dort \
+angegangen, nicht umgangen.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \

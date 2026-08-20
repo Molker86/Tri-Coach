@@ -1728,8 +1728,11 @@ dabei nichts übersehen: Die Einheit vom Vortag lag mitsamt vollständiger
 naheliegende Diagnose „sie weiß zu wenig" war hier die falsche. Punkt 9 verlangt
 deshalb jetzt, in `trainingshistorie.einheiten` nach der letzten Ergänzungseinheit
 zu sehen und Übungsauswahl wie Körperregion zu wechseln; dieselbe Region an zwei
-aufeinanderfolgenden Tagen ist ein Fehler. Eine **begründete** Ausnahme bleibt
-erlaubt (eine Region, die akut zwickt) — mit einem Satz dazu im Begründungsfeld.
+aufeinanderfolgenden Tagen ist ein Fehler. Die Ausnahme davon war zunächst als
+bloße Erlaubnis formuliert („eine Region, die akut zwickt, darf wiederholt
+werden") und hat sich genau darin als zu schwach erwiesen — siehe „Punkt 13 ist
+die Beschwerde des Athleten" weiter unten: Die Abwechslungsregel gilt jetzt
+ausdrücklich nur für gesunde Regionen.
 
 Daran hing eine Falle, die der bestehende Test
 `test_der_prompt_nennt_nur_felder_die_es_gibt` sofort gefangen hat: Der Verweis
@@ -1746,6 +1749,50 @@ Dazu `geplant_fuer`: Eine an einem anderen Tag absolvierte Einheit ist erfüllt,
 nur verschoben, und ausdrücklich keine Nichtumsetzung. Auch hier gilt die Sperre
 aus Punkt 11: Die Felder fehlen an vielen Einheiten, und ihr Fehlen ist keine
 Aussage.
+
+**Punkt 13 ist die Beschwerde des Athleten — und sie war die ganze Zeit da,
+ohne dass eine Regel darauf zeigte.** `athlet.verletzungen_einschraenkungen`
+steht seit jeher im Payload (`_athlete_block`), aber keines der zwölf Prinzipien
+nannte den Schlüssel. Dass der Ausdauerteil trotzdem darauf einging, war
+Eigeninitiative des Modells: Im Block vom 20.08.2026 („leichtes Läuferknie
+rechts + leichte muskuläre Probleme auf der rechten Po-Seite") lag die
+Schlüsseleinheit knieschonend auf dem Rad, der Koppellauf war gekürzt und die
+Coaching-Notes trugen ein Abbruchkriterium. **Die Ergänzungseinheiten desselben
+Blocks wichen der Region dagegen ausdrücklich aus** — „ohne zusätzliche Belastung
+des rechten Knies", „ohne die zuletzt trainierte Hüft-/Gesäßregion erneut zu
+belasten" — und planten stattdessen Schultergürtel und Brustwirbelsäule. Für ein
+Läuferknie mit begleitenden Gesäßbeschwerden ist das die Umkehrung des Richtigen:
+Die Gesäß- und Hüftabduktorenarbeit *ist* die Behandlung.
+
+Auch das war kein Aussetzer, sondern eine Prompt-Lücke — dieselbe Sorte wie bei
+der doppelten Mobility-Einheit oben. Punkt 9 verlangt, Übungsauswahl und
+Körperregion zu wechseln, und die betroffene Region war am 17./18.08. dran
+gewesen; die Ausnahme („eine Region, die akut zwickt") stand als *Erlaubnis zur
+Wiederholung* mitten in einem Absatz, dessen Hauptaussage das Gegenteil sagt, und
+verwies obendrein auf den „Fragebogen", während der Text unter `athlet` liegt.
+Die Abwechslungsregel hat also gegen die Beschwerde gewonnen.
+
+Drei Änderungen, die zusammengehören. Punkt 13 nennt den Schlüssel und trennt
+die **zwei Richtungen**: als *Bremse* auf die betroffene Belastung (Reiz auf eine
+andere Disziplin verlegen statt streichen) und als *Auftrag* ans
+Ergänzungstraining (Ursache ableiten — typisch eine abgeschwächte Muskelgruppe
+oberhalb des Gelenks — und die Übungen dagegen planen). Der Satz „auszusparen ist
+die falsche Antwort" steht ausdrücklich da, weil genau das passiert ist; bei
+akuter Reizung wird schmerzfrei geplant (isometrisch, kleinerer Bewegungsumfang),
+nicht gar nicht. In `PRINZIP_ERGAENZUNG` gilt die Abwechslungsregel jetzt
+ausdrücklich nur für **gesunde** Regionen — eine genannte Beschwerde ist der
+Grund, ihre Region zu behalten, und abgewechselt wird um sie herum. Und Punkt 6
+zählt 13 zu den **Bremsen**: Sonst läse „greift keine der Bremsen aus 1 bis 4,
+also wird aufgebaut" über die Beschwerde hinweg.
+
+Punkt 13 steht **hinten**, obwohl er inhaltlich zu den Bremsen 1 bis 4 gehört:
+Einfügen hieße alle Querverweise im Prompt umnummerieren, und die Nummern stehen
+an einem guten Dutzend Stellen — im Prompt selbst wie in diesem Dokument. Der
+Einzelanpassungsprompt hat denselben Punkt als **Nummer 8**, kürzer gefasst: Dort
+steht der Block fest, und der Auftrag ans Ergänzungstraining kommt ohnehin über
+den geteilten Punkt 5 mit. Der Zusatz „unabhängig davon, ob der Wunsch sie
+erwähnt" ist dort das Entscheidende — wer „nur 40 Minuten Zeit" schreibt, nimmt
+sein Knie damit nicht zurück.
 
 Der Kopf der Aufgabe sagt außerdem, dass `erzeugt_am` **Datum und Uhrzeit**
 trägt und der erste Tag womöglich schon halb vorbei ist — samt der Folgerung,
@@ -1917,6 +1964,17 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   `acuteTrainingLoadDTO.dailyTrainingLoadAcute` — die App speichert es längst
   als `garmin_load_acute`. Die Spalte `weekly_training_load` bleibt als
   Altlast stehen; wer sie füllen will, holt sie von dort.
+- **Die Beschwerde ist Freitext, und die Ursache dahinter rät die KI.** Punkt 13
+  verlangt, aus „Läuferknie rechts" die wahrscheinliche Ursache abzuleiten und
+  die Übungen dagegen zu planen — das ist eine Vermutung aus einem Satz, keine
+  Untersuchung. Die App kann daran nichts prüfen: Sie weiß nicht, ob die
+  gewählten Übungen zur Beschwerde passen, ob die Beschwerde noch besteht oder ob
+  sie überhaupt behandelbar ist. Der Freitext ist außerdem der einzige Ort, an
+  dem sie steht — er veraltet nur, wenn der Athlet ihn selbst ändert, und ein
+  vergessener Eintrag lenkt das Ergänzungstraining monatelang weiter. Was
+  hilft, ist der Nachweis im Begründungsfeld: Dort steht seit dieser Änderung,
+  welche Beschwerde der Block angeht, und daran ist eine überholte Angabe zu
+  erkennen.
 - **Die Einzelanpassung ändert nur den Inhalt, nie den Tag.** Verschieben geht
   über den Garmin-Kalender der App (dort zieht die Planeinheit mit um), und
   mehrere Einheiten auf einmal gibt es nicht — dafür ist „Neu planen ab heute"

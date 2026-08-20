@@ -235,6 +235,32 @@ def test_der_prompt_traegt_wunsch_block_und_historie(client, auth, monkeypatch):
     assert MORGEN.isoformat() in prompt
 
 
+def test_der_prompt_kennt_die_beschwerden_des_athleten(client, auth, monkeypatch):
+    """Auch hier war das Feld im Payload, aber in keinem Prinzip genannt.
+
+    Der Wunsch erwähnt die Beschwerde nicht zwingend („nur 40 Minuten Zeit") —
+    gelten muss sie trotzdem, und wird aus der Einheit Kraft oder Mobility, ist
+    die betroffene Region das Erste, was hineingehört.
+    """
+    client.put(
+        "/api/profile",
+        headers=auth,
+        json={"injuries": "leichtes Läuferknie rechts"},
+    )
+    plan = lege_block_an(client, auth)
+    prompts = ki_antwortet(monkeypatch, antwort_json())
+
+    passe_an(client, auth, einheit_am(plan, HEUTE)["id"], "Nur 40 Minuten Zeit.")
+
+    prompt = prompts[0]
+    assert "leichtes Läuferknie rechts" in prompt
+    assert "`athlet.verletzungen_einschraenkungen`" in prompt
+    assert "unabhängig davon, ob der Wunsch sie erwähnt" in prompt
+    # Der geteilte Punkt 9 kommt hier als Punkt 5 mit — samt seiner Ausnahme
+    # von der Abwechslungsregel.
+    assert "Diese Abwechslungsregel gilt für gesunde" in prompt
+
+
 def test_der_prompt_behauptet_nicht_den_block_abzuloesen(client, auth, monkeypatch):
     """`ersetzt_laufenden_block` gehört zum Neuplanen, nicht zum Anpassen."""
     plan = lege_block_an(client, auth)
