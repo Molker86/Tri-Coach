@@ -13,6 +13,7 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 
+
 def _load_secret_key() -> str:
     if env_key := os.environ.get("TRI_SECRET_KEY"):
         return env_key
