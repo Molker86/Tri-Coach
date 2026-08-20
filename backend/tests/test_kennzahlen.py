@@ -8,6 +8,7 @@ Umsetzungsquote als Auftrag, kleiner zu planen.
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 from app.sportscience import (
     PACE_ZONEN_ANTEIL_LAUF,
@@ -241,3 +242,146 @@ def test_leere_garmin_aktivitaet_ist_keine_einheit():
     assert _ist_einheit(Einheit(date=date.today(), distance_km=0.0)) is True
     # Und eine Strecke ohne erfasste Dauer bleibt eine Einheit.
     assert _ist_einheit(Einheit(date=date.today(), duration_min=0, distance_km=5.0)) is True
+
+
+# --------------------------------------------------------------------------
+# Wie die Einheit ausgeführt wurde — und bis wann die Daten reichen
+# --------------------------------------------------------------------------
+
+
+def test_zonenzeiten_werden_in_minuten_ausgewiesen():
+    """Sekunden wären hier Scheingenauigkeit, und sie kosten Platz im Prompt."""
+    from app.ai_export import _zonenminuten
+
+    assert _zonenminuten({"1": 210, "2": 1420, "4": 289}) == {"z1": 4, "z2": 24, "z4": 5}
+
+
+def test_eine_zone_unter_einer_minute_faellt_heraus():
+    """Ein "z5: 0" neben belegten Geschwistern liest sich wie eine Messung."""
+    from app.ai_export import _zonenminuten
+
+    assert _zonenminuten({"2": 1200, "5": 8}) == {"z2": 20}
+    assert _zonenminuten({"5": 8}) is None
+    assert _zonenminuten(None) is None
+    assert _zonenminuten({}) is None
+
+
+def test_datenstand_fehlt_ohne_verbundenes_konto():
+    """Ein leerer Stand behauptete eine Quelle, die es nicht gibt."""
+    from datetime import datetime
+
+    from app.ai_export import _datenstand
+
+    assert _datenstand(None) is None
+
+    konto = SimpleNamespace(
+        synced_through=date(2026, 8, 19),
+        last_sync_at=datetime(2026, 8, 19, 20, 39, 51),
+    )
+    assert _datenstand(konto) == {
+        "garmin_daten_bis": "2026-08-19",
+        # Auf Minuten gekürzt: Die Sekunde entscheidet hier nichts.
+        "letzter_abgleich": "2026-08-19T20:39",
+    }
+
+
+def test_datenstand_eines_konten_ohne_lauf_bleibt_leer():
+    """Verbunden, aber noch nie abgeglichen — dann gibt es nichts zu melden."""
+    from app.ai_export import _datenstand
+
+    assert _datenstand(SimpleNamespace(synced_through=None, last_sync_at=None)) is None
+
+
+# --------------------------------------------------------------------------
+# Der Aufbau über die Workout-Kennung statt über den Tag
+# --------------------------------------------------------------------------
+
+
+def _log(tag, *, workout_id=None, plan_session=None, kennung=1):
+    return SimpleNamespace(
+        id=kennung, date=tag, garmin_workout_id=workout_id, plan_session=plan_session
+    )
+
+
+def _link(workout_id, *, plan_tag, pushed, titel="Kraft kompakt"):
+    from datetime import datetime
+
+    return SimpleNamespace(
+        garmin_workout_id=workout_id,
+        pushed_at=datetime.combine(pushed, datetime.min.time()),
+        plan_session=SimpleNamespace(
+            date=plan_tag,
+            title=titel,
+            session_type="strength",
+            structure="Hüftbrücke (Glute Bridge) 3x15",
+            duration_min=15,
+            distance_km=None,
+        ),
+    )
+
+
+def test_workout_kennung_findet_den_aufbau_auch_an_einem_anderen_tag():
+    """Der Alltag: Ein Workout liegt auf der Uhr und wird gestartet, wenn es passt.
+
+    Die Zuordnung über Tag *und* Sportart verfehlt das — am 17.08.2026 stand
+    die "Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren.
+    """
+    from app.ai_export import _aufbau_je_workout
+
+    trainiert, geplant = date(2026, 8, 17), date(2026, 8, 20)
+    logs = [_log(trainiert, workout_id="777")]
+    links = [_link("777", plan_tag=geplant, pushed=date(2026, 8, 16))]
+
+    gefunden = _aufbau_je_workout(logs, links)
+    assert gefunden[1]["aufbau"] == "Hüftbrücke (Glute Bridge) 3x15"
+    # Dass er die Einheit vorgezogen hat, ist eine eigene Aussage.
+    assert gefunden[1]["geplant_fuer"] == "2026-08-20"
+
+
+def test_am_plantag_absolviert_traegt_kein_geplant_fuer():
+    from app.ai_export import _aufbau_je_workout
+
+    tag = date(2026, 8, 17)
+    gefunden = _aufbau_je_workout(
+        [_log(tag, workout_id="777")],
+        [_link("777", plan_tag=tag, pushed=date(2026, 8, 16))],
+    )
+    assert "geplant_fuer" not in gefunden[1]
+
+
+def test_ein_neu_belegter_pool_slot_zieht_keinen_falschen_aufbau_an():
+    """Tri-Coach führt fünfzehn Vorlagen und belegt sie immer wieder neu.
+
+    Dieselbe Kennung trägt nach ein paar Wochen einen anderen Inhalt. Die
+    Vorlage muss schon auf der Uhr gelegen haben, als trainiert wurde.
+    """
+    from app.ai_export import _aufbau_je_workout
+
+    trainiert = date(2026, 8, 17)
+    links = [_link("777", plan_tag=date(2026, 8, 25), pushed=date(2026, 8, 24))]
+    assert _aufbau_je_workout([_log(trainiert, workout_id="777")], links) == {}
+
+
+def test_eine_verknuepfte_einheit_braucht_den_umweg_nicht():
+    """Wo `plan_session` steht, gilt sie — sie ist die strengere Zuordnung."""
+    from app.ai_export import _aufbau_je_workout
+
+    tag = date(2026, 8, 17)
+    logs = [_log(tag, workout_id="777", plan_session=object())]
+    links = [_link("777", plan_tag=tag, pushed=date(2026, 8, 16))]
+    assert _aufbau_je_workout(logs, links) == {}
+
+
+def test_bei_zwei_zuordnungen_auf_derselben_kennung_gewinnt_die_juengste_davor():
+    """Ein Pool-Slot kann alte und neue Zuordnung tragen — die Reihenfolge der
+    Abfrage darf nicht entscheiden, welcher Aufbau im Prompt landet."""
+    from app.ai_export import _aufbau_je_workout
+
+    trainiert = date(2026, 8, 17)
+    alt = _link("777", plan_tag=date(2026, 8, 1), pushed=date(2026, 8, 1), titel="Alt")
+    neu = _link("777", plan_tag=date(2026, 8, 17), pushed=date(2026, 8, 16), titel="Neu")
+    spaeter = _link("777", plan_tag=date(2026, 9, 1), pushed=date(2026, 8, 30), titel="Später")
+
+    for reihenfolge in ([alt, neu, spaeter], [spaeter, neu, alt]):
+        gefunden = _aufbau_je_workout([_log(trainiert, workout_id="777")], reihenfolge)
+        assert gefunden[1]["titel"] == "Neu"

@@ -429,6 +429,36 @@ def _klemme(wert: float) -> int:
     return max(1, min(10, int(round(wert))))
 
 
+def zonenzeiten(aktivitaet: dict[str, Any]) -> list[float]:
+    """Sekunden je Herzfrequenzzone (Z1-Z5) aus der Listenantwort.
+
+    Steht an genau einer Stelle, weil zwei Verwendungen daran hängen: die
+    RPE-Schätzung unten und die Zeitverteilung, die in den Export geht. Zwei
+    Stellen, die dieselben fünf Feldnamen suchen, fänden irgendwann
+    verschiedene — dieselbe Überlegung wie bei `_umfangstreffer()` in
+    `workouts.py`.
+    """
+    return [als_zahl(aktivitaet.get(f"hrTimeInZone_{i}")) or 0.0 for i in range(1, 6)]
+
+
+def zonensekunden(aktivitaet: dict[str, Any]) -> dict[str, int] | None:
+    """Dasselbe als Speicherform: `{"1": 210, "2": 1420}`, nur belegte Zonen.
+
+    `None`, wo die Uhr gar keine Zonen aufgezeichnet hat. Das ist etwas anderes
+    als „alles in Z1": Ein Objekt aus Nullen behauptete eine Messung, die es
+    nicht gab — dieselbe Regel wie beim `fitnessdaten`-Block und bei
+    `befinden_0_10`.
+    """
+    zeiten = zonenzeiten(aktivitaet)
+    if sum(zeiten) <= 0:
+        return None
+    return {
+        str(nummer): int(round(sekunden))
+        for nummer, sekunden in enumerate(zeiten, start=1)
+        if sekunden > 0
+    }
+
+
 def schaetze_rpe(aktivitaet: dict[str, Any], profil: Any = None) -> tuple[int | None, str]:
     """Schätzt das RPE einer Garmin-Aktivität. Rückgabe: (rpe, quelle).
 
@@ -446,7 +476,7 @@ def schaetze_rpe(aktivitaet: dict[str, Any], profil: Any = None) -> tuple[int | 
       2. Trainingseffekt (aerob/anaerob) — da, wo keine Zonendaten anfallen
       3. Durchschnittspuls gegen die Herzfrequenzreserve aus dem Profil
     """
-    zeiten = [als_zahl(aktivitaet.get(f"hrTimeInZone_{i}")) or 0.0 for i in range(1, 6)]
+    zeiten = zonenzeiten(aktivitaet)
     gesamt = sum(zeiten)
     if gesamt > 0:
         gewichtet = sum(t * r for t, r in zip(zeiten, ZONEN_RPE)) / gesamt
@@ -547,6 +577,134 @@ def uebernimm_bewertung(
 
 
 # --------------------------------------------------------------------------
+# Wie die Einheit ausgeführt wurde
+# --------------------------------------------------------------------------
+
+# Garmin fasst die Abschnitte einer Aktivität in `splitSummaries` zusammen. Die
+# Liste mischt dabei zwei völlig verschiedene Dinge: die *Trainingsstruktur*
+# (`INTERVAL_*`) und Nebenbefunde der Aufzeichnung — am echten Konto standen an
+# einer Ausfahrt `SURFACE_TYPE_PAVED`/`_UNPAVED` (Untergrund) und an einem Lauf
+# `RWD_RUN`/`RWD_WALK`/`RWD_STAND` (Garmins Geh-Lauf-Erkennung). Übernommen
+# wird deshalb nur, was die Struktur beschreibt; der Rest ist für die Planung
+# ohne Belang und kostete nur Platz im Prompt.
+_ABSCHNITTSARTEN: dict[str, str] = {
+    "INTERVAL_WARMUP": "aufwaermen",
+    "INTERVAL_ACTIVE": "belastung",
+    "INTERVAL_RECOVERY": "pause",
+    "INTERVAL_REST": "pause",
+    "INTERVAL_COOLDOWN": "abwaermen",
+}
+
+# Reihenfolge für die Ausgabe. Garmin liefert die Einträge unsortiert (am
+# echten Konto: aktiv, warmup, cooldown, recovery); in der Reihenfolge des
+# Trainings gelesen sagen sie mehr.
+_ABSCHNITTSFOLGE: tuple[str, ...] = ("aufwaermen", "belastung", "pause", "abwaermen")
+
+# Garmins Einhaltungsbewertung läuft von 0 bis 100.
+_COMPLIANCE_SPANNE = (0, 100)
+
+
+def abschnitte_aus_detail(detail: Any) -> list[dict[str, Any]] | None:
+    """Die absolvierte Struktur aus `splitSummaries`. `None`, wo keine erkennbar ist.
+
+    Das ist die Antwort auf die Frage, die der Export bisher nicht beantworten
+    konnte: Standen die geplanten 3x8 min wirklich? An der Schlüsseleinheit vom
+    19.08.2026 kamen sechs Arbeitsabschnitte über zusammen 16,6 min bei HF 163
+    zurück, dazu ein Ausrollen von 1:48 statt der geplanten 9 min — aus „37 min,
+    HF-Schnitt 148" war das nicht abzulesen.
+
+    `None` statt einer Liste, wo **keine** Struktur vorliegt: Ein einzelner
+    Arbeitsabschnitt über die ganze Einheit (so meldet Garmin jeden
+    unstrukturierten Dauerlauf) wiederholt nur die Gesamtdauer und behauptete
+    als „absolvierte Abschnitte" eine Gliederung, die es nicht gab.
+    """
+    zusammen: dict[str, dict[str, Any]] = {}
+    for eintrag in als_liste(detail, "splitSummaries"):
+        if not isinstance(eintrag, dict):
+            continue
+        art = _ABSCHNITTSARTEN.get(str(eintrag.get("splitType") or "").upper())
+        if art is None:
+            continue
+        anzahl = als_ganzzahl(eintrag.get("noOfSplits")) or 0
+        dauer_s = als_zahl(eintrag.get("duration")) or 0.0
+        if anzahl <= 0 or dauer_s <= 0:
+            continue
+        # Zwei Einträge derselben Art fasst Garmin nicht zusammen; hier schon,
+        # sonst stünden zwei Zeilen "belastung" nebeneinander.
+        vorhanden = zusammen.setdefault(art, {"anzahl": 0, "dauer_s": 0.0, "hf": None})
+        vorhanden["anzahl"] += anzahl
+        vorhanden["dauer_s"] += dauer_s
+        if vorhanden["hf"] is None:
+            vorhanden["hf"] = als_ganzzahl(eintrag.get("averageHR"))
+
+    if not zusammen:
+        return None
+    # Keine Gliederung: nur Belastung, und die als ein einziger Abschnitt.
+    if set(zusammen) == {"belastung"} and zusammen["belastung"]["anzahl"] <= 1:
+        return None
+
+    abschnitte = []
+    for art in _ABSCHNITTSFOLGE:
+        werte = zusammen.get(art)
+        if werte is None:
+            continue
+        eintrag: dict[str, Any] = {
+            "art": art,
+            "anzahl": werte["anzahl"],
+            "dauer_min": int(round(werte["dauer_s"] / 60)),
+        }
+        if werte["hf"]:
+            eintrag["hf_schnitt"] = werte["hf"]
+        abschnitte.append(eintrag)
+    return abschnitte or None
+
+
+def detail_zu_feldern(detail: Any) -> dict[str, Any]:
+    """Alles, was außer der Selbstauskunft noch im Aktivitätsdetail steht.
+
+    Das Detail wird für jede Einheit der letzten 42 Tage ohnehin geholt
+    (`sync.BEWERTUNGSFENSTER_TAGE`) — bis hierher wurden daraus genau zwei
+    Felder gelesen und der Rest verworfen. Diese drei kosten deshalb keine
+    einzige zusätzliche Anfrage.
+
+    Nur belegte Schlüssel kommen zurück: Ein `None` würde in
+    `sync._speichere_aktivitaet` einen früher gelesenen Wert stehen lassen, und
+    genau das ist richtig — was die Gegenseite diesmal verschweigt, ist keine
+    Rücknahme.
+    """
+    felder: dict[str, Any] = {}
+
+    abschnitte = abschnitte_aus_detail(detail)
+    if abschnitte:
+        felder["garmin_abschnitte"] = abschnitte
+
+    # Garmins eigenes Urteil, wie gut das zugrunde liegende Workout eingehalten
+    # wurde. Steht nur an Einheiten, die aus einem Workout gestartet wurden.
+    einhaltung = als_ganzzahl(
+        erster_wert(
+            detail,
+            ("summaryDTO", "directWorkoutComplianceScore"),
+            ("directWorkoutComplianceScore",),
+        )
+    )
+    if einhaltung is not None and _in_spanne(einhaltung, _COMPLIANCE_SPANNE):
+        felder["garmin_compliance"] = einhaltung
+
+    # Der harte Rückbezug auf das Workout, aus dem die Aktivität gestartet
+    # wurde. Am echten Konto an allen drei Einheiten belegt, die aus einem
+    # Tri-Coach-Workout kamen, und `None` an jeder frei gestarteten.
+    workout = erster_wert(
+        detail,
+        ("metadataDTO", "associatedWorkoutId"),
+        ("associatedWorkoutId",),
+    )
+    if workout:
+        felder["garmin_workout_id"] = str(workout)
+
+    return felder
+
+
+# --------------------------------------------------------------------------
 # Aktivität → Trainingseintrag
 # --------------------------------------------------------------------------
 
@@ -627,6 +785,10 @@ def aktivitaet_zu_log(
         "garmin_training_load": als_zahl(aktivitaet.get("activityTrainingLoad")),
         "garmin_aerobic_te": als_zahl(aktivitaet.get("aerobicTrainingEffect")),
         "garmin_anaerobic_te": als_zahl(aktivitaet.get("anaerobicTrainingEffect")),
+        # Kostet nichts: Die Zonenzeiten stehen in derselben Antwort, aus der
+        # alles Übrige kommt. Ohne sie sagt eine Schwelleneinheit nur „37 min,
+        # HF-Schnitt 148" — und ob die Intervalle standen, weiß niemand.
+        "hr_zone_seconds": zonensekunden(aktivitaet),
         "notes": aktivitaet.get("activityName") or None,
     }
 

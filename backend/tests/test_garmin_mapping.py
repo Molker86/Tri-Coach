@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.garmin.mapping import (
+    abschnitte_aus_detail,
     aktivitaet_zu_log,
     als_liste,
     bestzeiten,
@@ -26,7 +27,9 @@ from app.garmin.mapping import (
     schwellenpace_laufen,
     schwellenpuls,
     sport_aus_typkey,
+    detail_zu_feldern,
     teile_multisport,
+    zonensekunden,
 )
 
 
@@ -409,3 +412,123 @@ def test_bestzeit_nimmt_den_schnellsten_eintrag_je_strecke():
         {"typeId": 3, "activityId": 2, "value": 1214.0},
     ]
     assert [b["zeit"] for b in bestzeiten(antwort)] == ["20:14"]
+
+
+# --------------------------------------------------------------------------
+# Wie die Einheit ausgeführt wurde
+# --------------------------------------------------------------------------
+
+# Wortlaut aus `scripts/garmin_aktivitaetsdetail_probe.py` gegen das echte
+# Konto, Aktivität 24031745045 vom 19.08.2026 — die Schlüsseleinheit, für die
+# 3x8 min Schwelle geplant waren. Bewusst mit den Nebenbefunden, die Garmin in
+# dieselbe Liste legt: `SURFACE_TYPE_*` beschreibt den Untergrund und hat mit
+# der Trainingsstruktur nichts zu tun.
+DETAIL_SCHWELLENEINHEIT = {
+    "splitSummaries": [
+        {"splitType": "SURFACE_TYPE_PAVED", "noOfSplits": 4, "duration": 1270.749,
+         "averageHR": 145.0},
+        {"splitType": "SURFACE_TYPE_UNPAVED", "noOfSplits": 3, "duration": 930.999,
+         "averageHR": 153.0},
+        {"splitType": "INTERVAL_ACTIVE", "noOfSplits": 6, "duration": 995.874,
+         "averageHR": 163.0},
+        {"splitType": "INTERVAL_WARMUP", "noOfSplits": 1, "duration": 540.0,
+         "averageHR": 129.0},
+        {"splitType": "INTERVAL_COOLDOWN", "noOfSplits": 1, "duration": 108.083,
+         "averageHR": 133.0},
+        {"splitType": "INTERVAL_RECOVERY", "noOfSplits": 6, "duration": 560.571,
+         "averageHR": 142.0},
+    ],
+    "summaryDTO": {"directWorkoutComplianceScore": 48, "averageHR": 148.0},
+    "metadataDTO": {"associatedWorkoutId": 1668990922},
+}
+
+# Ein freier Dauerlauf, ebenfalls abgelesen (Aktivität 23876437487). Garmin
+# meldet dort *einen* Arbeitsabschnitt über die ganze Einheit, dazu seine
+# Geh-Lauf-Erkennung.
+DETAIL_DAUERLAUF = {
+    "splitSummaries": [
+        {"splitType": "RWD_STAND", "noOfSplits": 2, "duration": 7.0, "averageHR": 148.0},
+        {"splitType": "INTERVAL_ACTIVE", "noOfSplits": 1, "duration": 1821.578,
+         "averageHR": 145.0},
+        {"splitType": "RWD_RUN", "noOfSplits": 10, "duration": 1694.277,
+         "averageHR": 145.0},
+        {"splitType": "RWD_WALK", "noOfSplits": 10, "duration": 120.244,
+         "averageHR": 145.0},
+    ],
+    "summaryDTO": {"normalizedPower": 359.0},
+    "metadataDTO": {"associatedWorkoutId": None},
+}
+
+
+def test_zonensekunden_liest_nur_belegte_zonen():
+    werte = zonensekunden({
+        "hrTimeInZone_1": 210.0,
+        "hrTimeInZone_2": 1420.0,
+        "hrTimeInZone_3": 1502.0,
+        "hrTimeInZone_4": 289.0,
+        "hrTimeInZone_5": 0.0,
+    })
+    assert werte == {"1": 210, "2": 1420, "3": 1502, "4": 289}
+
+
+def test_ohne_zonenzeiten_gibt_es_kein_objekt_aus_nullen():
+    """`None` heißt "nicht aufgezeichnet" — ein Objekt aus Nullen wäre eine Messung."""
+    assert zonensekunden({}) is None
+    assert zonensekunden({f"hrTimeInZone_{i}": 0.0 for i in range(1, 6)}) is None
+
+
+def test_abschnitte_zeigen_die_absolvierte_struktur():
+    """Sechs Arbeitsabschnitte über 17 min — geplant waren 3x8 min."""
+    abschnitte = abschnitte_aus_detail(DETAIL_SCHWELLENEINHEIT)
+
+    assert [a["art"] for a in abschnitte] == [
+        "aufwaermen", "belastung", "pause", "abwaermen"
+    ]
+    belastung = abschnitte[1]
+    assert belastung == {"art": "belastung", "anzahl": 6, "dauer_min": 17, "hf_schnitt": 163}
+    # Das Ausrollen brach nach 1:48 ab; geplant waren 9 min.
+    assert abschnitte[3]["dauer_min"] == 2
+
+
+def test_untergrund_und_gehpausen_zaehlen_nicht_als_struktur():
+    """Garmin mischt `SURFACE_TYPE_*` und `RWD_*` in dieselbe Liste."""
+    arten = {a["art"] for a in abschnitte_aus_detail(DETAIL_SCHWELLENEINHEIT)}
+    assert arten == {"aufwaermen", "belastung", "pause", "abwaermen"}
+
+
+def test_ein_einziger_arbeitsabschnitt_ist_keine_gliederung():
+    """Sonst stünde an jedem freien Dauerlauf die Gesamtdauer ein zweites Mal."""
+    assert abschnitte_aus_detail(DETAIL_DAUERLAUF) is None
+    assert abschnitte_aus_detail({}) is None
+    assert abschnitte_aus_detail(None) is None
+
+
+def test_detail_liefert_einhaltung_und_workout_kennung():
+    felder = detail_zu_feldern(DETAIL_SCHWELLENEINHEIT)
+
+    assert felder["garmin_compliance"] == 48
+    # Als Text, wie die Spalte am `SessionLog` — die Zuordnung vergleicht ihn
+    # mit `GarminWorkoutLink.garmin_workout_id`.
+    assert felder["garmin_workout_id"] == "1668990922"
+    assert felder["garmin_abschnitte"][1]["anzahl"] == 6
+
+
+def test_ein_frei_gestartetes_training_hat_keine_workout_kennung():
+    """`associatedWorkoutId: None` darf keinen leeren Schlüssel hinterlassen."""
+    felder = detail_zu_feldern(DETAIL_DAUERLAUF)
+    assert felder == {}
+
+
+def test_zonenzeiten_gehen_mit_in_die_einheit():
+    """Sie stehen in derselben Antwort — sie zu holen kostet keine Anfrage."""
+    aktivitaet = {
+        "activityId": 42,
+        "activityType": {"typeKey": "running"},
+        "startTimeLocal": "2026-08-19 07:00:00",
+        "duration": 3600.0,
+        "distance": 12000.0,
+        "hrTimeInZone_2": 1200.0,
+        "hrTimeInZone_4": 600.0,
+    }
+    felder = aktivitaet_zu_log(aktivitaet)
+    assert felder["hr_zone_seconds"] == {"2": 1200, "4": 600}

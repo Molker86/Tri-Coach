@@ -74,7 +74,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 315 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 365 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -160,6 +160,29 @@ Plan; der dauerhafte Pool-Slot bleibt bestehen. Deshalb läuft
 dasselbe Aufräumen an **zwei** Stellen — beim Import und am Ende jedes
 Garmin-Laufs, wo `raeume_ersetzte_auf()` die Einheiten gerade aus dem fremden
 Kalender genommen hat und die Bedingung damit erfüllt ist.
+
+**Wann gelöscht werden darf, ist eine Zeitfrage — und sie hat echte Historie
+gekostet** (`nur_zukunft`). Die Bedingung „an diesem Block hängt kein Training"
+wird beim Import zu einem Zeitpunkt geprüft, an dem sie noch gar nicht stimmen
+*kann*: Das Training des Tages liegt auf der Uhr, aber nicht in dieser Datenbank
+— es kommt erst mit dem nächsten Abgleich. Am 16.08.2026 wurde um 16:24 neu
+geplant, die Mobility desselben Tages kam um 17:41 aus Garmin; dazwischen war der
+Block gelöscht, und die Einheit steht bis heute ohne ihren Aufbau im Export. Wer
+täglich neu plant, zerstörte so laufend seine eigene Historie — und genau daraus
+entstand die Beschwerde, dieselbe Mobility-Einheit zweimal vorgeschlagen zu
+bekommen.
+
+Gelöscht wird deshalb **nur nach einem Abgleich** vollständig. Der Import und der
+Übertragungslauf, den er anstößt, räumen nur Blöcke weg, die ganz in der Zukunft
+liegen (`Plan.start_date >= heute`): Eine Übertragung importiert nichts und weiß
+über die absolvierten Trainings genauso wenig wie der Import selbst
+(`runner._raeume_workouts_auf(…, nach_abgleich=False)`). Erst der Abgleich, der
+die Aktivitäten gerade geholt und über `finde_offene_planeinheit()` verknüpft hat,
+darf urteilen. Der Preis ist ein abgelöster Block, der einen Tag länger unter
+„Frühere Pläne" steht — gemessen an einem Aufbau, der für immer weg ist, ist das
+nichts. **Ohne verbundenes Konto greift die Schonung nicht**: Dann entstehen nie
+Trainings und käme nie ein Garmin-Lauf, der aufräumt — die Blöcke sammelten sich
+für immer.
 
 Im Frontend rechnet `planung.ts` beide Startdaten aus: heute für den Ersatz, der
 Tag nach dem Blockende fürs Anhängen — **nie rückwirkend**, ein vor einer Woche
@@ -612,6 +635,95 @@ Block, der ausdrücklich den *nächsten Schritt* setzen soll, war das die größ
 inhaltliche Lücke. Mitgeliefert wird auch die geplante Dauer — weicht die
 absolvierte deutlich ab, war die Vorgabe zu ambitioniert, und das sagt mehr als
 jede Umsetzungsquote.
+
+**Wie eine Einheit ausgeführt wurde, nicht nur dass sie stattfand**
+(`mapping.zonensekunden` / `abschnitte_aus_detail`, `_history_block`). Der Export
+beschrieb eine absolvierte Einheit mit Dauer, Strecke und Schnittpuls — und das
+sagt über eine Intervalleinheit fast nichts. Die Schlüsseleinheit vom 19.08.2026
+stand als „37 min, HF-Schnitt 148" da; geplant waren 60 min mit 3x8 min Schwelle.
+Ob die drei Intervalle standen, war nicht abzulesen, und Punkt 12 („Fortschreiben
+statt neu erfinden") schrieb damit die *Vorgabe* fort statt die Ausführung. Drei
+Größen schließen die Lücke, und **keine davon kostet eine zusätzliche Anfrage**:
+
+*Die Zonenverteilung* (`hrTimeInZone_1..5`) stand immer schon in derselben
+Listenantwort, aus der die Einheit entsteht. `schaetze_rpe()` las sie, schätzte
+daraus das RPE und warf sie weg. Sie geht jetzt als `zeit_in_hf_zonen_min` mit —
+ein Schwellentraining ohne nennenswerte Zeit in Z4 war keins, gleich was der
+Durchschnittspuls sagt. Gelesen wird sie an **einer** Stelle (`zonenzeiten()`),
+weil zwei Stellen mit denselben fünf Feldnamen irgendwann verschiedene fänden.
+
+*Die absolvierten Abschnitte* kommen aus `splitSummaries` im Aktivitätsdetail —
+und das holt `sync._hole_detail()` für jede Einheit der letzten 42 Tage ohnehin,
+bisher für genau zwei Felder. An derselben Schlüsseleinheit standen dort ein
+Aufwärmabschnitt über 9 min, **sechs** Arbeitsabschnitte über zusammen 16,6 min
+bei HF 163, sechs Pausen und ein Ausrollen von 1:48 statt der geplanten 9 min.
+Übernommen wird nur, was die Trainingsstruktur beschreibt (`INTERVAL_*`): Garmin
+mischt in dieselbe Liste den Untergrund (`SURFACE_TYPE_PAVED`) und seine
+Geh-Lauf-Erkennung (`RWD_RUN`/`RWD_WALK`), und beides trägt keine
+Planungsentscheidung. **Ein einzelner Arbeitsabschnitt über die ganze Einheit ist
+keine Gliederung** und fällt weg — so meldet Garmin jeden freien Dauerlauf, und
+als „absolvierte Abschnitte" behauptete das eine Struktur, die es nicht gab.
+
+*Garmins eigene Einhaltungsbewertung* (`directWorkoutComplianceScore`, 0–100)
+steht daneben im selben `summaryDTO`. An der Schlüsseleinheit: **48**. Keine
+andere Zahl im Export sagte, dass die Einheit nach zwei Dritteln abbrach.
+
+Alle drei fehlen, wo sie nicht belegt sind — dieselbe Regel wie bei
+`befinden_0_10`: Ein `null` wäre keine leere Angabe, sondern eine Behauptung.
+Und für bestehende Einheiten bleiben die Spalten leer: Der tägliche Abgleich holt
+nur fünf Tage zurück, wer sie für die Historie will, stößt einen Rückblick an.
+
+**Was im Aktivitätsdetail steht, ist abgelesen und nicht vermutet**
+(`scripts/garmin_aktivitaetsdetail_probe.py`). Dieselbe Lehre wie bei Schlaf und
+Körperbatterie: Eine Nachbildung, die der Entwickler nach dem Parser formt,
+bestätigt den Parser und sonst nichts. Das Skript ist **rein lesend** — anders
+als die Freiwasser-Probe legt es nichts an — und druckt je Sportart die
+Schlüsselliste, `splitSummaries` im Wortlaut, die belegten Felder von
+`summaryDTO` und den Rückbezug aufs Workout. Zwei Nebenbefunde daraus, die
+bewusst *nicht* eingebaut wurden: `get_activity_exercise_sets()` liefert bei
+Kraft die tatsächlich absolvierten Übungen mit Garmins Katalognamen
+(`HIP_RAISE/SINGLE_LEG_HIP_RAISE`, `SIDE_PLANK`), bei Mobility dagegen
+durchweg `UNKNOWN` — und es kostet eine eigene Anfrage je Einheit für etwas,
+das bei unseren eigenen Workouts ohnehin in `geplant_war` steht. `normalizedPower`
+und `maxPower` sind belegt, aber nur dort, wo ohnehin ein Powermeter misst.
+
+**Der geplante Aufbau findet auch dann zurück, wenn der Tag nicht stimmt**
+(`ai_export._aufbau_je_workout`). `plan_session_id` entsteht über Tag **und**
+Sportart (`garmin/matching.py`), und diese Strenge bleibt: An ihr hängt die
+Umsetzungsquote, und eine unscharfe Zuordnung würde sie schönfärben. Sie
+verfehlt aber den Alltag — ein Workout liegt auf der Uhr und wird gestartet,
+wenn es passt. Am 17.08.2026 stand die „Grundlagenfahrt Z2" im Plan und wurde
+einen Tag später gefahren; die Zuordnung fiel aus, obwohl der Block danebenlag.
+Das Aktivitätsdetail trägt deshalb `metadataDTO.associatedWorkoutId` bei (am
+echten Konto an allen drei Einheiten belegt, die aus einem Tri-Coach-Workout
+kamen, `None` an jeder frei gestarteten), und über `GarminWorkoutLink` führt das
+**ohne jeden Bezug auf den Tag** zur Planeinheit. Zwei Grenzen halten das davon
+ab, Falsches zu behaupten: Die Vorlage muss **schon auf der Uhr gelegen haben,
+als trainiert wurde** (`pushed_at <= date`) — die fünfzehn Pool-Slots werden
+wiederverwendet, und dieselbe Kennung trägt nach ein paar Wochen einen anderen
+Inhalt. Und der **Plantag kommt mit**, wo er abweicht (`geplant_fuer`): Dass der
+Athlet die Donnerstagseinheit am Montag gemacht hat, ist eine eigene Aussage und
+keine Ungenauigkeit — Punkt 12 sagt ausdrücklich, dass das keine Nichtumsetzung
+ist.
+
+**Der Prompt sagt, bis wann die Daten reichen** (`_datenstand`, Punkt 2). Der
+Block wird täglich nach dem Abgleich gebaut. Läuft die Reihenfolge einmal
+andersherum, fehlt das Training des Tages schlicht — und die KI hat keine
+Möglichkeit, das zu merken: Sie liest die Lücke als Ruhetag und plant Aufbau auf
+einen Tag, an dem hart trainiert wurde. `trainingshistorie.datenstand` nennt
+deshalb `garmin_daten_bis` und `letzter_abgleich`, und Punkt 2 sagt ausdrücklich,
+dass alles danach **nicht geholt** und nicht als Pause zu deuten ist. Ohne
+verbundenes Konto fehlt der Schlüssel ganz. Im Frontend steht derselbe Stand über
+dem Planungsknopf (`AbgleichStand` in `PlanExchange.tsx`) — als Hinweis, nicht
+als Sperre: Den Planungslauf einen Abgleich anstoßen zu lassen hieße, ihn hinter
+das Garmin-Schloss zu stellen, und die beiden Sperren sind bewusst getrennt.
+
+**`erzeugt_am` trägt die Uhrzeit, nicht nur das Datum.** Wer täglich neu plant,
+plant den ersten Tag oft an einem Abend, von dem eine halbe Stunde übrig ist. Als
+blankes Datum las die KI dort einen vollen Trainingstag und legte eine Einheit
+hinein — am 19.08.2026 um 20:47 eine Mobility-Einheit auf denselben Abend. In
+Ortszeit aus demselben Grund wie in `frontend/src/planung.ts`: UTC liefert
+hierzulande abends bereits den Folgetag.
 
 **Ein leerer Messblock wird weggelassen, nicht mit `null` gefüllt**
 (`_fitness_block`). Dieselbe Regel wie beim `fitnessdaten`-Block selbst und bei
@@ -1567,6 +1679,40 @@ und entscheidet darüber, ob auf der Uhr die Bewegungsanimation erscheint
 (`garmin/uebungen.py`). Das Wörterbuch dort fängt den Fall ohne Klammer ab —
 beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 
+**„Regelmäßig" heißt dort ausdrücklich nicht „dasselbe noch einmal".** Punkt 9
+sagte nur „Mobility kurz und regelmäßig" — und genau das hat die KI getan: Am
+18.08.2026 verordnete sie eine Mobility-Einheit für Hüfte und lateralen
+Oberschenkel, am 19.08. eine für Hüfte, Gesäß und Oberschenkelaußenseite. Sie hat
+dabei nichts übersehen: Die Einheit vom Vortag lag mitsamt vollständiger
+Übungsliste im Export, und `tage_seit_letzter_einheit_je_sportart` sagte
+`mobility: 1`. **Die Wiederholung war eine Prompt-Lücke, kein Datenmangel** — die
+naheliegende Diagnose „sie weiß zu wenig" war hier die falsche. Punkt 9 verlangt
+deshalb jetzt, in `trainingshistorie.einheiten` nach der letzten Ergänzungseinheit
+zu sehen und Übungsauswahl wie Körperregion zu wechseln; dieselbe Region an zwei
+aufeinanderfolgenden Tagen ist ein Fehler. Eine **begründete** Ausnahme bleibt
+erlaubt (eine Region, die akut zwickt) — mit einem Satz dazu im Begründungsfeld.
+
+Daran hing eine Falle, die der bestehende Test
+`test_der_prompt_nennt_nur_felder_die_es_gibt` sofort gefangen hat: Der Verweis
+lautete zunächst auf `summary`, und das Antwortformat der Einzelanpassung hat
+keins. `PRINZIP_ERGAENZUNG` geht deshalb jetzt wie `FITNESSREGELN_*` durch ein
+eigenes `.format()` (`_prinzip_ergaenzung()`) — `.format()` formatiert
+eingesetzte Werte **nicht** erneut, der Platzhalter muss also gefüllt sein, bevor
+der Text in die Vorlage geht.
+
+Punkt 12 liest neben `geplant_war` jetzt auch, **wie** die Einheit ausgeführt
+wurde — `zeit_in_hf_zonen_min`, `absolvierte_abschnitte` und
+`workout_einhaltung_pct` — und schreibt von dort aus fort statt von der Vorgabe.
+Dazu `geplant_fuer`: Eine an einem anderen Tag absolvierte Einheit ist erfüllt,
+nur verschoben, und ausdrücklich keine Nichtumsetzung. Auch hier gilt die Sperre
+aus Punkt 11: Die Felder fehlen an vielen Einheiten, und ihr Fehlen ist keine
+Aussage.
+
+Der Kopf der Aufgabe sagt außerdem, dass `erzeugt_am` **Datum und Uhrzeit**
+trägt und der erste Tag womöglich schon halb vorbei ist — samt der Folgerung,
+dass Ruhe die richtige Antwort ist, wenn zu wenig übrig bleibt. Eine Einheit, die
+nicht mehr stattfinden kann, verfälscht ab morgen die Umsetzungsquote.
+
 Punkt 11 ordnet die **Selbstauskunft** ein: `rpe_quelle: "athlet"` und
 `befinden_0_10` stammen vom Athleten und wiegen schwerer als jede Schätzung und
 als die gemessene Last; alles andere ist geschätzt und wird gegen `hf_schnitt`,
@@ -1781,9 +1927,26 @@ Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess startet.
   beim Start gelöscht; für Umbenennungen oder Typänderungen bleibt es beim
   Löschen der Datei. Die Tabelle `garmin_workout_links` legt
   `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
-  `athlete_profiles.garmin_personal_bests`, `session_logs.garmin_feel` sowie
+  `athlete_profiles.garmin_personal_bests`, `session_logs.garmin_feel`, die vier
+  Ausführungsspalten an `session_logs` (`hr_zone_seconds`, `garmin_abschnitte`,
+  `garmin_compliance`, `garmin_workout_id`) sowie
   `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
   kommen über den Helfer.
+- **Die vier Ausführungsspalten bleiben an bestehenden Einheiten leer.** Die
+  Zonenzeiten stehen zwar in der Listenantwort, die übrigen drei im
+  Aktivitätsdetail — beides wird für zurückliegende Tage nicht noch einmal
+  geholt (`AKTUALISIERUNGSFENSTER_TAGE` = 5). Wer sie für die Historie will,
+  stößt einen **Rückblick** an; für Einheiten außerhalb von
+  `BEWERTUNGSFENSTER_TAGE` = 42 kommen Abschnitte, Einhaltung und
+  Workout-Kennung auch dann nicht nach, weil dort kein Detail geholt wird.
+- **Der Weg über `associatedWorkoutId` funktioniert nur, solange die Zuordnung
+  lebt.** `GarminWorkoutLink` stirbt mit dem Plan; ein gelöschter Block nimmt
+  auch den nachträglichen Weg zum Aufbau mit. Für die Einheiten vor dieser
+  Änderung ist beides verloren — die betroffenen Pläne sind weg.
+- **`geplant_fuer` sagt nur, dass der Tag abwich, nicht warum.** Ob der Athlet
+  die Einheit vorgezogen oder eine andere ausgelassen hat, steht nirgends; die
+  Umsetzungsquote zählt weiterhin streng über Tag und Sportart und sieht eine
+  verschobene Einheit als versäumt.
 - Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus
   einem zweiten Gerät, korrigierter Schlaf), holt kein Abgleich mehr von
   allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im

@@ -32,6 +32,12 @@ class FakeGarmin:
         # Bewertungen je Aktivitätskennung, wie sie im Detail stehen. Leer, weil
         # die meisten Einheiten unbewertet bleiben — der Normalfall.
         self.bewertungen: dict[str, dict[str, Any]] = {}
+        # Was sonst noch im Aktivitätsdetail steht, je Aktivität: die
+        # absolvierten Abschnitte (`splitSummaries`) und der Rückbezug aufs
+        # Workout (`metadataDTO`). Die Form ist an einem echten Konto
+        # abgelesen, nicht nach dem Parser geformt — siehe
+        # `scripts/garmin_aktivitaetsdetail_probe.py`.
+        self.details: dict[str, dict[str, Any]] = {}
         self._tage = tage or []
         self._rate_limit_ab_tag = rate_limit_ab_tag
         self._tagesabrufe = 0
@@ -79,10 +85,18 @@ class FakeGarmin:
         und `directWorkoutRpe` sind keines davon.
         """
         self.aufrufe.append("get_activity")
-        return {
+        antwort: dict[str, Any] = {
             "activityId": activity_id,
             "summaryDTO": dict(self.bewertungen.get(str(activity_id), {})),
         }
+        # Der Rest des Details. `summaryDTO` wird zusammengeführt statt
+        # ersetzt: Am echten Konto stehen Anstrengung, Einhaltungsbewertung und
+        # die Messgrößen in **einem** Objekt.
+        weiteres = self.details.get(str(activity_id))
+        if weiteres:
+            antwort["summaryDTO"].update(weiteres.get("summaryDTO", {}))
+            antwort.update({k: v for k, v in weiteres.items() if k != "summaryDTO"})
+        return antwort
 
     # -- Bereichsabfragen ---------------------------------------------------
 

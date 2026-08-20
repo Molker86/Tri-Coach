@@ -24,14 +24,44 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import GarminWorkoutLink, Plan, SessionLog
+from .models import GarminAccount, GarminWorkoutLink, Plan, SessionLog
 
 
 def raeume_abgeloeste_plaene(
-    db: Session, user_id: int, *, heute: date | None = None
+    db: Session,
+    user_id: int,
+    *,
+    heute: date | None = None,
+    nur_zukunft: bool = False,
 ) -> int:
-    """Löscht überdeckte, nie umgesetzte Blöcke. Gibt deren Zahl zurück."""
+    """Löscht überdeckte, nie umgesetzte Blöcke. Gibt deren Zahl zurück.
+
+    `nur_zukunft` schont Blöcke, die bereits einen Tag hinter sich haben.
+
+    Der Grund ist eine Zeitfrage, und sie hat echte Historie gekostet: Die
+    Bedingung „an diesem Block hängt kein Training" wird beim **Import** zu
+    einem Zeitpunkt geprüft, an dem sie noch gar nicht stimmen *kann*. Das
+    Training des Tages liegt auf der Uhr, aber nicht in dieser Datenbank — es
+    kommt erst mit dem nächsten Abgleich. Am 16.08.2026 wurde um 16:24 neu
+    geplant, die Mobility desselben Tages kam um 17:41 aus Garmin: Der Block
+    war da schon gelöscht, und die Einheit steht bis heute ohne ihren Aufbau
+    im Export.
+
+    Deshalb löscht der Import nur noch, was ganz in der Zukunft liegt, und
+    überlässt den Rest dem Aufräumen am Ende des Garmin-Laufs — das läuft
+    **nach** dem Import der Aktivitäten (`runner.py`), und dort ist „kein
+    Training verknüpft" endlich eine Aussage über die Wirklichkeit statt über
+    die Uhrzeit.
+
+    Ohne verbundenes Konto greift die Schonung nicht: Dann entstehen nie
+    Trainings, es gäbe nichts abzuwarten — und die abgelösten Blöcke sammelten
+    sich für immer, weil auch nie ein Garmin-Lauf käme, der sie wegräumt.
+    """
     heute = heute or date.today()
+
+    if nur_zukunft:
+        konto = db.scalar(select(GarminAccount).where(GarminAccount.user_id == user_id))
+        nur_zukunft = konto is not None
 
     aktiv = db.scalar(
         select(Plan).where(Plan.user_id == user_id, Plan.is_active.is_(True))
@@ -53,6 +83,11 @@ def raeume_abgeloeste_plaene(
             Plan.end_date >= aktiv.start_date,
         )
     ).all()
+
+    if nur_zukunft:
+        # Ein Tag, der schon vorbei ist, könnte ein Training getragen haben,
+        # von dem diese Datenbank noch nichts weiß.
+        abgeloest = [plan for plan in abgeloest if plan.start_date >= heute]
 
     geloescht = 0
     for plan in abgeloest:

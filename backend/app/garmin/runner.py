@@ -451,7 +451,18 @@ class SyncRunner:
             # zurück.
             if aktion in ("push", "cleanup"):
                 bilanz = self._raeume_workouts_auf(
-                    db, konto, api, user_id, ausser_plan_id=plan.id, pause_s=pause_s
+                    db,
+                    konto,
+                    api,
+                    user_id,
+                    ausser_plan_id=plan.id,
+                    pause_s=pause_s,
+                    # Eine Übertragung importiert nichts. Sie weiß über die
+                    # absolvierten Trainings genauso wenig wie der Import, der
+                    # sie eben angestoßen hat — und darf einen abgelösten Block
+                    # deshalb nur wegräumen, solange er ganz in der Zukunft
+                    # liegt.
+                    nach_abgleich=False,
                 )
                 job.workouts_removed += bilanz.gesamt
                 if aktion == "cleanup":
@@ -538,12 +549,18 @@ class SyncRunner:
         *,
         ausser_plan_id: int | None = None,
         pause_s: float | None = None,
+        nach_abgleich: bool = True,
     ) -> Aufraeumbilanz:
         """Entfernt Termine, deren Tag vorbei ist oder deren Block abgelöst wurde.
 
         Am Ende eines Laufs statt als eigener Job: Der Zugang steht, das Schloss
         ist gehalten, und ein Fortschrittsbalken für eine Handvoll Löschungen
         wäre Umstand ohne Nutzen.
+
+        `nach_abgleich` sagt, ob dieser Lauf gerade Trainings importiert hat.
+        Nur dann ist "an diesem Block hängt kein Training" eine Aussage über
+        die Wirklichkeit; nach einer bloßen Übertragung ist es eine über die
+        Uhrzeit (siehe `plan_aufraeumen.raeume_abgeloeste_plaene`).
 
         Kein Fehlschlag hier darf den Lauf umwerten — der hat sein eigentliches
         Ziel bereits erreicht. Nur die Anfragesperre wird festgehalten: Sie gilt
@@ -568,7 +585,9 @@ class SyncRunner:
             # Jetzt erst: Ein abgelöster Block darf nur verschwinden, wenn nichts
             # mehr von ihm im Kalender steht. Sein Link stirbt mit dem Plan, der
             # dauerhafte Pool-Slot dagegen nicht.
-            plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
+            plan_aufraeumen.raeume_abgeloeste_plaene(
+                db, user_id, nur_zukunft=not nach_abgleich
+            )
         except GarminRateLimit as exc:
             db.rollback()
             konto.status = "rate_limited"

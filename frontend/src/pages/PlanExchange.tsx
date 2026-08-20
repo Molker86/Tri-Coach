@@ -6,6 +6,8 @@ import { PLAN_TAGE, heuteIso } from '../planung'
 import type {
   AiExport,
   ErsetzterBlock,
+  GarminAccount,
+  GarminStatus,
   KiJob,
   KiStatus,
   PlanImportResult,
@@ -31,6 +33,7 @@ export default function PlanExchange() {
   const [busy, setBusy] = useState(false)
 
   const [kiStatus, setKiStatus] = useState<KiStatus | null>(null)
+  const [garmin, setGarmin] = useState<GarminStatus | null>(null)
   const [kiJob, setKiJob] = useState<KiJob | null>(null)
   const abbrechenRef = useRef<(() => void) | null>(null)
 
@@ -77,6 +80,11 @@ export default function PlanExchange() {
         if (status.aktiver_job) beobachte(status.aktiver_job)
       })
       .catch(() => setKiStatus(null))
+    // Der Block wird aus dem gebaut, was aus der Uhr da ist. Ist der letzte
+    // Abgleich von gestern, fehlt das Training von heute — und die KI liest
+    // die Lücke als Ruhetag. Nur ein Hinweis, keine Sperre: Der Planungslauf
+    // hinter einem Jahresrückblick warten zu lassen wäre schlimmer.
+    api.garminStatus().then(setGarmin).catch(() => setGarmin(null))
     return () => abbrechenRef.current?.()
   }, [beobachte])
 
@@ -233,6 +241,8 @@ export default function PlanExchange() {
               <Alert kind="warning">{kiStatus.einstellungen.status_message}</Alert>
             )}
 
+          <AbgleichStand konto={garmin?.konto ?? null} />
+
           {laeuft && kiJob ? (
             <LaufKarte job={kiJob} onAbbrechen={brichAb} />
           ) : (
@@ -337,6 +347,41 @@ function LaufKarte({ job, onAbbrechen }: { job: KiJob; onAbbrechen: () => void }
 }
 
 /** Was der letzte Lauf ergeben hat — samt Modell, das tatsächlich geantwortet hat. */
+/** Wie frisch die Garmin-Daten sind, aus denen der Block gebaut wird.
+ *
+ * Der Ablauf ist: erst abgleichen, dann planen. Läuft er einmal andersherum,
+ * fehlt das Training des Tages im Datenpaket, und die KI hat keine Möglichkeit
+ * das zu merken — sie liest die Lücke als Ruhetag und plant Aufbau auf einen
+ * Tag, an dem in Wahrheit hart trainiert wurde. Der Export sagt ihr das
+ * inzwischen (`trainingshistorie.datenstand`); dieser Hinweis sagt es dem
+ * Athleten, bevor er drückt.
+ */
+function AbgleichStand({ konto }: { konto: GarminAccount | null }) {
+  if (!konto?.last_sync_at) return null
+
+  const zeitpunkt = new Date(konto.last_sync_at)
+  const wann = zeitpunkt.toLocaleString('de-DE', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  })
+  // Ortszeit, nicht UTC: `toISOString()` liefert hierzulande abends bereits
+  // den Folgetag — dieselbe Falle wie in `planung.ts`.
+  const heute = new Date()
+  const vonHeute =
+    zeitpunkt.getFullYear() === heute.getFullYear() &&
+    zeitpunkt.getMonth() === heute.getMonth() &&
+    zeitpunkt.getDate() === heute.getDate()
+
+  if (vonHeute) return <p className="small faint mb-1">Garmin-Daten von heute, {wann}.</p>
+
+  return (
+    <Alert kind="warning">
+      Der letzte Garmin-Abgleich war am {wann}. Was seitdem trainiert wurde, steht
+      nicht im Datenpaket — gleiche erst ab, wenn der Block darauf aufbauen soll.
+    </Alert>
+  )
+}
+
 function LetzterLauf({ job }: { job: KiJob }) {
   const wann = new Date(job.started_at).toLocaleString('de-DE', {
     dateStyle: 'short',

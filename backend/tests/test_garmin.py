@@ -462,6 +462,134 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     assert einheit["wochentag"] == WEEKDAYS[tag.weekday()]
 
 
+def _block(client, auth, *, start, tage, titel, sport="run"):
+    plan = {
+        "schema_version": "2.0",
+        "plan": {
+            "title": titel,
+            "summary": "kurz",
+            "coaching_notes": "keine",
+            "start_date": start.isoformat(),
+            "days": [
+                {
+                    "date": (start + timedelta(days=i)).isoformat(),
+                    "sessions": [{
+                        "sport": sport,
+                        "type": "endurance",
+                        "title": f"{titel} Tag {i + 1}",
+                        "structure": "15 min Z2 / 5x1000 m Z4 / 10 min Z1",
+                        "duration_min": 60,
+                    }],
+                }
+                for i in range(tage)
+            ],
+        },
+    }
+    antwort = client.post(
+        "/api/plans/import",
+        json={"raw": __import__("json").dumps(plan), "days": tage},
+        headers=auth,
+    )
+    assert antwort.status_code == 201, antwort.text
+    return antwort.json()["plan"]
+
+
+def test_abgeloester_block_ueberlebt_bis_der_abgleich_ihn_beurteilen_kann(
+    client, garmin_auth, fake
+):
+    """Täglich neu planen darf die Historie nicht auffressen.
+
+    Der Ablauf ist: morgens abgleichen, dann den Block neu bauen. Wer einmal
+    andersherum vorgeht, verlor bisher den geplanten Aufbau für immer — am
+    16.08.2026 wurde um 16:24 neu geplant, die Mobility desselben Tages kam um
+    17:41 aus Garmin, und dazwischen hatte das Aufräumen den alten Block
+    gelöscht. Die Bedingung "an diesem Block hängt kein Training" kann beim
+    Import noch gar nicht stimmen: Das Training liegt auf der Uhr, nicht in
+    dieser Datenbank.
+    """
+    gestern = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [baue_aktivitaet(4001, gestern, typkey="running")]
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+
+    _block(client, garmin_auth, start=gestern, tage=3, titel="Alter Block")
+    # Neu geplant, bevor das Training von gestern importiert wurde.
+    _block(client, garmin_auth, start=HEUTE, tage=3, titel="Neuer Block")
+
+    titel = {p["title"] for p in client.get("/api/plans", headers=garmin_auth).json()}
+    assert titel == {"Alter Block", "Neuer Block"}, "Der alte Block wurde zu früh gelöscht"
+
+    # Jetzt der Abgleich — und erst danach darf beurteilt werden.
+    _backfill(client, garmin_auth, tage=5)
+
+    titel = {p["title"] for p in client.get("/api/plans", headers=garmin_auth).json()}
+    assert titel == {"Alter Block", "Neuer Block"}
+
+    payload = client.get("/api/plans/export", headers=garmin_auth).json()["payload"]
+    einheit = next(
+        e for e in payload["trainingshistorie"]["einheiten"]
+        if e["datum"] == gestern.isoformat()
+    )
+    assert einheit["geplant_war"]["aufbau"] == "15 min Z2 / 5x1000 m Z4 / 10 min Z1"
+
+
+def test_ein_block_ganz_in_der_zukunft_wird_sofort_geraeumt(client, garmin_auth, fake):
+    """Die Schonung gilt nur der Vergangenheit — sonst stapelten sich die Blöcke."""
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+
+    _block(client, garmin_auth, start=HEUTE, tage=3, titel="Erster Versuch")
+    _block(client, garmin_auth, start=HEUTE, tage=3, titel="Zweiter Versuch")
+
+    titel = [p["title"] for p in client.get("/api/plans", headers=garmin_auth).json()]
+    assert titel == ["Zweiter Versuch"]
+
+
+def test_zonenverteilung_und_abschnitte_kommen_in_den_export(
+    client, verbunden, fake
+):
+    """Wie die Einheit ausgeführt wurde — beides kostet keine eigene Anfrage.
+
+    Die Zonenzeiten stehen in der Listenantwort, die Abschnitte im Detail, das
+    für die Selbstauskunft ohnehin geholt wird.
+    """
+    fake.details["1001"] = {
+        "splitSummaries": [
+            {"splitType": "INTERVAL_WARMUP", "noOfSplits": 1, "duration": 540.0,
+             "averageHR": 129.0},
+            {"splitType": "INTERVAL_ACTIVE", "noOfSplits": 6, "duration": 995.874,
+             "averageHR": 163.0},
+            {"splitType": "SURFACE_TYPE_PAVED", "noOfSplits": 4, "duration": 1270.7},
+        ],
+        "summaryDTO": {"directWorkoutComplianceScore": 48},
+    }
+
+    _backfill(client, verbunden)
+
+    payload = client.get("/api/plans/export", headers=verbunden).json()["payload"]
+    einheiten = payload["trainingshistorie"]["einheiten"]
+
+    # Die Nachbildung gibt jeder Aktivität dieselbe Zonenverteilung mit.
+    assert all("zeit_in_hf_zonen_min" in e for e in einheiten)
+    assert einheiten[0]["zeit_in_hf_zonen_min"] == {"z1": 4, "z2": 24, "z3": 25, "z4": 5}
+
+    mit_abschnitten = [e for e in einheiten if "absolvierte_abschnitte" in e]
+    assert len(mit_abschnitten) == 1
+    assert mit_abschnitten[0]["absolvierte_abschnitte"] == [
+        {"art": "aufwaermen", "anzahl": 1, "dauer_min": 9, "hf_schnitt": 129},
+        {"art": "belastung", "anzahl": 6, "dauer_min": 17, "hf_schnitt": 163},
+    ]
+    assert mit_abschnitten[0]["workout_einhaltung_pct"] == 48
+    # Der rohe Typ sagt, ob drinnen oder draußen gefahren wurde.
+    assert mit_abschnitten[0]["garmin_typ"] == "running"
+
+
 def test_dubletten_werden_benannt_nicht_geloescht(client, verbunden, erfasse):
     """Wer früher von Hand nachgetragen hat, soll die Dubletten sehen.
 
@@ -944,7 +1072,11 @@ def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
     """Der Helfer muss eine Datenbank von vor der Garmin-Anbindung retten."""
     import sqlalchemy as sa
 
-    from app.database import _NACHGEREICHTE_INDIZES, _ergaenze_spalten
+    from app.database import (
+        _NACHGEREICHTE_INDIZES,
+        _NACHGEREICHTE_SPALTEN,
+        _ergaenze_spalten,
+    )
 
     pfad = tmp_path / "alt.db"
     alt = sa.create_engine(f"sqlite:///{pfad}")
@@ -987,13 +1119,30 @@ def test_migration_ergaenzt_spalten_einer_alten_datenbank(tmp_path):
         for ddl in _NACHGEREICHTE_INDIZES:
             verbindung.exec_driver_sql(ddl)
 
-    assert len(ergaenzt) == 9
+    # Keine feste Zahl: Die Liste wächst mit jedem neuen Feld, und ein
+    # Zählwerk hier hätte nur gemeldet, dass sie gewachsen ist. Geprüft wird,
+    # dass genau die fehlenden Spalten der beiden angelegten Tabellen ergänzt
+    # wurden — die alte Datenbank oben kennt keine davon.
+    erwartet = {
+        f"{tabelle}.{spalte}"
+        for tabelle in ("session_logs", "athlete_profiles")
+        for spalte in _NACHGEREICHTE_SPALTEN[tabelle]
+    }
+    assert set(ergaenzt) == erwartet
 
     with alt.connect() as verbindung:
         spalten = {
             r[1] for r in verbindung.exec_driver_sql("PRAGMA table_info(session_logs)")
         }
         assert {"source", "garmin_activity_id", "rpe_source", "garmin_feel"} <= spalten
+        # Wie die Einheit ausgeführt wurde — vier Spalten, die es an einer
+        # Datenbank aus der Zeit davor nicht gab.
+        assert {
+            "hr_zone_seconds",
+            "garmin_abschnitte",
+            "garmin_compliance",
+            "garmin_workout_id",
+        } <= spalten
 
         profilspalten = {
             r[1]

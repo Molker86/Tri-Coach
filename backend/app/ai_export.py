@@ -14,13 +14,15 @@ die dafür genau zur aktuellen Belastungslage passen.
 
 import json
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
 from .models import (
     AthleteProfile,
+    GarminAccount,
+    GarminWorkoutLink,
     Plan,
     PlanSession,
     SessionLog,
@@ -221,21 +223,37 @@ def _ist_einheit(lg: SessionLog) -> bool:
     return bool(lg.duration_min) or bool(lg.distance_km)
 
 
-def _geplant_war(lg: SessionLog) -> dict[str, Any] | None:
+def _geplant_war(
+    lg: SessionLog, ueber_workout: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Der Aufbau, der zu dieser absolvierten Einheit geplant war.
 
     Ohne ihn sieht die KI von einem Intervalltraining nur "29 min, 4,4 km,
     HF 150" und kann es nicht fortschreiben — aus 5x1000 m wird nie 6x1000 m,
-    weil die 5x1000 m nirgends stehen. Die Verknüpfung legt der Abgleich über
-    Tag und Sportart an (`garmin/matching.py`), der Aufbau liegt also vor; er
-    wurde nur nie exportiert.
+    weil die 5x1000 m nirgends stehen.
 
-    `None`, wo keine Planeinheit hängt: Ein spontanes Training hatte keine
+    **Zwei Wege dorthin, und der zweite ist der verlässlichere.** Der erste ist
+    `plan_session`, die der Abgleich über Tag *und* Sportart anlegt
+    (`garmin/matching.py`). Die Regel ist bewusst streng, weil an ihr die
+    Umsetzungsquote hängt — sie verfehlt aber jede Einheit, die an einem
+    anderen Tag stattfand als geplant. Genau das ist der Alltag: Ein Workout
+    liegt auf der Uhr und wird gestartet, wenn es passt. Am 17.08.2026 stand
+    die "Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren; die
+    Zuordnung fiel aus, obwohl der Block danebenlag.
+
+    Der zweite Weg geht über `metadataDTO.associatedWorkoutId` aus dem
+    Aktivitätsdetail: Die Uhr merkt sich, aus welchem Workout die Aktivität
+    entstanden ist, und `GarminWorkoutLink` kennt die Planeinheit dazu — **ohne
+    jeden Bezug auf den Tag**. `ueber_workout` ist das fertig aufgelöste
+    Ergebnis (siehe `_aufbau_je_workout`); die Auflösung selbst braucht die
+    Datenbank und gehört deshalb nicht hierher.
+
+    `None`, wo beide Wege nichts finden: Ein spontanes Training hatte keine
     Vorgabe, und eine leere Hülle sähe aus wie eine verfehlte.
     """
     ps = lg.plan_session
     if ps is None:
-        return None
+        return dict(ueber_workout) if ueber_workout else None
     geplant = {
         "titel": ps.title,
         "typ": ps.session_type,
@@ -246,8 +264,107 @@ def _geplant_war(lg: SessionLog) -> dict[str, Any] | None:
     return {k: v for k, v in geplant.items() if v is not None}
 
 
+def _aufbau_je_workout(
+    logs: list[SessionLog], links: list[Any]
+) -> dict[int, dict[str, Any]]:
+    """Löst `garmin_workout_id` über die Zuordnung zur Planeinheit auf.
+
+    Ergebnis je `SessionLog.id`, damit `_history_block` nur noch nachschlägt.
+
+    Zwei Dinge halten das davon ab, Falsches zu behaupten. **Der Pool wird
+    wiederverwendet**: Tri-Coach führt genau fünfzehn dauerhafte Vorlagen, und
+    dieselbe Kennung trägt nach ein paar Wochen einen ganz anderen Inhalt. Der
+    Treffer zählt deshalb nur, wenn die Vorlage **schon auf der Uhr lag, als
+    trainiert wurde** — ein später neu belegter Slot hat ein jüngeres
+    `pushed_at` und fällt heraus. Und **der Plantag kommt mit**, wo er vom
+    Trainingstag abweicht: Dass der Athlet die Donnerstagseinheit am Montag
+    gemacht hat, ist eine eigene Aussage und keine Ungenauigkeit.
+    """
+    je_kennung: dict[str, list[Any]] = {}
+    for link in links:
+        je_kennung.setdefault(link.garmin_workout_id, []).append(link)
+    ergebnis: dict[int, dict[str, Any]] = {}
+
+    for lg in logs:
+        if lg.plan_session is not None or not lg.garmin_workout_id:
+            continue
+        # Die Vorlage muss vor dem Training hochgeladen worden sein. Sollten
+        # trotzdem mehrere Zuordnungen auf derselben Kennung liegen, gewinnt
+        # die **jüngste davor** — sie beschreibt, was an dem Tag auf der Uhr
+        # stand. Ohne die Sortierung entschiede die Reihenfolge der Abfrage.
+        kandidaten = [
+            link
+            for link in je_kennung.get(lg.garmin_workout_id, [])
+            if link.plan_session is not None
+            and (link.pushed_at is None or link.pushed_at.date() <= lg.date)
+        ]
+        if not kandidaten:
+            continue
+        link = max(kandidaten, key=lambda l: l.pushed_at or datetime.min)
+
+        ps = link.plan_session
+        geplant = {
+            "titel": ps.title,
+            "typ": ps.session_type,
+            "aufbau": ps.structure,
+            "dauer_min": ps.duration_min,
+            "distanz_km": ps.distance_km,
+        }
+        geplant = {k: v for k, v in geplant.items() if v is not None}
+        if ps.date != lg.date:
+            geplant["geplant_fuer"] = ps.date.isoformat()
+        ergebnis[lg.id] = geplant
+
+    return ergebnis
+
+
+def _zonenminuten(sekunden: dict | None) -> dict[str, int] | None:
+    """Sekunden je Herzfrequenzzone als Minuten, nur wo etwas anliegt.
+
+    Minuten, weil der Athlet und die KI in Minuten denken und die Sekunde hier
+    Scheingenauigkeit wäre. Zonen unter einer halben Minute fallen heraus: Ein
+    "z5: 0" neben belegten Geschwistern liest sich wie eine Messung, und
+    dreißig Einheiten mal fünf Nullen kosten spürbar Platz im Prompt.
+    """
+    if not sekunden:
+        return None
+    minuten = {
+        f"z{nummer}": int(round(wert / 60))
+        for nummer, wert in sorted(sekunden.items())
+        if wert and round(wert / 60) >= 1
+    }
+    return minuten or None
+
+
+def _datenstand(konto: Any) -> dict[str, str] | None:
+    """Bis wann die Garmin-Daten reichen — und wann zuletzt geholt wurde.
+
+    Der Block wird täglich nach dem Abgleich gebaut. Läuft die Reihenfolge
+    einmal andersherum, fehlt das Training von gestern schlicht, und die KI
+    liest die Lücke als Ruhetag: Sie plant dann Aufbau auf einen Tag, an dem in
+    Wahrheit hart trainiert wurde. Diese zwei Zeilen sind das Einzige, was den
+    Unterschied zwischen "nicht trainiert" und "noch nicht geholt" hergibt.
+
+    `None` ohne verbundenes Konto — dieselbe Regel wie beim
+    `fitnessdaten`-Block: Ein leerer Stand behauptete eine Quelle, die es nicht
+    gibt, und ohne Uhr sagt der Prompt ohnehin schon, dass jede Historie fehlt.
+    """
+    if konto is None:
+        return None
+    stand: dict[str, str] = {}
+    if getattr(konto, "synced_through", None) is not None:
+        stand["garmin_daten_bis"] = konto.synced_through.isoformat()
+    if getattr(konto, "last_sync_at", None) is not None:
+        stand["letzter_abgleich"] = konto.last_sync_at.isoformat(timespec="minutes")
+    return stand or None
+
+
 def _history_block(
-    logs: list[SessionLog], profile: AthleteProfile | None, plan: Plan | None
+    logs: list[SessionLog],
+    profile: AthleteProfile | None,
+    plan: Plan | None,
+    workout_links: list[Any] | None = None,
+    garmin_konto: Any = None,
 ) -> dict[str, Any]:
     today = date.today()
     cutoff = today - timedelta(weeks=HISTORY_WEEKS)
@@ -261,6 +378,9 @@ def _history_block(
     max_hr = profile.max_hr if profile else None
     resting_hr = profile.resting_hr if profile else None
     sex = profile.sex if profile else None
+
+    # Einmal für alle Einheiten, nicht je Einheit eine Abfrage.
+    ueber_workout = _aufbau_je_workout(recent, workout_links or [])
 
     sessions = []
     for lg in recent:
@@ -295,8 +415,24 @@ def _history_block(
             "trimp": banister_trimp(
                 lg.duration_min, lg.avg_hr, resting_hr, max_hr, sex
             ),
+            # Garmins roher Aktivitätstyp. `indoor_cycling` gegen
+            # `road_biking` ist der einzige belastbare Hinweis darauf, ob
+            # drinnen oder draußen gefahren wurde — und daran hängt, ob ein
+            # Wattkorridor überhaupt etwas steuern kann.
+            "garmin_typ": lg.garmin_activity_type,
+            "kalorien": lg.calories,
             "notiz": lg.notes,
         }
+
+        # Wie die Einheit ausgeführt wurde. Alle drei fehlen, wo sie nicht
+        # belegt sind — dieselbe Regel wie bei `befinden_0_10`: Ein `null`
+        # wäre keine leere Angabe, sondern eine Behauptung.
+        if (zonen := _zonenminuten(lg.hr_zone_seconds)) is not None:
+            eintrag["zeit_in_hf_zonen_min"] = zonen
+        if lg.garmin_abschnitte:
+            eintrag["absolvierte_abschnitte"] = lg.garmin_abschnitte
+        if lg.garmin_compliance is not None:
+            eintrag["workout_einhaltung_pct"] = lg.garmin_compliance
 
         # Das Befinden steht nur an den wenigen Einheiten, die der Athlet in
         # Connect bewertet hat. Ein `null` an allen übrigen wäre kein leeres
@@ -313,7 +449,7 @@ def _history_block(
         if lg.rpe is not None:
             eintrag["rpe_quelle"] = lg.rpe_source
 
-        if (geplant := _geplant_war(lg)) is not None:
+        if (geplant := _geplant_war(lg, ueber_workout.get(lg.id))) is not None:
             eintrag["geplant_war"] = geplant
 
         sessions.append(eintrag)
@@ -350,6 +486,9 @@ def _history_block(
         "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(echte, today),
         "einheiten": sessions,
     }
+
+    if (stand := _datenstand(garmin_konto)) is not None:
+        block["datenstand"] = stand
 
     if plan is not None:
         block["umsetzung_aktueller_plan"] = compliance(plan.sessions, recent)
@@ -640,6 +779,8 @@ def build_payload(
     start_date: date | None = None,
     days: int = PLAN_DAYS_DEFAULT,
     ersetzt_block: bool = True,
+    garmin_konto: Any = None,
+    workout_links: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Das Datenpaket zum Athleten — Zustand, Wunsch, Verlauf, Zeitraum.
 
@@ -670,16 +811,25 @@ def build_payload(
     }
 
     ersatz = _ersatz_block(plan, start) if ersetzt_block else None
+
     if ersatz is not None:
         zeitraum["ersetzt_laufenden_block"] = ersatz
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "erzeugt_am": date.today().isoformat(),
+        # Mit Uhrzeit, und in Ortszeit. Wer täglich neu plant, plant den ersten
+        # Tag oft an einem Abend, von dem eine halbe Stunde übrig ist — als
+        # blankes Datum las die KI dort einen vollen Trainingstag und legte eine
+        # Einheit hinein. Ortszeit aus demselben Grund wie in
+        # `frontend/src/planung.ts`: UTC liefert hierzulande abends bereits den
+        # Folgetag.
+        "erzeugt_am": datetime.now().isoformat(timespec="minutes"),
         "athlet": _athlete_block(profile),
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request, date.today()),
-        "trainingshistorie": _history_block(logs, profile, plan),
+        "trainingshistorie": _history_block(
+            logs, profile, plan, workout_links, garmin_konto
+        ),
         "planungszeitraum": zeitraum,
     }
 
@@ -860,7 +1010,13 @@ Periodisierung über Monate. Die Athletendaten unten enthalten den tatsächliche
 Verlauf der letzten {historie_wochen} Wochen. Lies daraus ab, wo der Athlet gerade \
 steht, und setze diese {tage} Tage genau dort an. Der nächste Block wird später mit \
 frischen Daten erneut geplant — plane deshalb den bestmöglichen *nächsten Schritt*, \
-nicht einen vollständigen Trainingszyklus.{ersatzhinweis}
+nicht einen vollständigen Trainingszyklus.
+
+`erzeugt_am` nennt Datum **und Uhrzeit**. Beginnt der Block heute, ist der erste Tag \
+womöglich schon halb vorbei: Plane dann nur, was in die verbleibende Zeit passt, und \
+sieh in `trainingshistorie.einheiten` nach, ob für heute bereits etwas eingetragen \
+ist. Bleibt zu wenig übrig, ist Ruhe die richtige Antwort — eine Einheit, die nicht \
+mehr stattfinden kann, verfälscht ab morgen die Umsetzungsquote.{ersatzhinweis}
 
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und \
@@ -941,7 +1097,21 @@ das, um einen Reiz **um eine Stufe** weiterzuentwickeln (eine Wiederholung mehr,
 Minute länger, ein Korridor enger), statt eine unverbundene neue Einheit danebenzustellen. \
 Weicht die absolvierte Dauer deutlich von der geplanten ab, war die Vorgabe zu \
 ambitioniert: Plane die nächste näher an dem, was wirklich stattgefunden hat. Einheiten \
-ohne `geplant_war` waren spontan und sagen nichts über die Umsetzung einer Vorgabe.
+ohne `geplant_war` waren spontan und sagen nichts über die Umsetzung einer Vorgabe. \
+Steht dort `geplant_fuer`, wurde die Einheit an einem **anderen Tag** absolviert als \
+vorgesehen — die Vorgabe wurde also erfüllt, nur verschoben; das ist keine \
+Nichtumsetzung.
+    Wie die Einheit ausgeführt wurde, sagen drei weitere Felder, wo sie stehen. \
+`zeit_in_hf_zonen_min` ist die gemessene Zeitverteilung über die Herzfrequenzzonen \
+und damit die belastbarste Auskunft darüber, ob der geplante Reiz wirklich gesetzt \
+wurde — ein Schwellentraining ohne nennenswerte Zeit in Z4 war keins, gleich was der \
+Durchschnittspuls sagt. `absolvierte_abschnitte` nennt, wie viele Arbeitsabschnitte, \
+Pausen und wie viel Ein- und Ausrollen tatsächlich zustande kamen: Daran liest du ab, \
+ob aus 3x8 min drei oder zwei wurden, und schreibst **von dort** aus fort, nicht von \
+der Vorgabe. `workout_einhaltung_pct` ist Garmins eigene Bewertung (0-100), wie genau \
+das Workout eingehalten wurde; ein niedriger Wert bei hoher geplanter Dauer heißt, \
+dass die Einheit abgebrochen wurde — plane die nächste kleiner, nicht größer. Alle \
+drei fehlen an vielen Einheiten; ihr Fehlen ist keine Aussage.
 
 ## Ausgabeformat — zwingend einhalten
 Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
@@ -977,11 +1147,22 @@ Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 # entstanden ist, einen anderen Aufbau. Die Nummer kommt aus der Vorlage: In
 # der Einzelanpassung stehen sie an anderer Stelle.
 #
-# Achtung beim Ändern: Beide Texte gehen durch `.format()`. Geschweifte
-# Klammern müssten verdoppelt werden.
+# Achtung beim Ändern: Beide Texte gehen durch `.format()` — `PRINZIP_ERGAENZUNG`
+# zusätzlich durch ein eigenes, weil es das Begründungsfeld nennt und das je
+# Aufgabe anders heißt (`summary` beim Block, `begruendung` bei der
+# Einzelanpassung). `.format()` formatiert eingesetzte Werte **nicht** erneut,
+# der Platzhalter muss also gefüllt sein, bevor der Text in die Vorlage geht —
+# dieselbe Falle wie bei `FITNESSREGELN_*`. Geschweifte Klammern, die stehen
+# bleiben sollen, müssten verdoppelt werden.
 PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
 Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
-Schlüsseleinheit. Mobility kurz und regelmäßig. Bei `strength` und `mobility` ist \
+Schlüsseleinheit. Mobility kurz und regelmäßig — regelmäßig heißt aber **nicht \
+dasselbe noch einmal**: Sieh in `trainingshistorie.einheiten` nach, was die letzte \
+Kraft- oder Mobility-Einheit enthielt (`geplant_war.aufbau`, sonst `notiz`), und \
+wechsle Übungsauswahl und Körperregion. Dieselbe Region an zwei aufeinanderfolgenden \
+Tagen ist ein Fehler, kein Aufbau. Gibt es einen Grund dafür — eine Region, die \
+laut Fragebogen oder Historie akut zwickt —, ist die Wiederholung richtig; dann \
+sage in `{begruendungsfeld}` in einem Satz, warum. Bei `strength` und `mobility` ist \
 `structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
 durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
 Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
@@ -1095,6 +1276,10 @@ Anstrengung stammt. Sagen beide dasselbe, nimm den Block deutlich zurück.
 unterschlafen: Streiche die intensive Einheit und kürze die längste Einheit um etwa \
 ein Fünftel. Ein `stress_tagesmittel` über 50 oder eine niedrige Körperbatterie an \
 mehreren Tagen heißt: Umfang halten, Intensität zurücknehmen.
+   - `trainingshistorie.datenstand` sagt, bis wann die Daten aus der Uhr reichen. \
+Was nach `garmin_daten_bis` liegt, ist **nicht geholt** und ausdrücklich **nicht** \
+als Ruhetag zu lesen: Der Athlet kann dort trainiert haben, ohne dass es hier steht. \
+Leite aus dieser Lücke weder eine Pause noch frische Erholung ab.
    - Nenne in `{begruendungsfeld}` ausdrücklich, welcher dieser Werte deine \
 Entscheidung getragen hat."""
 
@@ -1233,6 +1418,18 @@ def _fitnessregeln(payload: dict[str, Any], begruendungsfeld: str) -> str:
     return vorlage.format(begruendungsfeld=begruendungsfeld)
 
 
+def _prinzip_ergaenzung(begruendungsfeld: str) -> str:
+    """Punkt 9, mit dem Begründungsfeld der jeweiligen Aufgabe.
+
+    Aus demselben Grund wie bei `_fitnessregeln()`: Der Text verweist auf das
+    Feld, in dem eine bewusst wiederholte Ergänzungseinheit zu begründen ist —
+    und das heißt beim Block `summary`, bei der Einzelanpassung `begruendung`.
+    Ein Verweis auf ein Feld, das das Antwortformat nicht kennt, ist eine
+    Aufforderung zum Danebenschreiben.
+    """
+    return PRINZIP_ERGAENZUNG.format(begruendungsfeld=begruendungsfeld)
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
     ersetzt = period.get("ersetzt_laufenden_block")
@@ -1253,7 +1450,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
             )
         ),
         fitnessregeln=_fitnessregeln(payload, "summary"),
-        prinzip_ergaenzung=PRINZIP_ERGAENZUNG,
+        prinzip_ergaenzung=_prinzip_ergaenzung("summary"),
         prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
         schema=json.dumps(RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
@@ -1272,7 +1469,7 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         wunsch=anpassung.get("wunsch_des_athleten", ""),
         historie_wochen=HISTORY_WEEKS,
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
-        prinzip_ergaenzung=PRINZIP_ERGAENZUNG,
+        prinzip_ergaenzung=_prinzip_ergaenzung("begruendung"),
         prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
         schema=json.dumps(EINHEIT_RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
@@ -1302,6 +1499,8 @@ class _Kontext:
     logs: list[SessionLog]
     plan: Plan | None
     wellness: list[WellnessDay]
+    garmin: Any
+    workout_links: list[GarminWorkoutLink]
 
 
 def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
@@ -1352,8 +1551,27 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         .all()
     )
 
+    # Bis wann die Daten reichen, und der Rückbezug vom Workout auf die
+    # Planeinheit. Beides hängt am Garmin-Konto und gehört deshalb hierher —
+    # sonst entschiede die Einzelanpassung auf einer schmaleren Grundlage als
+    # die Planung.
+    konto = db.query(GarminAccount).filter(GarminAccount.user_id == user.id).first()
+    links = (
+        db.query(GarminWorkoutLink)
+        .options(selectinload(GarminWorkoutLink.plan_session))
+        .filter(GarminWorkoutLink.user_id == user.id)
+        .all()
+        if konto is not None
+        else []
+    )
+
     return _Kontext(
-        request=training_request, logs=logs, plan=plan, wellness=wellness
+        request=training_request,
+        logs=logs,
+        plan=plan,
+        wellness=wellness,
+        garmin=konto,
+        workout_links=links,
     )
 
 
@@ -1383,6 +1601,8 @@ def erzeuge_export(
         wellness=kontext.wellness,
         start_date=start_date,
         days=days,
+        garmin_konto=kontext.garmin,
+        workout_links=kontext.workout_links,
     )
     return Export(payload=payload, prompt=build_prompt(payload))
 
@@ -1423,6 +1643,8 @@ def erzeuge_einheit_export(
         # Hier wird nichts verdrängt: Der Block bleibt, eine Einheit darin
         # ändert sich. Der Ersatzhinweis behauptete das Gegenteil.
         ersetzt_block=False,
+        garmin_konto=kontext.garmin,
+        workout_links=kontext.workout_links,
     )
     payload["einheit_anpassen"] = _anpassung_block(session, plan, wunsch)
 

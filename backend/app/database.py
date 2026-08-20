@@ -65,6 +65,15 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Aktivitätsdetail, und das wird für zurückliegende Einheiten nicht
         # noch einmal geholt (`sync.BEWERTUNGSFENSTER_TAGE`).
         "garmin_feel": "FLOAT",
+        # Wie die Einheit ausgeführt wurde. Alle vier bleiben an bestehenden
+        # Einheiten leer: Die Zonenzeiten stehen zwar in der Listenantwort, die
+        # übrigen drei im Aktivitätsdetail — und beides wird für zurückliegende
+        # Tage nicht noch einmal geholt (`sync.AKTUALISIERUNGSFENSTER_TAGE` = 5).
+        # Wer sie für die Historie will, stößt einen Rückblick an.
+        "hr_zone_seconds": "JSON",
+        "garmin_abschnitte": "JSON",
+        "garmin_compliance": "INTEGER",
+        "garmin_workout_id": "VARCHAR(32)",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",

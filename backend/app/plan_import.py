@@ -458,7 +458,10 @@ def uebernimm_plan(
     # Wer mitten im Block neu plant, lässt einen stillgelegten zurück. Trug er
     # nichts, verschwindet er hier; hängt Garmin daran, erst nach dem Aufräumen
     # dort (siehe plan_aufraeumen).
-    plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id)
+    # Nur was ganz in der Zukunft liegt: Das Training von heute steht
+    # womöglich schon auf der Uhr, aber noch nicht in dieser Datenbank. Den
+    # Rest räumt der nächste Garmin-Lauf, nach dem Import der Aktivitäten.
+    plan_aufraeumen.raeume_abgeloeste_plaene(db, user_id, nur_zukunft=True)
 
     # Und ab auf die Uhr — als Job, der auch den abgelösten Block aus dem
     # Kalender nimmt. Die Antwort wartet nicht darauf: Ein halbes Dutzend

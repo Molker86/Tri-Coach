@@ -317,6 +317,37 @@ class SessionLog(Base):
     garmin_training_load: Mapped[float | None] = mapped_column(Float)
     garmin_aerobic_te: Mapped[float | None] = mapped_column(Float)
     garmin_anaerobic_te: Mapped[float | None] = mapped_column(Float)
+
+    # Wie die Einheit *ausgeführt* wurde, nicht nur dass sie stattfand. Die
+    # Zeitverteilung über die Herzfrequenzzonen stand immer schon in derselben
+    # Listenantwort, aus der die Einheit entsteht — `mapping.schaetze_rpe()`
+    # las sie, schätzte daraus das RPE und warf sie weg. Ohne sie steht eine
+    # Schwelleneinheit als „37 min, HF-Schnitt 148" da, und niemand sieht, ob
+    # die Intervalle standen. Sekunden je Zone, nur belegte Zonen; `None` heißt
+    # „die Uhr hat keine Zonen aufgezeichnet" und ist etwas anderes als „alles
+    # in Z1".
+    hr_zone_seconds: Mapped[dict | None] = mapped_column(JSON)
+
+    # Garmins eigene Zusammenfassung der Abschnitte (`splitSummaries` im
+    # Aktivitätsdetail): wie viele Arbeitsabschnitte, Pausen, Ein- und
+    # Ausrollen tatsächlich absolviert wurden, jeweils mit Dauer und Puls. Das
+    # Detail wird für jede Einheit der letzten 42 Tage ohnehin geholt
+    # (`sync.BEWERTUNGSFENSTER_TAGE`) — es kostet keine zusätzliche Anfrage.
+    garmin_abschnitte: Mapped[list | None] = mapped_column(JSON)
+
+    # Garmins Urteil, wie gut das zugrunde liegende Workout eingehalten wurde
+    # (0-100). Steht nur an Einheiten, die aus einem Workout gestartet wurden.
+    # An der Schlüsseleinheit vom 19.08. stand hier 48 — die Einheit brach nach
+    # zwei Dritteln ab, und keine andere Zahl im Export sagte das.
+    garmin_compliance: Mapped[int | None] = mapped_column(Integer)
+
+    # Die Kennung des Workouts, aus dem diese Aktivität gestartet wurde
+    # (`metadataDTO.associatedWorkoutId`). Der **harte** Rückbezug auf die
+    # Planeinheit: `plan_session_id` entsteht nur bei gleichem Tag *und*
+    # gleicher Sportart, und wer ein Workout von der Uhr einen Tag später
+    # startet, verliert die Zuordnung. Über `GarminWorkoutLink` findet
+    # `ai_export._geplant_war()` den Aufbau trotzdem.
+    garmin_workout_id: Mapped[str | None] = mapped_column(String(32))
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
     # für intensive Einheiten für die meisten Einheiten aus. Die Quelle geht in
     # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann:
@@ -560,6 +591,12 @@ class GarminWorkoutLink(Base):
     pushed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+    # Nur in diese Richtung und ohne Gegenstück: Der Export löst über die
+    # Workout-Kennung die Planeinheit auf (`ai_export._aufbau_je_workout`), und
+    # eine Rückrichtung an `PlanSession` bräuchte niemand. Gelöscht wird der
+    # Link weiterhin über `ondelete="CASCADE"` an der Fremdschlüsselspalte.
+    plan_session: Mapped["PlanSession"] = relationship()
 
 
 # --------------------------------------------------------------------------

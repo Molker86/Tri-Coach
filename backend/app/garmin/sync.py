@@ -34,6 +34,7 @@ from .mapping import (
     als_zahl,
     bestzeiten,
     bewertung_aus_detail,
+    detail_zu_feldern,
     erster_wert,
     ftp_watt,
     gewicht_kg,
@@ -239,10 +240,14 @@ def importiere_aktivitaeten(
 
         # Erst jetzt das Detail: Es kostet eine eigene Anfrage je Einheit, und ob
         # die Aktivität überhaupt als Training zählt, weiß erst der Mapper.
+        # Aus derselben Antwort kommt neben der Selbstauskunft auch, wie die
+        # Einheit ausgeführt wurde — Abschnitte, Einhaltung, Workout-Kennung.
+        # Die wurden bis hierher gelesen und weggeworfen.
         if felder["date"] >= bewertung_ab:
-            bewertung = _hole_bewertung(api, felder["garmin_activity_id"], ergebnis)
-            if bewertung is not None:
-                uebernimm_bewertung(felder, bewertung)
+            detail = _hole_detail(api, felder["garmin_activity_id"], ergebnis)
+            if detail is not None:
+                uebernimm_bewertung(felder, bewertung_aus_detail(detail))
+                felder.update(detail_zu_feldern(detail))
 
         kinder = kinder_je_eltern.get(str(aktivitaet.get("activityId")))
         if kinder:
@@ -260,27 +265,32 @@ def importiere_aktivitaeten(
         db.commit()
 
 
-def _hole_bewertung(
+def _hole_detail(
     api: Any, aktivitaets_id: str, ergebnis: SyncErgebnis
 ) -> dict[str, Any] | None:
-    """Holt Anstrengung und Befinden einer Einheit. `None`, wenn es nicht klappt.
+    """Holt das Aktivitätsdetail. `None`, wenn es nicht klappt.
 
     Ein Fehlschlag darf hier nichts kosten: Das Training selbst steht schon
-    fest, es fehlte nur die Selbstauskunft. Die Anfragesperre bleibt die
+    fest, es fehlten nur die Zusatzangaben. Die Anfragesperre bleibt die
     Ausnahme und beendet den Lauf (`_hole_geschuetzt`).
+
+    Gibt die **ganze** Antwort zurück, nicht nur die Selbstauskunft daraus:
+    Dieselbe Anfrage trägt auch die absolvierten Abschnitte, Garmins
+    Einhaltungsbewertung und die Workout-Kennung. Wer sie hier schon auf ein
+    Teilergebnis einkocht, zahlt für den Rest ein zweites Mal.
 
     Die Pause steht im `finally`, damit auch eine Reihe von Fehlschlägen die
     Gegenstelle nicht im Sekundentakt trifft.
     """
     try:
         detail = _hole_geschuetzt(
-            "Bewertung", ergebnis, lambda: api.get_activity(aktivitaets_id), melde=False
+            "Detail", ergebnis, lambda: api.get_activity(aktivitaets_id), melde=False
         )
     finally:
         if BEWERTUNG_PAUSE_SEKUNDEN:
             time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
 
-    return None if detail is None else bewertung_aus_detail(detail)
+    return detail if isinstance(detail, dict) else None
 
 
 def _speichere_aktivitaet(
