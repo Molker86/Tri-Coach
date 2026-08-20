@@ -6,7 +6,7 @@ normalisiert und unbekannte Zusatzfelder ignoriert, damit ein inhaltlich
 korrekter Plan nicht an Formalien scheitert.
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -18,6 +18,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from .zeit import UtcDatetime
 
 # --------------------------------------------------------------------------
 # Normalisierung
@@ -147,7 +149,7 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     username: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class TokenOut(BaseModel):
@@ -192,7 +194,7 @@ class ProfileOut(ProfileIn):
     # `ProfileIn`: Ein Teil-Update aus dem Formular würde es sonst leeren.
     garmin_personal_bests: list[dict[str, Any]] | None = None
 
-    updated_at: datetime | None = None
+    updated_at: UtcDatetime | None = None
     age: int | None = None
     bmi: float | None = None
     hr_zones: list[dict[str, Any]] = []
@@ -201,7 +203,7 @@ class ProfileOut(ProfileIn):
 class ProfileHistoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    recorded_at: datetime
+    recorded_at: UtcDatetime
     weight_kg: float | None = None
     resting_hr: int | None = None
     hrv_rmssd: float | None = None
@@ -251,7 +253,7 @@ class TrainingRequestOut(TrainingRequestIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # --------------------------------------------------------------------------
@@ -591,7 +593,7 @@ class PlanSessionOut(BaseModel):
     logged: bool = False
     # Einzeln nachträglich angepasst. Beide Felder fehlen an allem, was seit
     # der Planung des Blocks unverändert steht.
-    angepasst_am: datetime | None = None
+    angepasst_am: UtcDatetime | None = None
     anpassungswunsch: str | None = None
 
 
@@ -605,7 +607,7 @@ class PlanOut(BaseModel):
     start_date: date
     end_date: date
     is_active: bool
-    created_at: datetime
+    created_at: UtcDatetime
     sessions: list[PlanSessionOut] = []
 
 
@@ -617,7 +619,7 @@ class PlanSummaryOut(BaseModel):
     start_date: date
     end_date: date
     is_active: bool
-    created_at: datetime
+    created_at: UtcDatetime
     session_count: int = 0
 
 
@@ -664,7 +666,7 @@ class SessionLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
     plan_session_id: int | None = None
     date: date
     sport: str
@@ -734,11 +736,11 @@ class GarminAccountOut(BaseModel):
     email: str
     status: str
     status_message: str | None = None
-    connected_at: datetime
-    last_sync_at: datetime | None = None
+    connected_at: UtcDatetime
+    last_sync_at: UtcDatetime | None = None
     backfill_from: date | None = None
     synced_through: date | None = None
-    rate_limited_until: datetime | None = None
+    rate_limited_until: UtcDatetime | None = None
     auto_sync_enabled: bool
     profile_sync_enabled: bool
     auto_push_enabled: bool
@@ -756,8 +758,8 @@ class GarminJobOut(BaseModel):
     id: int
     kind: str
     state: str
-    started_at: datetime
-    finished_at: datetime | None = None
+    started_at: UtcDatetime
+    finished_at: UtcDatetime | None = None
     range_start: date | None = None
     range_end: date | None = None
     cursor_date: date | None = None
@@ -940,8 +942,8 @@ class KiJobOut(BaseModel):
     id: int
     kind: str
     state: str
-    started_at: datetime
-    finished_at: datetime | None = None
+    started_at: UtcDatetime
+    finished_at: UtcDatetime | None = None
     start_date: date | None = None
     days: int
     plan_id: int | None = None

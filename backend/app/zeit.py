@@ -13,6 +13,9 @@ normalisiert: Was ohne Zeitzone aus der Datenbank kommt, ist UTC.
 """
 
 from datetime import datetime, timezone
+from typing import Annotated
+
+from pydantic import PlainSerializer
 
 
 def jetzt_utc() -> datetime:
@@ -31,3 +34,24 @@ def als_utc(zeitpunkt: datetime | None) -> datetime | None:
 def liegt_in_der_zukunft(zeitpunkt: datetime | None) -> bool:
     normalisiert = als_utc(zeitpunkt)
     return normalisiert is not None and normalisiert > jetzt_utc()
+
+
+def _als_utc_iso(zeitpunkt: datetime) -> str:
+    """Serialisiert einen Zeitstempel *mit* Zeitzone — sonst rät der Browser.
+
+    Die Spalten stehen ohne Zeitzone in der Datenbank (siehe oben), und Pydantic
+    gibt sie genauso wieder heraus: `"2026-08-20T04:10:12"` ohne `Z`. JavaScript
+    liest eine Datum-Zeit-Angabe ohne Versatz aber als **Ortszeit** — in Wien
+    also zwei Stunden zu früh. Ein Abgleich, der gerade gelaufen war, stand
+    deshalb als „vor 2 Stunden" in der Oberfläche.
+    """
+    if zeitpunkt.tzinfo is None:
+        zeitpunkt = zeitpunkt.replace(tzinfo=timezone.utc)
+    return zeitpunkt.isoformat()
+
+
+# Für jedes Ausgabefeld, das einen Zeitstempel trägt. Ein blankes `datetime`
+# dort ist ein Fehler — `test_zeitstempel_tragen_ihre_zeitzone` hält das fest.
+UtcDatetime = Annotated[
+    datetime, PlainSerializer(_als_utc_iso, return_type=str, when_used="json")
+]

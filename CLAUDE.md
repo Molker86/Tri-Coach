@@ -74,7 +74,7 @@ eine andere KI.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 365 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 367 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -778,6 +778,26 @@ bei manchen Zeitzonen doppelt versetzt). Wer das „vereinheitlicht", verschiebt
 entweder alle Trainings oder alle Schlafwerte um einen Tag. Verwandt: SQLite
 gibt Zeitstempel ohne Zeitzone zurück, ein Vergleich mit `now(timezone.utc)`
 wirft — dafür gibt es `app/zeit.py`.
+
+**Zeitstempel verlassen die API mit ihrer Zeitzone** (`zeit.UtcDatetime`). Die
+Spalten stehen ohne Zeitzone in der Datei und meinen UTC; Pydantic gab sie
+genauso heraus — `"2026-08-20T04:10:12"` ohne `Z`. JavaScript liest eine
+Datum-*Zeit*-Angabe ohne Versatz aber als **Ortszeit**, und damit stand ein
+Abgleich, der zwei Minuten zurücklag, in der Oberfläche als „vor 2 Stunden": der
+Sommerzeitversatz, auf die Minute. Der Fehler war unauffällig, weil er wie ein
+nicht gelaufener Abgleich aussieht — der Nutzer drückt „Jetzt synchronisieren",
+der Lauf gelingt, und die Anzeige rührt sich scheinbar nicht.
+
+Geheilt wird das an der Serialisierungsgrenze und nicht im Frontend: Betroffen
+war jedes der fünfzehn Zeitstempelfelder, nicht nur `last_sync_at`, und eine
+Umrechnung je Anzeigestelle liefe irgendwann auseinander. **Jedes Ausgabefeld
+mit Uhrzeit trägt deshalb `UtcDatetime` statt `datetime`** — `date`-Felder
+ausdrücklich nicht, ein Geburtstag hat keine Uhrzeit und keinen Versatz.
+`test_zeitstempel_tragen_ihre_zeitzone` geht dafür über *alle* Schemas, damit
+ein neu ergänztes Feld nicht still in denselben Fehler zurückfällt; geprüft
+wird über das echte Modell, weil Pydantic die Anmerkungen eines Pflichtfelds
+nach `FieldInfo.metadata` herauszieht und ein nachgebauter `TypeAdapter` den
+Serialisierer gerade dort verlöre.
 
 **Fitnessdaten sind ein eigener Block im Export, nicht Teil der Historie**
 (`ai_export._fitness_block`). Die Historie beschreibt absolvierte *Einheiten*,
@@ -1596,6 +1616,9 @@ Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
   Pydantic-Schema, muss der Typ mitgezogen werden — es gibt keine Codegenerierung.
 - Profil-Updates sind Teil-Updates (`exclude_unset`): Ein Formular, das nur ein
   Feld schickt, darf die anderen nicht löschen.
+- Ein Ausgabefeld mit Uhrzeit bekommt `zeit.UtcDatetime`, nie ein blankes
+  `datetime` — sonst liest der Browser es als Ortszeit (siehe „Zeitstempel
+  verlassen die API mit ihrer Zeitzone").
 - Änderungen an Gewicht, Ruhepuls, HRV, VO2max, Maximalpuls oder FTP schreiben
   automatisch einen Eintrag in `ProfileHistory` — über
   `profile_sync.uebernehme_profilwerte()`, gleich ob von Hand oder aus Garmin.

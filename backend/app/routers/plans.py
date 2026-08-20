@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -30,6 +30,7 @@ from ..schemas import (
     PlanSummaryOut,
     putze_wunsch,
 )
+from ..zeit import jetzt_utc
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -192,7 +193,10 @@ def validate_plan(data: PlanImportIn, user: CurrentUser) -> PlanImportOut:
             start_date=preview.start_date,
             end_date=preview.end_date,
             is_active=False,
-            created_at=datetime.now(),
+            # Reine Vorschau (id=0) — landet nie in der Datenbank. Trotzdem
+            # UTC: Seit die Zeitstempel der API ihre Zeitzone mitführen,
+            # käme eine Ortszeit hier als UTC beschriftet heraus.
+            created_at=jetzt_utc(),
             sessions=[
                 PlanSessionOut(
                     id=0,
