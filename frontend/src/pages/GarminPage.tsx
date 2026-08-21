@@ -21,6 +21,7 @@ const SCHRITTE = [
   'Körperbatterie',
   'Erholungswerte',
   'Leistungswerte',
+  'Übungskatalog',
 ]
 
 function vorTagen(tage: number): string {

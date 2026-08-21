@@ -1,10 +1,14 @@
 """Liest nach, was im Aktivitätsdetail von Garmin tatsächlich steht.
 
-Hintergrund: `sync._hole_bewertung()` holt für **jede** Einheit der letzten 42
-Tage bereits `get_activity(id)` — gelesen werden daraus genau zwei Felder
-(Anstrengung und Befinden des Athleten). Alles andere fällt weg. Ob dort steht,
-wie die Einheit ausgeführt wurde (wie viele Intervalle, wie lang, mit welchem
-Puls), ist nirgends dokumentiert.
+Hintergrund: `sync._hole_detail()` holt für **jede** Einheit der letzten 42
+Tage bereits `get_activity(id)` und liest daraus die Selbstauskunft des
+Athleten, die absolvierten Abschnitte, Garmins Einhaltungsbewertung und den
+Rückbezug aufs Workout. Was sonst noch darin steht, ist nirgends dokumentiert.
+
+Bei Kraft und Mobility kommt eine zweite Frage dazu: Was
+`get_activity_exercise_sets(id)` zurückgibt — die von der Uhr gezählten Sätze
+samt Übungsnamen — trägt seit `mapping.uebungen_aus_saetzen()` die Spalte
+`SessionLog.garmin_uebungen`, und ihre Form ist ebenso undokumentiert.
 
 Dieses Skript beantwortet die Frage am echten Konto, statt sie zu vermuten — die
 Lehre aus Schlaf und Körperbatterie: Eine Nachbildung, die der Entwickler nach
@@ -202,9 +206,19 @@ def _zeige_detail(api: Any, log: SessionLog) -> None:
             if not liste:
                 print(f"  keine Sätze — Antwort: {_kuerze(saetze, 240)}")
             else:
-                print(f"  {len(liste)} Sätze, die ersten drei:")
-                for eintrag in liste[:3]:
-                    print(f"    {_kuerze(eintrag, 320)}")
+                # Alle Sätze, nicht nur drei: Der Parser gruppiert sie zu
+                # Übungen, und ob die Gruppierung trägt, sieht man erst an der
+                # ganzen Reihe. Dazu die Vereinigung der Schlüsselnamen — sie
+                # sagt, welche Felder es überhaupt gibt, auch wenn ein
+                # einzelner Satz eins davon nicht trägt.
+                schluessel: set[str] = set()
+                for eintrag in liste:
+                    if isinstance(eintrag, dict):
+                        schluessel.update(eintrag)
+                print(f"  {len(liste)} Sätze")
+                print(f"  Schlüssel über alle Sätze: {', '.join(sorted(schluessel))}")
+                for eintrag in liste:
+                    print(f"    {_kuerze(eintrag, 800)}")
 
 
 def _api_aus_datenbank(user_id: int | None) -> Any:

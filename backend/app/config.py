@@ -12,6 +12,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
+# Garmins Übungskatalog, täglich beim Abgleich geholt. Er gehört neben die
+# Datenbank und nicht ins Abbild: Im Add-on überlebt nur `/data` ein Update,
+# alles unter `/app` wird neu gebaut — der heruntergeladene Stand wäre nach
+# jedem Update weg.
+KATALOG_DIR = DATA_DIR
+# Die Erstausstattung dagegen liegt im Abbild und wird mitversioniert. Ohne sie
+# stünde eine frische Installation ohne Netz gänzlich ohne Katalog da.
+KATALOG_MITGELIEFERT = BASE_DIR / "app" / "garmin" / "katalogdaten"
+
 
 
 def _load_secret_key() -> str:

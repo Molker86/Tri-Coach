@@ -336,6 +336,17 @@ class SessionLog(Base):
     # (`sync.BEWERTUNGSFENSTER_TAGE`) — es kostet keine zusätzliche Anfrage.
     garmin_abschnitte: Mapped[list | None] = mapped_column(JSON)
 
+    # Die Übungen, die die Uhr in einer Kraft- oder Mobility-Einheit gezählt
+    # hat (`get_activity_exercise_sets`, `mapping.uebungen_aus_saetzen`) — mit
+    # Garmins Katalognamen, Satzzahl und Wiederholungen bzw. Haltedauer. Bis
+    # hierher stand im Export nur, was geplant *war*: Für Ausdauereinheiten
+    # schließt `garmin_abschnitte` die Lücke zwischen Vorgabe und Ausführung,
+    # für diese beiden Sportarten klaffte sie weiter. Anders als die vier
+    # Nachbarn kostet die Spalte eine **eigene** Anfrage je Einheit — deshalb
+    # nur für `workouts.UEBUNGSSPORTARTEN` und nur innerhalb von
+    # `sync.BEWERTUNGSFENSTER_TAGE`.
+    garmin_uebungen: Mapped[list | None] = mapped_column(JSON)
+
     # Garmins Urteil, wie gut das zugrunde liegende Workout eingehalten wurde
     # (0-100). Steht nur an Einheiten, die aus einem Workout gestartet wurden.
     # An der Schlüsseleinheit vom 19.08. stand hier 48 — die Einheit brach nach

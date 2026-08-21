@@ -52,12 +52,12 @@ from . import uebungen
 # `rest` fehlt bewusst: Ein Ruhetag ist kein Training und hat auf der Uhr nichts
 # verloren.
 #
-# Mobility läuft als Garmins „Mobility“ und nicht mehr als Yoga: Der
-# Übungskatalog hängt an der Sportart des Workouts, und Yoga hat einen eigenen
-# Posenkatalog, den Garmin nicht herausgibt. Die Dehn- und Mobilisationsübungen
-# aus dem Katalog der Bibliothek (Child's Pose, Cat Cow, Pigeon Pose …) gehören
-# zur Kraftseite — unter Yoga bekämen sie keine Animation, unter Mobility nach
-# aller Wahrscheinlichkeit schon.
+# Mobility läuft als Garmins „Mobility“ und nicht als Yoga: Der Übungskatalog
+# hängt an der Sportart des Workouts, und für Yoga gibt Garmin keinen
+# Posenkatalog heraus. Für Mobility schon — `Mobility.json` führt neben den
+# Dehnungen aus dem Kraftkatalog (Child's Pose, Cat Cow, Pigeon Pose …) die
+# Kategorien `POSE` und `MOVE` mit den Yogaposen. Unter Yoga bekäme davon
+# nichts eine Animation.
 SPORT_ZU_GARMIN: dict[str, tuple[int, str, int]] = {
     "run": (SportType.RUNNING, "running", 1),
     "bike": (SportType.CYCLING, "cycling", 2),
@@ -69,6 +69,12 @@ SPORT_ZU_GARMIN: dict[str, tuple[int, str, int]] = {
 
 # Sportarten, deren Aufbautext eine Übungsliste ist und kein Zeitverlauf.
 UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
+
+# Welchen der beiden Übungskataloge eine Sportart benutzt. Garmin führt sie
+# getrennt: Die Yogaposen und Dehnungen aus `POSE`/`MOVE` gibt es nur unter
+# Mobility, und eine dort entliehene Kennung nähme ein Krafttraining mit
+# einem 400 für das ganze Workout mit.
+_SPORT_ZU_KATALOG = {"strength": "kraft", "mobility": "mobility"}
 
 # Bahnlänge für Schwimm-Workouts. Garmin verlangt sie am Workout; die App fragt
 # sie nirgends ab, und 25 m ist das, was in Deutschland im Hallenbad liegt. Wer
@@ -828,7 +834,11 @@ def _schritt_aus_eintrag(eintrag: Any, sport: str) -> Schritt | None:
         # Der Name steht als eigenes Feld da und muss nicht mehr aus einer
         # Zeile voller Beiwerk gefischt werden. Fehlt er, greift der bisherige
         # Weg über den Schritttext.
-        uebung = uebungen.finde(eintrag.get("exercise_en")) or uebungen.finde(text)
+        welcher = _SPORT_ZU_KATALOG[sport]
+        uebung = (
+            uebungen.finde(eintrag.get("exercise_en"), welcher)
+            or uebungen.finde(text, welcher)
+        )
 
     # `_schritt_json` schlägt die Art in `_SCHRITT_TYPEN` nach. Was dort nicht
     # steht, ist Arbeit — die Angabe kommt aus einem JSON-Feld, und ein Tippfehler
@@ -868,7 +878,7 @@ def _als_zahl(wert: Any) -> float | None:
     return float(wert) if wert > 0 else None
 
 
-def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
+def zerlege_uebungsliste(struktur: str | None, sport: str) -> list[Element]:
     """Jede Übung wird ein Abschnitt — Sätze als Wiederholungsgruppe mit Timer.
 
     „2x45 s je Seite“ ist keine Zeile für den Athleten zum Selberzählen,
@@ -914,13 +924,13 @@ def zerlege_uebungsliste(struktur: str | None) -> list[Element]:
     if len(teile) < 2:
         return []
 
-    return [_uebungselement(teil) for teil in teile]
+    return [_uebungselement(teil, sport) for teil in teile]
 
 
-def _uebungselement(teil: str) -> Element:
+def _uebungselement(teil: str, sport: str) -> Element:
     """Eine Übungszeile als Schritt — mit Serie darum, wenn sie Sätze nennt."""
     durchgaenge, dauer_s, wiederholungen, je_seite = _uebungsumfang(teil)
-    uebung = uebungen.finde(teil)
+    uebung = uebungen.finde(teil, _SPORT_ZU_KATALOG[sport])
 
     text = _beschriftung(teil, uebung)
     if dauer_s or wiederholungen:
@@ -1549,11 +1559,13 @@ def baue_workout(
         raise ValueError(f"Sportart '{session.sport}' lässt sich nicht übertragen.")
 
     zonen = zonen or {}
-    zerlegen = (
-        zerlege_uebungsliste
-        if session.sport in UEBUNGSSPORTARTEN
-        else zerlege_struktur
-    )
+    # Zwei Grammatiken: Bei Kraft und Mobility beschreibt `structure` eine
+    # Übungsliste, sonst einen Zeitverlauf. Die Übungsliste braucht zusätzlich
+    # die Sportart, weil an ihr der Übungskatalog hängt.
+    def zerlegen(struktur: str | None) -> list[Element]:
+        if session.sport in UEBUNGSSPORTARTEN:
+            return zerlege_uebungsliste(struktur, session.sport)
+        return zerlege_struktur(struktur)
     # Der Bauplan der KI vor dem Fließtext, der Fließtext vor dem Ersatzschritt.
     # Die Reihenfolge ist die ganze Änderung: Was die KI ausdrücklich sagt,
     # muss nicht aus ihrer Prosa zurückgerechnet werden. Der Zerleger bleibt

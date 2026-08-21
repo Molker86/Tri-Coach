@@ -23,7 +23,48 @@ os.environ["TRI_GARMIN_AUTOSYNC"] = "0"
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.database import init_db  # noqa: E402
+from app.garmin import katalog  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+# Die echten Fassungen, bevor die Sperre unten sie ersetzt. `test_garmin_katalog`
+# prüft den Abruf selbst und holt sie sich über `echter_katalogabruf` zurück.
+_ECHTES_IST_FRISCH = katalog._ist_frisch
+
+
+@pytest.fixture(autouse=True)
+def kein_katalog_download(request, monkeypatch):
+    """Kein Netzzugriff aus Tests heraus.
+
+    Der Abgleich holt zum Schluss Garmins Übungskatalog — zwei öffentliche
+    JSON-Dateien, also ohne Anmeldung erreichbar und damit anders als der Rest
+    nicht schon durch die Attrappe der Garmin-API abgefangen. Ungebremst liefe
+    jeder Sync-Test tatsächlich ins Netz und schriebe nebenbei in `data/`.
+
+    Stillgelegt wird über die Frischeprüfung und nicht über `_hole`: So läuft
+    der Schritt durch, ohne einen Hinweis an die Meldung des Laufs zu hängen —
+    ein Fehlschlag stünde sonst in jeder Erfolgsmeldung, die ein Sync-Test
+    prüft. `_hole` wird zusätzlich verriegelt, damit ein künftiger Weg daran
+    vorbei auffällt statt still ins Netz zu gehen.
+    """
+    if "echter_katalogabruf" in request.fixturenames:
+        return
+
+    def nicht_im_test(adresse: str) -> bytes:
+        raise AssertionError(f"Unerwarteter Netzzugriff auf {adresse}")
+
+    monkeypatch.setattr(katalog, "_hole", nicht_im_test)
+    monkeypatch.setattr(katalog, "_ist_frisch", lambda ziel: True)
+
+
+@pytest.fixture
+def echter_katalogabruf():
+    """Hebt die Sperre oben auf — für die Tests des Abrufs selbst.
+
+    Sie ersetzen `_hole` durch ihre eigene Attrappe; ins Netz geht auch damit
+    nichts.
+    """
+    return _ECHTES_IST_FRISCH
 
 
 @pytest.fixture(scope="module")

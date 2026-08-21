@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import AthleteProfile, SessionLog, WellnessDay
+from . import katalog
 from .errors import GarminRateLimit
 from .mapping import (
     aktivitaet_zu_log,
@@ -44,8 +45,10 @@ from .mapping import (
     schwellenpuls,
     teile_multisport,
     uebernimm_bewertung,
+    uebungen_aus_saetzen,
 )
 from .matching import finde_offene_planeinheit
+from .workouts import UEBUNGSSPORTARTEN
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +251,14 @@ def importiere_aktivitaeten(
             if detail is not None:
                 uebernimm_bewertung(felder, bewertung_aus_detail(detail))
                 felder.update(detail_zu_feldern(detail))
+            # Die gezählten Übungen kosten eine **zweite** Anfrage und gibt es
+            # nur, wo die Uhr Sätze zählt. Deshalb erst hier und nur für diese
+            # beiden Sportarten — bei einem Lauf wäre der Endpunkt leer.
+            if felder["sport"] in UEBUNGSSPORTARTEN:
+                saetze = _hole_uebungssaetze(api, felder["garmin_activity_id"], ergebnis)
+                uebungen = uebungen_aus_saetzen(saetze)
+                if uebungen:
+                    felder["garmin_uebungen"] = uebungen
 
         kinder = kinder_je_eltern.get(str(aktivitaet.get("activityId")))
         if kinder:
@@ -291,6 +302,30 @@ def _hole_detail(
             time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
 
     return detail if isinstance(detail, dict) else None
+
+
+def _hole_uebungssaetze(api: Any, aktivitaets_id: str, ergebnis: SyncErgebnis) -> Any:
+    """Holt die von der Uhr gezählten Sätze. `None`, wenn es nicht klappt.
+
+    Zwilling von `_hole_detail()` und aus denselben Gründen so gebaut: Ein
+    Fehlschlag darf nichts kosten — das Training steht schon fest, es fehlte
+    nur die Übungsliste —, die Anfragesperre bleibt die Ausnahme und beendet
+    den Lauf, und die Pause steht im `finally`, damit auch eine Reihe von
+    Fehlschlägen die Gegenstelle nicht im Sekundentakt trifft.
+
+    `melde=False` aus demselben Grund wie dort: Ein Hinweis je Endpunkt ist
+    eine Zeile in der Bilanz, vierzig gleiche wären Lärm.
+    """
+    try:
+        return _hole_geschuetzt(
+            "Übungssätze",
+            ergebnis,
+            lambda: api.get_activity_exercise_sets(aktivitaets_id),
+            melde=False,
+        )
+    finally:
+        if BEWERTUNG_PAUSE_SEKUNDEN:
+            time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
 
 
 def _speichere_aktivitaet(
@@ -777,7 +812,8 @@ def fuehre_sync_aus(
     )
 
     # Trainings + 6 Bereichsabfragen + Tagesschleife (+ Leistungswerte)
-    schritte_gesamt = 9 if mit_leistungswerten else 8
+    # + Übungskatalog
+    schritte_gesamt = (9 if mit_leistungswerten else 8) + 1
 
     fortschritt.schritt("Trainings", 1, schritte_gesamt)
     importiere_aktivitaeten(db, api, user_id, profil, von, bis, ergebnis)
@@ -805,8 +841,18 @@ def fuehre_sync_aus(
     # Schritt, wenn die Profil-Nachführung abgeschaltet ist — die Werte hätten
     # dann keinen Empfänger.
     if mit_leistungswerten:
-        fortschritt.schritt("Leistungswerte", schritte_gesamt, schritte_gesamt)
+        fortschritt.schritt("Leistungswerte", schritte_gesamt - 1, schritte_gesamt)
         ergebnis.leistungswerte = hole_leistungswerte(api, ergebnis)
+
+    # Ganz zum Schluss und als einziger Schritt **nicht** gegen Garmins API:
+    # zwei öffentliche JSON-Dateien mit dem Übungskatalog. Sie hängen hier dran,
+    # weil sie einmal am Tag frisch sein sollen und der Abgleich der einzige
+    # tägliche Lauf ist — eine zweite Weckschleife dafür wäre Aufwand ohne
+    # Gegenwert. `aktualisiere()` wirft nicht: Der Abgleich ist zu diesem
+    # Zeitpunkt fertig, und der gespeicherte Katalog von gestern ist eine
+    # brauchbare Antwort.
+    fortschritt.schritt("Übungskatalog", schritte_gesamt, schritte_gesamt)
+    ergebnis.hinweise.extend(katalog.aktualisiere())
 
     ergebnis.fitness_tage = len(
         db.scalars(

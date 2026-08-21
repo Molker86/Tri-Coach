@@ -659,6 +659,102 @@ def abschnitte_aus_detail(detail: Any) -> list[dict[str, Any]] | None:
     return abschnitte or None
 
 
+# Garmins Übungserkennung meldet `UNKNOWN`, wo sie eine Bewegung nicht
+# zuordnen konnte — in `category` wie in `name`. Das ist keine Übung, sondern
+# ein Achselzucken, und als Zeile im Export wäre es eine Behauptung über eine
+# Einheit, zu der niemand etwas weiß.
+_UEBUNG_UNBEKANNT = "UNKNOWN"
+
+# Eine Pause führt Garmin als eigenen Satz mit `exercises: []`. Sie steht für
+# die Satzpause, nicht für eine Übung.
+_SATZ_AKTIV = "ACTIVE"
+
+
+def uebungen_aus_saetzen(saetze: Any) -> list[dict[str, Any]] | None:
+    """Die absolvierten Übungen aus `get_activity_exercise_sets()`.
+
+    Das ist die einzige Auskunft darüber, was in einer Kraft- oder
+    Mobility-Einheit *wirklich* passiert ist. Bisher stand im Export nur, was
+    geplant *war* (`geplant_war.aufbau`) — für Ausdauereinheiten schließt
+    `abschnitte_aus_detail()` genau diese Lücke, hier klaffte sie weiter.
+
+    Am echten Konto abgelesen (`scripts/garmin_aktivitaetsdetail_probe.py`),
+    nicht nach diesem Parser geformt. Drei Beobachtungen tragen den Zuschnitt:
+
+    - `exercises` nennt **dieselbe** Übung mehrfach (dreimal mit identischer
+      `probability`) — es sind keine Alternativen, also genügt der erste
+      Eintrag.
+    - Bei Mobility kommen inzwischen echte Namen zurück
+      (`WARM_UP/STRETCH_PIGEON_POSE`), nicht mehr `UNKNOWN`: Die App überträgt
+      ihre Workouts seit `garmin/uebungen.py` mit Übungskennungen, die Uhr
+      zählt also benannte Sätze, statt sie zu raten.
+    - `repetitionCount` ist mal `null`, mal **0** — beides heißt „nicht
+      gezählt". An der Krafteinheit vom 17.08.2026 stand die 0 an drei von
+      sechs Übungen.
+
+    Zusammengefasst wird je (Kategorie, Name) in der Reihenfolge des ersten
+    Auftretens: Vier Sätze Taubenstellung stehen als eine Zeile mit
+    `saetze: 4`, nicht als vier. `None`, wenn nichts Benanntes übrig bleibt.
+    """
+    zusammen: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for satz in als_liste(saetze, "exerciseSets"):
+        if not isinstance(satz, dict):
+            continue
+        if str(satz.get("setType") or "").upper() != _SATZ_AKTIV:
+            continue
+
+        kategorie = str(hole(satz, "exercises", 0, "category") or "").upper()
+        if not kategorie or kategorie == _UEBUNG_UNBEKANNT:
+            continue
+        name = str(hole(satz, "exercises", 0, "name") or "").upper()
+        if name == _UEBUNG_UNBEKANNT:
+            name = ""
+
+        werte = zusammen.setdefault(
+            (kategorie, name), {"saetze": 0, "dauern": [], "wiederholungen": []}
+        )
+        werte["saetze"] += 1
+        dauer = als_zahl(satz.get("duration"))
+        if dauer and dauer > 0:
+            werte["dauern"].append(dauer)
+        anzahl = als_ganzzahl(satz.get("repetitionCount"))
+        if anzahl and anzahl > 0:
+            werte["wiederholungen"].append(anzahl)
+
+    if not zusammen:
+        return None
+
+    uebungen: list[dict[str, Any]] = []
+    for (kategorie, name), werte in zusammen.items():
+        eintrag: dict[str, Any] = {"uebung": name or kategorie, "saetze": werte["saetze"]}
+        # Die Kategorie nur, wo sie etwas hinzufügt: Sie benennt die
+        # Bewegungsgruppe (`HIP_RAISE` zu `SINGLE_LEG_HIP_RAISE`) und trägt
+        # damit die Abwechslungsregel aus Punkt 9 des Prompts.
+        if name and name != kategorie:
+            eintrag["kategorie"] = kategorie
+
+        # Nur, wenn **jeder** Satz gezählt wurde: Eine Liste über drei von fünf
+        # Sätzen läse sich wie drei Sätze. Gleiche Zahlen werden zur Zahl,
+        # ungleiche bleiben die Liste — dass der letzte Satz nicht mehr aufging,
+        # ist die Aussage, und ein Mittelwert löschte sie.
+        anzahlen = werte["wiederholungen"]
+        if anzahlen and len(anzahlen) == werte["saetze"]:
+            eintrag["wiederholungen"] = (
+                anzahlen[0] if len(set(anzahlen)) == 1 else anzahlen
+            )
+
+        # Beim Halten ist der Mittelwert richtig: 38/40/41 s sind Messrauschen,
+        # keine Aussage.
+        dauern = werte["dauern"]
+        if dauern and (mittel := int(round(sum(dauern) / len(dauern)))) > 0:
+            eintrag["dauer_s"] = mittel
+
+        uebungen.append(eintrag)
+
+    return uebungen or None
+
+
 def detail_zu_feldern(detail: Any) -> dict[str, Any]:
     """Alles, was außer der Selbstauskunft noch im Aktivitätsdetail steht.
 

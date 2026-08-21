@@ -12,3 +12,7 @@ python-multipart==0.0.20
 garminconnect==0.3.10
 # Verschlüsselt das Garmin-Token in der Datenbank (siehe app/crypto.py).
 cryptography>=44
+# Nur für das Zertifikatsbündel des Übungskatalog-Abrufs (garmin/katalog.py).
+# Kommt ohnehin mit garminconnect mit — steht hier, weil wir es jetzt direkt
+# importieren und eine transitive Abhängigkeit dafür kein Versprechen ist.
+certifi

@@ -60,7 +60,8 @@ PLAN_DAYS_MAX = 14
 # Rückblick für die Historie. Bewusst unabhängig vom Planungshorizont.
 HISTORY_WEEKS = 4
 
-# Ab diesem RPE gilt eine Einheit als intensiv (48-h-Regel).
+# Ab diesem RPE gilt eine Einheit als intensiv — die Schwelle für
+# `tage_seit_letzter_intensiver_einheit`, die Punkt 4 des Prompts liest.
 HARD_SESSION_RPE = 7
 
 # Der Wochentag im deutschen Fließtext des Anpassungsprompts. Im Payload
@@ -190,11 +191,15 @@ def _days_since_by_sport(logs: list[SessionLog], today: date) -> dict[str, int]:
 
 
 def _days_since_hard_session(logs: list[SessionLog], today: date) -> int | None:
-    """Abstand zur letzten intensiven Einheit — für die 48-h-Regel am Blockanfang.
+    """Abstand zur letzten intensiven Einheit — Punkt 4 des Prompts liest ihn.
+
+    Wie viel Abstand nötig ist, entscheidet die KI; sie kann es aber nur, wenn
+    sie weiß, wie lange der letzte Reiz zurückliegt — die Historie hört nicht
+    am Blockanfang auf.
 
     Ebenfalls über die ganze Historie: Im Vierwochenfenster hieß `None` sowohl
-    "seit über vier Wochen nichts Hartes" als auch "keine Daten", und die
-    48-h-Regel hängt genau an dieser Zahl.
+    "seit über vier Wochen nichts Hartes" als auch "keine Daten", und die ganze
+    Frage hängt genau an dieser Zahl.
     """
     hard = [
         lg.date
@@ -424,13 +429,18 @@ def _history_block(
             "notiz": lg.notes,
         }
 
-        # Wie die Einheit ausgeführt wurde. Alle drei fehlen, wo sie nicht
+        # Wie die Einheit ausgeführt wurde. Alle vier fehlen, wo sie nicht
         # belegt sind — dieselbe Regel wie bei `befinden_0_10`: Ein `null`
         # wäre keine leere Angabe, sondern eine Behauptung.
         if (zonen := _zonenminuten(lg.hr_zone_seconds)) is not None:
             eintrag["zeit_in_hf_zonen_min"] = zonen
         if lg.garmin_abschnitte:
             eintrag["absolvierte_abschnitte"] = lg.garmin_abschnitte
+        # Das Gegenstück für Kraft und Mobility: Dort beschreibt `structure`
+        # keinen Zeitverlauf, und `absolvierte_abschnitte` sagt entsprechend
+        # nichts über die Übungsauswahl.
+        if lg.garmin_uebungen:
+            eintrag["absolvierte_uebungen"] = lg.garmin_uebungen
         if lg.garmin_compliance is not None:
             eintrag["workout_einhaltung_pct"] = lg.garmin_compliance
 
@@ -574,7 +584,7 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
 
     Ohne ihn entschiede die KI über eine Einheit im luftleeren Raum: Sie sähe
     nicht, dass am Vortag ein Intervalltraining steht und am Folgetag die lange
-    Einheit — also genau das, woran die 48-h-Regel und die
+    Einheit — also genau das, woran der Abstand zum letzten Reiz und die
     Intensitätsverteilung hängen. `trainingshistorie.aktueller_plan` nennt nur
     Titel und Zeitraum; für diese Aufgabe reicht das nicht.
     """
@@ -1031,12 +1041,19 @@ sondern gemessen je Tag in Punkt 2. Eine ruhige oder ausgefallene \
 Vorwoche erlaubt einen normalen Aufbau. Ein Plan, der zuletzt konsequent nicht \
 umgesetzt wurde, muss realistischer werden — nicht ambitionierter.
 {fitnessregeln}
-3. **Intensitätsverteilung**: Polarisiert — der Großteil des Umfangs in Z1/Z2. In \
-einem so kurzen Block höchstens eine intensive Einheit (Z4/Z5) je drei Tage. Keine \
-"Wohlfühl-Mitteldistanz".
-4. **Regeneration**: Mindestens 48 h zwischen zwei intensiven Einheiten. Das gilt \
-auch über den Blockanfang hinaus: Prüfe `tage_seit_letzter_intensiver_einheit`, bevor \
-du am ersten Tag hart planst. Nach einer langen Einheit am Folgetag nichts Hartes.
+3. **Intensitätsverteilung**: Wie sich Umfang und Intensität über diesen Block \
+verteilen, entscheidest du. Dieses Dokument gibt dir dafür weder eine Quote noch ein \
+Verhältnis vor — es nennt dir nur, woran du es ablesen kannst: `wochenuebersicht` sagt, \
+wie viel zuletzt trainiert wurde, `zeit_in_hf_zonen_min` an den Einheiten der Historie \
+sagt, *worin* dieser Umfang tatsächlich lag, und `trainingswunsch.ziel` sagt, worauf er \
+hinauslaufen soll. Begründe die Verteilung in `summary` aus diesen Daten.
+4. **Regeneration**: Wie viel Abstand zwischen zwei harten Reizen dieser Athlet \
+braucht, entscheidest du an seiner Belastungs- und Erholungslage, nicht an einer \
+Stundenzahl aus diesem Dokument. Der Block beginnt dabei nicht bei null: \
+`tage_seit_letzter_intensiver_einheit` sagt, wie lange der letzte harte Reiz \
+zurückliegt — sieh dort nach, bevor du am ersten Tag hart planst, denn die Historie \
+hört nicht am Blockanfang auf. Dauer und Zonenverteilung der letzten Tage stehen in \
+`trainingshistorie.einheiten`.
 5. **Spezifität**: Richte die Einheiten am angegebenen Ziel und Wettkampfdatum aus. \
 Je näher der Wettkampf, desto wettkampfspezifischer Intensität und Streckenlänge.
 6. **Aufbau ist der Normalfall, nicht die Ausnahme**: Die Punkte 1 bis 4 und 13 sind \
@@ -1060,7 +1077,7 @@ gefordert und keiner ausgeschlossen. Leite die Zusammensetzung des Blocks aus \
 Sportart der letzten Wochen ergibt sich, was zuletzt gefehlt hat und was den größten \
 Fortschritt bringt. Über mehrere Blöcke hinweg soll kein Reiztyp dauerhaft ausfallen. \
 Das ist ausdrücklich **kein Freibrief**: Die Bremsen aus den Punkten 1 bis 4 und 13 \
-und die Intensitätsverteilung aus Punkt 3 gelten unverändert. "Bestmöglich" heißt der stärkste \
+gelten unverändert. "Bestmöglich" heißt der stärkste \
 Reiz, den die aktuelle Erholungslage trägt, nicht der härteste denkbare. Begründe in \
 `summary`, woran du in der Historie erkannt hast, dass dieser Block jetzt so aussehen \
 muss.
@@ -1101,7 +1118,7 @@ ohne `geplant_war` waren spontan und sagen nichts über die Umsetzung einer Vorg
 Steht dort `geplant_fuer`, wurde die Einheit an einem **anderen Tag** absolviert als \
 vorgesehen — die Vorgabe wurde also erfüllt, nur verschoben; das ist keine \
 Nichtumsetzung.
-    Wie die Einheit ausgeführt wurde, sagen drei weitere Felder, wo sie stehen. \
+    Wie die Einheit ausgeführt wurde, sagen vier weitere Felder, wo sie stehen. \
 `zeit_in_hf_zonen_min` ist die gemessene Zeitverteilung über die Herzfrequenzzonen \
 und damit die belastbarste Auskunft darüber, ob der geplante Reiz wirklich gesetzt \
 wurde — ein Schwellentraining ohne nennenswerte Zeit in Z4 war keins, gleich was der \
@@ -1110,8 +1127,20 @@ Pausen und wie viel Ein- und Ausrollen tatsächlich zustande kamen: Daran liest 
 ob aus 3x8 min drei oder zwei wurden, und schreibst **von dort** aus fort, nicht von \
 der Vorgabe. `workout_einhaltung_pct` ist Garmins eigene Bewertung (0-100), wie genau \
 das Workout eingehalten wurde; ein niedriger Wert bei hoher geplanter Dauer heißt, \
-dass die Einheit abgebrochen wurde — plane die nächste kleiner, nicht größer. Alle \
-drei fehlen an vielen Einheiten; ihr Fehlen ist keine Aussage.
+dass die Einheit abgebrochen wurde — plane die nächste kleiner, nicht größer. \
+`absolvierte_uebungen` ist das Gegenstück für Kraft und Mobility: die Übungen, die die \
+Uhr tatsächlich gezählt hat, in Garmins englischen Katalognamen \
+(`SINGLE_LEG_HIP_RAISE`, dazu `kategorie` als Bewegungsgruppe), mit Satzzahl und \
+Haltedauer bzw. Wiederholungen. Schreibe die nächste Ergänzungseinheit **von dort** \
+fort — ein Satz mehr, zehn Sekunden länger, eine schwerere Variante derselben \
+Bewegung —, statt eine unverbundene Übungsliste danebenzustellen. Zwei Einschränkungen \
+dabei: `saetze` zählt, was die Uhr als Satz **aufgezeichnet** hat, nicht was der Athlet \
+gemacht hat — läuft eine Übung als ein Workout-Schritt bis zur Rundentaste, stehen drei \
+Sätze dort als einer über die volle Dauer —, und `wiederholungen` stammt aus Garmins \
+Bewegungserkennung am Handgelenk und zählt bei Körpergewichtsübungen regelmäßig zu \
+niedrig. Verlässlich sind Übungsauswahl und Dauer; was an Sätzen und Wiederholungen \
+vorgesehen war, steht in `geplant_war.aufbau`. Alle vier Felder fehlen an vielen \
+Einheiten; ihr Fehlen ist keine Aussage.
 13. **Beschwerden und Einschränkungen**: `athlet.verletzungen_einschraenkungen` ist \
 der Freitext des Athleten über seinen Körper — die einzige Angabe im ganzen Paket, die \
 kein Gerät gemessen hat, und deshalb die, an der du nicht vorbeiplanen darfst. Steht \
@@ -1180,8 +1209,9 @@ PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf,
 Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
 Schlüsseleinheit. Mobility kurz und regelmäßig — regelmäßig heißt aber **nicht \
 dasselbe noch einmal**: Sieh in `trainingshistorie.einheiten` nach, was die letzte \
-Kraft- oder Mobility-Einheit enthielt (`geplant_war.aufbau`, sonst `notiz`), und \
-wechsle Übungsauswahl und Körperregion. Dieselbe Region an zwei aufeinanderfolgenden \
+Kraft- oder Mobility-Einheit enthielt — zuerst in `absolvierte_uebungen` (was die Uhr \
+gezählt hat, mit `kategorie` als Bewegungsgruppe), sonst in `geplant_war.aufbau` oder \
+`notiz` —, und wechsle Übungsauswahl und Körperregion. Dieselbe Region an zwei aufeinanderfolgenden \
 Tagen ist ein Fehler, kein Aufbau. **Diese Abwechslungsregel gilt für gesunde \
 Regionen.** Nennt `athlet.verletzungen_einschraenkungen` eine Beschwerde, ist die \
 zugehörige Region die Ausnahme: Sie wird gezielt und wiederholt angegangen, bis die \
@@ -1349,7 +1379,7 @@ Der Wunsch des Athleten ist der Anlass und hat Vorrang vor dem, was du sonst gep
 hättest. Er ist aber **keine Anweisung, die Trainingslehre auszusetzen**: Er kennt \
 seinen Tag, du kennst seine Belastungslage. Führt der Wunsch zu einer Einheit, die dem \
 Athleten schadet — eine harte Einheit auf einer bereits gestörten Erholungslage, ein \
-Reiz weniger als 48 h nach dem letzten, drei intensive Tage hintereinander —, dann \
+harter Reiz zu dicht am letzten, mehrere intensive Tage hintereinander —, dann \
 erfülle ihn **so weit, wie es vertretbar ist**, und sage in `begruendung` klar, wo du \
 warum abgewichen bist. Erfinde dabei nichts hinzu, worum niemand gebeten hat: Was der \
 Wunsch nicht berührt, bleibt so, wie es war.
@@ -1367,10 +1397,10 @@ sprechen — dann fällt die Einheit ersatzlos aus und wird von der Uhr genommen
 
 ## Verbindliche Trainingsprinzipien
 1. **Der Platz im Block**: Sieh in `einheit_anpassen.block` nach, was am Vortag und am \
-Folgetag steht. Mindestens 48 h zwischen zwei intensiven Einheiten, und nach einer \
-langen Einheit am Folgetag nichts Hartes — das gilt hier genauso, nur dass die \
-Nachbarn schon feststehen. Ändert der Wunsch die Intensität nach oben, ist das die \
-erste Prüfung.
+Folgetag steht. Ob der Abstand zum letzten und zum nächsten harten Reiz trägt, \
+entscheidest du — hier mit dem Vorteil, dass beide Nachbarn schon feststehen und du \
+sie nachlesen kannst. Ändert der Wunsch die Intensität nach oben, ist das die erste \
+Prüfung.
 {fitnessregeln}
 3. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt die letzten \
 {historie_wochen} Wochen. Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: \

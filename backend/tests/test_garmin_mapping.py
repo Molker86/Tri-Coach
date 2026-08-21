@@ -27,6 +27,7 @@ from app.garmin.mapping import (
     schwellenpace_laufen,
     schwellenpuls,
     sport_aus_typkey,
+    uebungen_aus_saetzen,
     detail_zu_feldern,
     teile_multisport,
     zonensekunden,
@@ -532,3 +533,153 @@ def test_zonenzeiten_gehen_mit_in_die_einheit():
     }
     felder = aktivitaet_zu_log(aktivitaet)
     assert felder["hr_zone_seconds"] == {"2": 1200, "4": 600}
+
+
+# --------------------------------------------------------------------------
+# Die gezählten Übungen (`get_activity_exercise_sets`)
+#
+# Beide Beispiele stammen aus `scripts/garmin_aktivitaetsdetail_probe.py` am
+# echten Konto — die Krafteinheit vom 17.08.2026 und die Mobility-Einheit vom
+# 20.08.2026 —, nicht aus einer nach dem Parser geformten Nachbildung.
+# --------------------------------------------------------------------------
+
+
+def _satz(kategorie, name=None, dauer=45.0, wiederholungen=None, art="ACTIVE"):
+    """Garmin nennt dieselbe Übung dreimal; eine Pause hat gar keine."""
+    uebungen = (
+        []
+        if kategorie is None
+        else [{"category": kategorie, "name": name, "probability": 99.609375}] * 3
+    )
+    return {
+        "exercises": uebungen,
+        "duration": dauer,
+        "repetitionCount": wiederholungen,
+        "weight": None,
+        "setType": art,
+        "startTime": "2026-08-17T16:45:56.0",
+        "wktStepIndex": 0,
+        "messageIndex": 0,
+    }
+
+
+SAETZE_MOBILITY = {
+    "exerciseSets": [
+        satz
+        for kategorie, name, dauer, pause, runden in (
+            ("WARM_UP", "STRETCH_PIGEON_POSE", 60.0, 15.0, 4),
+            ("WARM_UP", "STRETCH_LUNGING_HIP_FLEXOR", 45.0, 15.0, 4),
+            ("WARM_UP", "STRETCH_PIRIFORMIS", 45.0, 15.0, 4),
+            ("WARM_UP", "STRETCH_LYING_SPINAL_TWIST", 45.0, 10.0, 2),
+        )
+        for _ in range(runden)
+        for satz in (
+            _satz(kategorie, name, dauer),
+            _satz(None, dauer=pause, art="REST"),
+        )
+    ]
+}
+
+SAETZE_KRAFT = {
+    "exerciseSets": [
+        _satz("HIP_RAISE", "SINGLE_LEG_HIP_RAISE", 194.487, 10),
+        _satz("HIP_RAISE", "CLAM_BRIDGE", 232.436, 3),
+        _satz("PLANK", "SIDE_PLANK", 92.616, None),
+        # `repetitionCount: 0` heißt bei Garmin „nicht gezählt", nicht „null
+        # Wiederholungen" — an dieser Einheit stand es an drei von sechs Übungen.
+        _satz("HIP_STABILITY", "QUADRUPED_WITH_LEG_LIFT", 172.421, 0),
+        _satz("SQUAT", "BODY_WEIGHT_WALL_SQUAT", 10.165, 0),
+        _satz("CALF_RAISE", "SINGLE_LEG_STANDING_CALF_RAISE", 8.677, 0),
+        _satz(None, dauer=35.928, art="REST"),
+    ]
+}
+
+
+def test_gleiche_uebungen_werden_zu_saetzen_zusammengefasst():
+    """Vier Runden Taubenstellung sind eine Zeile mit `saetze: 4`, nicht vier."""
+    uebungen = uebungen_aus_saetzen(SAETZE_MOBILITY)
+
+    assert [u["uebung"] for u in uebungen] == [
+        "STRETCH_PIGEON_POSE",
+        "STRETCH_LUNGING_HIP_FLEXOR",
+        "STRETCH_PIRIFORMIS",
+        "STRETCH_LYING_SPINAL_TWIST",
+    ]
+    assert uebungen[0] == {
+        "uebung": "STRETCH_PIGEON_POSE",
+        "saetze": 4,
+        "kategorie": "WARM_UP",
+        "dauer_s": 60,
+    }
+    # Die letzte Übung lief nur zwei Runden — der Athlet hat abgebrochen.
+    assert uebungen[3]["saetze"] == 2
+
+
+def test_pausen_sind_keine_uebung():
+    """Sonst stünden in der Mobility-Einheit vierzehn Sätze statt vierzehn Runden."""
+    assert sum(u["saetze"] for u in uebungen_aus_saetzen(SAETZE_MOBILITY)) == 14
+
+
+def test_nicht_gezaehlte_wiederholungen_stehen_nicht_da():
+    """`null` und `0` heißen beide „nicht gezählt" — eine 0 wäre eine Behauptung."""
+    uebungen = {u["uebung"]: u for u in uebungen_aus_saetzen(SAETZE_KRAFT)}
+
+    assert uebungen["SINGLE_LEG_HIP_RAISE"]["wiederholungen"] == 10
+    assert "wiederholungen" not in uebungen["SIDE_PLANK"]
+    assert "wiederholungen" not in uebungen["QUADRUPED_WITH_LEG_LIFT"]
+    assert "wiederholungen" not in uebungen["BODY_WEIGHT_WALL_SQUAT"]
+    # Die Bewegungsgruppe trägt die Abwechslungsregel aus Punkt 9 des Prompts.
+    assert uebungen["SIDE_PLANK"]["kategorie"] == "PLANK"
+
+
+def test_ungleiche_saetze_bleiben_die_liste():
+    """Dass der letzte Satz nicht mehr aufging, ist die Aussage."""
+    saetze = {
+        "exerciseSets": [
+            _satz("SQUAT", "AIR_SQUAT", 40.0, 12),
+            _satz("SQUAT", "AIR_SQUAT", 40.0, 12),
+            _satz("SQUAT", "AIR_SQUAT", 38.0, 9),
+        ]
+    }
+    eintrag = uebungen_aus_saetzen(saetze)[0]
+
+    assert eintrag["wiederholungen"] == [12, 12, 9]
+    # Beim Halten dagegen ist der Mittelwert richtig: 40/40/38 s ist Rauschen.
+    assert eintrag["dauer_s"] == 39
+
+
+def test_teilweise_gezaehlte_saetze_melden_gar_nichts():
+    """Eine Liste über zwei von drei Sätzen läse sich wie zwei Sätze."""
+    saetze = {
+        "exerciseSets": [
+            _satz("SQUAT", "AIR_SQUAT", 40.0, 12),
+            _satz("SQUAT", "AIR_SQUAT", 40.0, None),
+            _satz("SQUAT", "AIR_SQUAT", 40.0, 11),
+        ]
+    }
+    eintrag = uebungen_aus_saetzen(saetze)[0]
+
+    assert eintrag["saetze"] == 3
+    assert "wiederholungen" not in eintrag
+
+
+def test_unerkannte_bewegungen_fallen_heraus():
+    """`UNKNOWN` ist keine Übung, sondern Garmins Achselzucken."""
+    saetze = {
+        "exerciseSets": [
+            _satz("UNKNOWN", "UNKNOWN", 30.0),
+            _satz("PLANK", "SIDE_PLANK", 40.0),
+        ]
+    }
+    uebungen = uebungen_aus_saetzen(saetze)
+
+    assert [u["uebung"] for u in uebungen] == ["SIDE_PLANK"]
+    assert uebungen_aus_saetzen({"exerciseSets": [_satz("UNKNOWN", "UNKNOWN")]}) is None
+
+
+def test_ohne_saetze_gibt_es_keine_leere_liste():
+    """Dieselbe Regel wie überall: kein Feld, das wie eine Aussage aussieht."""
+    assert uebungen_aus_saetzen({"exerciseSets": []}) is None
+    assert uebungen_aus_saetzen({}) is None
+    assert uebungen_aus_saetzen(None) is None
+    assert uebungen_aus_saetzen({"exerciseSets": ["Unfug", 7]}) is None

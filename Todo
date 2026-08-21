@@ -1,1 +1,5 @@
-Promt cutten und aufräumen. bsp.fit datei analysieren, und nur noch workouts an garmin senden, welche nach dem Format sind, dann kommen auch videos raus!
+https://connect.garmin.com/web-data/exercises/Exercises.json
+
+https://connect.garmin.com/web-data/exercises/Mobility.json
+
+das sind die offiziellen quellen von garmin für die übungen. 

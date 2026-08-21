@@ -7,10 +7,13 @@ genaue Variante), beide aus Garmins eigenem Katalog. Ein Schritt mit bloßem
 Beschreibungstext bleibt eine Textzeile: Der Athlet liest „Seitstütz 3x40 s“
 und muss selbst wissen, wie das aussieht.
 
-Der Katalog kommt aus `garminconnect.exercises` und ist die Liste aus dem
-Übungswähler des Connect-Workout-Editors — 1527 Einträge in 47 Kategorien.
-Eigene Zahlen kämen hier nicht in Frage: Garmin lehnt eine unbekannte
-Kategorie mit 400 ab, und zwar das ganze Workout.
+Der Katalog kommt aus Garmins eigenen JSON-Dateien, die `katalog.py` täglich
+holt — und zwar in **zwei** Ausführungen: eine für Kraft (47 Kategorien), eine
+für Mobility (15, darunter `POSE` und `MOVE` mit den Yogaposen und Dehnungen,
+die der Kraftkatalog nicht führt). Gesucht wird im Katalog der jeweiligen
+Sportart und nicht in beiden: Garmin lässt eine Yogapose nicht in ein
+Krafttraining und lehnt eine dort unbekannte Kategorie mit 400 ab, und zwar das
+ganze Workout. Eigene Zahlen kämen aus demselben Grund nicht in Frage.
 
 Das Problem in der Mitte: Der Katalog ist englisch („Side Plank“), die KI
 schreibt deutsche Pläne („Seitstütz“), und beide stehen in einer Zeile voller
@@ -34,7 +37,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 
-from garminconnect import exercises as katalog
+from . import katalog
 
 # --------------------------------------------------------------------------
 # Normalisierung
@@ -411,8 +414,8 @@ def _ist_grundform(eintrag: dict[str, str]) -> bool:
     return eintrag["exercise"] == eintrag["category"] or len(eintrag["name"].split()) == 1
 
 
-@lru_cache(maxsize=1)
-def _verzeichnis() -> dict[str, Uebung]:
+@lru_cache(maxsize=len(katalog.QUELLEN))
+def _verzeichnis(welcher: str) -> dict[str, Uebung]:
     """Wortfolge -> Übung, aus Katalognamen und deutschen Entsprechungen.
 
     Der Schlüssel ist die **verklebte** Wortfolge ohne Trennzeichen. Denn im
@@ -423,7 +426,11 @@ def _verzeichnis() -> dict[str, Uebung]:
     Kurze Namen kommen zuerst, damit sie einen Schlüssel behalten, den ein
     längerer Name durch die Normalisierung mitbesetzt: „Push-up“ und
     „Push-ups“ fallen beide auf „pushup“, gemeint ist die Grundübung.
+
+    Je Katalog ein Verzeichnis: `welcher` ist „kraft“ oder „mobility“.
     """
+    eintraege = katalog.eintraege(welcher)
+    nach_namen = {e["name"]: e for e in eintraege}
     verzeichnis: dict[str, Uebung] = {}
 
     def merke(woerter: tuple[str, ...], eintrag: dict[str, str]) -> None:
@@ -438,12 +445,12 @@ def _verzeichnis() -> dict[str, Uebung]:
                 ),
             )
 
-    for eintrag in sorted(katalog.EXERCISES, key=lambda e: (len(e["name"]), e["name"])):
+    for eintrag in sorted(eintraege, key=lambda e: (len(e["name"]), e["name"])):
         if eintrag["name"] not in _ZU_ALLGEMEIN:
             merke(_woerter(eintrag["name"]), eintrag)
 
     for deutsch, anzeige in SYNONYME.items():
-        eintrag = katalog.resolve(anzeige)
+        eintrag = nach_namen.get(anzeige)
         if eintrag is None:
             # Der Katalog kann sich mit der Bibliothek ändern. Eine tote
             # Entsprechung darf den Start nicht verhindern — sie fällt heraus,
@@ -461,23 +468,37 @@ def _verzeichnis() -> dict[str, Uebung]:
     #
     # Zuletzt, weil `merke()` den ersten Eintrag behält: „Side Lunge Stretch“
     # ergibt gekürzt „side lunge“, und das ist bereits eine eigene Übung.
-    for eintrag in katalog.EXERCISES:
+    for eintrag in eintraege:
         woerter = _woerter(eintrag["name"])
         if len(woerter) >= 3 and woerter[-1] == "stretch":
             merke(woerter[:-1], eintrag)
 
+    # Und das Spiegelbild davon für die Yogaposen: Der Katalog führt sie unter
+    # dem bloßen Namen („Lizard“, „Triangle“, „Chair“), der Plan schreibt sie
+    # mit ihrer Gattung („Lizard Pose“). Ohne diesen zweiten Schlüssel fiele
+    # genau die geläufige Schreibweise durch — und ein bloßes „Lizard“ wäre
+    # obendrein eine Grundform, die `_grundform_ok` in einer Zeile mit Beiwerk
+    # zurückweist.
+    for eintrag in eintraege:
+        woerter = _woerter(eintrag["name"])
+        if eintrag["category"] == "POSE" and woerter and woerter[-1] != "pose":
+            merke(woerter + ("pose",), eintrag)
+
     return verzeichnis
 
 
-@lru_cache(maxsize=1)
-def _laengster_schluessel() -> int:
+@lru_cache(maxsize=len(katalog.QUELLEN))
+def _laengster_schluessel(welcher: str) -> int:
     """Aus wie vielen Wörtern der längste Eintrag besteht.
 
     Begrenzt die Fenstergröße der Suche. Die deutschen Entsprechungen zählen
     mit — sie können länger sein als jeder Katalogname.
     """
-    namen = [e["name"] for e in katalog.EXERCISES] + list(SYNONYME)
-    return max((len(_woerter(name)) for name in namen), default=1)
+    namen = [e["name"] for e in katalog.eintraege(welcher)] + list(SYNONYME)
+    # Ein Wort mehr, weil der POSE-Alias oben eines anhängt: „Downward Facing
+    # Dog“ steht zusätzlich als „Downward Facing Dog Pose“ im Verzeichnis, und
+    # ein zu enges Fenster fände genau diesen Schlüssel nie.
+    return max((len(_woerter(name)) for name in namen), default=1) + 1
 
 
 def _grundform_ok(woerter: tuple[str, ...], beginn: int, ende: int) -> bool:
@@ -499,7 +520,7 @@ def _grundform_ok(woerter: tuple[str, ...], beginn: int, ende: int) -> bool:
     )
 
 
-def _suche(woerter: tuple[str, ...]) -> tuple[int, Uebung] | None:
+def _suche(woerter: tuple[str, ...], welcher: str) -> tuple[int, Uebung] | None:
     """Der längste Treffer in einer Wortfolge, mit seiner Länge.
 
     Gesucht wird das längste zusammenhängende Wortstück, das im Verzeichnis
@@ -509,8 +530,8 @@ def _suche(woerter: tuple[str, ...]) -> tuple[int, Uebung] | None:
     if not woerter:
         return None
 
-    verzeichnis = _verzeichnis()
-    for laenge in range(min(len(woerter), _laengster_schluessel()), 0, -1):
+    verzeichnis = _verzeichnis(welcher)
+    for laenge in range(min(len(woerter), _laengster_schluessel(welcher)), 0, -1):
         for beginn in range(len(woerter) - laenge + 1):
             ende = beginn + laenge
             treffer = verzeichnis.get(_schluessel(woerter[beginn:ende]))
@@ -542,8 +563,12 @@ _MIT_ROLLE = re.compile(
 )
 
 
-def finde(text: str | None) -> Uebung | None:
+def finde(text: str | None, welcher: str = "kraft") -> Uebung | None:
     """Die Übung aus einer Zeile des Aufbautexts, oder `None`.
+
+    `welcher` wählt den Katalog — „kraft“ oder „mobility“. Er entscheidet mit,
+    *was* gefunden werden darf: Eine Yogapose gehört nicht in ein Krafttraining,
+    und Garmin lehnt eine dort unbekannte Kategorie mit 400 ab.
 
     Gesucht wird je Klammerabschnitt getrennt, und das ist nicht bloß Kosmetik:
     Punkt 9 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
@@ -564,7 +589,7 @@ def finde(text: str | None) -> Uebung | None:
 
     bester: tuple[int, Uebung] | None = None
     for abschnitt in _KLAMMER.split(text):
-        treffer = _suche(_woerter(abschnitt))
+        treffer = _suche(_woerter(abschnitt), welcher)
         if treffer is not None and (bester is None or treffer[0] > bester[0]):
             bester = treffer
     if bester is None:
@@ -575,3 +600,14 @@ def finde(text: str | None) -> Uebung | None:
     if _MIT_ROLLE.search(text) and "foam roller" not in bester[1].anzeige.lower():
         return None
     return bester[1]
+
+
+def leere_zwischenspeicher() -> None:
+    """Beide Verzeichnisse neu aufbauen lassen.
+
+    Gerufen von `katalog.py`, nachdem ein Download eine Datei ersetzt hat: Der
+    Abgleich läuft im laufenden Prozess, und ohne das gälte der frische Katalog
+    erst nach einem Neustart.
+    """
+    _verzeichnis.cache_clear()
+    _laengster_schluessel.cache_clear()

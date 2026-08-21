@@ -230,7 +230,8 @@ def test_der_prompt_traegt_wunsch_block_und_historie(client, auth, monkeypatch):
     assert '"einheit_anpassen"' in prompt
     assert '"bisherige_einheit"' in prompt
     assert '"dies_ist_die_anzupassende_einheit": true' in prompt
-    # Der ganze Block steht mit drin, damit die 48-h-Regel greifen kann.
+    # Der ganze Block steht mit drin, damit die KI den Abstand zum letzten
+    # und zum nächsten harten Reiz beurteilen kann.
     assert "Einheit 2" in prompt
     assert MORGEN.isoformat() in prompt
 
@@ -259,6 +260,26 @@ def test_der_prompt_kennt_die_beschwerden_des_athleten(client, auth, monkeypatch
     # Der geteilte Punkt 9 kommt hier als Punkt 5 mit — samt seiner Ausnahme
     # von der Abwechslungsregel.
     assert "Diese Abwechslungsregel gilt für gesunde" in prompt
+
+
+def test_der_prompt_gibt_auch_hier_keine_stundenzahl_vor(client, auth, monkeypatch):
+    """Sonst planten die beiden Wege mit zwei verschiedenen Maßstäben.
+
+    Der Blockprompt überlässt Verteilung und Abstand seit dieser Änderung dem
+    Trainer; hier stand die 48-h-Regel an zwei Stellen — in Punkt 1 und in der
+    Beschreibung eines schädlichen Wunsches.
+    """
+    plan = lege_block_an(client, auth)
+    einheit = einheit_am(plan, HEUTE)
+    prompts = ki_antwortet(monkeypatch, antwort_json())
+
+    passe_an(client, auth, einheit["id"], "Heute lieber schwimmen.")
+
+    prompt = prompts[0]
+    assert "48 h" not in prompt
+    # Der Block bleibt trotzdem der Maßstab — hier stehen die Nachbarn sogar fest.
+    assert "einheit_anpassen.block" in prompt
+    assert "`tage_seit_letzter_intensiver_einheit`" in prompt
 
 
 def test_der_prompt_behauptet_nicht_den_block_abzuloesen(client, auth, monkeypatch):

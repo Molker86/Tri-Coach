@@ -15,7 +15,8 @@ Entscheidung — siehe „Planungshorizont".
 **Trainings- und Fitnessdaten kommen aus Garmin Connect — und nur von dort.**
 Wer ein Konto verbindet, trägt nichts mehr von Hand nach: Trainings, Schlaf,
 HRV, Ruhepuls und Garmins Erholungsbewertungen werden geholt und fließen in den
-nächsten Export ein. Die Formulare zum Erfassen und Nachtragen gibt es **nicht
+nächsten Export ein — bei Kraft und Mobility samt der Übungen, die die Uhr
+gezählt hat. Die Formulare zum Erfassen und Nachtragen gibt es **nicht
 mehr** — siehe „Garmin ist die einzige Quelle".
 
 **Und der Weg zurück: Geplante Einheiten gehen als Workout auf die Uhr.** Wer
@@ -83,7 +84,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 385 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 428 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -103,6 +104,11 @@ so aus dem Docker-Abbild heraus.
 Datenbank: `backend/data/tricoach.db`, entsteht beim ersten Start. Löschen setzt
 alles zurück — **und trennt die Garmin-Verbindung**, weil das verschlüsselte
 Token mit verschwindet.
+
+Daneben liegen `Exercises.json` und `Mobility.json` — Garmins Übungskatalog, den
+der Abgleich täglich holt (`garmin/katalog.py`). Sie zu löschen ist folgenlos:
+Bis zum nächsten Abgleich gilt die Erstausstattung aus
+`backend/app/garmin/katalogdaten/`.
 
 Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
 erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
@@ -220,8 +226,8 @@ Deshalb baut `_lade_kontext()` beide Pakete, und dazu kommt, was nur diese
 Aufgabe braucht: der Wunsch im Wortlaut, die bisherige Fassung der Einheit und —
 über `_blockumfeld()` — **der ganze Block mit der anzupassenden Einheit
 markiert**. Ohne ihn entschiede die KI im luftleeren Raum: `aktueller_plan` in
-der Historie nennt nur Titel und Zeitraum, aber die 48-h-Regel hängt daran, was
-am Vortag steht.
+der Historie nennt nur Titel und Zeitraum, aber woran der Abstand zum letzten
+harten Reiz zu bemessen ist, steht am Vortag.
 
 **Der Tag steht fest.** Verschieben kann der Athlet selbst — im Kalender, und
 dort zieht die Planeinheit mit um. Geändert wird der Inhalt; `uebernimm_einheit`
@@ -771,7 +777,9 @@ sagt über eine Intervalleinheit fast nichts. Die Schlüsseleinheit vom 19.08.20
 stand als „37 min, HF-Schnitt 148" da; geplant waren 60 min mit 3x8 min Schwelle.
 Ob die drei Intervalle standen, war nicht abzulesen, und Punkt 12 („Fortschreiben
 statt neu erfinden") schrieb damit die *Vorgabe* fort statt die Ausführung. Drei
-Größen schließen die Lücke, und **keine davon kostet eine zusätzliche Anfrage**:
+Größen schließen die Lücke, und **keine davon kostet eine zusätzliche Anfrage**
+(die vierte, die Übungsliste, kostet eine — siehe „Was in einer Krafteinheit
+wirklich passiert ist"):
 
 *Die Zonenverteilung* (`hrTimeInZone_1..5`) stand immer schon in derselben
 Listenantwort, aus der die Einheit entsteht. `schaetze_rpe()` las sie, schätzte
@@ -807,13 +815,73 @@ Körperbatterie: Eine Nachbildung, die der Entwickler nach dem Parser formt,
 bestätigt den Parser und sonst nichts. Das Skript ist **rein lesend** — anders
 als die Freiwasser-Probe legt es nichts an — und druckt je Sportart die
 Schlüsselliste, `splitSummaries` im Wortlaut, die belegten Felder von
-`summaryDTO` und den Rückbezug aufs Workout. Zwei Nebenbefunde daraus, die
-bewusst *nicht* eingebaut wurden: `get_activity_exercise_sets()` liefert bei
-Kraft die tatsächlich absolvierten Übungen mit Garmins Katalognamen
-(`HIP_RAISE/SINGLE_LEG_HIP_RAISE`, `SIDE_PLANK`), bei Mobility dagegen
-durchweg `UNKNOWN` — und es kostet eine eigene Anfrage je Einheit für etwas,
-das bei unseren eigenen Workouts ohnehin in `geplant_war` steht. `normalizedPower`
-und `maxPower` sind belegt, aber nur dort, wo ohnehin ein Powermeter misst.
+`summaryDTO`, den Rückbezug aufs Workout und — bei Kraft und Mobility — die
+gezählten Sätze im Wortlaut. Ein Nebenbefund daraus, der bewusst *nicht*
+eingebaut wurde: `normalizedPower` und `maxPower` sind belegt, aber nur dort, wo
+ohnehin ein Powermeter misst.
+
+**Was in einer Krafteinheit wirklich passiert ist**
+(`mapping.uebungen_aus_saetzen`, `SessionLog.garmin_uebungen`, im Export
+`absolvierte_uebungen`). Für Ausdauereinheiten schließt `absolvierte_abschnitte`
+die Lücke zwischen Vorgabe und Ausführung; bei Kraft und Mobility klaffte sie
+weiter, denn dort beschreibt `structure` keinen Zeitverlauf, und
+`splitSummaries` meldet nur einen Sammelabschnitt. Eine Krafteinheit stand im
+Export als „35 min, RPE 5" — welche Übungen darin vorkamen, war allein aus
+`geplant_war.aufbau` zu erraten, also aus der *Vorgabe*.
+`get_activity_exercise_sets()` sagt es: die Übungen mit Garmins Katalognamen
+(`HIP_RAISE`/`SINGLE_LEG_HIP_RAISE`), je Satz mit Dauer und Wiederholungen.
+
+**Das war einmal ausdrücklich abgelehnt**, und beide Gründe von damals sind
+gefallen. „Steht bei unseren eigenen Workouts ohnehin in `geplant_war`" gilt
+nicht: Genau der Unterschied zwischen Vorgabe und Ausführung ist der Punkt —
+sonst bräuchte es `absolvierte_abschnitte` und `workout_einhaltung_pct` auch
+nicht. Und „bei Mobility durchweg `UNKNOWN`" ist überholt: Seit die App ihre
+Workouts mit Übungskennungen überträgt (`garmin/uebungen.py`), zählt die Uhr
+**benannte** Sätze, statt sie zu raten. An der Mobility-Einheit vom 20.08.2026
+kamen `STRETCH_PIGEON_POSE`, `STRETCH_LUNGING_HIP_FLEXOR`, `STRETCH_PIRIFORMIS`
+und `STRETCH_LYING_SPINAL_TWIST` zurück — dieselben Kennungen, die diese App
+hingeschickt hat. Die Übungserkennung ist damit ein Rückkanal des eigenen
+Workout-Baus und keine fremde Erkennung mehr.
+
+Was bleibt, ist der Preis: **eine eigene Anfrage je Einheit.** Deshalb nur für
+`workouts.UEBUNGSSPORTARTEN` und nur innerhalb des Detailfensters — bei einem
+Lauf wäre der Endpunkt leer, und `BEWERTUNGSFENSTER_TAGE` = 42 gilt ohnehin
+schon fürs Detail.
+
+Drei Formen darin sind abgelesen und tragen den Parser. `exercises` nennt
+dieselbe Übung **dreimal** mit identischer `probability` — es sind keine
+Alternativen, also genügt der erste Eintrag. Eine Pause ist ein eigener Satz
+mit leerem `exercises` und `setType: "REST"`; sie zählt nicht als Übung, sonst
+stünden an der Mobility-Einheit achtundzwanzig Sätze statt vierzehn. Und
+`repetitionCount` ist mal `null`, mal **0** — beides heißt „nicht gezählt", die
+0 stand an drei von sechs Übungen der Krafteinheit vom 17.08.2026. Als
+Wiederholungszahl exportiert wäre sie eine Behauptung.
+
+Zusammengefasst wird je (Kategorie, Name): Vier Runden Taubenstellung stehen als
+eine Zeile mit `saetze: 4`, nicht als vier. Bei den **Wiederholungen** gewinnt
+die Liste über den Mittelwert, wenn die Sätze auseinandergehen — dass der letzte
+nicht mehr aufging, *ist* die Aussage —, und sie fällt ganz weg, wenn nicht
+jeder Satz gezählt wurde: Eine Liste über drei von fünf Sätzen läse sich wie
+drei Sätze. Bei der **Haltedauer** ist es umgekehrt, dort mittelt der Parser:
+38/40/41 s sind Messrauschen.
+
+Zwei Dinge sagt der Prompt der KI deshalb ausdrücklich dazu, und beide sind an
+echten Daten gemessen. `saetze` zählt, was die Uhr **aufgezeichnet** hat: Läuft
+eine Übung als ein Workout-Schritt bis zur Rundentaste, stehen drei Sätze dort
+als *einer* über die volle Dauer — so kam die Krafteinheit vom 17.08. zurück,
+sechs Übungen zu je einem Satz. Und `wiederholungen` stammt aus Garmins
+Bewegungserkennung am Handgelenk und zählt bei Körpergewichtsübungen zu
+niedrig: An derselben Einheit standen für `CLAM_BRIDGE` **3** Wiederholungen
+über 232 Sekunden. Verlässlich sind Übungsauswahl und Dauer; was vorgesehen war,
+steht weiter in `geplant_war.aufbau`. Der Wert für die Planung liegt genau dort,
+wo die Beschwerde hängt: Punkt 9 verlangt, Übungsauswahl und Körperregion zu
+wechseln, und `kategorie` (`PLANK`, `HIP_RAISE`, `CALF_RAISE`) benennt die
+Bewegungsgruppe, an der das zu entscheiden ist.
+
+**`weight` bleibt ungelesen.** Es stand an jedem geprüften Satz auf `null` —
+alle Übungen laufen mit Körpergewicht —, und damit ist die Einheit (Gramm oder
+Kilogramm) nicht belegt. Dieselbe Regel wie bei den Kalenderdauern: Eine um
+Faktor 1000 falsche Zahl ist schlechter als eine fehlende.
 
 **Der geplante Aufbau findet auch dann zurück, wenn der Tag nicht stimmt**
 (`ai_export._aufbau_je_workout`). `plan_session_id` entsteht über Tag **und**
@@ -874,7 +942,8 @@ damit Einheitenliste, Wochenübersicht, ACWR und Abstände dieselbe Menge sehen.
 ruht als das Fenster reicht, verschwand sonst aus dem Ergebnis — ausgerechnet
 die, die Punkt 8 vorziehen soll. Und `tage_seit_letzter_intensiver_einheit: null`
 hieß sowohl „seit über vier Wochen nichts Hartes" als auch „keine Daten",
-während die 48-h-Regel genau an dieser Zahl hängt.
+während Punkt 4 des Prompts genau an dieser Zahl hängt — er schreibt keinen
+Abstand mehr vor, verlangt aber, dass die KI ihn kennt.
 
 **RPE wird geschätzt, ACWR bleibt sRPE-basiert** (`mapping.schaetze_rpe`).
 Garmin liefert kein RPE, aber `weekly_summary`, `acute_chronic_ratio` und
@@ -1281,16 +1350,64 @@ Garmin zeigt zu einem Workout-Schritt eine Bewegungsanimation — aber nur, wenn
 der Schritt zwei Felder trägt: `category` (Bewegungsgruppe) und `exerciseName`
 (die genaue Variante), beide aus Garmins eigenem Katalog. Ohne sie steht auf
 der Fenix bloß die Textzeile „Seitstütz 3x40 s“, und wer die Bewegung nicht
-kennt, macht sie falsch. Der Katalog kommt aus `garminconnect.exercises` (1527
-Einträge, 47 Kategorien, abgelesen aus dem Übungswähler des Connect-Editors) —
-eigene Zahlen kämen nicht in Frage, denn eine unbekannte Kategorie beantwortet
-Garmin mit 400, und zwar für das ganze Workout. Das Problem in der Mitte: Der
+kennt, macht sie falsch. Der Katalog kommt aus Garmins eigenen JSON-Dateien
+(`garmin/katalog.py`) — eigene Zahlen kämen nicht in Frage, denn eine
+unbekannte Kategorie beantwortet Garmin mit 400, und zwar für das ganze
+Workout. Das Problem in der Mitte: Der
 Katalog ist englisch, der Plan deutsch, und die Übung steht in einer Zeile
 voller Beiwerk. Deshalb wird beides auf Wortstämme normalisiert und im Text das
 *längste zusammenhängende* Stück gesucht, das im Verzeichnis steht — „Seitstütz“
 ergibt Side Plank und nicht Plank, weil zwei Wörter mehr wiegen als eins. Die
 deutschen Entsprechungen in `SYNONYME` sind dabei nur ein zweiter Schlüssel auf
 denselben Eintrag, keine zweite Datenhaltung.
+
+**Der Katalog kommt täglich von Garmin, in zwei Ausführungen**
+(`garmin/katalog.py`, `web-data/exercises/Exercises.json` und `Mobility.json`).
+Er stand einmal in `garminconnect.exercises` — einer statisch erzeugten Liste
+in der Bibliothek, die mit *ihr* altert statt mit Garmin. Geholt wird jetzt als
+letzter Schritt des Abgleichs: Der ist der einzige tägliche Lauf, den es gibt,
+und eine zweite Weckschleife für zwei öffentliche JSON-Dateien wäre Aufwand
+ohne Gegenwert. Es ist zugleich der einzige Schritt, der **nicht** gegen
+Garmins API geht — er braucht keine Anmeldung und zählt auf keine
+Anfragegrenze.
+
+**Zwei Kataloge, weil Garmin zwei führt.** In Connect lässt sich eine Yogapose
+nicht in ein Krafttraining legen, und eine dort unbekannte Kategorie kostet das
+**ganze** Workout (400). `finde()` bekommt deshalb die Sportart mit
+(`workouts._SPORT_ZU_KATALOG`), und `Mobility.json` bringt dafür `POSE`
+(43 Yogaposen) und `MOVE` (24 Dehnungen) mit — genau die Kategorien, die hier
+einmal als unerreichbar dokumentiert waren.
+
+**Verschmolzen wird, weil die JSON keine Anzeigenamen trägt.** Dort stehen nur
+Enum-Schlüssel; „Side Plank“ oder „Banded Ab Twist“ ist Garmins UI-Übersetzung
+und kommt nirgends mit. Die Texterkennung sucht aber über den Namen. Also
+entscheidet die **JSON über den Bestand** — nur der geht auf die Uhr —, und den
+**Namen liefert `garminconnect.exercises`**, wo das Paar dort bekannt ist. Aus
+dem Schlüssel allein abgeleitet verlören 835 von 1527 Namen ihren Qualifizierer
+(„Ab Twist“ statt „Banded Ab Twist“); für die rund hundert Einträge, die nur
+die JSON kennt, wird er trotzdem so gebildet — deren Schlüssel sind
+beschreibend genug (`DOWNWARD_FACING_DOG`). Gemessen an allen Katalognamen und
+allen `SYNONYME`-Schlüsseln zusammen ändert die Umstellung **keinen einzigen**
+Treffer; sie fügt nur hinzu. Die Grundübung einer Kategorie trägt dabei
+`exercise == category` und nicht den Leerstring: Der Wert geht unverändert als
+`exerciseName` auf die Uhr.
+
+**Geprüft wird vor dem Überschreiben, nicht danach.** Eine HTML-Fehlerseite oder
+ein abgerissener Rumpf, der eine gute Datei ersetzt, nähme jeder Kraft- und
+Mobility-Einheit ihre Animation — unbemerkt, bis jemand auf die Uhr sieht. Das
+ist der einzige Weg, auf dem dieser Mechanismus dauerhaft schaden könnte, und
+deshalb hängt alles an `_pruefe()`: Ohne plausible Kategorie- und Übungszahl
+wird nicht geschrieben, und geschrieben wird atomar. Schlägt der Abruf fehl,
+gilt der gespeicherte Stand und der Hinweis wandert über `ergebnis.hinweise` in
+die Meldung des Laufs. Abgelegt wird neben der Datenbank (`config.KATALOG_DIR`,
+im Add-on `/data`) — nur dort überlebt eine Datei ein Update; die
+Erstausstattung im Abbild (`app/garmin/katalogdaten/`) springt ein, solange noch
+nichts geholt wurde. Eine Versionierung gibt es nicht.
+
+Zwei Kleinigkeiten, die am echten Dienst gemessen sind und beide nicht
+offensichtlich: Auf Pythons Vorgabe-Kennung „Python-urllib/3.12“ antwortet
+Garmin mit **403** (auf so ziemlich jede andere mit 200), und der Abruf braucht
+`certifi` — Pythons OpenSSL bringt auf macOS keinen Zertifikatsspeicher mit.
 
 **Die Kennung allein genügt nicht — die Uhr braucht die ganze Schrittform.**
 Das war der Fehlschlag beim ersten Versuch am echten Gerät: `category` und
@@ -1311,8 +1428,9 @@ Derselbe Vergleich hat die Sportart bestätigt und den Katalog relativiert:
 `sportTypeId 11` wird angenommen und speichert die `WARM_UP`-Kennungen — unter
 `mobility` führt Garmin aber **mehr** Kategorien, als der Kraftkatalog kennt
 (`POSE`, `MOVE`, dazu `WARM_UP`-Einträge wie `CHEST_OPENERS`, die im Wähler des
-Krafteditors fehlen). Sie sind nirgends abrufbar; erreichbar ist nur, was in
-`garminconnect.exercises` steht.
+Krafteditors fehlen). Daraus stand hier einmal die Regel „sie sind nirgends
+abrufbar“ — **überholt**: `Mobility.json` liefert genau sie, und seit der
+Katalog von dort kommt, sind sie erreichbar.
 
 Zwei Regeln der Normalisierung sind gegen echte Pläne entstanden und stehen
 deshalb fest. **Verklebt wird vor dem Kürzen** (`_schluessel`): Im Deutschen ist
@@ -1768,6 +1886,10 @@ Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
 - `SessionLog` hat nur noch ein Schema, `SessionLogOut`: Es gibt keinen
   Anfragekörper mehr, aus dem eine Einheit entstünde. Ein neues Feld gehört
   dorthin *und* in `mapping.aktivitaet_zu_log()` — sonst bleibt die Spalte leer.
+  Was nur der Export liest, gehört umgekehrt **nicht** in `SessionLogOut`: Die
+  Ausführungsspalten (`hr_zone_seconds`, `garmin_abschnitte`,
+  `garmin_uebungen`, `garmin_compliance`) stehen dort bewusst nicht, sonst zöge
+  jedes neue Feld `frontend/src/types.ts` mit.
 - Jeder Zugriff auf Garmin-JSON läuft über `mapping.hole()` / `erster_wert()` /
   `als_liste()`, nie über `d["a"]["b"]`: Die API ist undokumentiert, ändert
   Feldnamen ohne Vorwarnung, und ihre Typangaben stimmen nicht (`get_activities`
@@ -1797,15 +1919,39 @@ Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
 `PROMPT_TEMPLATE` enthält die verbindlichen Trainingsprinzipien und
 `RESPONSE_SCHEMA` das erwartete Antwortformat. Die Prinzipien sind auf den kurzen
 Block zugeschnitten: Einordnung in den bisherigen Verlauf statt 3:1-Zyklus,
-höchstens eine intensive Einheit je drei Tage, 48 h Abstand *auch über den
-Blockanfang hinweg*, und beim Triathlon Disziplinenwahl nach dem längsten
+und beim Triathlon Disziplinenwahl nach dem längsten
 Abstand statt „alle drei pro Woche". Das Template wird mit `.format()` gefüllt —
 neue Platzhalter (`{tage}`, `{start}`, `{ende}`) müssen in `build_prompt()`
 mitversorgt werden.
 
+**Die Punkte 3 und 4 sagen, woran — nicht wie viel.** Sie schrieben einmal
+„polarisiert, der Großteil in Z1/Z2", „höchstens eine intensive Einheit je drei
+Tage" und „mindestens 48 h zwischen zwei intensiven Einheiten" vor. Das sind
+Trainerentscheidungen und keine Datenlage: Die Rolle im Prompt ist ein
+Ausdauer-Trainingswissenschaftler, der sie mitbringt — was ihm fehlt, sind die
+Daten *dieses* Athleten. Beide Punkte nennen sie deshalb weiterhin namentlich
+(`wochenuebersicht`, `zeit_in_hf_zonen_min`,
+`tage_seit_letzter_intensiver_einheit`) und geben die Entscheidung ausdrücklich
+zurück.
+
+Zwei Dinge hängen daran und sind beim Kürzen ausdrücklich stehen geblieben.
+`_days_since_hard_session()` rechnet über die **ganze** Historie statt über vier
+Wochen, weil Punkt 4 diese Zahl liest — der Block beginnt nicht bei null, und
+ohne den Namen im Prompt verlöre das Feld seinen einzigen Leser. Und die Punkte
+bleiben **an ihrer Nummer**: „Punkte 1 bis 4 und 13" steht im Prompt an zwei
+Stellen, in diesem Dokument an mehreren, und `test_flow.py` prüft den Wortlaut.
+Der Einzelanpassungsprompt wurde mitgezogen (Punkt 1 und der Aufgabentext) —
+zwei Wege mit zwei Maßstäben wären schlechter als ein strenger.
+
+**Der Preis, offen gesagt:** Punkt 6 existiert nur, weil ein Regelwerk aus
+lauter Bremsen das Modell zu sicheren Z2-Wochen treibt (siehe gleich). Die
+Bremsen zu lockern verschiebt das Gleichgewicht in die andere Richtung, und
+nichts in der App prüft das Ergebnis nach. Ob es trägt, zeigt sich nur an den
+Blöcken.
+
 **Punkt 6 ist das Gegengewicht zu allen anderen.** Die Prinzipien 1 bis 4 sind
 Bremsen — sie beschreiben ausschließlich, wann zurückgenommen wird (ACWR, HRV,
-Trainingsreife, 48-h-Abstand). Ein Regelwerk, das nur bremst, liest sich für ein
+Trainingsreife, der Abstand zum letzten harten Reiz). Ein Regelwerk, das nur bremst, liest sich für ein
 Sprachmodell als Auftrag zur Vorsicht: Es plante zuverlässig sichere
 Z2-Wochen und nie den Reiz, aus dem Anpassung entsteht. Punkt 6 dreht die
 Beweislast um — greift keine Bremse, ist Aufbau die Vorgabe, mit mindestens
@@ -1854,7 +2000,9 @@ dabei nichts übersehen: Die Einheit vom Vortag lag mitsamt vollständiger
 `mobility: 1`. **Die Wiederholung war eine Prompt-Lücke, kein Datenmangel** — die
 naheliegende Diagnose „sie weiß zu wenig" war hier die falsche. Punkt 9 verlangt
 deshalb jetzt, in `trainingshistorie.einheiten` nach der letzten Ergänzungseinheit
-zu sehen und Übungsauswahl wie Körperregion zu wechseln; dieselbe Region an zwei
+zu sehen und Übungsauswahl wie Körperregion zu wechseln — zuerst in
+`absolvierte_uebungen`, was die Uhr gezählt hat, erst dann in
+`geplant_war.aufbau` oder `notiz`; dieselbe Region an zwei
 aufeinanderfolgenden Tagen ist ein Fehler. Die Ausnahme davon war zunächst als
 bloße Erlaubnis formuliert („eine Region, die akut zwickt, darf wiederholt
 werden") und hat sich genau darin als zu schwach erwiesen — siehe „Punkt 13 ist
@@ -1870,8 +2018,12 @@ eingesetzte Werte **nicht** erneut, der Platzhalter muss also gefüllt sein, bev
 der Text in die Vorlage geht.
 
 Punkt 12 liest neben `geplant_war` jetzt auch, **wie** die Einheit ausgeführt
-wurde — `zeit_in_hf_zonen_min`, `absolvierte_abschnitte` und
-`workout_einhaltung_pct` — und schreibt von dort aus fort statt von der Vorgabe.
+wurde — `zeit_in_hf_zonen_min`, `absolvierte_abschnitte`,
+`workout_einhaltung_pct` und, bei Kraft und Mobility, `absolvierte_uebungen` —
+und schreibt von dort aus fort statt von der Vorgabe. Zu den Übungen nennt er
+zwei Einschränkungen, die aus echten Daten stammen (aufgezeichnete statt
+absolvierte Sätze, zu niedrig gezählte Wiederholungen) — siehe „Was in einer
+Krafteinheit wirklich passiert ist".
 Dazu `geplant_fuer`: Eine an einem anderen Tag absolvierte Einheit ist erfüllt,
 nur verschoben, und ausdrücklich keine Nichtumsetzung. Auch hier gilt die Sperre
 aus Punkt 11: Die Felder fehlen an vielen Einheiten, und ihr Fehlen ist keine
@@ -2198,19 +2350,41 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   beim Start gelöscht; für Umbenennungen oder Typänderungen bleibt es beim
   Löschen der Datei. Die Tabelle `garmin_workout_links` legt
   `create_all()` beim Start an; die zwei Zählwerke an `garmin_sync_jobs`,
-  `athlete_profiles.garmin_personal_bests`, `session_logs.garmin_feel`, die vier
+  `athlete_profiles.garmin_personal_bests`, `session_logs.garmin_feel`, die fünf
   Ausführungsspalten an `session_logs` (`hr_zone_seconds`, `garmin_abschnitte`,
-  `garmin_compliance`, `garmin_workout_id`) sowie
+  `garmin_uebungen`, `garmin_compliance`, `garmin_workout_id`) sowie
   `garmin_accounts.synced_through` und `garmin_accounts.auto_push_enabled`
   kommen über den Helfer — ebenso `garmin_accounts.sync_hour` und
   `ki_settings.token_encrypted`.
-- **Die vier Ausführungsspalten bleiben an bestehenden Einheiten leer.** Die
-  Zonenzeiten stehen zwar in der Listenantwort, die übrigen drei im
-  Aktivitätsdetail — beides wird für zurückliegende Tage nicht noch einmal
-  geholt (`AKTUALISIERUNGSFENSTER_TAGE` = 5). Wer sie für die Historie will,
+- **Die fünf Ausführungsspalten bleiben an bestehenden Einheiten leer.** Die
+  Zonenzeiten stehen zwar in der Listenantwort, drei weitere im
+  Aktivitätsdetail und die Übungen hinter einer eigenen Anfrage — nichts davon
+  wird für zurückliegende Tage noch einmal geholt
+  (`AKTUALISIERUNGSFENSTER_TAGE` = 5). Wer sie für die Historie will,
   stößt einen **Rückblick** an; für Einheiten außerhalb von
-  `BEWERTUNGSFENSTER_TAGE` = 42 kommen Abschnitte, Einhaltung und
-  Workout-Kennung auch dann nicht nach, weil dort kein Detail geholt wird.
+  `BEWERTUNGSFENSTER_TAGE` = 42 kommen Abschnitte, Einhaltung,
+  Workout-Kennung und Übungen auch dann nicht nach, weil dort kein Detail
+  geholt wird.
+- **Die Übungsliste kostet eine eigene Anfrage je Kraft- und
+  Mobility-Einheit** (`get_activity_exercise_sets`), anders als die drei
+  Nachbarn aus dem Detail. Bei einem Rückblick über ein Jahr betrifft das nur
+  die Einheiten der letzten 42 Tage, im Alltag also eine Handvoll — spürbar
+  wird es erst, wer sehr viel Kraft trainiert.
+- **Was die Uhr nicht erkennt, steht nicht da.** Garmin meldet `UNKNOWN`, und
+  das fällt heraus statt als Übung zu erscheinen. Betroffen ist alles, was
+  nicht aus einem Workout mit Übungskennung gestartet wurde — eine frei
+  begonnene Krafteinheit erkennt die Uhr nur zum Teil, und genau die Übungen,
+  die `garmin/uebungen.py` nicht zuordnen kann (Faszienrolle, „World's Greatest
+  Stretch" …), kommen deshalb auch hier nicht zurück. Dieselbe Lücke, zweimal.
+- **`saetze` und `wiederholungen` sind nicht, was der Athlet gemacht hat.**
+  `saetze` zählt die *aufgezeichneten* Sätze — drei Sätze in einem
+  Workout-Schritt bis zur Rundentaste stehen als einer —, und `wiederholungen`
+  kommt aus der Bewegungserkennung am Handgelenk und zählt bei
+  Körpergewichtsübungen zu niedrig (an einer echten Einheit: 3 Wiederholungen
+  über 232 s). Der Prompt sagt das der KI; nachrechnen kann die App es nicht.
+  Verlässlich sind Übungsauswahl und Dauer.
+- Ein **Zusatzgewicht** wird nicht gelesen: `weight` stand an jedem geprüften
+  Satz auf `null`, damit ist die Einheit (Gramm oder Kilogramm) nicht belegt.
 - **Der Weg über `associatedWorkoutId` funktioniert nur, solange die Zuordnung
   lebt.** `GarminWorkoutLink` stirbt mit dem Plan; ein gelöschter Block nimmt
   auch den nachträglichen Weg zum Aufbau mit. Für die Einheiten vor dieser
@@ -2332,10 +2506,15 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   animiert wird — dieselbe Hüftbeuge, nur auf zwei Beinen. „Bulgarian Split
   Squat“ und „Nordic Hamstring Curl“ bleiben aus demselben Grund ganz ohne
   Animation.
-- **Yogaposen fehlen ganz.** Garmins Posenkatalog steckt hinter dem
-  angemeldeten Connect-Editor und wird nirgends öffentlich ausgeliefert
-  (`web-data/exercises/Yoga.json` ist ein 404). Deshalb laufen Mobility-
-  Einheiten als Garmins „Mobility“ über den Kraftkatalog statt als Yoga.
+- **Yogaposen laufen als `POSE`, nicht als Yoga.** Einen eigenen
+  *Yoga*-Posenkatalog gibt es weiterhin nicht öffentlich
+  (`web-data/exercises/Yoga.json` ist ein 404) — die 43 Posen aus
+  `Mobility.json` (`POSE`) decken den Bedarf aber ab, und Mobility-Einheiten
+  laufen wie bisher als Garmins „Mobility“ (11). **Ob `POSE` und `MOVE` am
+  echten Konto angenommen werden, ist offen**: Bisher hat diese App nur
+  `WARM_UP`-Kennungen übertragen, und eine abgelehnte Kategorie kostet das
+  ganze Workout. Fällt es durch, genügt es, beide Kategorien in
+  `katalog.eintraege()` auszulassen.
 - Die Sportart `mobility` (11), die Übungskennungen und die Serienform sind am
   echten Konto bestätigt: Ein temporäres Workout aus Einheit 24 kam mit
   Wiederholungsgruppe, Timer (`time`), Wiederholungszählung (`reps`) und

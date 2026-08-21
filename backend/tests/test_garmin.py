@@ -16,7 +16,7 @@ from app.garmin.sync import standard_zeitraum
 from app.models import GarminAccount, GarminSyncJob, WellnessDay
 from app.schemas import WEEKDAYS
 
-from fakes import baue_aktivitaet
+from fakes import baue_aktivitaet, uebungssatz
 
 HEUTE = date.today()
 
@@ -180,6 +180,32 @@ def test_backfill_importiert_trainings_und_fitnessdaten(client, verbunden):
     assert juengster["vo2max_run"] == 54.3
 
 
+def test_ein_gescheiterter_katalogabruf_steht_in_der_meldung(
+    client, verbunden, monkeypatch
+):
+    """Der Abgleich läuft durch, sagt es aber.
+
+    Der Übungskatalog ist der einzige Schritt des Laufs, der nicht gegen
+    Garmins API geht — zwei öffentliche JSON-Dateien. Bleibt er aus, ist das
+    kein Grund, den Abgleich scheitern zu lassen: Die Trainingsdaten sind
+    geholt, und der gespeicherte Katalog von gestern trägt. Erfahren muss der
+    Athlet es trotzdem, sonst veraltet die Zuordnung stumm.
+    """
+    from app.garmin import katalog
+
+    monkeypatch.setattr(katalog, "_ist_frisch", lambda ziel: False)
+    monkeypatch.setattr(
+        katalog, "_hole", lambda adresse: (_ for _ in ()).throw(OSError("kein Netz"))
+    )
+
+    job = _backfill(client, verbunden)
+    fertig = client.get(f"/api/garmin/jobs/{job['id']}", headers=verbunden).json()
+
+    assert fertig["state"] == "done", fertig["message"]
+    assert "Übungskatalog" in fertig["message"]
+    assert "zuletzt gespeicherte" in fertig["message"]
+
+
 def test_zweiter_abgleich_verdoppelt_nichts(client, verbunden):
     _backfill(client, verbunden)
     vorher = client.get("/api/logs?weeks=4", headers=verbunden).json()
@@ -333,6 +359,68 @@ def test_detail_wird_nur_im_bewertungsfenster_geholt(client, verbunden, fake):
     _backfill(client, verbunden, tage=365)
 
     assert fake.aufrufe.count("get_activity") == 1
+
+
+def test_uebungen_werden_nur_bei_kraft_und_mobility_geholt(client, verbunden, fake):
+    """Eine **zweite** Anfrage je Einheit — bei einem Lauf wäre sie leer."""
+    fake._aktivitaeten = [
+        baue_aktivitaet(3001, HEUTE - timedelta(days=1), typkey="strength_training"),
+        baue_aktivitaet(3002, HEUTE - timedelta(days=2), typkey="yoga"),
+        baue_aktivitaet(3003, HEUTE - timedelta(days=3), typkey="running"),
+        baue_aktivitaet(3004, HEUTE - timedelta(days=4), typkey="cycling"),
+        # Außerhalb des Fensters: Für diese Einheit wird gar kein Detail geholt.
+        baue_aktivitaet(3005, HEUTE - timedelta(days=200), typkey="strength_training"),
+    ]
+
+    _backfill(client, verbunden, tage=365)
+
+    assert fake.aufrufe.count("get_activity_exercise_sets") == 2
+
+
+def test_die_gezaehlten_uebungen_landen_an_der_einheit(client, verbunden, fake):
+    # Eigene Kennung: Die Datenbank steht modulweit, nur das Konto ist je Test
+    # frisch — und gelesen wird hier per SQL, weil `garmin_uebungen` bewusst
+    # nicht in `SessionLogOut` steht.
+    fake._aktivitaeten = [
+        baue_aktivitaet(3101, HEUTE - timedelta(days=1), typkey="strength_training")
+    ]
+    fake.uebungssaetze["3101"] = {
+        "exerciseSets": [
+            uebungssatz("HIP_RAISE", "SINGLE_LEG_HIP_RAISE", dauer=194.5, wiederholungen=10),
+            uebungssatz("PLANK", "SIDE_PLANK", dauer=45.0),
+            uebungssatz("PLANK", "SIDE_PLANK", dauer=45.0),
+            uebungssatz(None, dauer=30.0, art="REST"),
+        ]
+    }
+
+    _backfill(client, verbunden)
+
+    with SessionLocal() as db:
+        gespeichert = db.execute(
+            text("SELECT garmin_uebungen FROM session_logs WHERE garmin_activity_id = '3101'")
+        ).scalar_one()
+    assert '"SIDE_PLANK"' in gespeichert
+    assert '"saetze": 2' in gespeichert
+
+
+def test_ein_fehlschlag_beim_uebungsabruf_kostet_nicht_die_einheit(
+    client, verbunden, fake
+):
+    """Das Training steht schon fest; es fehlte nur die Übungsliste."""
+    fake._aktivitaeten = [
+        baue_aktivitaet(3201, HEUTE - timedelta(days=1), typkey="strength_training")
+    ]
+
+    def kaputt(_activity_id):
+        fake.aufrufe.append("get_activity_exercise_sets")
+        raise RuntimeError("Garmin schweigt")
+
+    fake.get_activity_exercise_sets = kaputt
+
+    _backfill(client, verbunden)
+
+    logs = client.get("/api/logs?weeks=4", headers=verbunden).json()
+    assert [lg["garmin_activity_id"] for lg in logs] == ["3201"]
 
 
 def test_trainingsstatus_zweier_geraete_ist_eindeutig(client, verbunden):
@@ -1026,6 +1114,44 @@ def test_export_reicht_die_bewertung_durch_und_erfindet_keine(client, verbunden,
     assert all("befinden_0_10" not in e for e in uebrige)
 
     assert "befinden_0_10" in export["prompt"]
+
+
+def test_export_traegt_die_absolvierten_uebungen(client, verbunden, fake):
+    """Bisher stand im Export nur, was geplant *war*."""
+    fake._aktivitaeten = [
+        baue_aktivitaet(3301, HEUTE - timedelta(days=1), typkey="strength_training"),
+        baue_aktivitaet(3302, HEUTE - timedelta(days=2), typkey="running"),
+    ]
+    fake.uebungssaetze["3301"] = {
+        "exerciseSets": [
+            uebungssatz("HIP_RAISE", "SINGLE_LEG_HIP_RAISE", dauer=194.5, wiederholungen=10),
+            uebungssatz("PLANK", "SIDE_PLANK", dauer=45.0),
+            uebungssatz("PLANK", "SIDE_PLANK", dauer=45.0),
+        ]
+    }
+    _backfill(client, verbunden)
+
+    export = client.get("/api/plans/export", headers=verbunden).json()
+    einheiten = export["payload"]["trainingshistorie"]["einheiten"]
+
+    kraft = next(e for e in einheiten if e["sportart"] == "strength")
+    assert kraft["absolvierte_uebungen"] == [
+        {
+            "uebung": "SINGLE_LEG_HIP_RAISE",
+            "saetze": 1,
+            "kategorie": "HIP_RAISE",
+            "wiederholungen": 10,
+            "dauer_s": 194,
+        },
+        {"uebung": "SIDE_PLANK", "saetze": 2, "kategorie": "PLANK", "dauer_s": 45},
+    ]
+
+    # Am Lauf fehlt der Schlüssel ganz — dieselbe Regel wie bei `befinden_0_10`.
+    lauf = next(e for e in einheiten if e["sportart"] == "run")
+    assert "absolvierte_uebungen" not in lauf
+
+    # Und der Prompt zeigt darauf, sonst läse die KI das Feld nie.
+    assert "absolvierte_uebungen" in export["prompt"]
 
 
 def test_prompt_bleibt_formatierbar(client, verbunden):

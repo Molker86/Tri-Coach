@@ -38,6 +38,10 @@ class FakeGarmin:
         # abgelesen, nicht nach dem Parser geformt — siehe
         # `scripts/garmin_aktivitaetsdetail_probe.py`.
         self.details: dict[str, dict[str, Any]] = {}
+        # Die von der Uhr gezählten Sätze, je Aktivitätskennung — Rohform aus
+        # `get_activity_exercise_sets`. Leer, weil es sie nur bei Kraft und
+        # Mobility gibt. `uebungssatz()` unten baut einen Eintrag.
+        self.uebungssaetze: dict[str, dict[str, Any]] = {}
         self._tage = tage or []
         self._rate_limit_ab_tag = rate_limit_ab_tag
         self._tagesabrufe = 0
@@ -97,6 +101,18 @@ class FakeGarmin:
             antwort["summaryDTO"].update(weiteres.get("summaryDTO", {}))
             antwort.update({k: v for k, v in weiteres.items() if k != "summaryDTO"})
         return antwort
+
+    def get_activity_exercise_sets(self, activity_id):
+        """Die gezählten Sätze — eine **eigene** Anfrage, nicht Teil des Details.
+
+        Am echten Konto abgelesen (`scripts/garmin_aktivitaetsdetail_probe.py`,
+        Krafteinheit vom 17.08.2026 und Mobility vom 20.08.2026). Zwei Formen
+        darin sind der Grund für den Parser und bleiben deshalb erhalten:
+        `exercises` nennt dieselbe Übung dreimal statt einmal, und eine Pause
+        ist ein eigener Satz mit leerem `exercises` und `setType: "REST"`.
+        """
+        self.aufrufe.append("get_activity_exercise_sets")
+        return self.uebungssaetze.get(str(activity_id), {"exerciseSets": []})
 
     # -- Bereichsabfragen ---------------------------------------------------
 
@@ -504,3 +520,33 @@ def baue_aktivitaet(
     }
     aktivitaet.update(extra)
     return aktivitaet
+
+
+def uebungssatz(
+    kategorie: str | None,
+    name: str | None = None,
+    *,
+    dauer: float = 45.0,
+    wiederholungen: int | None = None,
+    art: str = "ACTIVE",
+) -> dict[str, Any]:
+    """Ein Satz in Garmins Form. `kategorie=None` ergibt eine Pause.
+
+    Die dreifache Nennung derselben Übung ist kein Versehen der Nachbildung:
+    Genau so kommt sie am echten Konto zurück, mit identischer `probability`.
+    """
+    uebungen = (
+        []
+        if kategorie is None
+        else [{"category": kategorie, "name": name, "probability": 99.609375}] * 3
+    )
+    return {
+        "exercises": uebungen,
+        "duration": dauer,
+        "repetitionCount": wiederholungen,
+        "weight": None,
+        "setType": art,
+        "startTime": "2026-08-17T16:45:56.0",
+        "wktStepIndex": 0,
+        "messageIndex": 0,
+    }

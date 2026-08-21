@@ -7,19 +7,24 @@ die geplante, und sie wird ungeprüft nachgemacht.
 """
 
 import pytest
-from garminconnect import exercises as katalog
 
-from app.garmin import uebungen
+from app.garmin import katalog, uebungen
 
 
 def test_jede_deutsche_entsprechung_zeigt_auf_einen_katalogeintrag():
     """Die rechte Seite von `SYNONYME` muss wörtlich im Katalog stehen.
 
     Zur Laufzeit fällt ein toter Eintrag stillschweigend heraus, damit ein
-    Bibliotheksupdate den Start nicht verhindert. Gemerkt werden muss es
-    trotzdem — hier.
+    Katalogupdate den Start nicht verhindert — und seit der Katalog täglich
+    von Garmin geholt wird, kann er sich ohne unser Zutun ändern. Gemerkt
+    werden muss es trotzdem, und hier ist die Stelle.
+
+    Geprüft wird gegen den Kraftkatalog: Er ist der größere von beiden, und die
+    deutschen Entsprechungen sind an ihm entstanden. Der Mobility-Katalog führt
+    nur einen Ausschnitt davon — dort dürfen Einträge fehlen.
     """
-    tot = {d: a for d, a in uebungen.SYNONYME.items() if katalog.resolve(a) is None}
+    namen = {e["name"] for e in katalog.eintraege("kraft")}
+    tot = {d: a for d, a in uebungen.SYNONYME.items() if a not in namen}
     assert tot == {}
 
 
@@ -232,3 +237,66 @@ def test_arbeit_mit_der_rolle_bekommt_keine_dehnung():
     assert uebungen.finde("2x45 s IT-Band-Dehnung im Stehen (Standing IT Band Stretch)").name == (
         "STRETCH_STANDING_IT_BAND"
     )
+
+
+# --------------------------------------------------------------------------
+# Zwei Kataloge
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("zeile", "erwartet"),
+    [
+        ("Herabschauender Hund (Downward Facing Dog) 45 s", ("POSE", "DOWNWARD_FACING_DOG")),
+        ("Nadelöhr (Thread the Needle) 2x8 je Seite", ("POSE", "THREAD_THE_NEEDLE")),
+        ("Läufer-Ausfallschritt (Runners Lunge) 45 s je Seite", ("POSE", "RUNNERS_LUNGE")),
+        ("Psoas-Dehnung (Psoas Lunge Stretch) 2x45 s", ("MOVE", "PSOAS_LUNGE_STRETCH")),
+        ("Schulteröffner (Eight Point Shoulder Opener) 45 s", ("MOVE", "EIGHT_POINT_SHOULDER_OPENER")),
+        ("Wirbelsäulendrehung im Sitzen (Seated Twist) 2x8", ("MOVE", "SEATED_TWIST")),
+    ],
+)
+def test_der_mobility_katalog_kennt_posen_und_dehnungen(zeile, erwartet):
+    """`POSE` und `MOVE` gibt es nur in `Mobility.json`.
+
+    Vor der Umstellung auf Garmins eigene Dateien war beides unerreichbar: Die
+    Bibliothek führt nur den Kraftkatalog, und diese Bewegungen bekamen deshalb
+    keine Animation.
+    """
+    treffer = uebungen.finde(zeile, "mobility")
+    assert (treffer.kategorie, treffer.name) == erwartet
+
+
+def test_eine_yogapose_ist_aus_dem_kraftkatalog_nicht_erreichbar():
+    """Der Grund für die Trennung, und er ist teuer.
+
+    Garmin lässt eine Pose nicht in ein Krafttraining und beantwortet eine dort
+    unbekannte Kategorie mit 400 — nicht für den Schritt, sondern für das ganze
+    Workout. Ohne Treffer bleibt der Schritt eine Textzeile; das ist die
+    Antwort, mit der die App ohnehin überall umgehen kann.
+    """
+    assert uebungen.finde("Herabschauender Hund (Downward Facing Dog)", "mobility")
+    assert uebungen.finde("Herabschauender Hund (Downward Facing Dog)", "kraft") is None
+
+
+@pytest.mark.parametrize(
+    ("zeile", "erwartet"),
+    [
+        ("Eidechse (Lizard Pose) 45 s je Seite", "LIZARD"),
+        ("Dreieck (Triangle Pose) 30 s je Seite", "TRIANGLE"),
+        ("Stuhl (Chair Pose) 45 s", "CHAIR"),
+    ],
+)
+def test_die_pose_darf_ihre_gattung_mitbringen(zeile, erwartet):
+    """Der Katalog führt „Lizard“, der Plan schreibt „Lizard Pose“.
+
+    Spiegelbild der Regel, die das angehängte „Stretch“ abschneidet. Ohne den
+    zweiten Schlüssel fiele die geläufige Schreibweise durch — und ein bloßes
+    „Lizard“ wäre obendrein eine Grundform, die `_grundform_ok` in einer Zeile
+    mit Beiwerk zurückweist.
+    """
+    assert uebungen.finde(zeile, "mobility").name == erwartet
+
+
+def test_ohne_angabe_gilt_der_kraftkatalog():
+    """Die Vorgabe ist die engere Wahl — sie kann keine Pose einschleppen."""
+    assert uebungen.finde("3x12 Liegestütze") == uebungen.finde("3x12 Liegestütze", "kraft")

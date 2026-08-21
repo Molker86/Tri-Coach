@@ -228,6 +228,32 @@ def test_der_prompt_verlangt_arbeit_an_der_beschwerde(client, auth):
         client.put("/api/profile", headers=auth, json={"injuries": None})
 
 
+def test_der_prompt_gibt_die_trainingslehre_nicht_vor(client, auth):
+    """Punkt 3 und 4 schrieben Quote und Stundenzahl vor — das tun sie nicht mehr.
+
+    Die Rolle im Prompt ist ein Ausdauer-Trainingswissenschaftler; die
+    Verteilung und den Abstand zwischen zwei Reizen bringt er mit. Was ihm
+    fehlt, sind die Daten dieses Athleten — die nennen beide Punkte weiterhin
+    namentlich, und daran hängt mehr als der Prompt: `_days_since_hard_session`
+    rechnet ausdrücklich über die ganze Historie statt über vier Wochen, weil
+    Punkt 4 diese Zahl liest.
+    """
+    prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
+
+    # Keine festen Vorgaben mehr.
+    assert "48 h" not in prompt
+    assert "je drei Tage" not in prompt
+    assert "Polarisiert" not in prompt
+
+    # Aber weiterhin die Felder, an denen die Entscheidung hängt.
+    assert "`tage_seit_letzter_intensiver_einheit`" in prompt
+    assert "`zeit_in_hf_zonen_min`" in prompt
+
+    # Punkt 6 zählt beide weiterhin zu den Bremsen — sonst läse sich "greift
+    # keine davon, also wird aufgebaut" über sie hinweg.
+    assert "Die Punkte 1 bis 4 und 13 sind" in prompt
+
+
 def test_ai_export_honours_block_length(client, auth):
     start = date.today() + timedelta(days=2)
     response = client.get(
