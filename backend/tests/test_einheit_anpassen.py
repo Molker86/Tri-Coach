@@ -617,11 +617,10 @@ def test_die_uhr_bekommt_die_neue_fassung_am_selben_termin(
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     heutige = [e for e in zustand["einheiten"] if e["date"] == HEUTE.isoformat()][0]
     assert heutige["zustand"] == "aktuell"
-    # In Garmin heißt die Vorlage nur nach ihrem Slot — der neue Trainingsname
-    # steht in der ersten Zeile der Beschreibung.
-    vorlage = fake._workouts[int(heutige["garmin_workout_id"])]
-    assert re.fullmatch(r"TC\d\d", vorlage["workoutName"])
-    assert vorlage["description"].splitlines()[0] == "Lockerer Dauerlauf"
+    # Slotkennung vorn, der neue Trainingsname dahinter. Welcher Slot es wird,
+    # entscheidet die Vergabe — deshalb nicht fest.
+    name = fake._workouts[int(heutige["garmin_workout_id"])]["workoutName"]
+    assert re.fullmatch(r"TC\d\d-Lockerer Dauerlauf", name)
 
 
 def test_aus_ruhe_wird_der_termin_geloescht(client, verbunden, fake, monkeypatch):
@@ -708,11 +707,10 @@ def test_ohne_automatik_wird_eine_uebertragene_einheit_trotzdem_ersetzt(
     zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
     heutige = [e for e in zustand["einheiten"] if e["date"] == HEUTE.isoformat()][0]
     assert heutige["zustand"] == "aktuell"
-    # In Garmin heißt die Vorlage nur nach ihrem Slot — der neue Trainingsname
-    # steht in der ersten Zeile der Beschreibung.
-    vorlage = fake._workouts[int(heutige["garmin_workout_id"])]
-    assert re.fullmatch(r"TC\d\d", vorlage["workoutName"])
-    assert vorlage["description"].splitlines()[0] == "Lockerer Dauerlauf"
+    # Slotkennung vorn, der neue Trainingsname dahinter. Welcher Slot es wird,
+    # entscheidet die Vergabe — deshalb nicht fest.
+    name = fake._workouts[int(heutige["garmin_workout_id"])]["workoutName"]
+    assert re.fullmatch(r"TC\d\d-Lockerer Dauerlauf", name)
 
 
 def test_ein_garmin_fehlschlag_nimmt_dem_athleten_nicht_seine_anpassung(

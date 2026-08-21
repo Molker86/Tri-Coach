@@ -1488,24 +1488,20 @@ def _ersatz_elemente(session: Any) -> list[Element]:
 
 
 def _beschreibung(session: Any, hinweis: str | None = None) -> str:
-    # Der Trainingsname steht ganz oben, weil er sonst nirgends mehr steht: Der
-    # Workout-Name in Garmin ist nur noch die Slotkennung („TC03"), und damit
-    # ist diese Zeile die einzige Stelle, an der die Einheit auf der Uhr und in
-    # Connect ihren Namen trägt.
+    # Der Ort steht ganz vorn, weil er die Einheit verändert und nicht bloß
+    # schmückt: Die Uhr wählt ihren Aufzeichnungsmodus nicht selbst, und wer
+    # eine Freiwassereinheit im Beckenmodus startet, bekommt gezählte Bahnen
+    # statt gemessener Strecke.
     #
-    # Der Ort stand hier einmal an erster Stelle und rückt dafür auf die
-    # zweite. Sein Grund gilt unverändert — die Uhr wählt ihren
-    # Aufzeichnungsmodus nicht selbst, und wer eine Freiwassereinheit im
-    # Beckenmodus startet, bekommt gezählte Bahnen statt gemessener Strecke —,
-    # aber eine Überschrift gehört über den Hinweis und nicht darunter.
-    # Übersehen wird er in Zeile zwei nicht.
+    # Der Trainingsname stand hier zwischenzeitlich als erste Zeile darüber —
+    # nötig, solange die Vorlage in Garmin nur „TC03" hieß. Er steht wieder im
+    # Workout-Namen selbst und wäre hier bloß doppelt.
     ort = (
         "Freiwasser — auf der Uhr im Freiwassermodus starten."
         if session.sport == "swim" and schwimmort(session) == "open_water"
         else None
     )
     teile = [
-        name_der_einheit(session),
         ort,
         session.description,
         f"Aufbau: {session.structure}" if session.structure else None,
@@ -1667,17 +1663,32 @@ def name_der_einheit(session: Any) -> str:
     Tag ohnehin schon in der Spalte, in der die Einheit hängt. „16.08. Lockerer
     Dauerlauf“ am 16.08. las sich dort wie ein Fehler.
 
-    In Garmin steht dieser Name allerdings **nicht mehr als Workout-Name**: Dort
-    trägt die Vorlage nur noch die Kennung ihres Pool-Slots
-    (`workout_pool.stempel_kennung`). Was hier entsteht, geht in die erste Zeile
-    der Beschreibung (`_beschreibung`) und an `GarminWorkoutLink.title`, also in
-    die Meldungen der App.
+    Was hier entsteht, ist der Name *ohne* Slotkennung. Die stellt
+    `workout_pool.stempel_kennung()` voran, sobald der Slot feststeht — hier ist
+    er noch unbekannt. Ungestempelt geht derselbe Name an
+    `GarminWorkoutLink.title` und damit in die Meldungen der App.
 
     Der Rückfall auf „Training“ ist keine Zierde: Garmin lehnt ein Workout ohne
     Namen ab, und bis hierher war der Name durch das vorangestellte Datum
     zwangsläufig nicht leer.
     """
     return (session.title or "Training").strip()[:MAX_NAME] or "Training"
+
+
+def mit_kennung(kennung: str, name: str) -> str:
+    """Stellt die Slotkennung voran: „TC03-Lockerer Dauerlauf“.
+
+    Beides muss in dieses eine Feld, weil ein Kalendertermin bei Garmin keinen
+    eigenen Namen tragen kann (neun Wege geprüft, siehe
+    `scripts/garmin_kalendername_probe.py`). Der Kalender liest `workoutName`
+    aus der Vorlage — was dort nicht steht, steht nirgends.
+
+    Die Kennung steht **vorn**, weil die Uhr lange Namen am Ende kürzt: hinten
+    angehängt fiele als Erstes weg, worauf es ankommt. Aus demselben Grund
+    schneidet der Deckel `MAX_NAME` hier hinten ab — der Trainingsname verliert
+    im Zweifel seinen Schwanz, die Kennung überlebt.
+    """
+    return f"{kennung}-{name}".strip()[:MAX_NAME]
 
 
 def _geschaetzte_dauer(session: Any, segmente: list[dict[str, Any]]) -> int:

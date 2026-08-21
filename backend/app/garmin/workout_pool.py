@@ -30,23 +30,25 @@ def slot_name(slot_index: int) -> str:
 
 
 def stempel_kennung(workout: dict[str, Any], slot: GarminWorkoutPoolSlot) -> None:
-    """Setzt als Workout-Namen die Kennung des Slots — sonst nichts.
+    """Stellt dem Workout-Namen die Kennung seines Slots voran.
 
-    Der Trainingsname stand hier einmal dahinter („TC03 · Lockerer Dauerlauf").
-    Er ist wieder heraus, und zwar aus dem Grund, der die ganze Kennung nötig
-    gemacht hat: Die Uhr friert den Namen beim ersten Synchronisieren ein, der
-    Slot bekommt aber laufend neuen Inhalt. Schon beim zweiten Durchlauf stünde
-    dort ein Trainingsname, der nicht mehr stimmt — und ein Name, der etwas
-    Falsches behauptet, ist schlechter als gar keiner. „TC03" behauptet nichts
-    und bleibt richtig.
+    Der Trainingsname war hier zwischenzeitlich **weg** — die Vorlage hieß bloß
+    „TC03". Der Grund dafür war die Annahme, die Uhr friere den Namen beim
+    ersten Synchronisieren ein: Weil derselbe Slot laufend neuen Inhalt bekommt,
+    stünde dort ab dem zweiten Durchlauf ein Name, der nicht mehr stimmt.
 
-    Wo der Trainingsname stattdessen steht: in der ersten Zeile der Beschreibung
-    (`workouts._beschreibung`) und an `GarminWorkoutLink.title`.
+    **Am Gerät nachgemessen, und die Annahme war falsch.** Eine in Connect
+    umbenannte und inhaltlich geänderte Vorlage kam nach dem Synchronisieren mit
+    dem *neuen* Namen unter „Trainings" an. Es veraltet also nichts, und damit
+    gibt es auch nichts zu vermeiden — der Trainingsname gehört dorthin, wo ihn
+    Kalender, Connect und Uhr zeigen.
 
     Erst hier, nicht in `workouts.baue_workout()`: Welcher Slot es wird, steht
     beim Bauen noch nicht fest — `uebertrage_einheit()` wählt ihn danach.
     """
-    workout["workoutName"] = slot_name(slot.slot_index)
+    workout["workoutName"] = workouts.mit_kennung(
+        slot_name(slot.slot_index), workout["workoutName"]
+    )
 
 
 def _platzhalter(slot_index: int) -> dict[str, Any]:
@@ -323,6 +325,11 @@ def stelle_pool_sicher(
     return slots
 
 
+# So hießen die reservierten Slots, bevor es die Kennung gab. Ein Name, der
+# damit anfängt, sagt über die Einheit nichts — er wird ersetzt statt ergänzt.
+_ALTER_PLATZHALTER = "TriCoach Slot "
+
+
 def _ziehe_kennungen_nach(
     db: Session, api: Any, slots: list[GarminWorkoutPoolSlot]
 ) -> None:
@@ -331,21 +338,20 @@ def _ziehe_kennungen_nach(
     Ohne diesen Schritt käme die Kennung nur tröpfchenweise an: An einer
     unveränderten Einheit ändert sich der Fingerabdruck nicht, also wird ihre
     Vorlage auch nicht neu geschrieben — der alte Name bliebe stehen, bis der
-    Slot irgendwann für eine andere Einheit wiederverwendet wird. Das ist genau
-    einmal fatal, nämlich jetzt: Die Uhr friert den Namen beim ersten
-    Synchronisieren ein, und die einmalige Aufräumaktion dort wirkt nur, wenn
-    danach in Connect überall schon die Kennung steht.
+    Slot irgendwann für eine andere Einheit wiederverwendet wird. Beim Umstieg
+    stünden in Connect also eine Weile lang zwei Benennungsschemata
+    nebeneinander.
 
-    Der bisherige Name fällt dabei ersatzlos weg — auch ein Trainingsname. Das
-    ist derselbe Grund wie in `stempel_kennung()`: Er gehörte zu dem Inhalt, der
-    in diesem Slot einmal lag, und stimmt beim nächsten Durchlauf nicht mehr.
+    Der bisherige Name bleibt dabei erhalten, die Kennung rückt nur davor. Die
+    Ausnahme ist der alte Platzhaltername eines nie belegten Slots: „TC07-
+    TriCoach Slot 07“ sagt zweimal dasselbe und nichts über eine Einheit.
 
-    Selbstbegrenzend: Nach einem erfolgreichen Lauf trägt jede Vorlage genau
-    ihre Kennung, und die Schleife kostet keine einzige Anfrage mehr.
+    Selbstbegrenzend: Nach einem erfolgreichen Lauf trägt jede Vorlage ihre
+    Kennung, und die Schleife kostet keine einzige Anfrage mehr.
     """
     for slot in slots:
         kennung = slot_name(slot.slot_index)
-        if slot.garmin_workout_id is None or slot.title == kennung:
+        if slot.garmin_workout_id is None or slot.title.startswith(kennung):
             continue
 
         # Garmin ersetzt beim Aktualisieren das *ganze* Workout — der Inhalt
@@ -355,7 +361,12 @@ def _ziehe_kennungen_nach(
         if not isinstance(vorlage, dict):
             continue
 
-        vorlage["workoutName"] = kennung
+        alt = str(vorlage.get("workoutName") or "").strip()
+        vorlage["workoutName"] = (
+            kennung
+            if not alt or alt.startswith(_ALTER_PLATZHALTER)
+            else workouts.mit_kennung(kennung, alt)
+        )
         try:
             api.update_workout(slot.garmin_workout_id, vorlage)
         except GarminConnectTooManyRequestsError as exc:

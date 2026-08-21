@@ -986,19 +986,23 @@ def test_ein_anderer_titel_ist_eine_aenderung():
     assert workouts.fingerabdruck(eine) != workouts.fingerabdruck(andere)
 
 
-def test_der_trainingsname_steht_in_der_beschreibung():
-    """In Garmin heißt die Vorlage nur nach ihrem Slot — der Name muss woandershin.
+def test_die_kennung_steht_vorn_und_ueberlebt_den_deckel():
+    """Kennung und Trainingsname teilen sich ein Feld — der Termin hat keins.
 
-    Erste Zeile, denn es ist die einzige Stelle, an der die Einheit auf der Uhr
-    und in Connect noch ihren Namen trägt.
+    Vorn steht die Kennung, weil die Uhr lange Namen am Ende kürzt: Was
+    wegfällt, soll der Trainingsname sein und nicht die Zuordnung.
     """
     from app.garmin import workout_pool
 
     assert workout_pool.slot_name(0) == "TC01"
     assert workout_pool.slot_name(14) == "TC15"
 
-    workout = workouts.baue_workout(einheit(title="Schwellenintervalle"), zonen=ZONEN)
-    assert workout["description"].splitlines()[0] == "Schwellenintervalle"
+    assert workouts.mit_kennung("TC03", "Schwellentraining Rad") == (
+        "TC03-Schwellentraining Rad"
+    )
+    name = workouts.mit_kennung("TC03", "X" * 200)
+    assert name.startswith("TC03-")
+    assert len(name) == workouts.MAX_NAME
 
 
 # --------------------------------------------------------------------------
@@ -1329,20 +1333,22 @@ def test_geaenderte_einheit_wird_ersetzt_statt_verdoppelt(client, verbunden, fak
 def test_jede_vorlage_traegt_ihre_slotkennung(client, verbunden, fake):
     """Fünfzehn Vorlagen, fünfzehn verschiedene Kennungen — TC01 bis TC15.
 
-    Die Kennung ist das Einzige, woran sich ein Eintrag in der Trainingsliste
-    der Uhr noch zuordnen lässt: Den Namen friert die Uhr beim ersten
-    Synchronisieren ein und zieht ihn nie wieder nach.
+    Belegte Slots tragen den Trainingsnamen dahinter, reservierte nur die
+    Kennung. Die Kennung sagt, welcher Slot es ist; sie muss deshalb eindeutig
+    sein.
     """
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
     namen = sorted(w["workoutName"] for w in fake._workouts.values())
+    kennungen = sorted(name[:4] for name in namen)
 
-    assert namen == [f"TC{nummer:02d}" for nummer in range(1, 16)]
-    assert all(re.fullmatch(r"TC\d\d", name) for name in namen)
-    # Der Trainingsname steht nicht im Namen, sondern in der Beschreibung.
-    beschreibungen = [w["description"] for w in fake._workouts.values()]
-    assert any("Einheit 1" in text for text in beschreibungen)
+    assert len(namen) == 15
+    assert kennungen == [f"TC{nummer:02d}" for nummer in range(1, 16)]
+    assert all(re.fullmatch(r"TC\d\d(-.+)?", name) for name in namen)
+    # Zwei Einheiten im Plan, also zwei Vorlagen mit Trainingsnamen.
+    assert len([name for name in namen if "-" in name]) == 2
+    assert any(name.endswith("-Einheit 1") for name in namen)
 
 
 def test_alte_vorlagennamen_bekommen_ihre_kennung_nachtraeglich(
@@ -1381,14 +1387,14 @@ def test_alte_vorlagennamen_bekommen_ihre_kennung_nachtraeglich(
         # Den Stand von vor der Änderung nachstellen: einmal eine Vorlage unter
         # ihrem Trainingsnamen, einmal ein reservierter Slot unter dem alten
         # Platzhalternamen.
-        merker = {}
-        for slot, alt in (
-            (belegt, "Lockerer Dauerlauf"),
-            (frei, f"TriCoach Slot {frei.slot_index + 1:02d}"),
+        erwartet = {}
+        for slot, alt, mit_namen in (
+            (belegt, "Lockerer Dauerlauf", True),
+            (frei, f"TriCoach Slot {frei.slot_index + 1:02d}", False),
         ):
-            merker[alt] = (
-                int(slot.garmin_workout_id),
-                workout_pool.slot_name(slot.slot_index),
+            kennung = workout_pool.slot_name(slot.slot_index)
+            erwartet[int(slot.garmin_workout_id)] = (
+                f"{kennung}-{alt}" if mit_namen else kennung
             )
             slot.title = alt
             fake._workouts[int(slot.garmin_workout_id)]["workoutName"] = alt
@@ -1396,8 +1402,8 @@ def test_alte_vorlagennamen_bekommen_ihre_kennung_nachtraeglich(
 
         workout_pool.stelle_pool_sicher(db, fake, user_id)
 
-        for workout_id, kennung in merker.values():
-            assert fake._workouts[workout_id]["workoutName"] == kennung
+        for workout_id, name in erwartet.items():
+            assert fake._workouts[workout_id]["workoutName"] == name
 
         fake.aufrufe.clear()
         workout_pool.stelle_pool_sicher(db, fake, user_id)
@@ -1406,12 +1412,11 @@ def test_alte_vorlagennamen_bekommen_ihre_kennung_nachtraeglich(
 
 
 def test_die_kennung_bleibt_wenn_der_inhalt_wechselt(client, verbunden, fake):
-    """Der eigentliche Zweck der Kennung.
+    """Zweiter Zyklus, derselbe Slot: Kennung bleibt, Trainingsname wechselt.
 
-    Der Inhalt eines Pool-Slots wechselt laufend. Der Name auf der Uhr tut das
-    nicht — sie friert ihn beim ersten Synchronisieren ein. Also darf im Namen
-    nichts stehen, was zum Inhalt gehört: „TC03“ bleibt richtig, „TC03 ·
-    Lockerer Dauerlauf“ wäre beim zweiten Durchlauf gelogen.
+    Die Vorlage behält ihre Garmin-Kennung — daran hängt der Kalendertermin —,
+    und `update_workout` schreibt Inhalt wie Namen neu. Beides muss ankommen:
+    „TC01" identisch, der Teil dahinter neu.
     """
     from app.database import SessionLocal
     from app.models import GarminWorkoutLink, PlanSession
@@ -1425,7 +1430,7 @@ def test_die_kennung_bleibt_wenn_der_inhalt_wechselt(client, verbunden, fake):
         e for e in zustand["einheiten"] if e["plan_session_id"] == einheit_id
     )
     workout_id = int(eintrag["garmin_workout_id"])
-    kennung = fake._workouts[workout_id]["workoutName"]
+    kennung = fake._workouts[workout_id]["workoutName"][:4]
     assert re.fullmatch(r"TC\d\d", kennung)
 
     with SessionLocal() as db:
@@ -1434,10 +1439,8 @@ def test_die_kennung_bleibt_wenn_der_inhalt_wechselt(client, verbunden, fake):
 
     _uebertrage(client, verbunden)
 
-    # Der Name rührt sich nicht, der Inhalt schon.
-    assert fake._workouts[workout_id]["workoutName"] == kennung
-    assert fake._workouts[workout_id]["description"].splitlines()[0] == (
-        "Ganz andere Einheit"
+    assert fake._workouts[workout_id]["workoutName"] == (
+        f"{kennung}-Ganz andere Einheit"
     )
     with SessionLocal() as db:
         link = db.query(GarminWorkoutLink).filter_by(plan_session_id=einheit_id).one()
