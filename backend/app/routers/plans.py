@@ -174,7 +174,7 @@ def import_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanImp
 
 
 @router.post("/validate", response_model=PlanImportOut)
-def validate_plan(data: PlanImportIn, user: CurrentUser) -> PlanImportOut:
+def validate_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanImportOut:
     """Prüft eine KI-Antwort, ohne sie zu speichern (Vorschau vor dem Import)."""
     try:
         body = plan_import.parse_ai_response(data.raw)
@@ -221,7 +221,13 @@ def validate_plan(data: PlanImportIn, user: CurrentUser) -> PlanImportOut:
                 for s in sessions
             ],
         ),
-        warnings=plan_import.validate_coverage(body, data.days),
+        warnings=plan_import.validate_coverage(
+            body,
+            data.days,
+            # Die Vorschau soll dieselben Hinweise zeigen wie der Import —
+            # sonst taucht die Warnung erst auf, wenn der Block schon steht.
+            plan_import.disziplin_des_fragebogens(db, user.id, data.request_id),
+        ),
     )
 
 

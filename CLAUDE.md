@@ -84,7 +84,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 428 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 444 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -306,6 +306,91 @@ Lauf im `KiRunner` (`kind = "einheit"`, dieselben Zustände, derselbe Abbruch),
 `GET …/anpassung-export` und `POST …/anpassen` bedienen die Zwischenablage. Beide
 benutzen dieselben zwei Funktionen — `test_der_handweg_liefert_denselben_prompt`
 vergleicht die erzeugten Texte Zeichen für Zeichen, damit sie es bleiben.
+
+**Die gewählte Disziplin entscheidet, was im Block vorkommen darf**
+(`schemas.DISZIPLIN_SPORTARTEN`, `ai_export._prinzip_disziplin`,
+`_session_schema`). Der Fragebogen kennt vier Disziplinen — Laufen, Schwimmen,
+Radfahren, Triathlon —, aber `discipline` steuerte im Backend **nichts**: Der
+Wert wanderte als Label in den Payload und wurde sonst nirgends gelesen. Ein
+reiner Läufer bekam damit wortgleich denselben Prompt wie ein Triathlet. Punkt 8
+hieß „Triathlon" und erklärte ihm, welche der *drei* Disziplinen vorzuziehen sei
+und wann eine Koppeleinheit passt; Punkt 13 riet bei Beschwerden, „den Reiz auf
+eine Disziplin zu verlegen, die sie nicht berührt — bei drei Disziplinen ist das
+fast immer möglich"; und das Antwortformat bot `swim`, `bike`, `brick`,
+`swim_location` und `bike_location` gleich mit an. Das ist keine Auslassung,
+sondern eine Einladung: Wer Schwimmen im Schema anbietet, bekommt Schwimmen.
+
+**Für Triathlon bleibt der Prompt Wort für Wort derselbe.** Er passt dort gut,
+die Tests prüfen seinen Wortlaut, und die Prinzipien tragen die Disziplinenwahl
+über `tage_seit_letzter_einheit_je_sportart` bereits sauber. Geändert wird nur,
+was *daneben* gilt: Bei einer Einzeldisziplin nennt Punkt 8 sie beim Namen und
+schließt die anderen beiden samt `brick` ausdrücklich aus — auch als Ausgleich
+oder schonendere Alternative —, und die Abwechslung entsteht innerhalb der
+Disziplin statt zwischen Disziplinen. Punkt 13 verliert dort seinen Ausweichsatz:
+Der Weg über eine andere Sportart, den Punkt 8 gerade verboten hat, wäre ein
+Widerspruch im selben Dokument. Umso mehr hängt am Ergänzungsauftrag, der
+zweiten Richtung desselben Punktes.
+
+**Streng, und zwar auch bei Beschwerden.** Ein Läuferknie auf das Rad
+auszuweichen wäre trainingswissenschaftlich naheliegend — aber der Athlet hat
+„Laufen" gewählt, und ob überhaupt ein Rad im Haus steht, sagt der Fragebogen
+nur beiläufig über `equipment`. Ausgewichen wird deshalb über Umfang,
+Intensität, Untergrund und Bewegungsform. Die **Einzelanpassung** ist die eine
+Ausnahme: Sagt der Athlet ausdrücklich „lieber schwimmen", folgt die KI ihm und
+vermerkt es in `begruendung` — von sich aus wechselt sie die Sportart dort nie.
+Der Wunsch hat Vorrang, das ist der ganze Zweck dieser Aufgabe; was er nicht
+sagt, bleibt bei der gewählten Disziplin.
+
+**Das Schema wird schmaler, nicht das Feldverzeichnis.** `SESSION_SCHEMA` bleibt
+die kanonische Feldliste — wer ein Feld ergänzt, ergänzt es dort und nirgends
+sonst. `_session_schema(disziplin)` gibt für Triathlon genau diese Liste zurück
+und sonst eine Kopie, in der fünf Dinge schmaler werden: `sport`, `type` (ohne
+`brick`), `target_pace` (nur die Einheit dieser Sportart), die
+Zusatzfeld-Zeile von `steps` und die Ortsfelder — `swim_location` gehört zum
+Schwimmen, `bike_location` zum Rad. Aus demselben Grund zerfällt
+`PRINZIP_STEUERGROESSEN` in vier Stücke: Basis und Bauplan gelten überall,
+Beckenlänge und Wattsteuerung auf der Rolle nur dort, wo es die Sportart gibt.
+
+**Die Tabellen stehen in `schemas.py`**, nicht im Prompt-Modul: Drei Stellen
+müssen dasselbe wissen — `TrainingRequestIn.discipline` validiert die
+Schlüssel, `ai_export` baut daraus den Prompt, `plan_import` prüft die Antwort
+dagegen. `DISCIPLINE_LABEL` ist dafür aus `ai_export` dorthin gezogen. Die
+Disziplin kommt in `build_prompt()` **aus dem Payload**
+(`trainingswunsch.disziplin_key`) und nicht aus der Signatur: So erben beide
+Auslöser sie ohne Zutun — der Knopf wie der Weg über die Zwischenablage, Block
+wie Einzelanpassung. Ohne Fragebogen fehlt der Schlüssel, und dann bleibt alles
+erlaubt: Ein Block, der nichts über die Wünsche des Athleten weiß, soll sich
+nicht zusätzlich auf eine Sportart festlegen.
+
+**Die neuen Bausteine gehen fertig in die Vorlage** — dieselbe Falle wie bei
+`FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`: `.format()` setzt Werte ein, **ohne
+sie erneut zu formatieren**. Das `{tage}` in `PRINZIP_TRIATHLON` füllt deshalb
+`_prinzip_disziplin()` selbst, bevor der Text als Platzhalterwert weitergereicht
+wird. `test_kein_platzhalter_bleibt_stehen` hält das für alle vier Disziplinen
+fest.
+
+**Der Import meldet eine fremde Sportart, lehnt sie aber nicht ab**
+(`plan_import._fremde_sportarten`). Dieselbe Linie wie überall dort: Ein
+abgelehnter Block wäre die teuerste denkbare Antwort auf eine Einheit, die der
+Athlet notfalls einzeln anpasst. Die Disziplin holt
+`disziplin_des_fragebogens()` über denselben Fragebogen, an dem der Plan hängt —
+mit `request_id`, sonst über `_letzter_fragebogen()`, also genau die Wahl, die
+auch der Export trifft. Der Vorschau-Endpunkt `POST /api/plans/validate` macht
+dieselbe Abfrage, sonst tauchte die Warnung erst auf, wenn der Block schon
+steht. Kraft, Mobility und Ruhe zählen nie mit: Sie hängen am
+Ergänzungswunsch, nicht an der Disziplin.
+
+**Im Fragebogen verschwindet die Tagesbelegung, und ihre Reste mit ihr**
+(`NewTraining.waehleDisziplin`, `constants.DISCIPLINE_SPORTS`). Der Schritt
+„Welche Sportart geht an welchem Tag?" erschien schon immer nur beim Triathlon —
+er hängt jetzt an der Zahl der Sportarten statt am Literal `'triathlon'`, und
+die Chips kommen aus derselben Tabelle. Der eigentliche Fehler saß aber
+woanders: Wer erst Triathlon wählte, die Tage belegte und dann auf „Laufen"
+zurückging, schickte `day_sport_map` mit Schwimm- und Radtagen ab — und Punkt 7
+verlangt, sich **strikt** an die Sportart-Zuordnung je Tag zu halten. Der
+Disziplinwechsel dampft die Belegung deshalb auf die Sportarten der neuen
+Disziplin ein und wirft leer gewordene Tage ganz heraus; dieselbe Aufräumregel
+wie beim Abwählen eines Tages.
 
 **Anmeldung ohne Passwort, per Kontoauswahl.** `/api/auth/users` liefert alle
 Konten als `{id, username}`, `/api/auth/login` nimmt nur noch eine `user_id` und
@@ -2030,6 +2115,13 @@ Stellen, in diesem Dokument an mehreren, und `test_flow.py` prüft den Wortlaut.
 Der Einzelanpassungsprompt wurde mitgezogen (Punkt 1 und der Aufgabentext) —
 zwei Wege mit zwei Maßstäben wären schlechter als ein strenger.
 
+**Punkt 8 existiert in zwei Fassungen**, je nach gewählter Disziplin
+(`_prinzip_disziplin()`) — für Triathlon wörtlich der alte Text, sonst eine
+Fassung, die die anderen Disziplinen und `brick` ausschließt. Punkt 13 verliert
+dabei seinen Ausweichsatz, und `_session_schema()` nimmt die Sportarten aus dem
+Antwortformat. Siehe „Die gewählte Disziplin entscheidet, was im Block vorkommen
+darf". Die **Nummern bleiben**, wie überall im Prompt.
+
 **Der Preis, offen gesagt:** Punkt 6 existiert nur, weil ein Regelwerk aus
 lauter Bremsen das Modell zu sicheren Z2-Wochen treibt (siehe gleich). Die
 Bremsen zu lockern verschiebt das Gleichgewicht in die andere Richtung, und
@@ -2388,6 +2480,18 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   hilft, ist der Nachweis im Begründungsfeld: Dort steht seit dieser Änderung,
   welche Beschwerde der Block angeht, und daran ist eine überholte Angabe zu
   erkennen.
+- **Die Disziplin ist eine Zusage der KI, keine Prüfung.** Der Prompt sagt einem
+  Laufblock, dass er nur Laufeinheiten enthält; nachrechnen kann die App das
+  nicht, sie meldet beim Import nur, was danebensteht. Und die Disziplin hängt
+  am Fragebogen: Ein Plan von vor dieser Änderung oder einer ohne Fragebogen
+  (`request_id = NULL`) fällt auf die Triathlonfassung zurück und bekommt
+  weiterhin alle drei Sportarten angeboten. Wer eine Einzeldisziplin will,
+  füllt den Fragebogen neu aus — der nächste Block greift.
+- **Ein Wechsel der Disziplin ändert den laufenden Block nicht.** Er zeigt auf
+  den Fragebogen, aus dem er entstanden ist (dieselbe Lage wie bei der
+  Ausrüstung). Wer aus einem Triathlonblock heraus auf „Laufen" umstellt, plant
+  neu — die bestehenden Schwimm- und Radeinheiten bleiben stehen, samt ihrer
+  Workouts auf der Uhr.
 - **Die Einzelanpassung ändert nur den Inhalt, nie den Tag.** Verschieben geht
   über den Garmin-Kalender der App (dort zieht die Planeinheit mit um), und
   mehrere Einheiten auf einmal gibt es nicht — dafür ist „Neu planen ab heute"

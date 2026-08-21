@@ -11,13 +11,13 @@ import {
 } from '../components/ui'
 import {
   DISCIPLINES,
+  DISCIPLINE_SPORTS,
   EQUIPMENT_OPTIONS,
   GOAL_OPTIONS,
   RACE_DISTANCES,
   SPORT_ICON,
   SPORT_LABEL,
   SUPPLEMENTAL_OPTIONS,
-  TRIATHLON_SPORTS,
   WEEKDAYS,
 } from '../constants'
 import type {
@@ -68,10 +68,11 @@ export default function NewTraining() {
     api.getProfile().then(setProfile).catch((err) => setError(err.message))
   }, [])
 
-  // Die Tagesbelegung je Sportart ist nur beim Triathlon sinnvoll.
+  // Die Tagesbelegung je Sportart hat nur zu entscheiden, wo es mehr als eine
+  // gibt — bei einem Laufblock steht an jedem Trainingstag ohnehin ein Lauf.
   const steps: StepKey[] = useMemo(() => {
     const base: StepKey[] = ['discipline', 'goal', 'days']
-    if (form.discipline === 'triathlon') base.push('daySports')
+    if (DISCIPLINE_SPORTS[form.discipline].length > 1) base.push('daySports')
     return [...base, 'budget', 'supplemental', 'equipment', 'values', 'summary']
   }, [form.discipline])
 
@@ -134,6 +135,22 @@ export default function NewTraining() {
             long_session_day: null,
           },
     )
+  }
+
+  function waehleDisziplin(discipline: Discipline) {
+    setForm((current) => {
+      // Wer erst Triathlon wählt, die Tage belegt und dann auf Laufen
+      // zurückgeht, schickte sonst Schwimm- und Radtage mit — und Punkt 7 des
+      // Prompts verlangt, sich strikt an die Sportart-Zuordnung je Tag zu
+      // halten. Dieselbe Aufräumregel wie beim Abwählen eines Tages.
+      const erlaubt = DISCIPLINE_SPORTS[discipline]
+      const day_sport_map: Record<string, Sport[]> = {}
+      for (const [day, sports] of Object.entries(current.day_sport_map)) {
+        const bleibt = sports.filter((sport) => erlaubt.includes(sport))
+        if (bleibt.length) day_sport_map[day] = bleibt
+      }
+      return { ...current, discipline, day_sport_map }
+    })
   }
 
   function toggleDaySport(day: Weekday, sport: Sport) {
@@ -217,7 +234,7 @@ export default function NewTraining() {
                   className={`choice ${
                     form.discipline === discipline.key ? 'selected' : ''
                   }`}
-                  onClick={() => patch({ discipline: discipline.key as Discipline })}
+                  onClick={() => waehleDisziplin(discipline.key as Discipline)}
                 >
                   <span className="choice-title">
                     <span className="choice-icon">{discipline.icon}</span>
@@ -347,7 +364,7 @@ export default function NewTraining() {
                   {WEEKDAYS.find((d) => d.key === day)?.label}
                 </div>
                 <div className="row">
-                  {TRIATHLON_SPORTS.map((sport) => (
+                  {DISCIPLINE_SPORTS[form.discipline].map((sport) => (
                     <button
                       key={sport}
                       className={`chip ${
@@ -684,21 +701,20 @@ export default function NewTraining() {
                       .map((d) => WEEKDAYS.find((w) => w.key === d)?.short)
                       .join(', ')}
                   />
-                  {form.discipline === 'triathlon' &&
-                    Object.entries(form.day_sport_map).some(([, v]) => v.length > 0) && (
-                      <SummaryRow
-                        label="Sportart je Tag"
-                        value={Object.entries(form.day_sport_map)
-                          .filter(([, sports]) => sports.length > 0)
-                          .map(
-                            ([day, sports]) =>
-                              `${WEEKDAYS.find((w) => w.key === day)?.short}: ${sports
-                                .map((s) => SPORT_LABEL[s])
-                                .join('/')}`,
-                          )
-                          .join(' · ')}
-                      />
-                    )}
+                  {Object.values(form.day_sport_map).some((v) => v.length > 0) && (
+                    <SummaryRow
+                      label="Sportart je Tag"
+                      value={Object.entries(form.day_sport_map)
+                        .filter(([, sports]) => sports.length > 0)
+                        .map(
+                          ([day, sports]) =>
+                            `${WEEKDAYS.find((w) => w.key === day)?.short}: ${sports
+                              .map((s) => SPORT_LABEL[s])
+                              .join('/')}`,
+                        )
+                        .join(' · ')}
+                    />
+                  )}
                   <SummaryRow
                     label="Wochenumfang"
                     value={

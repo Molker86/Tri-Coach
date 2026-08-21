@@ -30,7 +30,13 @@ from .models import (
     User,
     WellnessDay,
 )
-from .schemas import WEEKDAYS
+from .schemas import (
+    DISCIPLINE_LABEL,
+    DISZIPLIN_BLOCKNAME,
+    DISZIPLIN_FALLBACK,
+    DISZIPLIN_SPORTARTEN,
+    WEEKDAYS,
+)
 from .sportscience import (
     PACE_ZONEN_ANTEIL_LAUF,
     PACE_ZONEN_ANTEIL_SCHWIMM,
@@ -76,13 +82,6 @@ WOCHENTAG_DEUTSCH = {
     "friday": "Freitag",
     "saturday": "Samstag",
     "sunday": "Sonntag",
-}
-
-DISCIPLINE_LABEL = {
-    "run": "Laufen",
-    "swim": "Schwimmen",
-    "bike": "Radfahren",
-    "triathlon": "Triathlon",
 }
 
 # Tempo wird je Sportart in einer anderen Einheit erfasst. `avg_pace` speichert
@@ -879,6 +878,21 @@ def build_payload(
 # zeigen: der ganze Block und die einzeln angepasste Einheit. Zwei Kopien
 # liefen mit dem ersten neuen Feld auseinander — und dann stünde in der einen
 # Aufgabe ein Feld, das die andere nicht kennt.
+# Der Satz, mit dem die Schrittliste ihre sportartabhängigen Zusatzfelder
+# nennt. Steht für sich und wird nicht per `.replace()` aus der fertigen
+# Zeichenkette geschnitten: Der `steps`-Text ist vierzig Zeilen lang, und ein
+# Schnittmuster darin liefe bei der nächsten Umformulierung stillschweigend ins
+# Leere. Der Koppelteil hat in einem Block ohne Koppeleinheit nichts zu suchen.
+_STEPS_ZUSATZFELDER = (
+    "Bei strength und mobility zusätzlich `exercise_en` mit dem englischen "
+    "Übungsnamen aus der Klammer. "
+)
+_STEPS_ZUSATZFELDER_BRICK = (
+    "Bei strength und mobility zusätzlich `exercise_en` mit dem englischen "
+    "Übungsnamen aus der Klammer, bei brick zusätzlich `sport` je Eintrag "
+    "(bike | run | swim) — daran wechselt die Uhr die Disziplin. "
+)
+
 SESSION_SCHEMA = {
     "sport": "run | bike | swim | strength | mobility | brick | rest",
     "type": (
@@ -953,10 +967,8 @@ SESSION_SCHEMA = {
         "(7) `duration_min` ist die Summe aller Schritte samt Pausen und "
         "Durchgängen, auf ganze Minuten gerundet; Streckenschritte mit der "
         "geplanten Pace gerechnet. "
-        "Bei strength und mobility zusätzlich `exercise_en` mit dem englischen "
-        "Übungsnamen aus der Klammer, bei brick zusätzlich `sport` je Eintrag "
-        "(bike | run | swim) — daran wechselt die Uhr die Disziplin. "
-        "Beispiel Intervalle: [{'kind':'warmup','duration_s':900, "
+        + _STEPS_ZUSATZFELDER_BRICK
+        + "Beispiel Intervalle: [{'kind':'warmup','duration_s':900, "
         "'zone':'Z1-Z2','text':'Einlaufen'}, {'repeat':5,'steps':[ "
         "{'kind':'interval','distance_m':1000,'zone':'Z4','text':'zügig'}, "
         "{'kind':'recovery','duration_s':120,'text':'Trabpause'}]}, "
@@ -983,32 +995,81 @@ SESSION_SCHEMA = {
     ),
 }
 
-RESPONSE_SCHEMA = {
-    "schema_version": "2.0",
-    "plan": {
-        "title": "string",
-        "summary": "string – Kernidee des Blocks in 2-4 Sätzen",
-        "coaching_notes": "string – Hinweise zur Steuerung, Abbruchkriterien, Anpassungsregeln",
-        "start_date": "YYYY-MM-DD",
-        "days": [
-            {
-                "date": "YYYY-MM-DD",
-                "sessions": [SESSION_SCHEMA],
-            }
-        ],
-    },
+# Wie das Tempo je Sportart angegeben wird. Beim Triathlon stehen alle drei
+# nebeneinander; in einem Block über eine Disziplin wäre das eine Einladung,
+# die falsche Einheit zu nehmen.
+_PACE_BESCHREIBUNG = {
+    "run": "string – Pace in min/km, z.B. '5:30-5:50 min/km'",
+    "swim": "string – Pace in min/100m, z.B. '1:50 min/100m'",
+    "bike": "string – Geschwindigkeit in km/h, z.B. '30-33 km/h'",
 }
 
-# Das Antwortformat der Einzelanpassung. Genau eine Einheit, kein Tag und kein
-# Datum darum herum: Der Tag steht fest, geändert wird der Inhalt.
-EINHEIT_RESPONSE_SCHEMA = {
-    "schema_version": "1.0",
-    "einheit": SESSION_SCHEMA,
-    "begruendung": (
-        "string – 1-3 Sätze: was du geändert hast, warum, und falls du dem "
-        "Wunsch nicht in vollem Umfang gefolgt bist, woran das lag"
-    ),
-}
+
+def _session_schema(disziplin: str) -> dict[str, Any]:
+    """Dieselben Felder, aber nur die Sportarten, die dieser Block kennt.
+
+    `SESSION_SCHEMA` bleibt die kanonische Feldliste — wer ein Feld ergänzt,
+    ergänzt es dort und nirgends sonst. Hier fällt nur weg, was zur gewählten
+    Disziplin nicht gehört: Ein Laufblock, dessen Schema `swim` und `brick`
+    anbietet, lädt genau die Einheiten ein, die er nicht enthalten soll.
+    """
+    sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
+    if len(sportarten) != 1:
+        return SESSION_SCHEMA
+
+    sport = sportarten[0]
+    schema = dict(SESSION_SCHEMA)
+    schema["sport"] = f"{sport} | strength | mobility | rest"
+    # `brick` ist die einzige Einheitenart, die zwei Disziplinen verlangt.
+    schema["type"] = SESSION_SCHEMA["type"].replace("brick | ", "")
+    schema["target_pace"] = _PACE_BESCHREIBUNG[sport]
+    schema["steps"] = SESSION_SCHEMA["steps"].replace(
+        _STEPS_ZUSATZFELDER_BRICK, _STEPS_ZUSATZFELDER
+    )
+    # Der Ort gehört zur Sportart: ohne Schwimmen kein Becken, ohne Rad keine
+    # Rolle.
+    if sport != "swim":
+        schema.pop("swim_location", None)
+    if sport != "bike":
+        schema.pop("bike_location", None)
+    return schema
+
+
+def _response_schema(disziplin: str) -> dict[str, Any]:
+    """Das Antwortformat des ganzen Blocks."""
+    return {
+        "schema_version": "2.0",
+        "plan": {
+            "title": "string",
+            "summary": "string – Kernidee des Blocks in 2-4 Sätzen",
+            "coaching_notes": (
+                "string – Hinweise zur Steuerung, Abbruchkriterien, Anpassungsregeln"
+            ),
+            "start_date": "YYYY-MM-DD",
+            "days": [
+                {
+                    "date": "YYYY-MM-DD",
+                    "sessions": [_session_schema(disziplin)],
+                }
+            ],
+        },
+    }
+
+
+def _einheit_response_schema(disziplin: str) -> dict[str, Any]:
+    """Das Antwortformat der Einzelanpassung.
+
+    Genau eine Einheit, kein Tag und kein Datum darum herum: Der Tag steht
+    fest, geändert wird der Inhalt.
+    """
+    return {
+        "schema_version": "1.0",
+        "einheit": _session_schema(disziplin),
+        "begruendung": (
+            "string – 1-3 Sätze: was du geändert hast, warum, und falls du dem "
+            "Wunsch nicht in vollem Umfang gefolgt bist, woran das lag"
+        ),
+    }
 
 
 PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe, Sportmediziner und Trainer und \
@@ -1084,11 +1145,7 @@ muss.
 7. **Individualisierung**: Halte dich strikt an die verfügbaren Tage, die Sportart-\
 Zuordnung je Tag und das Zeitbudget. `planungszeitraum.wochentage` sagt dir, auf \
 welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane dort Ruhe.
-8. **Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
-`tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten \
-zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
-Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
-diesen Block sinnvoll passt.
+8. {prinzip_disziplin}
 9. {prinzip_ergaenzung}
 10. {prinzip_steuergroessen}
 11. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
@@ -1148,8 +1205,7 @@ dort etwas, gilt es für diesen Block. Sie wirkt in **zwei** Richtungen, und die
 wird leicht übersehen:
     - **Als Bremse** auf die betroffene Belastung: Umfang, Intensität, Untergrund und \
 Bewegungsform der Ausdauereinheiten so wählen, dass die Beschwerde nicht provoziert \
-wird. Verlege den Reiz auf eine Disziplin, die sie nicht berührt, statt ihn zu \
-streichen — bei drei Disziplinen ist das fast immer möglich.
+wird. {ausweichhinweis}
     - **Als Auftrag** an das Ergänzungstraining aus Punkt 9: Eine Beschwerde, die sich \
 behandeln lässt, gehört in Kraft und Mobility **hinein**, nicht darum herum. Leite aus \
 der Beschreibung die wahrscheinliche Ursache ab — typisch ist eine abgeschwächte oder \
@@ -1187,6 +1243,106 @@ Historie. `coaching_notes` nennt Abbruch- und Anpassungskriterien.
 ## Athletendaten
 {payload}
 """
+
+
+# --------------------------------------------------------------------------
+# Punkt 8 und der Ausweichsatz aus Punkt 13 — beide hängen an der Disziplin
+#
+# Der Fragebogen kennt vier: Laufen, Schwimmen, Radfahren und Triathlon.
+# Punkt 8 stand einmal fest auf „Triathlon" und erklärte einem reinen Läufer,
+# wie er zwischen drei Disziplinen wählt; das Schema bot ihm `swim`, `bike` und
+# `brick` gleich mit an. Für Triathlon bleibt der Text deshalb **wörtlich**
+# stehen — er passt dort gut, und die Tests prüfen seinen Wortlaut.
+#
+# Achtung beim Ändern: `.format()` setzt Werte ein, ohne sie erneut zu
+# formatieren. `{tage}` in `PRINZIP_TRIATHLON` füllt deshalb
+# `_prinzip_disziplin()` selbst, bevor der Text in die Vorlage geht — dieselbe
+# Falle wie bei `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
+# --------------------------------------------------------------------------
+
+PRINZIP_TRIATHLON = """**Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
+`tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten \
+zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
+Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
+diesen Block sinnvoll passt."""
+
+PRINZIP_EINDISZIPLIN = """**Eine Disziplin**: Der Athlet hat im Fragebogen ausschließlich {disziplin} gewählt \
+(`trainingswunsch.disziplin`) — dieser Block ist ein reiner {blockname}. Jede \
+Ausdauereinheit trägt deshalb `"sport": "{sport}"`. Die beiden anderen Disziplinen und \
+Koppeleinheiten (`brick`) kommen **nicht** vor, auch nicht als Ausgleich, als \
+Ergänzung oder als schonendere Alternative. Die Abwechslung entsteht **innerhalb** der \
+Disziplin — über Dauer, Intensität, Untergrund und Einheitentyp (locker, Schwelle, \
+Intervalle, lang, Technik) —, nicht über einen Sportartwechsel. \
+`tage_seit_letzter_einheit_je_sportart` sagt dir weiterhin, wie lange die letzte \
+Einheit in dieser Disziplin zurückliegt; Einträge zu anderen Sportarten stammen aus der \
+Historie und sind kein Auftrag, sie zu planen. Kraft, Mobility und Ruhe bleiben davon \
+unberührt — was davon in den Block gehört, sagen Punkt 9 und \
+`trainingswunsch.zusatztraining`."""
+
+# Punkt 13, zweiter Satz der Bremse. Bei drei Disziplinen ist der Ausweg über
+# die Sportart der beste; bei einer gibt es ihn nicht, und ohne diesen Satz
+# stünde dort eine Empfehlung, die Punkt 8 gerade verboten hat.
+AUSWEICHHINWEIS_TRIATHLON = """Verlege den Reiz auf eine Disziplin, die sie nicht berührt, statt ihn zu \
+streichen — bei drei Disziplinen ist das fast immer möglich."""
+
+AUSWEICHHINWEIS_EINDISZIPLIN = """Der Reiz wird dabei umgeformt, nicht gestrichen: Auf eine andere Disziplin \
+auszuweichen steht hier nicht offen, denn nach Punkt 8 umfasst der Block nur eine. \
+Umso mehr hängt an der zweiten Richtung."""
+
+
+# Der Sportartwechsel in der Einzelanpassung. Beim Triathlon ist er eine
+# gewöhnliche Planungsentscheidung; in einem Block über eine Disziplin wäre er
+# es nicht — dort verbietet Punkt 8 die anderen Sportarten. Der ausdrückliche
+# Wunsch des Athleten hebt das auf: Er hat Vorrang, und „lieber schwimmen" ist
+# eine Ansage und kein Versehen. Von sich aus wechselt die KI nie.
+SPORTARTWECHSEL_FREI = """Die Sportart darfst du wechseln, wenn der Wunsch das verlangt („lieber \
+schwimmen")."""
+
+SPORTARTWECHSEL_GEBUNDEN = """Der Block umfasst nur eine Disziplin ({disziplin}), und von dir aus wechselst du \
+die Sportart nicht. Verlangt der Wunsch ausdrücklich eine andere („lieber schwimmen"), \
+darfst du ihm folgen — sage in `begruendung`, dass diese Einheit damit aus der \
+gewählten Disziplin herausfällt."""
+
+
+def _sportartwechsel(disziplin: str) -> str:
+    """Ob die Einzelanpassung die Sportart von sich aus wechseln darf."""
+    sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
+    if len(sportarten) != 1:
+        return SPORTARTWECHSEL_FREI
+    return SPORTARTWECHSEL_GEBUNDEN.format(
+        disziplin=DISCIPLINE_LABEL.get(disziplin, disziplin)
+    )
+
+
+def _disziplin(payload: dict[str, Any]) -> str:
+    """Die gewählte Disziplin, oder der Rückfall auf „alles erlaubt".
+
+    Ohne Fragebogen ist keine gewählt (`_request_block()` gibt dann `{}`
+    zurück) — und ein Block, der nichts über die Wünsche des Athleten weiß,
+    soll sich nicht zusätzlich auf eine Sportart festlegen.
+    """
+    key = (payload.get("trainingswunsch") or {}).get("disziplin_key")
+    return key if key in DISZIPLIN_SPORTARTEN else DISZIPLIN_FALLBACK
+
+
+def _prinzip_disziplin(disziplin: str, tage: Any) -> str:
+    """Punkt 8, in der Fassung, die zur gewählten Disziplin passt."""
+    sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
+    if len(sportarten) != 1:
+        return PRINZIP_TRIATHLON.format(tage=tage)
+    return PRINZIP_EINDISZIPLIN.format(
+        disziplin=DISCIPLINE_LABEL.get(disziplin, disziplin),
+        blockname=DISZIPLIN_BLOCKNAME.get(disziplin, "Block"),
+        sport=sportarten[0],
+    )
+
+
+def _ausweichhinweis(disziplin: str) -> str:
+    """Der Satz aus Punkt 13, der auf eine andere Disziplin verweist."""
+    sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
+    if len(sportarten) != 1:
+        return AUSWEICHHINWEIS_TRIATHLON
+    return AUSWEICHHINWEIS_EINDISZIPLIN
 
 
 # Zwei Prinzipien, die sich beide Aufgaben teilen — der ganze Block und die
@@ -1230,7 +1386,11 @@ und beide müssen zahlenmäßig zusammenpassen — drei Sätze je Seite sind dor
 nennt: Ohne sie hängt der Athlet zwischen zwei Sätzen an einer Uhr, die schon \
 weitergeschaltet hat."""
 
-PRINZIP_STEUERGROESSEN = """**Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
+# Punkt 10, aus vier Stücken. Der Ort einer Einheit gehört zu ihrer Sportart:
+# Ein Laufblock, dem der Prompt Beckenlänge und Wattsteuerung auf der Rolle
+# erklärt, bekommt Absätze über Einheiten, die er gar nicht enthalten darf.
+# Basis und Bauplan gelten überall und bleiben wörtlich, wie sie waren.
+_STEUER_BASIS = """**Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
 aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
 `tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den \
 gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile \
@@ -1243,11 +1403,15 @@ füllen: `target_hr_low` und `target_hr_high` gehören nur an Ausdauereinheiten,
 `strength`, `mobility` oder `rest` — dort schwankt der Puls von Satz zu Satz, ein \
 Korridor wäre sinnlos. Beide Werte liegen zwischen 40 und 230 bpm; eine 0 ist kein \
 gültiger Wert und auch keine Art, "keine Untergrenze" auszudrücken. Dasselbe gilt für \
-`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen. Bei \
+`rpe_target`: 1 bis 10, an einer `rest`-Einheit weglassen statt 0 einzutragen."""
+
+_STEUER_SCHWIMMORT = """ Bei \
 `swim` gehört zusätzlich `swim_location` dazu — `pool` oder `open_water`, je nachdem, \
 wofür die Einheit gedacht ist und was unter `trainingswunsch.equipment` zur Verfügung \
 steht. Auch daraus baut die App das Workout: Eine Freiwassereinheit, die als \
-Beckentraining auf der Uhr landet, zählt Bahnen statt Strecke.
+Beckentraining auf der Uhr landet, zählt Bahnen statt Strecke."""
+
+_STEUER_RADORT = """
 
 Bei `bike` gehört ebenso `bike_location` dazu — `indoor` (auf der Rolle) oder \
 `outdoor` —, und daran hängt die **Steuergröße der ganzen Einheit**: Watt steuert nur, \
@@ -1258,7 +1422,9 @@ Dann gib für Außeneinheiten keine Wattvorgaben, sondern steuere über \
 `target_hr_low`/`target_hr_high`, die Zonen in `steps` und RPE — eine Wattzahl wäre \
 dort ein Ziel ohne Messwert, und die Uhr zeigte einen leeren Korridor. Umgekehrt \
 gehört auf die Rolle die Leistung: Garmin regelt das Gerät danach, während der Puls \
-Minuten hinterherzieht.
+Minuten hinterherzieht."""
+
+_STEUER_BAUPLAN = """
 
 **Der Bauplan für die Uhr**: Gib zu jeder Einheit außer `rest` zusätzlich zu \
 `structure` das Feld `steps` an — denselben Aufbau, aber als Liste von \
@@ -1296,6 +1462,18 @@ schreibst du als Folge einzelner Einträge aus.
 ganze Minuten gerundet; Streckenschritte mit der geplanten Pace gerechnet. \
 Stimmt die Summe nicht mit der Vorgabe überein, beschreiben Text und Bauplan \
 zwei verschiedene Einheiten."""
+
+
+def _prinzip_steuergroessen(disziplin: str) -> str:
+    """Punkt 10, ohne die Absätze zu Sportarten, die dieser Block nicht kennt."""
+    sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
+    teile = [_STEUER_BASIS]
+    if "swim" in sportarten:
+        teile.append(_STEUER_SCHWIMMORT)
+    if "bike" in sportarten:
+        teile.append(_STEUER_RADORT)
+    teile.append(_STEUER_BAUPLAN)
+    return "".join(teile)
 
 
 # Punkt 2 der Trainingsprinzipien. Zwei Fassungen, weil Regeln zu Daten, die
@@ -1391,9 +1569,9 @@ unangetastet, auch wenn du sie anders geplant hättest. Der nächste Block wird 
 frisch geplant.
 - **Das Antwortformat.** Genau eine Einheit, kein Tag und kein Datum darum herum.
 
-Die Sportart darfst du wechseln, wenn der Wunsch das verlangt („lieber schwimmen"), und \
-auch `"sport": "rest"` ist eine zulässige Antwort, wenn Wunsch und Datenlage für Ruhe \
-sprechen — dann fällt die Einheit ersatzlos aus und wird von der Uhr genommen.
+{sportartwechsel} Auch `"sport": "rest"` ist eine zulässige Antwort, wenn Wunsch und \
+Datenlage für Ruhe sprechen — dann fällt die Einheit ersatzlos aus und wird von der Uhr \
+genommen.
 
 ## Verbindliche Trainingsprinzipien
 1. **Der Platz im Block**: Sieh in `einheit_anpassen.block` nach, was am Vortag und am \
@@ -1495,8 +1673,12 @@ def _prinzip_ergaenzung(begruendungsfeld: str) -> str:
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
     ersetzt = period.get("ersetzt_laufenden_block")
+    # Die Disziplin steht im Payload, nicht in der Signatur: So erben beide
+    # Auslöser sie ohne Zutun — der Knopf wie der Weg über die Zwischenablage.
+    disziplin = _disziplin(payload)
+    tage = period.get("tage", PLAN_DAYS_DEFAULT)
     return PROMPT_TEMPLATE.format(
-        tage=period.get("tage", PLAN_DAYS_DEFAULT),
+        tage=tage,
         start=period.get("startdatum", ""),
         ende=period.get("enddatum", ""),
         historie_wochen=HISTORY_WEEKS,
@@ -1512,9 +1694,15 @@ def build_prompt(payload: dict[str, Any]) -> str:
             )
         ),
         fitnessregeln=_fitnessregeln(payload, "summary"),
+        # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
+        # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
+        prinzip_disziplin=_prinzip_disziplin(disziplin, tage),
+        ausweichhinweis=_ausweichhinweis(disziplin),
         prinzip_ergaenzung=_prinzip_ergaenzung("summary"),
-        prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
-        schema=json.dumps(RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
+        prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
+        schema=json.dumps(
+            _response_schema(disziplin), indent=2, ensure_ascii=False
+        ),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
     )
 
@@ -1523,6 +1711,7 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
     """Der Prompt für die Anpassung genau einer Einheit."""
     anpassung = payload.get("einheit_anpassen", {})
     wochentag = anpassung.get("wochentag", "")
+    disziplin = _disziplin(payload)
     return EINHEIT_PROMPT_TEMPLATE.format(
         datum=anpassung.get("datum", ""),
         wochentag=WOCHENTAG_DEUTSCH.get(wochentag, wochentag),
@@ -1531,9 +1720,12 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         wunsch=anpassung.get("wunsch_des_athleten", ""),
         historie_wochen=HISTORY_WEEKS,
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
+        sportartwechsel=_sportartwechsel(disziplin),
         prinzip_ergaenzung=_prinzip_ergaenzung("begruendung"),
-        prinzip_steuergroessen=PRINZIP_STEUERGROESSEN,
-        schema=json.dumps(EINHEIT_RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
+        prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
+        schema=json.dumps(
+            _einheit_response_schema(disziplin), indent=2, ensure_ascii=False
+        ),
         payload=json.dumps(payload, indent=2, ensure_ascii=False),
     )
 

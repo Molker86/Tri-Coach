@@ -55,6 +55,50 @@ WEEKDAYS = [
 ]
 
 
+# --------------------------------------------------------------------------
+# Die vier Disziplinen
+#
+# Sie stehen hier und nicht im Prompt-Modul, weil drei Stellen dasselbe wissen
+# müssen: `TrainingRequestIn.discipline` validiert die Schlüssel, `ai_export`
+# baut daraus den Prompt, und `plan_import` prüft die Antwort dagegen. Zwei
+# Kopien liefen mit der ersten neuen Disziplin auseinander.
+# --------------------------------------------------------------------------
+
+DISCIPLINE_LABEL = {
+    "run": "Laufen",
+    "swim": "Schwimmen",
+    "bike": "Radfahren",
+    "triathlon": "Triathlon",
+}
+
+# Welche Ausdauersportarten ein Block überhaupt enthalten darf. Kraft, Mobility
+# und Ruhe kommen überall dazu — sie hängen am Ergänzungswunsch, nicht an der
+# Disziplin, und stehen deshalb nicht in dieser Tabelle.
+DISZIPLIN_SPORTARTEN = {
+    "run": ["run"],
+    "swim": ["swim"],
+    "bike": ["bike"],
+    "triathlon": ["swim", "bike", "run"],
+}
+
+# Wie ein Block dieser Disziplin im Fließtext heißt. „ein reiner Laufen-Block"
+# liest sich schlecht, und der Prompt ist deutscher Fließtext.
+DISZIPLIN_BLOCKNAME = {
+    "run": "Laufblock",
+    "swim": "Schwimmblock",
+    "bike": "Radblock",
+}
+
+# Ergänzung und Ruhe gelten in jeder Disziplin. Steht hier, weil sowohl der
+# Prompt (was darf vorkommen) als auch der Import (was wird gemeldet) dieselbe
+# Ausnahmeliste braucht.
+DISZIPLINFREIE_SPORTARTEN = ("strength", "mobility", "rest")
+
+# Ohne Fragebogen ist keine Disziplin gewählt — dann bleibt alles erlaubt, so
+# wie es vor der Unterscheidung überall war.
+DISZIPLIN_FALLBACK = "triathlon"
+
+
 # Becken oder Freiwasser. Die KI schreibt mal den Schlüssel, mal das deutsche
 # Wort — dieselbe Toleranz wie bei den Sportarten, aus demselben Grund: Der
 # Wert kommt aus einem Sprachmodell, nicht aus einem Formular.

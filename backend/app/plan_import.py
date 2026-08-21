@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 from . import plan_aufraeumen
 from .models import Plan, PlanSession, TrainingRequest
 from .schemas import (
+    DISCIPLINE_LABEL,
+    DISZIPLINFREIE_SPORTARTEN,
+    DISZIPLIN_SPORTARTEN,
     AIEinheitBody,
     AIEinheitImport,
     AIPlanBody,
@@ -271,14 +274,61 @@ def _gekuerzt(eintraege: list[str], trenner: str = ", ") -> str:
     return gezeigt
 
 
+# Die drei Ausdauersportarten heißen wie ihre Disziplinen; die Koppeleinheit
+# hat keine eigene Disziplin und stünde sonst als „brick" in einer deutschen
+# Meldung.
+_SPORT_TEXT = {**DISCIPLINE_LABEL, "brick": "Koppeltraining"}
+
+
+def _fremde_sportarten(body: AIPlanBody, disziplin: str | None) -> list[str]:
+    """Ausdauereinheiten, die nicht zur gewählten Disziplin gehören.
+
+    Punkt 8 des Prompts sagt der KI, dass ein Laufblock nur Laufeinheiten
+    enthält — nachprüfen kann das nur der Import, und auch der meldet es bloß:
+    Ein abgelehnter Block wäre die teuerste denkbare Antwort auf eine Einheit,
+    die der Athlet notfalls selbst anpassen kann (dieselbe Linie wie überall
+    hier). Kraft, Mobility und Ruhe gehören in jede Disziplin.
+    """
+    erlaubt = DISZIPLIN_SPORTARTEN.get(disziplin or "", [])
+    if len(erlaubt) != 1:
+        return []
+
+    fremde: dict[str, int] = {}
+    for tag in body.days:
+        for einheit in tag.sessions:
+            if einheit.sport in erlaubt or einheit.sport in DISZIPLINFREIE_SPORTARTEN:
+                continue
+            fremde[einheit.sport] = fremde.get(einheit.sport, 0) + 1
+
+    if not fremde:
+        return []
+
+    benannt = ", ".join(
+        f"{anzahl}x {_SPORT_TEXT.get(sport, sport)}"
+        for sport, anzahl in sorted(fremde.items())
+    )
+    return [
+        f"Der Block enthält Einheiten außerhalb der gewählten Disziplin "
+        f"({DISCIPLINE_LABEL.get(disziplin, disziplin)}): {benannt}. Sie sind "
+        "übernommen; wer sie nicht will, plant den Block neu oder passt die "
+        "Einheiten einzeln an."
+    ]
+
+
 def validate_coverage(
-    body: AIPlanBody, expected_days: int | None = None
+    body: AIPlanBody,
+    expected_days: int | None = None,
+    disziplin: str | None = None,
 ) -> list[str]:
     """Nicht-blockierende Plausibilitätsprüfungen für die Nutzer-Rückmeldung.
 
     `expected_days` ist die beim Export angeforderte Blocklänge. Fehlt sie,
     wird der Zeitraum aus dem Plan selbst abgeleitet — dann fällt nur auf, was
     innerhalb des gelieferten Zeitraums fehlt.
+
+    `disziplin` ist die Wahl aus dem Fragebogen. Ohne sie wird die Sportart
+    nicht geprüft — dieselbe Zurückhaltung wie beim Prompt, der ohne
+    Fragebogen alle Disziplinen offen lässt.
     """
     warnings: list[str] = []
 
@@ -309,6 +359,8 @@ def validate_coverage(
     empty = [d.date.isoformat() for d in body.days if not d.sessions]
     if empty:
         warnings.append(f"{len(empty)} Tag(e) enthalten keine Einheit.")
+
+    warnings.extend(_fremde_sportarten(body, disziplin))
 
     # Unbrauchbare Steuerungsgrößen (Zielpuls, RPE) hat `AISessionIn` bereits
     # weggeworfen, statt den Block abzulehnen. Stillschweigend darf das nicht
@@ -424,6 +476,29 @@ def _letzter_fragebogen(db: Session, user_id: int) -> int | None:
     return zeile[0] if zeile else None
 
 
+def disziplin_des_fragebogens(
+    db: Session, user_id: int, request_id: int | None
+) -> str | None:
+    """Die Disziplin, auf die sich dieser Block bezieht.
+
+    Ohne ausdrückliche `request_id` gilt derselbe Rückfall wie überall sonst:
+    der zuletzt gespeicherte Fragebogen (`_letzter_fragebogen()`). Ohne
+    Fragebogen gibt es keine Disziplin — dann wird nichts geprüft.
+    """
+    gesucht = request_id or _letzter_fragebogen(db, user_id)
+    if gesucht is None:
+        return None
+    zeile = (
+        db.query(TrainingRequest.discipline)
+        .filter(
+            TrainingRequest.id == gesucht,
+            TrainingRequest.user_id == user_id,
+        )
+        .first()
+    )
+    return zeile[0] if zeile else None
+
+
 def uebernimm_plan(
     db: Session,
     user_id: int,
@@ -443,8 +518,14 @@ def uebernimm_plan(
     die Datenbank unberührt.
     """
     body = parse_ai_response(raw)
-    plan = build_plan(body, user_id, request_id or _letzter_fragebogen(db, user_id))
-    warnings = validate_coverage(body, days)
+    # Einmal auflösen: Plan und Prüfung müssen denselben Fragebogen sehen,
+    # sonst prüfte die Warnung gegen eine andere Disziplin als die, an der
+    # der Plan später hängt.
+    fragebogen = request_id or _letzter_fragebogen(db, user_id)
+    plan = build_plan(body, user_id, fragebogen)
+    warnings = validate_coverage(
+        body, days, disziplin_des_fragebogens(db, user_id, fragebogen)
+    )
 
     # Nur ein Plan ist gleichzeitig aktiv.
     db.query(Plan).filter(Plan.user_id == user_id, Plan.is_active.is_(True)).update(

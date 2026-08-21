@@ -62,8 +62,18 @@ export const SPORT_ICON: Record<Sport, string> = {
   rest: '😴',
 }
 
-/** Sportarten, die bei der Tagesbelegung im Triathlon zur Wahl stehen. */
-export const TRIATHLON_SPORTS: Sport[] = ['swim', 'bike', 'run']
+/**
+ * Welche Ausdauersportarten eine Disziplin umfasst — Gegenstück zu
+ * `DISZIPLIN_SPORTARTEN` in `backend/app/schemas.py`. Kraft, Mobility und Ruhe
+ * stehen bewusst nicht darin: Sie hängen am Ergänzungswunsch, nicht an der
+ * Disziplin.
+ */
+export const DISCIPLINE_SPORTS: Record<Discipline, Sport[]> = {
+  run: ['run'],
+  bike: ['bike'],
+  swim: ['swim'],
+  triathlon: ['swim', 'bike', 'run'],
+}
 
 export const SESSION_TYPE_LABEL: Record<string, string> = {
   recovery: 'Regeneration',
