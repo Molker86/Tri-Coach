@@ -1544,6 +1544,75 @@ eine `workoutId` und sonst nichts, einen Termin mit eingebettetem Inhalt kennt
 Garmin nicht. Pool-Vorlagen werden deshalb im normalen Lebenszyklus nie
 gelöscht.
 
+**Die Vorlage heißt nach ihrem Slot, sonst nichts** (`workout_pool.slot_name`,
+`stempel_kennung`). In Garmin steht „TC03" — kein Trainingsname, kein Datum.
+Der Grund steht einen Absatz weiter unten: Die Uhr friert den Namen eines
+Workouts beim ersten Synchronisieren ein und zieht ihn nie wieder nach,
+derselbe Pool-Slot bekommt aber laufend neuen Inhalt. Unter „Trainings" stand
+deshalb nach ein paar Wochen ein Haufen alter Trainingsnamen, die zu nichts
+mehr gehörten.
+
+**Der Trainingsname stand hier zwischenzeitlich dahinter** („TC03 · Lockerer
+Dauerlauf") und ist wieder heraus. Er löst das Problem nämlich nur beim ersten
+Mal: Schon beim zweiten Durchlauf trägt der Slot einen anderen Inhalt, und auf
+der Uhr stünde ein Name, der nicht mehr stimmt. **Ein Name, der etwas Falsches
+behauptet, ist schlechter als gar keiner** — „TC03" behauptet nichts und bleibt
+richtig. Der Preis ist offen zu benennen: Im Garmin-Kalender steht damit
+ebenfalls nur die Kennung.
+
+**Kurz und früh unterscheidbar**: Die Uhr kürzt lange Namen am Ende. Die Slots
+hießen einmal „TriCoach Slot 01"…„15" — vierzehn identische Zeichen am Anfang,
+fünfzehn Einträge, die gekürzt alle gleich aussehen. „TC01" trennt beim dritten
+Zeichen.
+
+**Der Trainingsname wandert in die erste Zeile der Beschreibung**
+(`workouts._beschreibung`). Sonst wäre er ganz verloren: Connect zeigt ihn unter
+dem Termin, die Uhr in der Workout-Ansicht. Dort ist er auch richtig aufgehoben,
+denn die Beschreibung wird bei jeder Übertragung mitgeschrieben und veraltet
+nicht — anders als der Name. Der Freiwasserhinweis, der einmal ganz vorn stand,
+rückt dafür auf Zeile zwei; sein Grund gilt unverändert, aber eine Überschrift
+gehört über den Hinweis und nicht darunter.
+
+**Der Termin kann keinen eigenen Namen tragen** — daran ist die bessere Lösung
+gescheitert, und das ist am echten Konto abgelesen
+(`scripts/garmin_kalendername_probe.py`). Die Vorlage „TC03" zu nennen **und**
+den Trainingsnamen an den *Kalendereintrag* zu hängen, hätte beides zugleich
+gegeben: eine stabile Liste auf der Uhr und einen lesbaren Kalender.
+`schedule_workout` schickt aber ausschließlich
+`{"date": …}`, und das Terminobjekt führt zwar `nameChanged` und `newName` —
+Felder, die genau danach aussehen —, doch Garmin **verwirft sie still**: Sowohl
+der POST mit `newName` als auch ein `PUT` auf `/workout-service/schedule/{id}`
+werden ohne Fehler angenommen und ändern nichts; zurückgelesen steht dort wieder
+`newName: null`. Die Felder gehören mit einiger Wahrscheinlichkeit zu Garmins
+eigenen Trainingsplänen — im selben Objekt stehen `atpPlanTypeId`, `tpType` und
+`itp`. **Wer das noch einmal aufmachen will, prüft es mit dem Skript und glaubt
+nicht dem Statuscode.**
+
+**Die Kennung entsteht erst, wenn der Slot feststeht** — `baue_workout()` kennt
+ihn nicht, `uebertrage_einheit()` wählt ihn danach. Deshalb setzt
+`workout_pool.stempel_kennung()` sie unmittelbar vor dem Aufruf an Garmin ein.
+Der **Fingerabdruck** bleibt davon unberührt und wird weiter über den
+*ungestempelten* Namen gerechnet: Beide Wege, die ihn bilden
+(`uebertrage_einheit()` und `zustand_der_einheiten()`), sehen damit dasselbe.
+Den Namen dort ganz auszuklammern liegt nahe und ist falsch — eine Einheit, an
+der sich nur der Titel ändert, käme dann nie mehr auf die Uhr. In der App
+dagegen steht der Trainingsname **ohne** Kennung: `link.title` speist die
+Fortschrittsmeldungen, und dort sagt „TC03" niemandem etwas.
+
+**Bestehende Vorlagen holen die Kennung einmalig nach**
+(`workout_pool._ziehe_kennungen_nach`, am Ende von `stelle_pool_sicher`). Ohne
+diesen Schritt käme sie nur tröpfchenweise an: An einer unveränderten Einheit
+rührt sich der Fingerabdruck nicht, ihre Vorlage wird also nicht neu
+geschrieben, und der alte Name bliebe stehen, bis der Slot irgendwann
+wiederverwendet wird. Das ist genau einmal fatal, nämlich beim Umstieg — die
+einmalige Aufräumaktion auf der Uhr wirkt nur, wenn danach in Connect überall
+schon die Kennung steht. Weil Garmin beim Aktualisieren das *ganze* Workout
+ersetzt, kostet das zwei Anfragen je betroffenem Slot. Der bisherige Name fällt
+dabei ersatzlos weg, auch ein Trainingsname — aus demselben Grund wie oben: Er
+gehörte zu dem Inhalt, der einmal in diesem Slot lag. Selbstbegrenzend: Danach
+trägt jede Vorlage genau ihre Kennung, und die Schleife kostet keine Anfrage
+mehr.
+
 **Was vorbei ist, gibt seinen Slot frei**
 (`uebertragung.raeume_vergangene_auf`). Die App entfernt den Kalendertermin
 und löst `GarminWorkoutLink`, behält aber die Pool-Vorlage. So wächst die
@@ -1558,9 +1627,12 @@ vorinstallierter; fünfzehn Pool-Slots lassen bewusst Reserve. **An der Fenix 8
 bestätigt:** Wird eine bestehende Workout-ID in Connect umbenannt und inhaltlich
 geändert, synchronisiert die Uhr den neuen Inhalt in den vorhandenen lokalen
 Eintrag. Dessen Name unter „Trainings“ bleibt zwar alt, der Kalender zeigt am
-Termin aber den aktuellen Namen und startet den aktualisierten Inhalt. Das ist
-für Tri-Coach die maßgebliche Ansicht; künstlich stabile Slotnamen sind deshalb
-nicht nötig. **Davon getrennt bleibt der Sportartwechsel ungeprüft:** Der
+Termin aber den aktuellen Namen und startet den aktualisierten Inhalt. Daraus
+stand hier einmal die Regel „künstlich stabile Slotnamen sind deshalb nicht
+nötig" — **überholt**: Der Kalender ist zwar die maßgebliche Ansicht zum
+*Starten*, aber die Trainingsliste auf der Uhr wird dadurch nicht weniger
+falsch, und genau über sie kam die Beschwerde. Siehe „Die Vorlage heißt nach
+ihrem Slot, sonst nichts". **Davon getrennt bleibt der Sportartwechsel ungeprüft:** Der
 generische `PUT` sendet zwar das vollständige neue `sportType`, aber weder
 Garmins Oberfläche noch die Bibliothek belegen, dass etwa
 `strength_training` zu `swimming` werden darf. Dafür liegt
@@ -2526,6 +2598,21 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   des Geräts. Ein Direktversand an ein bestimmtes Gerät
   (`push_workout_to_device`) ist nicht eingebaut; er kostete zusätzliche
   Anfragen für die Gerätesuche.
+- **Die Kennung heilt die Uhr nicht von allein.** Was dort schon liegt,
+  trägt den Namen von seinem ersten Sync — die Umbenennung in Connect kommt an
+  diesen Einträgen nie an. Die fünfzehn alten Workouts müssen **einmal von Hand
+  auf der Uhr gelöscht** werden; beim nächsten Synchronisieren kommen sie mit
+  ihrer Kennung zurück und behalten sie dann. Wer das vor dem Nachzug tut
+  (`_ziehe_kennungen_nach`, ein Übertragungslauf genügt), holt sich die alten
+  Namen wieder ein.
+- **Der Garmin-Kalender zeigt nur noch Kennungen.** Wer in Connect oder auf der
+  Uhr in den Kalender sieht, liest „TC03" statt „Schwellenintervalle" — den
+  Trainingsnamen trägt nur die Beschreibung darunter. Das ist der bewusst
+  bezahlte Preis dafür, dass in der Trainingsliste der Uhr nichts Falsches
+  steht; ein Name am Termin, der die Vorlage nicht mit veraltet, wäre die
+  Auflösung gewesen, und die gibt Garmin nicht her (siehe „Der Termin kann
+  keinen eigenen Namen tragen"). Was geplant ist, steht unverändert im
+  Trainingsplan der App.
 - Das Aufräumen vergangener Einheiten lässt sich nicht abschalten und hängt an
   einem Abgleich oder einer Übertragung; wer beides nie auslöst, behält seine
   alten Vorlagen.

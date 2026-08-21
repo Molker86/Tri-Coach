@@ -6,6 +6,7 @@ Weg über die Endpunkte gegen die Nachbildung.
 """
 
 import json
+import re
 from datetime import date, timedelta
 from types import SimpleNamespace
 
@@ -972,6 +973,34 @@ def test_gleicher_inhalt_gleicher_fingerabdruck():
     assert workouts.fingerabdruck(eine) != workouts.fingerabdruck(geaendert)
 
 
+def test_ein_anderer_titel_ist_eine_aenderung():
+    """Der Titel gehört in den Abdruck — sonst käme er nie auf die Uhr.
+
+    Die Slotkennung tut es nicht: Sie wird erst aufgestempelt, wenn der Slot
+    feststeht, und ist damit an keiner Stelle Teil dessen, was hier gerechnet
+    wird.
+    """
+    eine = workouts.baue_workout(einheit(title="Schwellenintervalle"), zonen=ZONEN)
+    andere = workouts.baue_workout(einheit(title="Ruhiger Dauerlauf"), zonen=ZONEN)
+
+    assert workouts.fingerabdruck(eine) != workouts.fingerabdruck(andere)
+
+
+def test_der_trainingsname_steht_in_der_beschreibung():
+    """In Garmin heißt die Vorlage nur nach ihrem Slot — der Name muss woandershin.
+
+    Erste Zeile, denn es ist die einzige Stelle, an der die Einheit auf der Uhr
+    und in Connect noch ihren Namen trägt.
+    """
+    from app.garmin import workout_pool
+
+    assert workout_pool.slot_name(0) == "TC01"
+    assert workout_pool.slot_name(14) == "TC15"
+
+    workout = workouts.baue_workout(einheit(title="Schwellenintervalle"), zonen=ZONEN)
+    assert workout["description"].splitlines()[0] == "Schwellenintervalle"
+
+
 # --------------------------------------------------------------------------
 # Der Weg über die Endpunkte
 # --------------------------------------------------------------------------
@@ -1295,6 +1324,126 @@ def test_geaenderte_einheit_wird_ersetzt_statt_verdoppelt(client, verbunden, fak
     # Die Vorlage behält ihre Kennung — der Termin bleibt damit gültig.
     assert len(fake._workouts) == 15
     assert len(fake._termine) == 2
+
+
+def test_jede_vorlage_traegt_ihre_slotkennung(client, verbunden, fake):
+    """Fünfzehn Vorlagen, fünfzehn verschiedene Kennungen — TC01 bis TC15.
+
+    Die Kennung ist das Einzige, woran sich ein Eintrag in der Trainingsliste
+    der Uhr noch zuordnen lässt: Den Namen friert die Uhr beim ersten
+    Synchronisieren ein und zieht ihn nie wieder nach.
+    """
+    _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    namen = sorted(w["workoutName"] for w in fake._workouts.values())
+
+    assert namen == [f"TC{nummer:02d}" for nummer in range(1, 16)]
+    assert all(re.fullmatch(r"TC\d\d", name) for name in namen)
+    # Der Trainingsname steht nicht im Namen, sondern in der Beschreibung.
+    beschreibungen = [w["description"] for w in fake._workouts.values()]
+    assert any("Einheit 1" in text for text in beschreibungen)
+
+
+def test_alte_vorlagennamen_bekommen_ihre_kennung_nachtraeglich(
+    client, verbunden, fake
+):
+    """Bestandsdatenbanken holen die Kennung einmalig nach.
+
+    Sonst bliebe der alte Name in Connect stehen, bis der Slot irgendwann
+    wiederverwendet wird — und die einmalige Aufräumaktion auf der Uhr liefe
+    ins Leere. Der bisherige Name fällt dabei ganz weg, auch ein
+    Trainingsname: Er gehört zu dem Inhalt, der einmal in diesem Slot lag.
+    """
+    from app.database import SessionLocal
+    from app.garmin import workout_pool
+    from app.models import GarminWorkoutLink, GarminWorkoutPoolSlot, PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+
+    with SessionLocal() as db:
+        user_id = db.get(PlanSession, einheit_id).plan.user_id
+        belegte_slot_ids = {
+            link.pool_slot_id
+            for link in db.query(GarminWorkoutLink).filter_by(user_id=user_id).all()
+        }
+        slots = (
+            db.query(GarminWorkoutPoolSlot)
+            .filter_by(user_id=user_id)
+            .order_by(GarminWorkoutPoolSlot.slot_index)
+            .all()
+        )
+        belegt = next(slot for slot in slots if slot.id in belegte_slot_ids)
+        frei = next(slot for slot in slots if slot.id not in belegte_slot_ids)
+
+        # Den Stand von vor der Änderung nachstellen: einmal eine Vorlage unter
+        # ihrem Trainingsnamen, einmal ein reservierter Slot unter dem alten
+        # Platzhalternamen.
+        merker = {}
+        for slot, alt in (
+            (belegt, "Lockerer Dauerlauf"),
+            (frei, f"TriCoach Slot {frei.slot_index + 1:02d}"),
+        ):
+            merker[alt] = (
+                int(slot.garmin_workout_id),
+                workout_pool.slot_name(slot.slot_index),
+            )
+            slot.title = alt
+            fake._workouts[int(slot.garmin_workout_id)]["workoutName"] = alt
+        db.commit()
+
+        workout_pool.stelle_pool_sicher(db, fake, user_id)
+
+        for workout_id, kennung in merker.values():
+            assert fake._workouts[workout_id]["workoutName"] == kennung
+
+        fake.aufrufe.clear()
+        workout_pool.stelle_pool_sicher(db, fake, user_id)
+        assert "update_workout" not in fake.aufrufe
+        assert "get_workout_by_id" not in fake.aufrufe
+
+
+def test_die_kennung_bleibt_wenn_der_inhalt_wechselt(client, verbunden, fake):
+    """Der eigentliche Zweck der Kennung.
+
+    Der Inhalt eines Pool-Slots wechselt laufend. Der Name auf der Uhr tut das
+    nicht — sie friert ihn beim ersten Synchronisieren ein. Also darf im Namen
+    nichts stehen, was zum Inhalt gehört: „TC03“ bleibt richtig, „TC03 ·
+    Lockerer Dauerlauf“ wäre beim zweiten Durchlauf gelogen.
+    """
+    from app.database import SessionLocal
+    from app.models import GarminWorkoutLink, PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+    zustand = client.get("/api/garmin/workouts/status", headers=verbunden).json()
+    eintrag = next(
+        e for e in zustand["einheiten"] if e["plan_session_id"] == einheit_id
+    )
+    workout_id = int(eintrag["garmin_workout_id"])
+    kennung = fake._workouts[workout_id]["workoutName"]
+    assert re.fullmatch(r"TC\d\d", kennung)
+
+    with SessionLocal() as db:
+        db.get(PlanSession, einheit_id).title = "Ganz andere Einheit"
+        db.commit()
+
+    _uebertrage(client, verbunden)
+
+    # Der Name rührt sich nicht, der Inhalt schon.
+    assert fake._workouts[workout_id]["workoutName"] == kennung
+    assert fake._workouts[workout_id]["description"].splitlines()[0] == (
+        "Ganz andere Einheit"
+    )
+    with SessionLocal() as db:
+        link = db.query(GarminWorkoutLink).filter_by(plan_session_id=einheit_id).one()
+        # In der App steht der Trainingsname: In den Fortschrittsmeldungen sagt
+        # „TC03“ niemandem etwas.
+        assert link.title == "Ganz andere Einheit"
 
 
 def test_status_kennt_offene_einheiten_vor_der_uebertragung(client, verbunden):

@@ -19,12 +19,41 @@ POOL_GROESSE = 15
 
 
 def slot_name(slot_index: int) -> str:
-    return f"TriCoach Slot {slot_index + 1:02d}"
+    """Die dauerhafte Kennung eines Slots: „TC01“ … „TC15“.
+
+    Kurz und früh unterscheidbar, beides mit Absicht. Die Slots hießen einmal
+    „TriCoach Slot 01“ … „15“ — vierzehn identische Zeichen am Anfang. Kürzt die
+    Uhr die Liste unter „Trainings“, sehen fünfzehn solche Namen alle gleich
+    aus. Hier trennt sie das dritte Zeichen.
+    """
+    return f"TC{slot_index + 1:02d}"
+
+
+def stempel_kennung(workout: dict[str, Any], slot: GarminWorkoutPoolSlot) -> None:
+    """Setzt als Workout-Namen die Kennung des Slots — sonst nichts.
+
+    Der Trainingsname stand hier einmal dahinter („TC03 · Lockerer Dauerlauf").
+    Er ist wieder heraus, und zwar aus dem Grund, der die ganze Kennung nötig
+    gemacht hat: Die Uhr friert den Namen beim ersten Synchronisieren ein, der
+    Slot bekommt aber laufend neuen Inhalt. Schon beim zweiten Durchlauf stünde
+    dort ein Trainingsname, der nicht mehr stimmt — und ein Name, der etwas
+    Falsches behauptet, ist schlechter als gar keiner. „TC03" behauptet nichts
+    und bleibt richtig.
+
+    Wo der Trainingsname stattdessen steht: in der ersten Zeile der Beschreibung
+    (`workouts._beschreibung`) und an `GarminWorkoutLink.title`.
+
+    Erst hier, nicht in `workouts.baue_workout()`: Welcher Slot es wird, steht
+    beim Bauen noch nicht fest — `uebertrage_einheit()` wählt ihn danach.
+    """
+    workout["workoutName"] = slot_name(slot.slot_index)
 
 
 def _platzhalter(slot_index: int) -> dict[str, Any]:
     session = SimpleNamespace(
         sport="run",
+        # Nur die Kennung, ohne `stempel_kennung`: Zu einem reservierten Slot
+        # gehört noch keine Einheit, deren Name davorstehen könnte.
         title=slot_name(slot_index),
         description="Reservierte Workout-Vorlage von Tri-Coach.",
         structure=None,
@@ -289,7 +318,67 @@ def stelle_pool_sicher(
     for slot_index in range(POOL_GROESSE):
         if slot_index not in vorhandene_indices:
             slots.append(_lege_slot_an(db, api, user_id, slot_index))
-    return sorted(slots, key=lambda slot: slot.slot_index)
+    slots = sorted(slots, key=lambda slot: slot.slot_index)
+    _ziehe_kennungen_nach(db, api, slots)
+    return slots
+
+
+def _ziehe_kennungen_nach(
+    db: Session, api: Any, slots: list[GarminWorkoutPoolSlot]
+) -> None:
+    """Trägt die Slotkennung einmalig in die Namen nach, die sie nicht haben.
+
+    Ohne diesen Schritt käme die Kennung nur tröpfchenweise an: An einer
+    unveränderten Einheit ändert sich der Fingerabdruck nicht, also wird ihre
+    Vorlage auch nicht neu geschrieben — der alte Name bliebe stehen, bis der
+    Slot irgendwann für eine andere Einheit wiederverwendet wird. Das ist genau
+    einmal fatal, nämlich jetzt: Die Uhr friert den Namen beim ersten
+    Synchronisieren ein, und die einmalige Aufräumaktion dort wirkt nur, wenn
+    danach in Connect überall schon die Kennung steht.
+
+    Der bisherige Name fällt dabei ersatzlos weg — auch ein Trainingsname. Das
+    ist derselbe Grund wie in `stempel_kennung()`: Er gehörte zu dem Inhalt, der
+    in diesem Slot einmal lag, und stimmt beim nächsten Durchlauf nicht mehr.
+
+    Selbstbegrenzend: Nach einem erfolgreichen Lauf trägt jede Vorlage genau
+    ihre Kennung, und die Schleife kostet keine einzige Anfrage mehr.
+    """
+    for slot in slots:
+        kennung = slot_name(slot.slot_index)
+        if slot.garmin_workout_id is None or slot.title == kennung:
+            continue
+
+        # Garmin ersetzt beim Aktualisieren das *ganze* Workout — der Inhalt
+        # muss also erst geholt werden. Ein selbst zusammengebauter Rumpf nähme
+        # der Vorlage ihre Schritte.
+        vorlage = _hole_vorlage(api, slot.garmin_workout_id)
+        if not isinstance(vorlage, dict):
+            continue
+
+        vorlage["workoutName"] = kennung
+        try:
+            api.update_workout(slot.garmin_workout_id, vorlage)
+        except GarminConnectTooManyRequestsError as exc:
+            raise GarminRateLimit() from exc
+        except Exception:  # noqa: BLE001 — ein Name ist den Lauf nicht wert
+            continue
+        slot.title = vorlage["workoutName"]
+        db.commit()
+
+
+def _hole_vorlage(api: Any, workout_id: str) -> Any:
+    """Die Vorlage aus Garmin — `None`, wenn sie sich nicht lesen lässt.
+
+    Nur die Anfragesperre bricht durch: Sie muss den ganzen Lauf beenden. Alles
+    andere überspringt diesen einen Slot, denn die Umbenennung ist Beiwerk
+    gegenüber dem Block, der gleich übertragen wird.
+    """
+    try:
+        return api.get_workout_by_id(workout_id)
+    except GarminConnectTooManyRequestsError as exc:
+        raise GarminRateLimit() from exc
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def freier_slot(db: Session, user_id: int, sport: str) -> GarminWorkoutPoolSlot | None:

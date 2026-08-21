@@ -329,6 +329,11 @@ def _gleiche_vorlage_ab(
             "Die Garmin-Vorlage ist keinem Workout-Pool zugeordnet. "
             "Bitte starte die Übertragung erneut."
         )
+    # Der reine Trainingsname, bevor die Kennung davorrückt: In Garmin steht
+    # „TC03 · Lockerer Dauerlauf“, in der App bleibt es beim Trainingsnamen —
+    # dort sagt die Slotkennung niemandem etwas.
+    titel = workout["workoutName"]
+    workout_pool.stempel_kennung(workout, slot)
     try:
         api.update_workout(link.garmin_workout_id, workout)
     except Exception as exc:  # noqa: BLE001
@@ -342,7 +347,7 @@ def _gleiche_vorlage_ab(
         workout_pool.belege_slot(slot, workout, finger, sport)
 
     link.fingerabdruck = finger
-    link.title = workout["workoutName"]
+    link.title = titel
     db.commit()
 
 
@@ -361,6 +366,7 @@ def _belege_pool_slot(
             "durch anstehende Termine belegt. Es wurde keine zusätzliche "
             "Workout-ID angelegt."
         )
+    workout_pool.stempel_kennung(workout, slot)
     try:
         api.update_workout(slot.garmin_workout_id, workout)
     except Exception as exc:  # noqa: BLE001
@@ -379,7 +385,8 @@ def _belege_pool_slot(
         pool_slot_id=slot.id,
         garmin_workout_id=str(workout_id),
         scheduled_date=session.date,
-        title=workout["workoutName"],
+        # Ohne Kennung — siehe `_gleiche_vorlage_ab`.
+        title=workouts.name_der_einheit(session),
         fingerabdruck=finger,
     )
     db.add(link)

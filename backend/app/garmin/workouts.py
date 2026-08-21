@@ -1488,16 +1488,24 @@ def _ersatz_elemente(session: Any) -> list[Element]:
 
 
 def _beschreibung(session: Any, hinweis: str | None = None) -> str:
-    # Der Ort steht ganz vorn, weil er die Einheit verändert und nicht bloß
-    # schmückt: Die Uhr wählt ihren Aufzeichnungsmodus nicht selbst, und wer
-    # eine Freiwassereinheit im Beckenmodus startet, bekommt gezählte Bahnen
-    # statt gemessener Strecke.
+    # Der Trainingsname steht ganz oben, weil er sonst nirgends mehr steht: Der
+    # Workout-Name in Garmin ist nur noch die Slotkennung („TC03"), und damit
+    # ist diese Zeile die einzige Stelle, an der die Einheit auf der Uhr und in
+    # Connect ihren Namen trägt.
+    #
+    # Der Ort stand hier einmal an erster Stelle und rückt dafür auf die
+    # zweite. Sein Grund gilt unverändert — die Uhr wählt ihren
+    # Aufzeichnungsmodus nicht selbst, und wer eine Freiwassereinheit im
+    # Beckenmodus startet, bekommt gezählte Bahnen statt gemessener Strecke —,
+    # aber eine Überschrift gehört über den Hinweis und nicht darunter.
+    # Übersehen wird er in Zeile zwei nicht.
     ort = (
         "Freiwasser — auf der Uhr im Freiwassermodus starten."
         if session.sport == "swim" and schwimmort(session) == "open_water"
         else None
     )
     teile = [
+        name_der_einheit(session),
         ort,
         session.description,
         f"Aufbau: {session.structure}" if session.structure else None,
@@ -1659,6 +1667,12 @@ def name_der_einheit(session: Any) -> str:
     Tag ohnehin schon in der Spalte, in der die Einheit hängt. „16.08. Lockerer
     Dauerlauf“ am 16.08. las sich dort wie ein Fehler.
 
+    In Garmin steht dieser Name allerdings **nicht mehr als Workout-Name**: Dort
+    trägt die Vorlage nur noch die Kennung ihres Pool-Slots
+    (`workout_pool.stempel_kennung`). Was hier entsteht, geht in die erste Zeile
+    der Beschreibung (`_beschreibung`) und an `GarminWorkoutLink.title`, also in
+    die Meldungen der App.
+
     Der Rückfall auf „Training“ ist keine Zierde: Garmin lehnt ein Workout ohne
     Namen ab, und bis hierher war der Name durch das vorangestellte Datum
     zwangsläufig nicht leer.
@@ -1688,6 +1702,14 @@ def fingerabdruck(workout: dict[str, Any]) -> str:
     Damit erkennt die Übertragung, dass sich an einer bereits übertragenen
     Einheit nichts geändert hat — der zweite Druck auf den Knopf kostet dann
     keine einzige Anfrage an Garmin.
+
+    Gerechnet wird über das Workout, wie `baue_workout()` es liefert — also mit
+    dem Trainingsnamen und **ohne** Slotkennung: Die stempelt
+    `workout_pool.stempel_kennung()` erst auf, wenn der Slot feststeht, und da
+    ist der Abdruck längst genommen. Beide Wege, die ihn bilden
+    (`uebertrage_einheit()` und `zustand_der_einheiten()`), sehen deshalb
+    dasselbe. Den Namen hier auszuklammern wäre naheliegend und falsch: Eine
+    Einheit, an der sich nur der Titel ändert, käme dann nie mehr auf die Uhr.
     """
     roh = json.dumps(workout, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(roh.encode("utf-8")).hexdigest()[:32]

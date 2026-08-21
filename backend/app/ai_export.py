@@ -1011,7 +1011,7 @@ EINHEIT_RESPONSE_SCHEMA = {
 }
 
 
-PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer und \
+PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe, Sportmediziner und Trainer und \
 planst die nächsten {tage} Trainingstage: {start} bis {ende}.
 
 ## Aufgabe
