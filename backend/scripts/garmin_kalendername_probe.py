@@ -180,68 +180,97 @@ def _terminkennung(antwort: Any) -> str | None:
     return str(kennung) if kennung is not None else None
 
 
-def _variante_1(api: Any, tag: date, workout_id: str) -> str | None:
-    """Wie die App es heute tut — der Ausgangsstand."""
-    print("\n[1] Termin wie bisher (nur `date`):")
-    antwort = api.schedule_workout(workout_id, tag.isoformat())
-    schedule_id = _terminkennung(antwort)
-    print(f"  Terminkennung: {schedule_id}")
-    _zeige_stand(api, tag, workout_id, schedule_id)
-    return schedule_id
+def _antwort(api: Any, methode: str, pfad: str, nutzlast: dict[str, Any]) -> str:
+    """Schickt eine Anfrage und beschreibt das Ergebnis in einer Zeile.
 
-
-def _variante_2(api: Any, tag: date, workout_id: str, schedule_id: str) -> bool:
-    """PUT auf den Termin mit gesetztem `newName`.
-
-    Das Terminobjekt führt `nameChanged` und `newName` — das sieht nach genau
-    der Umbenennung aus, die Connect am einzelnen Kalendereintrag anbietet.
-    Zurückgeschickt wird deshalb das Objekt, das Garmin selbst geliefert hat,
-    mit nur diesen beiden Feldern verändert: Ein selbst zusammengebauter Rumpf
-    ließe offen, ob eine Ablehnung am Namen liegt oder am fehlenden Rest.
+    Bewusst über `client.request`: Das gibt die Antwort samt Statuscode zurück,
+    statt bei >= 400 zu werfen. Ein 405 ist hier ein Befund und kein Unfall.
     """
-    print("\n[2] PUT auf den Termin mit `newName`:")
-    termin = _termin(api, schedule_id)
-    if not isinstance(termin, dict):
-        print("  übersprungen — Termin nicht lesbar.")
-        return False
-
-    nutzlast = dict(termin)
-    nutzlast["newName"] = TERMINNAME
-    nutzlast["nameChanged"] = True
     try:
-        api.client.put(
-            "connectapi",
-            f"/workout-service/schedule/{schedule_id}",
-            json=nutzlast,
-            api=True,
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ABGELEHNT — {type(exc).__name__}: {exc}")
-        return False
-    return _zeige_stand(api, tag, workout_id, schedule_id)
-
-
-def _variante_3(api: Any, tag: date, workout_id: str) -> tuple[str | None, bool]:
-    """`newName` gleich beim Anlegen des Termins mitschicken."""
-    print("\n[3] Termin mit `newName` im POST:")
-    nutzlast = {
-        "date": tag.isoformat(),
-        "newName": TERMINNAME,
-        "nameChanged": True,
-    }
+        antwort = api.client.request(methode, "connectapi", pfad, json=nutzlast)
+    except Exception as exc:  # noqa: BLE001 — undokumentierte Gegenstelle
+        return f"{type(exc).__name__}: {exc}"
+    code = getattr(antwort, "status_code", "?")
     try:
-        antwort = api.client.post(
-            "connectapi",
-            f"/workout-service/schedule/{workout_id}",
-            json=nutzlast,
-            api=True,
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ABGELEHNT — {type(exc).__name__}: {exc}")
-        return None, False
-    schedule_id = _terminkennung(antwort)
-    print(f"  Terminkennung: {schedule_id}")
-    return schedule_id, _zeige_stand(api, tag, workout_id, schedule_id)
+        rumpf = json.dumps(antwort.json(), ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        rumpf = str(getattr(antwort, "text", ""))
+    return f"HTTP {code} — {rumpf[:300]}"
+
+
+def _steht_der_name(api: Any, tag: date, workout_id: str, schedule_id: str) -> bool:
+    """Steht der Wunschname am Termin — **ohne** dass die Vorlage mitgezogen ist?
+
+    Der zweite Teil ist der eigentliche Punkt. Einen Termin umzubenennen, indem
+    man die Vorlage umbenennt, kann die App längst; genau das soll ja weg. Als
+    Treffer zählt deshalb nur, was den Kalender ändert und den Vorlagennamen
+    stehen lässt.
+    """
+    termin = _termin(api, schedule_id) or {}
+    eintrag = _kalendereintrag(api, tag, workout_id) or {}
+    vorlage = _hole_vorlage(api, workout_id) or {}
+    vorlagenname = str(vorlage.get("workoutName") or "")
+
+    im_kalender = TERMINNAME in str(eintrag.get("title") or "")
+    gespeichert = TERMINNAME in str(termin.get("newName") or "")
+    mitgezogen = TERMINNAME in vorlagenname
+    print(
+        f"    -> newName={termin.get('newName')!r} "
+        f"Kalendertitel={eintrag.get('title')!r} "
+        f"Vorlagenname={vorlagenname!r}"
+    )
+    if mitgezogen:
+        print("       (die Vorlage wurde mit umbenannt — das zählt nicht)")
+        return False
+    return gespeichert or im_kalender
+
+
+def _hole_vorlage(api: Any, workout_id: str) -> dict[str, Any] | None:
+    try:
+        antwort = api.get_workout_by_id(workout_id)
+    except Exception:  # noqa: BLE001
+        return None
+    return antwort if isinstance(antwort, dict) else None
+
+
+def _umbenennungsversuche(
+    api: Any, schedule_id: str, workout_id: str, tag: date
+) -> list[tuple[str, dict[str, Any], str, str]]:
+    """Alles, was plausibel einen Terminnamen setzen könnte.
+
+    Der erste Versuch schickte das ganze Terminobjekt zurück — vielleicht hat
+    Garmin es deshalb ignoriert. Also auch die knappen Formen, und auch die
+    Adressen, die die Bibliothek gar nicht kennt.
+    """
+    roh = _termin(api, schedule_id)
+    roh = dict(roh) if isinstance(roh, dict) else {}
+
+    voll = dict(roh)
+    voll["newName"] = TERMINNAME
+    voll["nameChanged"] = True
+
+    # Der Termin trägt das ganze Workout eingebettet. Vielleicht ist *das* der
+    # Ort für einen abweichenden Namen — dann bliebe die Vorlage in der
+    # Bibliothek unangetastet. `_steht_der_name` prüft genau das nach.
+    eingebettet = json.loads(json.dumps(roh, default=str))
+    if isinstance(eingebettet.get("workout"), dict):
+        eingebettet["workout"]["workoutName"] = TERMINNAME
+
+    mit_titel = dict(roh)
+    mit_titel["title"] = TERMINNAME
+
+    schedule_pfad = f"/workout-service/schedule/{schedule_id}"
+    return [
+        ("PUT schedule/{id}, nur die zwei Felder", {"newName": TERMINNAME, "nameChanged": True}, "PUT", schedule_pfad),
+        ("PUT schedule/{id}, nur newName", {"newName": TERMINNAME}, "PUT", schedule_pfad),
+        ("PUT schedule/{id}, ganzes Objekt", voll, "PUT", schedule_pfad),
+        ("POST schedule/{id}, nur die zwei Felder", {"newName": TERMINNAME, "nameChanged": True}, "POST", schedule_pfad),
+        ("PUT schedule/{id} mit date daneben", {"date": tag.isoformat(), "newName": TERMINNAME, "nameChanged": True}, "PUT", schedule_pfad),
+        ("PUT calendar-service/item/{id}", {"title": TERMINNAME}, "PUT", f"/calendar-service/item/{schedule_id}"),
+        ("PUT workout-service/schedule/workout/{id}", {"newName": TERMINNAME, "nameChanged": True}, "PUT", f"/workout-service/schedule/workout/{schedule_id}"),
+        ("PUT schedule/{id}, Name im eingebetteten Workout", eingebettet, "PUT", schedule_pfad),
+        ("PUT schedule/{id}, title am Termin", mit_titel, "PUT", schedule_pfad),
+    ]
 
 
 def teste_kalendername(api: Any) -> bool:
@@ -255,7 +284,7 @@ def teste_kalendername(api: Any) -> bool:
     print(f"Termintag: {tag.isoformat()}\n")
 
     workout_id: str | None = None
-    termine: list[str] = []
+    schedule_id: str | None = None
     getroffen = False
     try:
         antwort = api.upload_workout(workout)
@@ -264,30 +293,30 @@ def teste_kalendername(api: Any) -> bool:
             print("Keine Workout-ID zurückbekommen — Probe nicht durchführbar.")
             return False
         workout_id = str(kennung)
-        print(f"Temporäre Vorlage angelegt: {workout_id}")
 
-        schedule_id = _variante_1(api, tag, workout_id)
-        if schedule_id:
-            termine.append(schedule_id)
-            getroffen = _variante_2(api, tag, workout_id, schedule_id) or getroffen
-            # Erst wegräumen: Zwei Termine desselben Workouts am selben Tag
-            # machten die Rückschau mehrdeutig.
-            api.unschedule_workout(schedule_id)
-            termine.remove(schedule_id)
+        schedule_id = _terminkennung(api.schedule_workout(workout_id, tag.isoformat()))
+        if schedule_id is None:
+            print("Keine Terminkennung zurückbekommen — Probe nicht durchführbar.")
+            return False
+        print(f"Vorlage {workout_id}, Termin {schedule_id}. Ausgangsstand:")
+        _zeige_stand(api, tag, workout_id, schedule_id)
 
-        if not getroffen:
-            schedule_id, treffer = _variante_3(api, tag, workout_id)
-            getroffen = getroffen or treffer
-            if schedule_id:
-                termine.append(schedule_id)
-        else:
-            print("\n[3] übersprungen — [2] hat bereits getragen.")
+        print("\nUmbenennungsversuche:")
+        for name, nutzlast, methode, pfad in _umbenennungsversuche(
+            api, schedule_id, workout_id, tag
+        ):
+            print(f"\n  {name}")
+            print(f"    {_antwort(api, methode, pfad, nutzlast)}")
+            if _steht_der_name(api, tag, workout_id, schedule_id):
+                print("    *** GETROFFEN ***")
+                getroffen = True
+                break
     finally:
-        for kennung in list(termine):
+        if schedule_id is not None:
             try:
-                api.unschedule_workout(kennung)
+                api.unschedule_workout(schedule_id)
             except Exception as exc:  # noqa: BLE001
-                print(f"WARNUNG: Termin {kennung} nicht entfernt: {exc}")
+                print(f"WARNUNG: Termin {schedule_id} nicht entfernt: {exc}")
         if workout_id is not None:
             try:
                 api.delete_workout(workout_id)
@@ -298,8 +327,7 @@ def teste_kalendername(api: Any) -> bool:
     print(
         "\nERGEBNIS: Der Kalendername lässt sich getrennt vom Vorlagennamen setzen."
         if getroffen
-        else "\nERGEBNIS: Der Kalendername kommt aus der Vorlage — er lässt sich "
-        "nicht getrennt setzen."
+        else "\nERGEBNIS: Kein Weg gefunden — der Kalendername kommt aus der Vorlage."
     )
     return getroffen
 

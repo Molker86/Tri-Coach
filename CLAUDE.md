@@ -1578,15 +1578,30 @@ gescheitert, und das ist am echten Konto abgelesen
 (`scripts/garmin_kalendername_probe.py`). Die Vorlage „TC03" zu nennen **und**
 den Trainingsnamen an den *Kalendereintrag* zu hängen, hätte beides zugleich
 gegeben: eine stabile Liste auf der Uhr und einen lesbaren Kalender.
-`schedule_workout` schickt aber ausschließlich
-`{"date": …}`, und das Terminobjekt führt zwar `nameChanged` und `newName` —
-Felder, die genau danach aussehen —, doch Garmin **verwirft sie still**: Sowohl
-der POST mit `newName` als auch ein `PUT` auf `/workout-service/schedule/{id}`
-werden ohne Fehler angenommen und ändern nichts; zurückgelesen steht dort wieder
-`newName: null`. Die Felder gehören mit einiger Wahrscheinlichkeit zu Garmins
-eigenen Trainingsplänen — im selben Objekt stehen `atpPlanTypeId`, `tpType` und
-`itp`. **Wer das noch einmal aufmachen will, prüft es mit dem Skript und glaubt
-nicht dem Statuscode.**
+`schedule_workout` schickt aber ausschließlich `{"date": …}`, und das
+Terminobjekt führt zwar `nameChanged` und `newName` — Felder, die genau danach
+aussehen —, doch keiner von **neun** geprüften Wegen setzt sie. Die Probe deckt
+ab: `newName` im POST; `PUT` auf `/workout-service/schedule/{id}` mit knappem
+Rumpf, mit `newName` allein, mit `date` daneben, mit dem ganzen zurückgelesenen
+Objekt, mit geändertem Namen im *eingebetteten* Workout und mit `title` am
+Termin; `POST` auf dieselbe Adresse; sowie `/calendar-service/item/{id}` und
+`/workout-service/schedule/workout/{id}`.
+
+Aufschlussreich sind dabei die Fehlschläge selbst. Der `PUT` auf
+`/workout-service/schedule/{id}` **existiert**: Mit knappem Rumpf antwortet
+Garmin mit **500** samt Stackframe (`WorkoutScheduleServiceImpl:71`), mit dem
+vollständigen Objekt mit **204**. Der Endpunkt wird also erreicht und nimmt an —
+er ändert nur nichts von dem, was hier gebraucht wird; vermutlich verlegt er
+bloß das Datum. Die anderen beiden Adressen gibt es nicht (404), der `POST`
+lehnt ab (400). `newName`/`nameChanged` gehören mit einiger Wahrscheinlichkeit
+zu Garmins eigenen Trainingsplänen — im selben Objekt stehen `atpPlanTypeId`,
+`tpType` und `itp`.
+
+**Wer das noch einmal aufmachen will**, prüft es mit dem Skript und glaubt nicht
+dem Statuscode — vier der neun Wege quittieren mit 2xx und tun nichts. Und er
+klärt vorher die eine Frage, die das Skript nicht beantworten kann: ob Garmin
+Connect im Browser überhaupt anbietet, einen *terminierten* Workout umzubenennen.
+Kann die eigene Oberfläche es nicht, gibt es den Endpunkt nicht zu finden.
 
 **Die Kennung entsteht erst, wenn der Slot feststeht** — `baue_workout()` kennt
 ihn nicht, `uebertrage_einheit()` wählt ihn danach. Deshalb setzt
