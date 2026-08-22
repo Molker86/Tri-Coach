@@ -2256,6 +2256,77 @@ den geteilten Punkt 5 mit. Der Zusatz „unabhängig davon, ob der Wunsch sie
 erwähnt" ist dort das Entscheidende — wer „nur 40 Minuten Zeit" schreibt, nimmt
 sein Knie damit nicht zurück.
 
+**Und dann kam dieselbe Dehneinheit drei Tage hintereinander.** Am laufenden
+Betrieb aufgefallen, mit eingeschalteter Automatik und einem Läuferknie im
+Freitext: drei Blöcke in Folge, jeder mit einer Mobility-Einheit auf dieselbe
+Region, während die medizinische Lage bei diesem Bild Kräftigung verlangt. Wieder
+**keine Datenlücke** — `tage_seit_letzter_einheit_je_sportart` meldete
+`mobility: 1`, `absolvierte_uebungen` nannte die gezählten Übungen. Der Prompt
+hat die Wiederholung angefordert, und zwar an vier Stellen zugleich:
+
+*Punkt 9 behandelte die beiden Formen ungleich.* „Falls gewünscht, Kraft (…) —
+nie unmittelbar vor einer Schlüsseleinheit. Mobility kurz und regelmäßig": eine
+Bedingung samt Sperre gegen die eine Form, ein unbedingter Wiederholungsauftrag
+für die andere. Bei täglicher Neuplanung liest sich „regelmäßig" als „heute
+wieder". Beide stehen jetzt gleichrangig, beide unter
+`trainingswunsch.zusatztraining`, und die Terminierungsregel ist als solche
+benannt: Passt Kraft an einem Tag nicht, steht sie an einem anderen — sie wird
+nicht durch Mobility **ersetzt**.
+
+*Die Beschwerde-Ausnahme deckte zu viel.* Sie war die Antwort auf den umgekehrten
+Fehler (siehe oben) und bleibt richtig, unterschied aber nicht zwischen
+*derselben Region* und *derselben Einheit* — womit dieselbe Übungsliste am
+Folgetag ausdrücklich gedeckt war. Sie gilt jetzt der Region: Zwei
+aufeinanderfolgende Tage daran müssen sich in **Form, Übungsauswahl oder
+Progression** unterscheiden.
+
+*Punkt 12 zog auf die zuletzt gewählte Form zurück.* „Ein Satz mehr, zehn
+Sekunden länger, eine schwerere Variante derselben Bewegung" — gestern gedehnt
+hieß damit heute länger dehnen. Der Formwechsel steht jetzt daneben: derselben
+Region mit der nächsten Form begegnen, erst mobilisieren, dann belasten.
+
+*Punkt 13 stellte beide Zweige gleich stark auf.* „Eine abgeschwächte **oder
+verkürzte** Muskelgruppe" — und bei sonst gleichem Text gewinnt die kürzere,
+überall zulässige Form. Die abgeleitete Ursache entscheidet jetzt ausdrücklich
+auch über die *Form* der Arbeit, und eine Beschwerde, die über mehrere Blöcke
+dieselbe Antwort bekommt, ohne nachzulassen, ist ein Grund zum Wechseln statt
+zum Wiederholen.
+
+**Vorgeschrieben wird dabei nichts.** Dass ein Läuferknie Kräftigung braucht,
+steht nirgends im Prompt — dieselbe Linie wie bei den Punkten 3 und 4: Die Rolle
+ist ein Trainingswissenschaftler, der das mitbringt. Entfernt wurde nur die
+Schieflage, die ihn zur kürzeren Form gedrängt hat. Was bleibt, ist eine Zusage
+der KI; nachrechnen kann die App sie nicht.
+
+**Der eigentliche Verstärker stand gar nicht im Prompt: Nur der erste Tag wird je
+erreicht** (`NEUPLANUNGSHINWEIS`, `planungszeitraum.taegliche_neuplanung`). Bei
+eingeschalteter Automatik entsteht morgen früh ein frischer Block ab dann — die
+Tage ab dem zweiten sind vergeben, bevor der Block überhaupt gebaut ist. Die KI
+wusste davon nichts und verteilte ihre Einheiten sinnvoll über sieben Tage; was
+Punkt 9 vom ersten Tag wegdrängte (Kraft nicht unmittelbar vor einer
+Schlüsseleinheit), landete auf Tag 3 und fand **nie** statt. Auf Tag 1 blieb die
+kurze, überall zulässige Mobility — dreimal hintereinander.
+
+Der Hinweis sagt deshalb ausdrücklich **nicht**, Tag 1 finde sicher statt: Ob
+trainiert wird, entscheidet der Athlet. Sicher ist nur die Gegenrichtung, und
+genau die ist die Aussage. Maßgeblich ist der **Schalter, nicht der Auslöser**
+(`KiSettings.auto_plan_enabled`, gelesen in `_lade_kontext()`): Steht die
+Automatik an, wird auch ein von Hand angestoßener Block morgen ersetzt. Der
+Schlüssel steht nur, wenn er wahr ist — dieselbe Regel wie bei
+`ersetzt_laufenden_block`, denn ein `false` wäre eine Aussage über einen Zustand,
+der die KI nichts angeht. Die Einzelanpassung bekommt ihn nicht: Dort wird nichts
+verdrängt.
+
+Daran hing ein Fehler, den `test_der_geteilte_punkt_nennt_keine_punktnummer` jetzt
+festhält: Die neue Formwahl in Punkt 9 verwies zunächst auf „Punkt 13" — und
+Punkt 9 ist mit der Einzelanpassung geteilt, wo die Beschwerderegel **Punkt 8**
+heißt. Die Nummer kommt aus der Vorlage, der Text steht ohne sie; das gilt für
+`PRINZIP_ERGAENZUNG` und die `_STEUER_*`-Stücke gleichermaßen.
+
+`ERSATZ_HINWEIS` behauptete bei alledem „Der Athlet plant ihn **bewusst** neu" —
+bei der Automatik hat ein Zeitgeber entschieden. Der Satz trägt jetzt beide
+Auslöser.
+
 Der Kopf der Aufgabe sagt außerdem, dass `erzeugt_am` **Datum und Uhrzeit**
 trägt und der erste Tag womöglich schon halb vorbei ist — samt der Folgerung,
 dass Ruhe die richtige Antwort ist, wenn zu wenig übrig bleibt. Eine Einheit, die
@@ -2484,6 +2555,14 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   hilft, ist der Nachweis im Begründungsfeld: Dort steht seit dieser Änderung,
   welche Beschwerde der Block angeht, und daran ist eine überholte Angabe zu
   erkennen.
+- **Auch die *Form* der Behandlung ist eine Zusage, keine Prüfung.** Seit der
+  Dehneinheit an drei Tagen hintereinander sagt der Prompt, dass die abgeleitete
+  Ursache über mobilisieren oder belasten entscheidet und dieselbe Region an zwei
+  Tagen sich unterscheiden muss. Nachrechnen kann die App weder das eine noch das
+  andere: Sie weiß nicht, welche Übung welche Region trifft, und `kategorie` aus
+  `absolvierte_uebungen` steht nur für Einheiten, die aus einem Workout mit
+  Übungskennung liefen. Der einzige Nachweis ist wieder das Begründungsfeld —
+  dort steht seither auch, *warum in dieser Form*.
 - **Die Disziplin ist eine Zusage der KI, keine Prüfung.** Der Prompt sagt einem
   Laufblock, dass er nur Laufeinheiten enthält; nachrechnen kann die App das
   nicht, sie meldet beim Import nur, was danebensteht. Und die Disziplin hängt
@@ -2785,7 +2864,10 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   räumt hinterher auf. Wer ihn setzt und drei Tage nicht hinsieht, hat trotzdem
   drei Blöcke geplant bekommen, von denen zwei nie eine Einheit trugen. Und es
   kostet **jeden Tag** einen Opus-Lauf aus demselben Kontingent, das man daneben
-  selbst benutzt.
+  selbst benutzt. Der Prompt weiß davon (`NEUPLANUNGSHINWEIS`) und plant den
+  ersten Tag entsprechend — aber nur, solange der Schalter steht: Wer ihn abends
+  ausschaltet, hat morgen früh einen Block, dessen späte Tage plötzlich zählen,
+  und der Hinweis von heute stand umsonst darin. Umgekehrt genauso.
 - **Die automatische Planung hängt am Abgleich.** Ohne verbundenes Garmin-Konto
   gibt es keinen, und damit auch keinen Auslöser — dann bleibt es beim Knopf.
   Ebenso, wenn `TRI_GARMIN_AUTOSYNC=0` steht oder der Abgleich scheitert: Ein

@@ -224,8 +224,60 @@ def test_der_prompt_verlangt_arbeit_an_der_beschwerde(client, auth):
         assert "Die Punkte 1 bis 4 und 13 sind" in prompt
         # Und die Abwechslungsregel aus Punkt 9 gilt nur für gesunde Regionen.
         assert "Diese Abwechslungsregel gilt für gesunde" in prompt
+        # Die Ausnahme deckt aber nur die Region, nicht die Einheit: Sonst kam
+        # drei Tage hintereinander dieselbe Dehnübung, ausdrücklich gedeckt.
+        assert "**Die Ausnahme gilt der Region, nicht der Einheit**" in prompt
+        assert "Dieselbe Übungsliste am Folgetag ist keine Behandlung" in prompt
+        # Und die Ursache entscheidet über die Form, nicht die Tageslänge.
+        assert "auch über die **Form** der Arbeit" in prompt
     finally:
         client.put("/api/profile", headers=auth, json={"injuries": None})
+
+
+def test_punkt_9_stellt_kraft_und_mobility_gleich(client, auth):
+    """Kraft stand unter Vorbehalt, Mobility nicht — und das entschied den Block.
+
+    „Falls gewünscht, Kraft (…) — nie unmittelbar vor einer Schlüsseleinheit.
+    Mobility kurz und regelmäßig": eine Bedingung samt Sperre gegen die eine
+    Form, ein unbedingter Wiederholungsauftrag für die andere. Bei täglicher
+    Neuplanung las sich „regelmäßig" als „heute wieder", und die Krafteinheit
+    rutschte auf einen späteren Blocktag, den es nie gab.
+    """
+    prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
+
+    assert "Kraft und Mobility stehen gleichrangig" in prompt
+    # Die Terminierungsregel bleibt — sie ist sachlich richtig —, taugt aber
+    # nicht mehr als Grund, die Krafteinheit ganz wegzulassen.
+    assert "eine Frage des Tages und kein Grund, sie wegzulassen" in prompt
+    assert "statt durch eine Mobility-Einheit ersetzt zu werden" in prompt
+    # „Regelmäßig" gilt jetzt für beide Formen, nicht nur für Mobility.
+    assert "Beide Formen gehören kurz und regelmäßig" in prompt
+
+
+def test_der_prompt_sagt_wenn_morgen_neu_geplant_wird(client, auth):
+    """Bei aktiver Automatik sind die Tage ab dem zweiten schon vergeben.
+
+    Die KI verteilte Kraft und Mobility über sieben Tage, von denen der nächste
+    Lauf sechs verwirft — was Punkt 9 vom ersten Tag wegdrängt, landete auf
+    Tag 3 und fand nie statt. Bewusst **nicht** die Behauptung, Tag 1 finde
+    sicher statt: Ob trainiert wird, entscheidet der Athlet.
+    """
+    ohne = client.get("/api/plans/export", headers=auth).json()["prompt"]
+    assert "automatisch neu geplant" not in ohne
+
+    client.put("/api/ki/settings", headers=auth, json={"auto_plan_enabled": True})
+    try:
+        mit = client.get("/api/plans/export", headers=auth).json()["prompt"]
+        assert "**Dieser Block wird morgen früh automatisch neu geplant.**" in mit
+        assert "Ob der erste Tag stattfindet, entscheidet der Athlet" in mit
+        # Der Platzhalter für die Blocklänge muss gefüllt sein — `.format()`
+        # formatiert eingesetzte Werte nicht erneut.
+        assert "{tage}" not in mit
+        assert "über alle 7 Tage stimmig" in mit
+    finally:
+        client.put(
+            "/api/ki/settings", headers=auth, json={"auto_plan_enabled": False}
+        )
 
 
 def test_der_prompt_gibt_die_trainingslehre_nicht_vor(client, auth):

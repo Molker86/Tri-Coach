@@ -261,6 +261,31 @@ def test_der_prompt_kennt_die_beschwerden_des_athleten(client, auth, monkeypatch
     # Der geteilte Punkt 9 kommt hier als Punkt 5 mit — samt seiner Ausnahme
     # von der Abwechslungsregel.
     assert "Diese Abwechslungsregel gilt für gesunde" in prompt
+    assert "**Die Ausnahme gilt der Region, nicht der Einheit**" in prompt
+
+
+def test_der_geteilte_punkt_nennt_keine_punktnummer():
+    """Die Nummer kommt aus der Vorlage, der Text steht ohne sie.
+
+    `PRINZIP_ERGAENZUNG` steht im Blockprompt als Punkt 9 und hier als Punkt 5,
+    und die Beschwerderegel heißt dort 13 und hier 8. Ein Querverweis per Nummer
+    zeigt deshalb in genau einer der beiden Aufgaben ins Leere — beim Einbau der
+    Formwahl war er schon einmal drin ("die Ursache, die du in Punkt 13
+    ableitest").
+    """
+    from app import ai_export
+
+    geteilt = (
+        ai_export.PRINZIP_ERGAENZUNG,
+        ai_export._STEUER_BASIS,
+        ai_export._STEUER_SCHWIMMORT,
+        ai_export._STEUER_RADORT,
+        ai_export._STEUER_BAUPLAN,
+    )
+    for text in geteilt:
+        # „dieser Punkt" ist in Ordnung — der Selbstbezug stimmt in beiden
+        # Aufgaben. Eine Nummer stimmt höchstens in einer.
+        assert re.search(r"Punkt \d", text) is None, text
 
 
 def test_der_prompt_gibt_auch_hier_keine_stundenzahl_vor(client, auth, monkeypatch):

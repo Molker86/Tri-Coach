@@ -254,6 +254,9 @@ export interface AiExportPayload {
     tage: number
     enddatum: string
     ersetzt_laufenden_block?: ErsetzterBlock
+    // Steht nur, wenn die automatische Planung an ist: Dann ersetzt der Lauf
+    // von morgen früh alles ab dem zweiten Tag dieses Blocks.
+    taegliche_neuplanung?: boolean
   }
   [key: string]: unknown
 }

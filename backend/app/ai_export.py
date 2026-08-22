@@ -23,6 +23,7 @@ from .models import (
     AthleteProfile,
     GarminAccount,
     GarminWorkoutLink,
+    KiSettings,
     Plan,
     PlanSession,
     SessionLog,
@@ -788,6 +789,7 @@ def build_payload(
     start_date: date | None = None,
     days: int = PLAN_DAYS_DEFAULT,
     ersetzt_block: bool = True,
+    taegliche_neuplanung: bool = False,
     garmin_konto: Any = None,
     workout_links: list[Any] | None = None,
 ) -> dict[str, Any]:
@@ -797,6 +799,11 @@ def build_payload(
     einer einzelnen Einheit liegt der „Zeitraum" zwar mitten im laufenden
     Block, verdrängt ihn aber nicht — der Hinweis behauptete dort, die
     Resttage entfielen, und die KI räumte sie in ihrer Antwort mit weg.
+
+    `taegliche_neuplanung` sagt, dass morgen früh von selbst ein frischer Block
+    ab dann entsteht — die Tage ab dem zweiten sind damit vergeben. Das hängt am
+    Schalter (`KiSettings.auto_plan_enabled`) und nicht am Auslöser: Auch ein
+    heute von Hand angestoßener Block wird morgen ersetzt.
     """
     age = calc_age(profile.birth_date) if profile else None
     zones = hr_zones(
@@ -818,6 +825,11 @@ def build_payload(
             WEEKDAYS[(start + timedelta(days=i)).weekday()] for i in range(days)
         ],
     }
+
+    # Nur wenn wahr — dieselbe Regel wie bei `ersetzt_laufenden_block`: Ein
+    # `false` wäre eine Aussage über einen Zustand, der die KI nichts angeht.
+    if taegliche_neuplanung:
+        zeitraum["taegliche_neuplanung"] = True
 
     ersatz = _ersatz_block(plan, start) if ersetzt_block else None
 
@@ -1087,7 +1099,7 @@ nicht einen vollständigen Trainingszyklus.
 womöglich schon halb vorbei: Plane dann nur, was in die verbleibende Zeit passt, und \
 sieh in `trainingshistorie.einheiten` nach, ob für heute bereits etwas eingetragen \
 ist. Bleibt zu wenig übrig, ist Ruhe die richtige Antwort — eine Einheit, die nicht \
-mehr stattfinden kann, verfälscht ab morgen die Umsetzungsquote.{ersatzhinweis}
+mehr stattfinden kann, verfälscht ab morgen die Umsetzungsquote.{ersatzhinweis}{neuplanungshinweis}
 
 ## Verbindliche Trainingsprinzipien
 1. **Einordnung in den Verlauf**: `wochenuebersicht` und \
@@ -1190,7 +1202,8 @@ Uhr tatsächlich gezählt hat, in Garmins englischen Katalognamen \
 (`SINGLE_LEG_HIP_RAISE`, dazu `kategorie` als Bewegungsgruppe), mit Satzzahl und \
 Haltedauer bzw. Wiederholungen. Schreibe die nächste Ergänzungseinheit **von dort** \
 fort — ein Satz mehr, zehn Sekunden länger, eine schwerere Variante derselben \
-Bewegung —, statt eine unverbundene Übungsliste danebenzustellen. Zwei Einschränkungen \
+Bewegung, oder derselben Region mit der nächsten Form begegnen: erst mobilisieren, \
+dann belasten —, statt eine unverbundene Übungsliste danebenzustellen. Zwei Einschränkungen \
 dabei: `saetze` zählt, was die Uhr als Satz **aufgezeichnet** hat, nicht was der Athlet \
 gemacht hat — läuft eine Übung als ein Workout-Schritt bis zur Rundentaste, stehen drei \
 Sätze dort als einer über die volle Dauer —, und `wiederholungen` stammt aus Garmins \
@@ -1211,7 +1224,13 @@ behandeln lässt, gehört in Kraft und Mobility **hinein**, nicht darum herum. L
 der Beschreibung die wahrscheinliche Ursache ab — typisch ist eine abgeschwächte oder \
 verkürzte Muskelgruppe oberhalb des schmerzenden Gelenks — und plane die Übungen, die \
 sie angehen. Nennt der Athlet mehrere Beschwerden, prüfe, ob sie zusammenhängen, und \
-behandle die gemeinsame Ursache statt jede für sich.
+behandle die gemeinsame Ursache statt jede für sich. Die abgeleitete Ursache \
+entscheidet dabei auch über die **Form** der Arbeit: Ob die Region mobilisiert oder \
+belastet gehört, ist eine Trainingsentscheidung — nicht die Frage, was am kürzesten in \
+den Tag passt. Steht dieselbe Beschwerde seit mehreren Blöcken im Freitext und bekam \
+bisher immer dieselbe Antwort, ohne dass sie nachlässt, ist das ein Grund, die Form zu \
+wechseln, nicht sie zu wiederholen; `trainingshistorie.einheiten` und \
+`absolvierte_uebungen` sagen dir, was bisher lief.
     Die betroffene Region **auszusparen, ist die falsche Antwort**: Das nimmt dem \
 Athleten genau die Arbeit weg, die seine Beschwerde beheben würde, und die \
 Abwechslungsregel aus Punkt 9 ist kein Grund dafür. Ist die Region akut gereizt, plane \
@@ -1361,10 +1380,17 @@ def _ausweichhinweis(disziplin: str) -> str:
 # der Platzhalter muss also gefüllt sein, bevor der Text in die Vorlage geht —
 # dieselbe Falle wie bei `FITNESSREGELN_*`. Geschweifte Klammern, die stehen
 # bleiben sollen, müssten verdoppelt werden.
-PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Falls gewünscht, Kraft (Rumpf, einbeinige Übungen, \
-Plyometrie nur bei ausreichender Erfahrung) — nie unmittelbar vor einer \
-Schlüsseleinheit. Mobility kurz und regelmäßig — regelmäßig heißt aber **nicht \
-dasselbe noch einmal**: Sieh in `trainingshistorie.einheiten` nach, was die letzte \
+PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Kraft und Mobility stehen gleichrangig; was davon \
+überhaupt in den Block gehört, sagt `trainingswunsch.zusatztraining`. Welche der beiden \
+Formen eine Einheit trägt, entscheidest du aus der Belastungslage und — steht in \
+`athlet.verletzungen_einschraenkungen` etwas — aus der Ursache, die du daraus \
+ableitest; nicht danach, was am kürzesten in den Tag passt. Kraft (Rumpf, einbeinige \
+Übungen, Plyometrie nur bei ausreichender Erfahrung) legst du nicht unmittelbar vor \
+eine Schlüsseleinheit — das ist eine Frage des Tages und kein Grund, sie wegzulassen: \
+Passt sie an einem Tag nicht, steht sie an einem anderen des Blocks, statt durch eine \
+Mobility-Einheit ersetzt zu werden. Beide Formen gehören kurz und regelmäßig in den \
+Block, und regelmäßig heißt **nicht dasselbe noch einmal**: Sieh in \
+`trainingshistorie.einheiten` nach, was die letzte \
 Kraft- oder Mobility-Einheit enthielt — zuerst in `absolvierte_uebungen` (was die Uhr \
 gezählt hat, mit `kategorie` als Bewegungsgruppe), sonst in `geplant_war.aufbau` oder \
 `notiz` —, und wechsle Übungsauswahl und Körperregion. Dieselbe Region an zwei aufeinanderfolgenden \
@@ -1372,8 +1398,12 @@ Tagen ist ein Fehler, kein Aufbau. **Diese Abwechslungsregel gilt für gesunde \
 Regionen.** Nennt `athlet.verletzungen_einschraenkungen` eine Beschwerde, ist die \
 zugehörige Region die Ausnahme: Sie wird gezielt und wiederholt angegangen, bis die \
 Beschwerde weg ist, und abgewechselt wird um sie herum. Sie auszulassen, weil sie \
-zuletzt schon drankam, ist dann der Fehler — nicht die Wiederholung. Sage dann in \
-`{begruendungsfeld}` in einem Satz, welche Beschwerde diese Einheit angeht. Bei `strength` und `mobility` ist \
+zuletzt schon drankam, ist dann der Fehler — nicht die Wiederholung. **Die Ausnahme \
+gilt der Region, nicht der Einheit**: Zwei aufeinanderfolgende Tage an derselben Region \
+müssen sich in Form, Übungsauswahl oder Progression unterscheiden. Dieselbe Übungsliste \
+am Folgetag ist keine Behandlung, sondern genau die Wiederholung, die dieser Punkt \
+sonst verbietet. Sage dann in `{begruendungsfeld}` in einem Satz, welche Beschwerde \
+diese Einheit angeht und warum in dieser Form. Bei `strength` und `mobility` ist \
 `structure` eine **Übungsliste**, kein Zeitverlauf: eine Übung je Abschnitt, getrennt \
 durch " / ", mit Sätzen, Wiederholungen oder Haltedauer. Setze hinter jede deutsche \
 Übungsbezeichnung den geläufigen englischen Namen in Klammern ("Seitstütz (Side Plank) \
@@ -1631,14 +1661,34 @@ an der der Athlet es erfährt.
 ERSATZ_HINWEIS = """
 
 **Dieser Block ersetzt einen laufenden.** Für den Zeitraum liegt bereits ein Block vor \
-(„{titel}", geplant bis {bisheriges_ende}). Der Athlet plant ihn bewusst neu, weil \
-Belastung, Zeit oder Befinden inzwischen andere sind. Seine Einheiten ab {start} \
+(„{titel}", geplant bis {bisheriges_ende}). Er wird neu geplant, weil \
+Belastung, Zeit oder Befinden inzwischen andere sein können. Seine Einheiten ab {start} \
 entfallen damit; sie stehen unter \
 `planungszeitraum.ersetzt_laufenden_block.verworfene_einheiten` und sind **keine \
 Vorgabe** — übernimm daraus nur, was du nach den Daten ohnehin planen würdest, und \
 sieh dort nach, welcher Reiz gerade ausfällt. Was tatsächlich trainiert wurde, steht \
 ausschließlich in `trainingshistorie.einheiten`: Was dort fehlt, hat nicht \
 stattgefunden, auch wenn es im bisherigen Block stand."""
+
+
+# Steht nur im Prompt, wenn die automatische Planung eingeschaltet ist. Dann
+# entsteht morgen früh nach dem Garmin-Abgleich ein frischer Block ab diesem Tag,
+# und alles ab dem zweiten Tag dieses Blocks wird dabei verworfen. Die KI wusste
+# davon nichts und verteilte ihre Einheiten über sieben Tage, von denen nur der
+# erste je erreicht wird: Was Punkt 9 vom ersten Tag wegdrängt (Kraft nicht
+# unmittelbar vor einer Schlüsseleinheit), landete auf Tag 3 und fand nie statt.
+#
+# Bewusst **nicht** „Tag 1 findet sicher statt": Ob trainiert wird, entscheidet
+# der Athlet. Sicher ist nur die Gegenrichtung — die späteren Tage sind weg.
+NEUPLANUNGSHINWEIS = """
+
+**Dieser Block wird morgen früh automatisch neu geplant.** Seine Tage ab dem zweiten \
+werden dabei verworfen und durch einen frischen Block ersetzt, der aus den dann \
+aktuellen Daten entsteht. Ob der erste Tag stattfindet, entscheidet der Athlet — aber \
+nur er hat überhaupt die Gelegenheit dazu. Was du auf einen späteren Blocktag legst, \
+weil es dort besser läge, findet nicht statt. Plane den Block trotzdem über alle \
+{tage} Tage stimmig; entscheide nur bei allem, was heute möglich und sinnvoll ist, im \
+Zweifel für heute."""
 
 
 def _fitnessregeln(payload: dict[str, Any], begruendungsfeld: str) -> str:
@@ -1692,6 +1742,14 @@ def build_prompt(payload: dict[str, Any]) -> str:
                 bisheriges_ende=ersetzt.get("bisheriges_ende", ""),
                 start=period.get("startdatum", ""),
             )
+        ),
+        # `{tage}` darin wird hier gefüllt: `.format()` formatiert eingesetzte
+        # Werte nicht erneut, der Platzhalter bliebe sonst wörtlich stehen —
+        # dieselbe Falle wie bei `PRINZIP_TRIATHLON` und `FITNESSREGELN_*`.
+        neuplanungshinweis=(
+            NEUPLANUNGSHINWEIS.format(tage=tage)
+            if period.get("taegliche_neuplanung")
+            else ""
         ),
         fitnessregeln=_fitnessregeln(payload, "summary"),
         # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
@@ -1755,6 +1813,10 @@ class _Kontext:
     wellness: list[WellnessDay]
     garmin: Any
     workout_links: list[GarminWorkoutLink]
+    # Ob morgen früh von selbst neu geplant wird. Steht hier und nicht in der
+    # Signatur des Exports: Beide Auslöser — Knopf wie Zwischenablage — erben
+    # ihn damit ohne Zutun, wie die Disziplin auch.
+    auto_plan: bool
 
 
 def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
@@ -1819,6 +1881,11 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         else []
     )
 
+    # Maßgeblich ist der Schalter, nicht der Auslöser dieses Exports: Steht die
+    # automatische Planung an, wird auch ein von Hand angestoßener Block morgen
+    # früh ersetzt.
+    ki = db.query(KiSettings).filter(KiSettings.user_id == user.id).first()
+
     return _Kontext(
         request=training_request,
         logs=logs,
@@ -1826,6 +1893,7 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         wellness=wellness,
         garmin=konto,
         workout_links=links,
+        auto_plan=bool(ki is not None and ki.auto_plan_enabled),
     )
 
 
@@ -1855,6 +1923,7 @@ def erzeuge_export(
         wellness=kontext.wellness,
         start_date=start_date,
         days=days,
+        taegliche_neuplanung=kontext.auto_plan,
         garmin_konto=kontext.garmin,
         workout_links=kontext.workout_links,
     )
