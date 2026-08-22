@@ -84,7 +84,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 444 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 453 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -481,12 +481,55 @@ Migration — relevant, weil die KI die Werte liefert.
 
 **Toleranter Import** (`plan_import.py`). KI-Antworten kommen in der Praxis mit
 Codefences, Begleittext oder als flaches Objekt ohne `plan`-Wurzel. Der Parser
-schneidet das erste vollständige JSON-Objekt heraus (klammerzählend, Strings
+sammelt **alle** vollständigen JSON-Objekte des Textes (klammerzählend, Strings
 werden dabei übersprungen) und normalisiert Sprachvarianten
 (`"Laufen"`/`"run"`/`"Rad"`). Abgeschnittene Antworten bekommen eine eigene
 Fehlermeldung, weil das der häufigste Fall ist. `_flatten_weeks()` zieht
 Antworten, die trotzdem eine `weeks`-Ebene mitbringen, auf die flache Tagesliste
 herunter — Modelle greifen gern auf diese vertraute Struktur zurück.
+
+**Welches Objekt der Plan ist, entscheidet die Form — nicht die Reihenfolge**
+(`_json_objekte`, `_plan_darin`). Gelesen wurde einmal die *erste* Codefence und
+darin das *erste* Objekt, und was dabei herauskam, wurde ungeprüft als Plan
+gedeutet: Was keinen `plan`-Schlüssel trug, bekam einfach einen umgehängt.
+Schrieb die KI vorweg eine kurze Notiz als JSON — oder hängte sie eine hinterher,
+oder benannte die Hülle `trainingsplan` statt `plan` —, endete das in
+„plan → start_date: Field required / plan → days: Field required" über einem
+Text, in dem der Block vollständig dastand. Gesucht wird deshalb nach der Form:
+Ein Objekt mit nicht leerer `days`- oder `weeks`-Liste ist der Plan, egal unter
+welchem Namen und an welcher Stelle (zwei Hüllen tief). Die Zäune der Codefences
+tragen keine Klammern, also braucht es sie beim Suchen gar nicht mehr — das
+Herausschneiden ist ersatzlos entfallen.
+
+**Ein fehlendes `start_date` wird abgelesen, nicht bemängelt**
+(`AIPlanBody._startdatum_aus_den_tagen`). Das Feld ist redundant: Ein Block
+beginnt an dem Tag, mit dem seine Tagesliste anfängt. Daran einen vollständigen
+Block scheitern zu lassen wäre dieselbe teuerste denkbare Antwort wie beim
+verworfenen Zielpuls — über den KI-Knopf ist die Antwort danach weg, der Lauf
+also verloren. Gemeldet wird es trotzdem (`startdatum_abgeleitet`): Fehlen
+zugleich die ersten Tage, verdeckt der abgeleitete Beginn die Lücke, und nur
+noch die Zahl der Tage fällt auf. Ohne brauchbare Tagesliste bleibt es beim
+Pflichtfeld — dann fehlt nicht ein ablesbarer Wert, sondern der Block.
+
+**Und wer das Falsche einfügt, liest das statt einer Feldliste**
+(`_falsche_antwort`, `_ohne_tagesliste`). Zwei Verwechslungen sind naheliegend
+und ergaben bis dahin *dieselbe* Meldung wie eine misslungene Antwort: das
+Datenpaket, das an die KI geht (erkennbar an `athlet`/`trainingswunsch`), und
+die Antwort auf eine Einzelanpassung, die an der Einheit im Trainingsplan
+übernommen wird und nicht hier (`einheit`/`session`, oder ein nacktes
+Einheitenobjekt). „Field required" beschreibt, was fehlt — der Athlet muss
+wissen, was dasteht, denn der nächste Handgriff ist in beiden Fällen ein
+anderer. Bleibt die Form unbekannt, nennt die Meldung wenigstens die Felder der
+obersten Ebene. Steht ein `plan` da, der bloß unvollständig ist, bekommt
+Pydantic weiter das Wort: Dort ist die Feldliste die genauere Auskunft.
+
+Der dritte Fall ist der zurückkopierte **Prompt**, und er ist der Grund, warum
+diese Prüfung nicht vor der Suche nach dem Plan läuft: Am Ende des Prompts steht
+das Antwortformat als Beispiel, mit einer Tagesliste darin — nach der Form ist
+das ein Planobjekt, und der Athlet läse „days → 0 → date: YYYY-MM-DD ist kein
+Datum". Gefragt wird deshalb erst, wenn der Kandidat durch die Validierung
+fällt: Ein gültiger Block soll nie an einem Objekt scheitern, das zufällig
+danebensteht.
 
 **Warnungen statt Ablehnung.** `validate_coverage()` meldet fehlende oder leere
 Tage, blockiert den Import aber nicht — ein Block mit drei statt vier Tagen ist

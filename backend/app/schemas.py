@@ -549,6 +549,24 @@ class AIDayIn(BaseModel):
     sessions: list[AISessionIn] = []
 
 
+def _tagesdatum(tag: Any) -> date | None:
+    """Das Datum eines gelieferten Tages — oder nichts, wenn keins darin steht.
+
+    Läuft vor der Validierung und darf deshalb nichts voraussetzen: Der Wert
+    ist meistens ein ISO-String, kann aber schon ein `date` sein, wenn der
+    Aufrufer Python-Objekte übergibt.
+    """
+    wert = tag.get("date") if isinstance(tag, dict) else getattr(tag, "date", None)
+    if isinstance(wert, date):
+        return wert
+    if isinstance(wert, str):
+        try:
+            return date.fromisoformat(wert[:10])
+        except ValueError:
+            return None
+    return None
+
+
 class AIPlanBody(BaseModel):
     """Der geplante Block: eine flache Liste von Tagen.
 
@@ -564,6 +582,39 @@ class AIPlanBody(BaseModel):
     coaching_notes: str | None = None
     start_date: date
     days: list[AIDayIn] = Field(min_length=1, max_length=31)
+
+    # Unsere Notiz, kein Teil des KI-Formats: gesetzt, wenn `start_date`
+    # gefehlt hat und aus den Tagen kam. `validate_coverage()` meldet es —
+    # stillschweigend ausbessern hieße verschweigen, dass die Antwort ein
+    # Pflichtfeld nicht geliefert hat.
+    startdatum_abgeleitet: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _startdatum_aus_den_tagen(cls, data: Any) -> Any:
+        """Fehlt `start_date`, gilt der früheste gelieferte Tag.
+
+        Das Feld ist redundant — der Block beginnt an dem Tag, mit dem seine
+        Tagesliste anfängt. Einen vollständigen Block an einer Zahl scheitern
+        zu lassen, die daneben steht und sich ablesen lässt, wäre dieselbe
+        teuerste denkbare Antwort wie beim verworfenen Zielpuls: Über den
+        KI-Knopf ist die Antwort danach weg, der Lauf also verloren.
+
+        Ohne brauchbare Tagesliste bleibt es beim Pflichtfeld — dann fehlt
+        nicht bloß ein ablesbarer Wert, sondern der Block selbst.
+        """
+        if not isinstance(data, dict):
+            return data
+        # Immer setzen, nie aus der Antwort übernehmen — was dort danebenstünde,
+        # wäre eine fremde Behauptung über unsere eigene Buchführung.
+        bereinigt = {**data, "startdatum_abgeleitet": False}
+        if data.get("start_date"):
+            return bereinigt
+        datumswerte = [_tagesdatum(tag) for tag in data.get("days") or []]
+        gefunden = sorted(d for d in datumswerte if d)
+        if not gefunden:
+            return bereinigt
+        return {**bereinigt, "start_date": gefunden[0], "startdatum_abgeleitet": True}
 
 
 class AIPlanImport(BaseModel):

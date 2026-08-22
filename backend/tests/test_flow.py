@@ -381,6 +381,111 @@ def test_import_rejects_garbage(client, auth):
     assert wrong_shape.status_code == 422
 
 
+def test_import_nimmt_den_plan_und_nicht_das_erste_objekt(client, auth):
+    """Ein Notizobjekt vor dem Block darf den Import nicht kosten.
+
+    Der Parser nahm einmal die erste Codefence und darin das erste
+    JSON-Objekt. Schrieb die KI vorweg eine kurze Notiz als JSON — oder hängte
+    sie eine hinterher —, scheiterte der Import mit „plan → days: Field
+    required" über einem Text, in dem der Block vollständig dastand.
+    """
+    start = date.today() + timedelta(days=1)
+    antwort = (
+        "Kurz vorweg:\n```json\n{\"hinweis\": \"Fokus auf die aerobe Basis\"}\n```\n\n"
+        "```json\n"
+        + json.dumps(make_ai_plan(start), ensure_ascii=False)
+        + "\n```\n{\"nachtrag\": \"viel Erfolg\"}"
+    )
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": antwort, "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["plan"]["sessions"]) == 4
+
+
+def test_import_akzeptiert_eine_fremd_benannte_huelle(client, auth):
+    """`{"trainingsplan": {...}}` ist derselbe Block, nur anders verpackt."""
+    start = date.today() + timedelta(days=1)
+    plan = make_ai_plan(start)["plan"]
+
+    response = client.post(
+        "/api/plans/import",
+        headers=auth,
+        json={"raw": json.dumps({"trainingsplan": plan}), "days": 4},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["plan"]["start_date"] == start.isoformat()
+
+
+def test_import_leitet_das_startdatum_aus_den_tagen_ab(client, auth):
+    """Ohne `start_date` gilt der früheste Tag — das Feld ist ablesbar.
+
+    Einen vollständigen Block an einer Zahl scheitern zu lassen, die daneben
+    steht, wäre dieselbe teuerste Antwort wie beim verworfenen Zielpuls.
+    """
+    start = date.today() + timedelta(days=1)
+    ohne = make_ai_plan(start)
+    del ohne["plan"]["start_date"]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(ohne), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    plan = body["plan"]
+    assert plan["start_date"] == start.isoformat()
+    assert plan["end_date"] == (start + timedelta(days=3)).isoformat()
+    # Gemeldet wird es trotzdem: Ausbessern ist kein Grund zu schweigen.
+    assert any("start_date" in w for w in body["warnings"])
+
+
+def test_import_benennt_das_verwechselte_datenpaket(client, auth):
+    """Das Datenpaket eingefügt statt der Antwort: Das ist die Auskunft.
+
+    „plan → start_date: Field required" beschreibt, was fehlt — der Athlet
+    muss aber wissen, was dasteht, und der nächste Handgriff ist ein anderer
+    als bei einer misslungenen Antwort.
+    """
+    payload = client.get("/api/plans/export", headers=auth).json()["payload"]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(payload)}
+    )
+    assert response.status_code == 422
+    assert "Datenpaket" in response.json()["detail"]
+
+
+def test_import_benennt_den_zurueckkopierten_prompt(client, auth):
+    """Der ganze Prompt eingefügt: Auch dann ist es das Datenpaket.
+
+    Der Prompt trägt am Ende das Antwortformat als Beispiel — mit einer
+    Tagesliste darin. Nach der Form gesucht ist das ein Planobjekt, und der
+    Athlet läse „days → 0 → date: YYYY-MM-DD ist kein Datum". Scheitert der
+    Kandidat, gilt deshalb der Fund daneben.
+    """
+    prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
+
+    response = client.post("/api/plans/import", headers=auth, json={"raw": prompt})
+    assert response.status_code == 422
+    assert "Datenpaket" in response.json()["detail"]
+
+
+def test_import_benennt_die_antwort_auf_eine_einzelanpassung(client, auth):
+    """Die eine Einheit gehört in den Dialog im Trainingsplan, nicht hierher."""
+    einzeln = {
+        "schema_version": "1.0",
+        "einheit": {"sport": "run", "type": "endurance", "title": "Lockerer Lauf"},
+        "begruendung": "Kürzer, weil nur 40 Minuten Zeit sind.",
+    }
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(einzeln)}
+    )
+    assert response.status_code == 422
+    assert "Einzelanpassung" in response.json()["detail"]
+
+
 def test_import_warns_about_gaps(client, auth):
     start = date.today() + timedelta(days=40)
     incomplete = make_ai_plan(start, days=4)

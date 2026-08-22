@@ -2,12 +2,13 @@
 
 KI-Antworten kommen in der Praxis selten sauber: mal in ```json-Fences, mal mit
 einem einleitenden Satz davor, mal als flaches Objekt ohne "plan"-Wurzel, mal
-mit der Wochenebene aus dem früheren Vier-Wochen-Format. Der Parser fängt diese
-Fälle ab, bevor die Pydantic-Validierung greift.
+mit der Wochenebene aus dem früheren Vier-Wochen-Format, mal mit einem zweiten
+JSON-Objekt als Notiz davor oder dahinter. Der Parser fängt diese Fälle ab,
+bevor die Pydantic-Validierung greift: Er liest *alle* Objekte des Textes und
+sucht darin nach der Form des Plans, statt sich auf das erste zu verlassen.
 """
 
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -35,49 +36,92 @@ class PlanImportError(ValueError):
     """Fehler mit für den Nutzer lesbarer Meldung."""
 
 
-def _strip_fences(text: str) -> str:
-    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
-    return fence.group(1) if fence else text
+def _json_objekte(text: str) -> tuple[list[str], bool]:
+    """Alle vollständigen JSON-Objekte des Textes, in ihrer Reihenfolge.
 
+    Gezählt wird klammernd; geschweifte Klammern innerhalb von Strings zählen
+    nicht mit, damit Beschreibungstexte den Parser nicht aus dem Tritt bringen.
+    Innerhalb eines Objekts wird nicht weitergesucht — gemeint sind die
+    äußersten.
 
-def _extract_json_object(text: str) -> str:
-    """Schneidet das erste vollständige JSON-Objekt heraus.
+    Warum *alle* statt nur das erste: Eine KI-Antwort trägt oft mehr als ein
+    Objekt — ein Beispiel im Vortext, eine erste Codefence mit einer Notiz,
+    ein Nachtrag hinter dem Plan. Wer das erste nimmt, nimmt dann das falsche
+    und meldet „Field required" über einem Text, in dem der Block sauber
+    dasteht. Welches der Plan ist, entscheidet danach die Form und nicht die
+    Reihenfolge; dafür ist auch das Herausschneiden der Codefences entfallen,
+    denn die Zäune selbst tragen keine Klammern.
 
-    Zählt Klammern und ignoriert dabei geschweifte Klammern innerhalb von
-    Strings, damit Beschreibungstexte den Parser nicht aus dem Tritt bringen.
+    Der zweite Rückgabewert sagt, ob am Ende ein Objekt offen geblieben ist —
+    das ist die abgeschnittene Antwort, der häufigste Fehlerfall überhaupt.
     """
-    start = text.find("{")
-    if start == -1:
-        raise PlanImportError("Im eingefügten Text wurde kein JSON-Objekt gefunden.")
+    objekte: list[str] = []
+    start = 0
+    tiefe = 0
+    im_string = False
+    maskiert = False
 
-    depth = 0
-    in_string = False
-    escaped = False
-
-    for i in range(start, len(text)):
-        char = text[i]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
+    for i, zeichen in enumerate(text):
+        if im_string:
+            if maskiert:
+                maskiert = False
+            elif zeichen == "\\":
+                maskiert = True
+            elif zeichen == '"':
+                im_string = False
             continue
 
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
+        if zeichen == '"':
+            # Nur innerhalb eines Objekts: Ein Anführungszeichen im Fließtext
+            # davor darf die Klammerzählung nicht abschalten.
+            im_string = tiefe > 0
+        elif zeichen == "{":
+            if not tiefe:
+                start = i
+            tiefe += 1
+        elif zeichen == "}" and tiefe:
+            tiefe -= 1
+            if not tiefe:
+                objekte.append(text[start : i + 1])
 
-    raise PlanImportError(
-        "Das JSON ist unvollständig — vermutlich wurde die KI-Antwort abgeschnitten. "
-        "Bitte die Antwort vollständig kopieren."
-    )
+    return objekte, tiefe > 0
+
+
+def _gelesene_objekte(raw: str) -> list[dict[str, Any]]:
+    """Die lesbaren JSON-Objekte des eingefügten Textes.
+
+    Wirft die Meldungen, die der Athlet zu sehen bekommt. Die abgeschnittene
+    Antwort steht dabei vor der unlesbaren: Sie ist der häufigste Fall, und
+    „unvollständig" sagt ihm, was zu tun ist.
+    """
+    if not raw or not raw.strip():
+        raise PlanImportError("Es wurde kein Text eingefügt.")
+
+    objekte, offen = _json_objekte(raw)
+    gelesen: list[dict[str, Any]] = []
+    fehler: json.JSONDecodeError | None = None
+    for kandidat in objekte:
+        try:
+            daten = json.loads(kandidat)
+        except json.JSONDecodeError as exc:
+            fehler = fehler or exc
+            continue
+        if isinstance(daten, dict):
+            gelesen.append(daten)
+
+    if gelesen:
+        return gelesen
+    if offen:
+        raise PlanImportError(
+            "Das JSON ist unvollständig — vermutlich wurde die KI-Antwort "
+            "abgeschnitten. Bitte die Antwort vollständig kopieren."
+        )
+    if fehler:
+        raise PlanImportError(
+            f"Das eingefügte JSON ist nicht lesbar (Zeile {fehler.lineno}, "
+            f"Spalte {fehler.colno}): {fehler.msg}"
+        )
+    raise PlanImportError("Im eingefügten Text wurde kein JSON-Objekt gefunden.")
 
 
 def _flatten_weeks(plan: Any) -> Any:
@@ -102,33 +146,113 @@ def _flatten_weeks(plan: Any) -> Any:
     return {**plan, "days": days}
 
 
+# Woran ein Planobjekt zu erkennen ist: an seiner Tagesliste. Der Titel ist
+# beliebig, `start_date` lässt sich aus den Tagen ablesen — die Tage selbst
+# sind das Einzige, was ein Block zwingend mitbringt.
+_TAGESLISTEN = ("days", "weeks")
+
+
+def _ist_planform(wert: Any) -> bool:
+    return isinstance(wert, dict) and any(
+        isinstance(wert.get(schluessel), list) and wert.get(schluessel)
+        for schluessel in _TAGESLISTEN
+    )
+
+
+def _plan_darin(daten: Any, tiefe: int = 2) -> dict[str, Any] | None:
+    """Sucht das Planobjekt — flach, unter `plan` oder unter fremdem Namen.
+
+    Verlangt ist `{"plan": {...}}`; in der Praxis kommt der Block auch nackt,
+    als `{"trainingsplan": …}` oder eine Hülle tiefer. Gesucht wird deshalb
+    nach der Form statt nach dem Schlüsselnamen: Eine Tagesliste hat in dieser
+    Antwort sonst nichts zu suchen, und ein umbenannter Wrapper ist keine
+    inhaltliche Abweichung — dieselbe Linie wie bei den Sprachvarianten der
+    Sportarten.
+    """
+    if _ist_planform(daten):
+        return daten
+    if tiefe <= 0 or not isinstance(daten, dict):
+        return None
+    for wert in daten.values():
+        if (gefunden := _plan_darin(wert, tiefe - 1)) is not None:
+            return gefunden
+    return None
+
+
+def _falsche_antwort(objekte: list[dict[str, Any]]) -> str | None:
+    """Benennt das Verwechseln, statt Feldnamen aufzuzählen.
+
+    Wer das Datenpaket oder die Antwort auf eine Einzelanpassung einfügt,
+    bekam „plan → start_date: Field required" zu lesen — eine Auskunft
+    darüber, was fehlt, während er wissen muss, was dasteht. Beide Fälle sehen
+    in der Feldliste zudem gleich aus, obwohl der nächste Handgriff ein ganz
+    anderer ist.
+    """
+    for daten in objekte:
+        if any(
+            schluessel in daten
+            for schluessel in ("athlet", "trainingswunsch", "trainingshistorie")
+        ):
+            return (
+                "Das ist das Datenpaket für die KI, nicht ihre Antwort. Kopiere "
+                "den Text oben, gib ihn der KI und füge hier ein, was sie "
+                "zurückschreibt."
+            )
+        if any(
+            isinstance(daten.get(schluessel), dict)
+            for schluessel in _EINHEIT_SCHLUESSEL
+        ) or ("sport" in daten and "date" not in daten):
+            return (
+                "Das ist die Antwort auf eine Einzelanpassung — eine einzelne "
+                "Einheit statt eines Blocks. Sie wird im Trainingsplan an der "
+                "Einheit selbst übernommen, nicht hier."
+            )
+    return None
+
+
+def _ohne_tagesliste(objekte: list[dict[str, Any]]) -> str:
+    """Sagt, was stattdessen dastand — sonst rät der Athlet, was er hat."""
+    felder = ", ".join(sorted(objekte[0])[:8]) or "gar keine"
+    return (
+        "In der Antwort war kein Trainingsblock zu finden: Auf oberster Ebene "
+        f"stehen die Felder {felder}. Erwartet wird ein Objekt mit \"plan\" und "
+        'darin einer Tagesliste "days" — so, wie es das Antwortformat am Ende '
+        "des kopierten Textes vorgibt."
+    )
+
+
 def parse_ai_response(raw: str) -> AIPlanBody:
-    if not raw or not raw.strip():
-        raise PlanImportError("Es wurde kein Text eingefügt.")
+    objekte = _gelesene_objekte(raw)
 
-    candidate = _extract_json_object(_strip_fences(raw))
-
-    try:
-        data: Any = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise PlanImportError(
-            f"Das eingefügte JSON ist nicht lesbar (Zeile {exc.lineno}, "
-            f"Spalte {exc.colno}): {exc.msg}"
-        ) from exc
-
-    if not isinstance(data, dict):
-        raise PlanImportError("Die oberste Ebene der Antwort ist kein JSON-Objekt.")
-
-    # Sowohl {"plan": {...}} als auch das flache Plan-Objekt akzeptieren.
-    if "plan" not in data:
-        data = {"plan": data}
-
-    data = {**data, "plan": _flatten_weeks(data["plan"])}
+    plan = next(
+        (gefunden for daten in objekte if (gefunden := _plan_darin(daten))), None
+    )
+    if plan is None:
+        # Kein Objekt trägt eine Tagesliste. Steht wenigstens ein `plan` da,
+        # bekommt Pydantic das Wort — seine Feldliste sagt dann genauer, was
+        # daran fehlt. Sonst wurde etwas anderes eingefügt, und *das* ist der
+        # Hinweis, den der Athlet braucht.
+        plan = next(
+            (d["plan"] for d in objekte if isinstance(d.get("plan"), dict)), None
+        )
+        if plan is None:
+            raise PlanImportError(
+                _falsche_antwort(objekte) or _ohne_tagesliste(objekte)
+            )
 
     try:
-        return AIPlanImport.model_validate(data).plan
+        return AIPlanImport.model_validate({"plan": _flatten_weeks(plan)}).plan
     except ValidationError as exc:
-        raise PlanImportError(_readable_validation_error(exc)) from exc
+        # Der gewählte Kandidat trägt zwar eine Tagesliste, taugt aber nicht.
+        # Steht daneben das Datenpaket im Text, wurde der ganze Prompt
+        # zurückkopiert — dann stammt die Tagesliste aus dem Antwortformat am
+        # Ende des Prompts, und „days → 0 → date: YYYY-MM-DD ist kein Datum"
+        # wäre die Antwort auf eine Frage, die niemand gestellt hat. Geprüft
+        # wird erst hier und nicht davor: Ein gültiger Block soll nie an einem
+        # Objekt scheitern, das zufällig danebensteht.
+        raise PlanImportError(
+            _falsche_antwort(objekte) or _readable_validation_error(exc)
+        ) from exc
 
 
 def _readable_validation_error(exc: ValidationError) -> str:
@@ -334,6 +458,13 @@ def validate_coverage(
 
     all_dates = sorted({d.date for d in body.days})
     start = body.start_date
+
+    if body.startdatum_abgeleitet:
+        warnings.append(
+            f"Ohne „start_date“ geliefert; als Beginn gilt der früheste Tag "
+            f"({start.isoformat()}). Fehlen zugleich die ersten Tage des "
+            "Blocks, fällt das nur über die Zahl der Tage auf."
+        )
 
     if expected_days and len(all_dates) != expected_days:
         warnings.append(
@@ -587,21 +718,18 @@ def parse_einheit_antwort(raw: str) -> AIEinheitBody:
     die Antwort auf eine andere Frage, und die erste Einheit daraus zu nehmen
     hieße raten, welche gemeint ist.
     """
-    if not raw or not raw.strip():
-        raise PlanImportError("Es wurde kein Text eingefügt.")
-
-    candidate = _extract_json_object(_strip_fences(raw))
-
-    try:
-        data: Any = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise PlanImportError(
-            f"Das eingefügte JSON ist nicht lesbar (Zeile {exc.lineno}, "
-            f"Spalte {exc.colno}): {exc.msg}"
-        ) from exc
-
-    if not isinstance(data, dict):
-        raise PlanImportError("Die oberste Ebene der Antwort ist kein JSON-Objekt.")
+    objekte = _gelesene_objekte(raw)
+    # Dieselbe Wahl nach der Form wie beim Block: Trägt der Text mehrere
+    # Objekte, gilt das mit der Einheit darin und nicht das erste.
+    data: Any = next(
+        (
+            d
+            for d in objekte
+            if any(isinstance(d.get(s), dict) for s in _EINHEIT_SCHLUESSEL)
+            or "sport" in d
+        ),
+        objekte[0],
+    )
 
     if "plan" in data or "days" in data or "weeks" in data:
         raise PlanImportError(
