@@ -87,6 +87,23 @@ def _json_objekte(text: str) -> tuple[list[str], bool]:
     return objekte, tiefe > 0
 
 
+def _fehlerstelle(fehler: json.JSONDecodeError, umfeld: int = 45) -> str:
+    """Die Zeichen um die Fundstelle herum, im Wortlaut.
+
+    Zeile und Spalte allein sind bei einer KI-Antwort wertlos: Sie steht oft
+    in einer einzigen Zeile, und „Spalte 2318" zählt niemand ab. Der
+    Ausschnitt dagegen lässt sich im Text suchen — und meist sieht man ihm die
+    Ursache sofort an, denn „Expecting ',' delimiter" heißt fast immer, dass
+    ein Anführungszeichen mitten in einem Text steht, das die KI nicht
+    maskiert hat.
+    """
+    text = fehler.doc
+    von = max(0, fehler.pos - umfeld)
+    bis = min(len(text), fehler.pos + umfeld)
+    ausschnitt = " ".join(text[von:bis].split())
+    return f"{'…' if von else ''}{ausschnitt}{'…' if bis < len(text) else ''}"
+
+
 def _gelesene_objekte(raw: str) -> list[dict[str, Any]]:
     """Die lesbaren JSON-Objekte des eingefügten Textes.
 
@@ -119,7 +136,8 @@ def _gelesene_objekte(raw: str) -> list[dict[str, Any]]:
     if fehler:
         raise PlanImportError(
             f"Das eingefügte JSON ist nicht lesbar (Zeile {fehler.lineno}, "
-            f"Spalte {fehler.colno}): {fehler.msg}"
+            f"Spalte {fehler.colno}): {fehler.msg}. Dort steht: "
+            f"„{_fehlerstelle(fehler)}\""
         )
     raise PlanImportError("Im eingefügten Text wurde kein JSON-Objekt gefunden.")
 

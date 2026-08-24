@@ -381,6 +381,30 @@ def test_import_rejects_garbage(client, auth):
     assert wrong_shape.status_code == 422
 
 
+def test_unlesbares_json_nennt_die_fundstelle(client, auth):
+    """Zeile und Spalte allein helfen bei einer einzeiligen Antwort nicht.
+
+    Ein nicht maskiertes Anführungszeichen mitten im Aufbautext ist der
+    häufigste Grund für „Expecting ',' delimiter" — die Meldung nannte dafür
+    einmal nur „Zeile 1, Spalte 2318", und die zählt niemand ab. Jetzt steht
+    der Wortlaut der Fundstelle daneben.
+    """
+    start = date.today() + timedelta(days=1)
+    plan = make_ai_plan(start)
+    plan["plan"]["days"][0]["sessions"][0]["structure"] = "4x400 m PLATZHALTER"
+    kaputt = json.dumps(plan, ensure_ascii=False).replace(
+        "PLATZHALTER", 'zügig ("Renntempo")'
+    )
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": kaputt}
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "nicht lesbar" in detail
+    assert '4x400 m zügig ("Renntempo")' in detail
+
+
 def test_import_nimmt_den_plan_und_nicht_das_erste_objekt(client, auth):
     """Ein Notizobjekt vor dem Block darf den Import nicht kosten.
 

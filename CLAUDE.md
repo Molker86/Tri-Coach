@@ -632,6 +632,17 @@ anderer. Bleibt die Form unbekannt, nennt die Meldung wenigstens die Felder der
 obersten Ebene. Steht ein `plan` da, der bloß unvollständig ist, bekommt
 Pydantic weiter das Wort: Dort ist die Feldliste die genauere Auskunft.
 
+**Und wo das JSON schon am Zeichen scheitert, steht die Fundstelle im
+Wortlaut** (`_fehlerstelle`). „Zeile 1, Spalte 2318: Expecting ',' delimiter"
+war für den Athleten unbrauchbar: Eine KI-Antwort steht oft in einer einzigen
+Zeile, und 2318 Zeichen zählt niemand ab. Die Meldung hängt deshalb rund 45
+Zeichen um die Fundstelle an — meist sieht man der Stelle die Ursache sofort
+an, denn genau diese Meldung heißt fast immer, dass ein Anführungszeichen
+mitten in einem Aufbautext steht, das die KI nicht maskiert hat
+(`"4x400 m zügig ("Renntempo")"`). Repariert wird nichts: Ein automatisch
+maskiertes Zeichen änderte den Text, den der Athlet auf der Uhr liest, und die
+Antwort liegt ihm ja vor.
+
 Der dritte Fall ist der zurückkopierte **Prompt**, und er ist der Grund, warum
 diese Prüfung nicht vor der Suche nach dem Plan läuft: Am Ende des Prompts steht
 das Antwortformat als Beispiel, mit einer Tagesliste darin — nach der Form ist
