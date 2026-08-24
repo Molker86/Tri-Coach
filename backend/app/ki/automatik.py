@@ -22,7 +22,7 @@ from sqlalchemy import select
 
 from ..ai_export import PLAN_DAYS_DEFAULT
 from ..database import SessionLocal
-from ..models import GarminSyncJob, KiSettings, TrainingRequest
+from ..models import GarminSyncJob, KiSettings, Plan, TrainingRequest
 from .client import ist_angemeldet, token_aus
 from .runner import runner
 
@@ -88,21 +88,32 @@ def _plane(user_id: int, sync_job_id: int) -> int | None:
         if runner.laeuft_gerade() is not None:
             return None
 
+        # Der Fragebogen des laufenden Blocks statt des zuletzt *angelegten*.
+        # Wer seinen Fragebogen anpasst, statt einen neuen auszufüllen, ändert
+        # `created_at` nicht — `_letzter_fragebogen()` sortiert danach und
+        # griffe daneben, sobald irgendwo eine jüngere Zeile liegt. Die
+        # Anpassung wirkte dann nie, ohne dass etwas fehlschlüge. Ohne aktiven
+        # Block und an Altbestand (`request_id = NULL`) bleibt es beim
+        # bisherigen Rückfall.
+        aktiv = db.scalar(
+            select(Plan).where(Plan.user_id == user_id, Plan.is_active.is_(True))
+        )
+        fragebogen = aktiv.request_id if aktiv is not None else None
+
         # Erst vormerken, dann starten: Der Lauf hängt sich an ein eigenes
         # Schloss und meldet sich nicht zurück. Bliebe der Vermerk aus, liefe
         # nach einem Neustart derselbe Tag noch einmal.
         einstellungen.last_auto_plan_on = heute
         db.commit()
 
-    # `request_id=None` wie bei „Neu planen ab heute": Der Export nimmt dann den
-    # zuletzt gespeicherten Fragebogen. Und ab heute, nicht ab morgen — der
-    # laufende Block wird ersetzt, und genau das ist der Sinn eines Blocks, der
-    # zur heutigen Belastungslage passt.
+    # Ab heute, nicht ab morgen — der laufende Block wird ersetzt, und genau das
+    # ist der Sinn eines Blocks, der zur heutigen Belastungslage passt.
     job_id = runner.starte(
         user_id,
         AUTO,
         start_date=heute,
         days=PLAN_DAYS_DEFAULT,
+        request_id=fragebogen,
     )
     logger.info("Automatischer Planungslauf %s für Nutzer %s gestartet", job_id, user_id)
     return job_id

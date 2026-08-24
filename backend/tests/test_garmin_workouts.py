@@ -2415,32 +2415,98 @@ def test_gesperrte_verbindung_erklaert_den_leeren_kalender(client, verbunden, fa
     assert "gesperrt" in antwort["garmin_hinweis"]
 
 
-def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(
+def test_umgehaengte_einheit_behaelt_ihre_garmin_zuordnung(
     client, verbunden, fake, erfasse
+):
+    """Der Umzug in den neuen Block lässt den Termin in Garmin unberührt.
+
+    `GarminWorkoutLink` zeigt auf `plan_session_id` und nicht auf den Plan —
+    genau deshalb darf die Einheit den Plan wechseln. Stürbe die Zuordnung mit
+    dem alten Block, bliebe ihr Termin für immer im fremden Kalender stehen.
+
+    Gewählt ist die Einheit von *heute*, die bereits absolviert wurde: Sie ist
+    übertragen (Vergangenes geht gar nicht erst auf die Uhr) und zieht wegen
+    ihres Logs mit um.
+    """
+    from app.database import SessionLocal
+    from app.models import GarminWorkoutLink, PlanSession
+
+    alt = _importiere_plan(client, verbunden, tage=3)
+    _uebertrage(client, verbunden)
+
+    heutige = next(s for s in alt["sessions"] if s["date"] == HEUTE.isoformat())
+    with SessionLocal() as db:
+        link = (
+            db.query(GarminWorkoutLink)
+            .filter(GarminWorkoutLink.plan_session_id == heutige["id"])
+            .one()
+        )
+        vorher = (link.garmin_workout_id, link.garmin_schedule_id)
+
+    erfasse(
+        verbunden,
+        plan_session_id=heutige["id"],
+        date=HEUTE,
+        sport=heutige["sport"],
+        duration_min=60,
+    )
+    _importiere_plan(client, verbunden, tage=3)  # löst ab, ab heute
+
+    aktiv = client.get("/api/plans/active", headers=verbunden).json()
+    with SessionLocal() as db:
+        einheit = db.get(PlanSession, heutige["id"])
+        assert einheit is not None, "Die absolvierte Einheit wurde gelöscht"
+        assert einheit.plan_id == aktiv["id"], "Sie hängt noch am abgelösten Block"
+        link = (
+            db.query(GarminWorkoutLink)
+            .filter(GarminWorkoutLink.plan_session_id == einheit.id)
+            .one()
+        )
+        assert (link.garmin_workout_id, link.garmin_schedule_id) == vorher
+
+
+def test_geerbte_tage_gehen_nicht_auf_die_uhr(client, verbunden, fake):
+    """Was ein Block geerbt hat, hat er nie geplant — und gehört nicht auf die Uhr."""
+    from app.database import SessionLocal
+    from app.garmin import uebertragung
+    from app.models import Plan
+
+    _importiere_plan(client, verbunden, tage=3, ab=HEUTE - timedelta(days=2))
+    _importiere_plan(client, verbunden, tage=3)
+
+    aktiv = client.get("/api/plans/active", headers=verbunden).json()
+    with SessionLocal() as db:
+        plan = db.get(Plan, aktiv["id"])
+        # Der Plan trägt die geerbten Tage …
+        assert min(s.date for s in plan.sessions) < plan.beginn
+        # … übertragbar ist trotzdem nur, was er selbst vorgesehen hat.
+        assert all(s.date >= plan.beginn for s in uebertragung.planbare_einheiten(plan))
+
+
+def test_beiseitegelegter_block_von_hand_uebertragen_bleibt_stehen(
+    client, verbunden, fake
 ):
     """Ein stillgelegter Plan lässt sich gezielt übertragen — und überlebt es.
 
-    Ohne die Ausnahme in `raeume_ersetzte_auf` löschte derselbe Lauf am Ende
-    wieder, was er gerade hochgeladen hat: Der Block ist ja nicht mehr aktiv.
+    Ohne die Ausnahme `ausser_plan_id` in `raeume_ersetzte_auf` löschte derselbe
+    Lauf am Ende wieder, was er gerade hochgeladen hat: Der Block ist ja nicht
+    mehr aktiv, und seine Tage liegen hinter dem Beginn des aktiven.
 
-    Das erfasste Training hält den alten Block am Leben: Ohne eine absolvierte
-    Einheit räumt ihn die Neuplanung weg, sobald nichts mehr von ihm in Garmin
-    steht — dann gäbe es nichts mehr, was sich von Hand übertragen ließe.
+    Beiseitegelegt statt abgelöst: Ein Block, den der aktive *überdeckt*, gibt
+    seit der Übernahme der Vergangenheit seine Einheiten ab und verschwindet —
+    von Hand zu übertragen wäre dann nichts mehr. Hier überschneiden sich die
+    Zeiträume nicht, also bleibt er stehen.
     """
-    alt = _importiere_plan(client, verbunden)
-    erfasse(
-        verbunden,
-        plan_session_id=alt["sessions"][0]["id"],
-        date=date.fromisoformat(alt["sessions"][0]["date"]),
-        sport=alt["sessions"][0]["sport"],
-        duration_min=60,
-    )
-    _uebertrage(client, verbunden)
-    _importiere_plan(client, verbunden)  # legt ihn still und räumt ihn aus Garmin
+    spaeter = HEUTE + timedelta(days=3)
+    frueh = _importiere_plan(client, verbunden)
+    beiseite = _importiere_plan(client, verbunden, ab=spaeter)
+    # Den früheren wieder aktiv setzen — der spätere ist damit stillgelegt, und
+    # seine Termine liegen hinter dessen Beginn.
+    client.post(f"/api/plans/{frueh['id']}/activate", headers=verbunden)
 
     antwort = client.post(
         "/api/garmin/workouts/uebertragen",
-        json={"plan_id": alt["id"]},
+        json={"plan_id": beiseite["id"]},
         headers=verbunden,
     )
     assert antwort.status_code == 202, antwort.text
@@ -2449,6 +2515,8 @@ def test_frueherer_block_von_hand_uebertragen_bleibt_stehen(
     assert fertig["state"] == "done", fertig["message"]
     assert fertig["workouts_removed"] == 0
     assert len(fake._workouts) == 15
+    titel = [p["title"] for p in client.get("/api/plans", headers=verbunden).json()]
+    assert len(titel) == 2
 
 
 def test_bei_katalogtreffer_traegt_die_beschreibung_den_englischen_namen():

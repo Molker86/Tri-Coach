@@ -197,6 +197,10 @@ def validate_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanI
             # UTC: Seit die Zeitstempel der API ihre Zeitzone mitführen,
             # käme eine Ortszeit hier als UTC beschriftet heraus.
             created_at=jetzt_utc(),
+            # Von Hand mitgezogen: Anders als `_to_plan_out` baut die Vorschau
+            # `PlanOut` Feld für Feld, und das Feld hat eine Vorgabe — vergessen
+            # käme es still als `null` heraus.
+            request_id=data.request_id,
             sessions=[
                 PlanSessionOut(
                     id=0,

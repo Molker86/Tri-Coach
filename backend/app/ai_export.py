@@ -501,10 +501,20 @@ def _history_block(
         block["datenstand"] = stand
 
     if plan is not None:
-        block["umsetzung_aktueller_plan"] = compliance(plan.sessions, recent)
+        # `seit=plan.beginn`: Der Block trägt die Tage seiner Vorgänger mit,
+        # `recent` ist auf den Rückblick beschnitten. Ohne die Grenze fiele die
+        # Quote mit jedem Tag Neuplanung, ohne dass jemand etwas ausgelassen
+        # hätte — und Punkt 1 des Prompts liest das als Auftrag, kleiner zu planen.
+        block["umsetzung_aktueller_plan"] = compliance(
+            plan.sessions, recent, seit=plan.beginn
+        )
         block["aktueller_plan"] = {
             "titel": plan.title,
-            "start": plan.start_date.isoformat(),
+            # `beginn`, nicht `start_date`: Sonst läse die KI einen Block, der
+            # seit Wochen läuft, obwohl er heute Morgen entstanden ist. Was
+            # davor stattgefunden hat, steht in `trainingshistorie.einheiten` —
+            # und dort steht es genauer, weil es das Absolvierte nennt.
+            "start": plan.beginn.isoformat(),
             "ende": plan.end_date.isoformat(),
             "ausrichtung": plan.summary,
         }
@@ -524,6 +534,16 @@ def _ersatz_block(plan: Plan | None, start: date) -> dict[str, Any] | None:
     sondern Kontext — die KI soll erkennen, welcher Reiz gerade ausfällt, und
     ihn setzen, falls die Daten ihn tragen.
 
+    **Was bereits stattgefunden hat, ist nicht verdrängt, sondern Verlauf.** Der
+    Fall entsteht am heutigen Tag: Wer morgens läuft und mittags neu plant, hat
+    eine absolvierte Einheit auf `start` liegen, und seit ein Block die
+    Vergangenheit seines Vorgängers übernimmt, hängt sie an genau diesem Plan.
+    Ungefiltert stünde derselbe Lauf zweimal im Payload — einmal hier als
+    „verworfen", einmal in `trainingshistorie.einheiten` als absolviert. Der
+    Prompt sagt zwar, dass allein die Historie zählt, aber ein Widerspruch, den
+    man mit einer Zeile vermeiden kann, gehört nicht in den Kontext: Die KI
+    setzte sonst Ersatz für einen Reiz, den der Athlet längst gesetzt hat.
+
     `None`, sobald sich nichts überschneidet: Beim Anhängen des nächsten Blocks
     (Start nach dem Ende des laufenden) wird nichts ersetzt.
     """
@@ -531,7 +551,7 @@ def _ersatz_block(plan: Plan | None, start: date) -> dict[str, Any] | None:
         return None
 
     verdraengt = sorted(
-        (s for s in plan.sessions if s.date >= start),
+        (s for s in plan.sessions if s.date >= start and s.log is None),
         key=lambda s: (s.date, s.order_in_day),
     )
     return {
@@ -589,7 +609,11 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
     Titel und Zeitraum; für diese Aufgabe reicht das nicht.
     """
     tage: dict[str, list[dict[str, Any]]] = {}
-    for eintrag in sorted(plan.sessions, key=lambda s: (s.date, s.order_in_day)):
+    # Ab `beginn`: Der Block trägt die Vergangenheit seiner Vorgänger mit, und
+    # die wächst unbegrenzt. Gefragt ist das Umfeld *dieses* Blocks — und
+    # angepasst werden ohnehin nur Einheiten ab heute.
+    umfeld = [s for s in plan.sessions if s.date >= plan.beginn]
+    for eintrag in sorted(umfeld, key=lambda s: (s.date, s.order_in_day)):
         zeile: dict[str, Any] = {
             "sportart": eintrag.sport,
             "typ": eintrag.session_type,
@@ -606,7 +630,7 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
 
     return {
         "titel": plan.title,
-        "start": plan.start_date.isoformat(),
+        "start": plan.beginn.isoformat(),
         "ende": plan.end_date.isoformat(),
         "ausrichtung": plan.summary,
         "hinweise_zur_steuerung": plan.coaching_notes,

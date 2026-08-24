@@ -166,6 +166,29 @@ def test_ruhetage_zaehlen_nicht_als_faellig():
     assert compliance(plan, [])["rate_pct"] is None
 
 
+def test_geerbte_tage_zaehlen_nur_ab_dem_beginn_des_blocks():
+    """Ein Block trägt die Tage seiner Vorgänger mit — bewerten darf er nur seine.
+
+    Die Logs daneben sind auf den Rückblick beschnitten, die Einheiten nicht.
+    Ohne `seit` zählte jeder geerbte Tag jenseits des Fensters als „geplant,
+    nicht gemacht", und die Quote fiele mit jedem Tag Neuplanung.
+    """
+    heute = date.today()
+    beginn = heute - timedelta(days=2)
+    plan = [
+        Planeinheit(id=1, date=heute - timedelta(days=40)),  # geerbt
+        Planeinheit(id=2, date=beginn),
+        Planeinheit(id=3, date=heute - timedelta(days=1)),
+    ]
+    logs = [
+        Einheit(date=beginn, plan_session_id=2),
+        Einheit(date=heute - timedelta(days=1), plan_session_id=3),
+    ]
+
+    assert compliance(plan, logs)["rate_pct"] == 67, "ohne Grenze schlägt das Erbe durch"
+    assert compliance(plan, logs, seit=beginn)["rate_pct"] == 100
+
+
 # --------------------------------------------------------------------------
 # Erholungszeit
 # --------------------------------------------------------------------------

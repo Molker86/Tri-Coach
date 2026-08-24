@@ -80,6 +80,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
     },
+    # Bleibt an bestehenden Blöcken leer; `Plan.beginn` fällt dort auf
+    # `start_date` zurück — was vor der Übernahme der Vergangenheit dasselbe war.
+    "plans": {
+        "geplant_ab": "DATE",
+    },
     # Umbenennung von `recovery_time_h`: Garmin liefert Minuten, der alte Name
     # behauptete Stunden. Die Werte zieht `_uebertrage_spalten()` herüber.
     "wellness_days": {

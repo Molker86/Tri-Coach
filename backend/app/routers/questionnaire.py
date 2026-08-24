@@ -54,6 +54,16 @@ def update_request(
     if request is None or request.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Fragebogen nicht gefunden.")
 
+    # Ganzes Überschreiben, anders als beim Profil (`exclude_unset`): Der
+    # Wizard ist **ein** Formular und schickt immer alle Antworten. Bei einem
+    # Teil-Update wäre „ich will kein Ergänzungstraining mehr"
+    # (`supplemental: []`) nicht von „dieses Feld war nicht dabei" zu
+    # unterscheiden — und ein abgewählter Wunsch stünde weiter im nächsten Prompt.
+    #
+    # `created_at` bleibt dabei stehen: Es sagt, wann der Fragebogen ausgefüllt
+    # wurde, und `listRequests` sortiert danach. Wer ihn hochsetzte, um
+    # `_letzter_fragebogen()` zu beeinflussen, machte die Spalte zur Lüge — die
+    # Kennung reichen stattdessen `planErzeugenPfad` und `ki/automatik` durch.
     for field, value in data.model_dump().items():
         setattr(request, field, value)
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
+import { useHeute } from '../components/useHeute'
 import { sportIcon, sportLabel } from '../constants'
 import type {
   GarminEinheitStatus,
@@ -17,59 +18,6 @@ const MONATE = [
 
 /** Montag zuerst — der deutsche Kalender beginnt nicht am Sonntag. */
 const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
-
-function iso(datum: Date): string {
-  return `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
-    datum.getDate(),
-  ).padStart(2, '0')}`
-}
-
-/** Der heutige Tag in Ortszeit — und er bleibt es über Mitternacht hinaus.
- *
- * Stand einmal als modulweite Konstante da und wurde damit genau einmal
- * ausgerechnet: beim Laden der App. Die Routen liegen alle statisch in
- * `App.tsx`, das ist also der Moment, in dem der Tab aufgeht. Eine Sitzung,
- * die über Mitternacht offen bleibt, markierte am Morgen weiter den Vortag —
- * am Telefon der Normalfall, denn dort schläft ein Tab, statt zu schließen.
- *
- * `iso()` selbst war nie das Problem: Es liest die Ortszeitanteile und nicht
- * `toISOString()`, das hierzulande abends schon den Folgetag liefert.
- */
-function useHeute(): string {
-  const [heute, setHeute] = useState(() => iso(new Date()))
-
-  useEffect(() => {
-    // Gleicher Tag heißt gleicher String — React verwirft die Zuweisung dann
-    // von selbst, ein Aufruf ohne Tageswechsel kostet also kein Rendern.
-    const pruefe = () => setHeute(iso(new Date()))
-
-    // Ein Zeitgeber auf den nächsten Tagesbeginn statt einer Schleife: Er
-    // feuert genau einmal, und zwar dann, wenn sich wirklich etwas ändert.
-    let timer = 0
-    const planeMitternacht = () => {
-      const jetzt = new Date()
-      const naechsterTag = new Date(jetzt)
-      naechsterTag.setHours(24, 0, 0, 0)
-      // Eine Sekunde Zuschlag, damit der Lauf sicher hinter dem Tageswechsel
-      // liegt und nicht knapp davor denselben Tag noch einmal liest.
-      timer = window.setTimeout(() => {
-        pruefe()
-        planeMitternacht()
-      }, naechsterTag.getTime() - jetzt.getTime() + 1000)
-    }
-    planeMitternacht()
-
-    // Telefone drosseln Zeitgeber im Hintergrund und holen sie nicht nach —
-    // dieselbe Vorsichtsmaßnahme wie beim Abfragen eines Jobs (`pollJob`).
-    document.addEventListener('visibilitychange', pruefe)
-    return () => {
-      window.clearTimeout(timer)
-      document.removeEventListener('visibilitychange', pruefe)
-    }
-  }, [])
-
-  return heute
-}
 
 /** Wie viele Leerfelder vor dem Ersten stehen, damit die Spalten stimmen. */
 function fuehrendeLeerfelder(jahr: number, monat: number): number {

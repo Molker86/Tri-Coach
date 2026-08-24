@@ -307,6 +307,10 @@ def build_plan(
         coaching_notes=body.coaching_notes,
         start_date=start,
         end_date=end,
+        # Einmal gesetzt und nie wieder angefasst: `start_date` wandert
+        # zurück, sobald dieser Block die Vergangenheit seines Vorgängers
+        # übernimmt (siehe `plan_aufraeumen`), `geplant_ab` nicht.
+        geplant_ab=start,
         raw_json=body.model_dump(mode="json"),
     )
 

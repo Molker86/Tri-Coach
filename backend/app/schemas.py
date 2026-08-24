@@ -703,6 +703,12 @@ class PlanOut(BaseModel):
     end_date: date
     is_active: bool
     created_at: UtcDatetime
+    # Woraus dieser Block entstanden ist. Der Trainingsplan bietet „Fragebogen
+    # anpassen" an und muss dafür wissen, welche Zeile gemeint ist — eine neue
+    # anzulegen träfe den laufenden Block nicht mehr. `None` an Blöcken ohne
+    # Fragebogen und an denen von vor `_letzter_fragebogen()`; die Oberfläche
+    # fällt dort auf den zuletzt gespeicherten zurück.
+    request_id: int | None = None
     sessions: list[PlanSessionOut] = []
 
 

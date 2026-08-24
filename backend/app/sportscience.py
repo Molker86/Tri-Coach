@@ -524,7 +524,9 @@ def wellness_auffaelligkeiten(tage: list[Any], heute: date) -> list[str]:
     return hinweise
 
 
-def compliance(plan_sessions: list[Any], logs: list[Any]) -> dict[str, Any]:
+def compliance(
+    plan_sessions: list[Any], logs: list[Any], *, seit: date | None = None
+) -> dict[str, Any]:
     """Wie viel des geplanten Trainings wurde tatsächlich umgesetzt?
 
     Fällig ist nur, was *vor* heute lag. Der heutige Tag ist noch nicht vorbei:
@@ -532,9 +534,22 @@ def compliance(plan_sessions: list[Any], logs: list[Any]) -> dict[str, Any]:
     dann, wenn der Block frisch ist — an einem zwei Tage alten Block wurden aus
     2 von 2 umgesetzten Einheiten so 33 %. Der Prompt liest eine niedrige Quote
     als Auftrag, kleiner zu planen.
+
+    `seit` schneidet die Vorgeschichte ab, die ein Block von seinem Vorgänger
+    geerbt hat (`Plan.beginn`). Die Einheiten wachsen mit jeder Neuplanung, die
+    Logs daneben sind auf den Rückblick beschnitten — ohne die Grenze zählten
+    Tage jenseits des Fensters als „geplant, nicht gemacht", und die Quote fiele
+    Tag für Tag, ohne dass jemand ein Training ausgelassen hätte. Genau daraus
+    macht der Prompt den Auftrag, kleiner zu planen.
     """
     logged_ids = {lg.plan_session_id for lg in logs if lg.plan_session_id}
-    past = [s for s in plan_sessions if s.date < date.today() and s.sport != "rest"]
+    past = [
+        s
+        for s in plan_sessions
+        if s.date < date.today()
+        and s.sport != "rest"
+        and (seit is None or s.date >= seit)
+    ]
     if not past:
         return {"planned_past": 0, "logged": 0, "rate_pct": None}
 

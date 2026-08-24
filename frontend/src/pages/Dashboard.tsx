@@ -251,6 +251,8 @@ export default function Dashboard() {
               className="btn btn-secondary"
               to={planErzeugenPfad(
                 plan.end_date >= today ? today : naechsterBlockStart(plan.end_date),
+                undefined,
+                plan.request_id,
               )}
             >
               {plan.end_date >= today ? 'Neu planen ab heute' : 'Nächsten Block planen'}

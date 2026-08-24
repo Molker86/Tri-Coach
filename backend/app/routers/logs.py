@@ -76,7 +76,14 @@ def stats(user: CurrentUser, db: DbSession) -> dict[str, Any]:
         # Rollierend aus den Rohdaten — nicht aus `weekly`, dessen letzter
         # Eintrag die angebrochene Woche ist.
         "acwr": acute_chronic_ratio(logs),
-        "compliance": compliance(active_plan.sessions, logs) if active_plan else None,
+        # `seit=beginn`: Nur die Tage, die dieser Block selbst geplant hat —
+        # die geerbte Vergangenheit liegt außerhalb des Rückblickfensters und
+        # zählte sonst als versäumt (siehe `sportscience.compliance`).
+        "compliance": (
+            compliance(active_plan.sessions, logs, seit=active_plan.beginn)
+            if active_plan
+            else None
+        ),
         "total_sessions": len(logs),
         "total_minutes": sum(lg.duration_min or 0 for lg in logs),
         "total_km": round(sum(lg.distance_km or 0 for lg in logs), 1),

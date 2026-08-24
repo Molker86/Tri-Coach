@@ -68,11 +68,15 @@ def planbare_einheiten(plan: Plan, ab: date | None = None) -> list[PlanSession]:
     Ruhetage fallen heraus (sie sind kein Training), und vergangene Tage
     ebenfalls: Ein Workout von vorgestern im Kalender ist Altpapier, das der
     Athlet von Hand wieder wegräumen müsste.
+
+    Ohne `ab` gilt der Beginn des Blocks selbst und nicht `start_date`: Seit ein
+    Block die Vergangenheit seines Vorgängers übernimmt, trägt er Tage mit, die
+    er nie geplant hat. Sie gehören niemandem auf die Uhr, und „N vergangene
+    Einheiten bleiben außen vor" wäre sonst die Zahl der ganzen Kette.
     """
+    grenze = ab or plan.beginn
     einheiten = [
-        s
-        for s in plan.sessions
-        if workouts.ist_uebertragbar(s.sport) and (ab is None or s.date >= ab)
+        s for s in plan.sessions if workouts.ist_uebertragbar(s.sport) and s.date >= grenze
     ]
     return sorted(einheiten, key=lambda s: (s.date, s.order_in_day))
 
@@ -653,7 +657,12 @@ def ersetzte_links(
 
     bedingungen = [
         GarminWorkoutLink.user_id == user_id,
-        GarminWorkoutLink.scheduled_date >= max(heute, aktiv.start_date),
+        # `beginn` und nicht `start_date`: Seit ein Block die Vergangenheit
+        # seines Vorgängers übernimmt, reicht `start_date` weiter zurück als
+        # das, was er je vorgesehen hat — die Grenze fiele damit still auf
+        # `heute` zurück, und wer die Folgewoche plant, stünde bis dahin ohne
+        # Vorgabe da.
+        GarminWorkoutLink.scheduled_date >= max(heute, aktiv.beginn),
         Plan.is_active.is_(False),
     ]
     if ausser_plan_id is not None:

@@ -140,6 +140,12 @@ export const api = {
   createRequest: (data: TrainingRequestInput) =>
     request<TrainingRequest>('/requests', { method: 'POST', body: data }),
   listRequests: () => request<TrainingRequest[]>('/requests'),
+  getRequest: (id: number) => request<TrainingRequest>(`/requests/${id}`),
+  // Bearbeiten statt neu anlegen: Dieselbe Zeile bleibt bestehen, und jeder
+  // Plan, der auf sie zeigt, behält seinen Verweis. Der Rumpf ist immer
+  // vollständig — der Router überschreibt bewusst alle Felder.
+  updateRequest: (id: number, data: TrainingRequestInput) =>
+    request<TrainingRequest>(`/requests/${id}`, { method: 'PUT', body: data }),
   latestRequest: () => request<TrainingRequest | null>('/requests/latest'),
 
   exportForAi: (requestId?: number, startDate?: string, days?: number) => {

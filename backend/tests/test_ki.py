@@ -368,6 +368,40 @@ def test_ohne_fragebogen_entsteht_nichts(client, auth, monkeypatch):
     assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
 
 
+def test_die_automatik_nimmt_den_fragebogen_des_aktiven_blocks(
+    client, auth, monkeypatch
+):
+    """Nicht den zuletzt angelegten — sonst liefe eine Anpassung ins Leere.
+
+    Wer seinen Fragebogen anpasst, statt einen neuen auszufüllen, ändert
+    `created_at` nicht. `_letzter_fragebogen()` sortiert danach und griffe
+    daneben, sobald daneben eine jüngere Zeile liegt.
+    """
+    from app.database import SessionLocal
+    from app.models import KiJob
+
+    alter = lege_fragebogen_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+
+    # Ein Block am älteren Fragebogen …
+    client.post(
+        "/api/plans/import",
+        headers=auth,
+        json={"raw": antwort_json(HEUTE), "days": 3, "request_id": alter},
+    )
+    # … und daneben eine jüngere Zeile, die niemand benutzt.
+    juenger = lege_fragebogen_an(client, auth)
+    assert juenger != alter
+
+    user_id, job_id = abgleich_job(auth)
+    lauf = ki_automatik.plane_nach_abgleich(user_id, job_id)
+    assert lauf is not None
+
+    with SessionLocal() as db:
+        assert db.get(KiJob, lauf).request_id == alter
+
+
 # --------------------------------------------------------------------------
 # Der Zugang steht in der App, nicht in der Umgebung
 # --------------------------------------------------------------------------

@@ -84,7 +84,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 453 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 466 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -139,7 +139,8 @@ aus der Länge des Plans, sondern aus der Historie — die bleibt vier Wochen ti
 und wandert vollständig in jeden Export. Ein aktiver Plan kann per Knopfdruck
 um die nächsten 7 Tage verlängert werden (oder beliebig oft wiederholt); die
 Auswertung bezieht sich weiterhin auf die letzten 4 Wochen, nicht auf die
-bisherige Blocklänge. Deshalb liefert `_history_block()` zusätzlich
+bisherige Blocklänge — seit `compliance(seit=…)` gilt das auch für die
+Umsetzungsquote, die vorher jeden Tag des Blocks zählte. Deshalb liefert `_history_block()` zusätzlich
 `tage_seit_letzter_einheit_je_sportart` und
 `tage_seit_letzter_intensiver_einheit`: Auf wenigen Tagen entscheidet der
 Abstand zur letzten Einheit, welche Disziplin drankommt und ob am ersten Tag
@@ -161,16 +162,21 @@ Erstens **weiß die KI sonst nichts davon**: Sie sähe unter
 `trainingshistorie.aktueller_plan` einen Block über dieselben Tage und schriebe
 ihn fort, statt neu zu entscheiden. Überschneiden sich die Zeiträume, trägt
 `planungszeitraum` deshalb `ersetzt_laufenden_block` samt der verworfenen
-Einheiten, und der Prompt bekommt über `{ersatzhinweis}` einen Absatz dazu —
+Einheiten — **außer den bereits absolvierten**: Wer morgens läuft und mittags
+neu plant, hat eine erledigte Einheit auf dem Starttag liegen, und seit ein Block
+die Vergangenheit seines Vorgängers übernimmt, hängt sie an genau dem Plan, den
+`_ersatz_block()` durchsieht. Ungefiltert stünde derselbe Lauf zweimal im Payload
+(hier „verworfen", in der Historie „absolviert"), und die KI setzte Ersatz für
+einen Reiz, den der Athlet längst gesetzt hat. und der Prompt bekommt über `{ersatzhinweis}` einen Absatz dazu —
 ausdrücklich als Kontext und **keine Vorgabe**, mit dem Zusatz, dass allein
 `trainingshistorie.einheiten` sagt, was tatsächlich stattgefunden hat (geplant
 ist nicht absolviert). Ohne Überschneidung fehlen Schlüssel und Absatz, denn beim
 Anhängen des nächsten Blocks wird nichts ersetzt.
 
-Zweitens **stapeln sich die abgelösten Blöcke**: Wer täglich neu plant, hätte nach
-einem Monat dreißig Pläne unter „Frühere Pläne", von denen neunundzwanzig nie eine
-Einheit getragen haben. `raeume_abgeloeste_plaene()` löscht deshalb, was der aktive
-Block überdeckt, in die Zukunft ragt und weder ein erfasstes Training noch eine
+Zweitens **stapelten sich die abgelösten Blöcke**: Wer täglich neu plant, hatte
+nach einem Monat dreißig Pläne unter „Frühere Pläne", von denen jeder genau einen
+Tag trug. `raeume_abgeloeste_plaene()` löscht deshalb, was der aktive Block
+überdeckt, in die Zukunft ragt und weder ein erfasstes Training noch eine
 Garmin-Übertragung trägt — ein abgeschlossener Block bleibt als Verlauf stehen,
 ein beiseitegelegter ohne Überschneidung ebenso. Die Garmin-Bedingung ist dabei
 zwingend und nicht bloß vorsichtig: Was in Garmin liegt, wird ausschließlich über
@@ -179,6 +185,66 @@ Plan; der dauerhafte Pool-Slot bleibt bestehen. Deshalb läuft
 dasselbe Aufräumen an **zwei** Stellen — beim Import und am Ende jedes
 Garmin-Laufs, wo `raeume_ersetzte_auf()` die Einheiten gerade aus dem fremden
 Kalender genommen hat und die Bedingung damit erfüllt ist.
+
+**Erfüllbar ist die Bedingung „trägt kein Training" allerdings erst, seit die
+Vergangenheit umzieht** (`uebernimm_vergangenheit`). Sie war der eigentliche
+Riegel: An einem Block, der auch nur einen Tag lang getragen hat, klebt ein
+`SessionLog` — und wer täglich neu plant, produziert genau das täglich. Gelöscht
+werden durfte er trotzdem nie, denn an `PlanSession.id` hängen `_geplant_war`,
+`_aufbau_je_workout` und die Umsetzungsquote.
+
+Deshalb **zieht die Einheit um, statt zu sterben**: Sie behält ihre Kennung, ihren
+Log und ihre Garmin-Zuordnung (`GarminWorkoutLink` zeigt auf `plan_session_id`,
+nicht auf den Plan), nur ihr Plan ist ein anderer. Zwei Mengen wandern in den
+ablösenden Block — alles vor dessen `beginn` (diese Tage plant er gar nicht) und
+jede Einheit mit erfasstem Training, auch die von heute (wer morgens läuft und
+mittags neu plant, hätte sonst genau einen Block, der ewig stehen bleibt; ihr
+`order_in_day` rückt hinter das, was der neue Block für den Tag vorsieht). Danach
+hält der abgelöste Block nur noch Tage, die der neue ohnehin beansprucht, und darf
+verschwinden. An echten Daten geprüft: sieben Tage tägliche Neuplanung ergeben
+**einen** Plan statt sieben, und alle sieben absolvierten Tage behalten den
+Aufbau des Blocks, der sie damals geplant hat.
+
+**Das Erbe reicht so weit wie der Rückblick und keinen Tag weiter**
+(`verfallene_erbschaft_loeschen`, `HISTORY_WEEKS`). Ohne Grenze schleppte ein
+Block nach einem Jahr täglicher Neuplanung 365 vergangene Tage mit — und jenseits
+des Fensters liest sie **niemand**: `_geplant_war` und `_aufbau_je_workout`
+laufen ausschließlich über `recent`, `compliance()` zählt ab `beginn`,
+`anpassbare_einheit` lässt nur Tage ab heute zu, `planbare_einheiten()` filtert
+auf `beginn`. Übrig bliebe allein die Planansicht, und dort ist die Vergangenheit
+eingeklappt. Die Grenze ist deshalb dieselbe Konstante, die auch das Fenster
+aufspannt, und nicht eine zweite daneben: Wird der Rückblick je vertieft, wächst
+das Erbe von selbst mit.
+
+Drei Bedingungen, jede aus eigenem Grund. **Nur Geerbtes** (`date <
+aktiv.beginn`) — seine eigenen Tage behält ein Block für immer, auch ein Block,
+den seit Monaten niemand ersetzt hat, soll sich nicht selbst auflösen. **Kein
+`GarminWorkoutLink`** — dieselbe zwingende Bedingung wie beim Löschen eines
+Blocks; nach vier Wochen hat `raeume_vergangene_auf()` den Termin längst
+zurückgenommen, aber „in der Praxis nie" ist kein Grund, einen Termin im fremden
+Kalender zurückzulassen. Und **der Log wird gelöst, nicht gelöscht**: Das
+absolvierte Training ist der Verlauf, verloren geht nur der Verweis auf den
+geplanten Aufbau — und den liest ab dort ohnehin niemand mehr.
+
+An 365 simulierten Tagen gemessen: Der aktive Block läuft auf 35 Einheiten auf
+(28 geerbte plus sieben eigene) und bleibt ab Tag 28 dort stehen; `plans` bleibt
+bei eins, `GET /api/plans/active` bei 15,3 kB, und alle 29 Historieneinträge des
+Exports tragen weiterhin ihren geplanten Aufbau.
+
+Der Preis steht unter „Bekannte Grenzen": Ein gelöschter Plan nimmt die ganze
+Kette mit.
+
+**`Plan.geplant_ab` ist die Spalte, die das trägt.** Sobald `start_date` rückwärts
+wandert, verliert die App ihre Antwort auf „welche Tage hat *dieser* Block selbst
+vorgesehen?" — und die brauchen fünf Stellen: die Kalendergrenze in
+`ersetzte_links()`, `planbare_einheiten()`, die Umsetzungsquote
+(`compliance(seit=…)`), `aktueller_plan` im Export und `_blockumfeld()` der
+Einzelanpassung. Jede ad hoc zu begrenzen hieße fünf verschiedene Grenzen, und
+fünf Grenzen laufen auseinander. `geplant_ab` wird einmal in `build_plan()` gesetzt
+und nie wieder angefasst; `Plan.beginn` fällt an Blöcken von vor der Spalte auf
+`start_date` zurück — dort galten beide noch dasselbe. Dass `start_date` trotzdem
+wandert, ist Absicht: Der Plan zeigt, was er zeigt, und die geerbten Tage stehen
+in ihm.
 
 **Wann gelöscht werden darf, ist eine Zeitfrage — und sie hat echte Historie
 gekostet** (`nur_zukunft`). Die Bedingung „an diesem Block hängt kein Training"
@@ -191,17 +257,23 @@ täglich neu plant, zerstörte so laufend seine eigene Historie — und genau da
 entstand die Beschwerde, dieselbe Mobility-Einheit zweimal vorgeschlagen zu
 bekommen.
 
-Gelöscht wird deshalb **nur nach einem Abgleich** vollständig. Der Import und der
-Übertragungslauf, den er anstößt, räumen nur Blöcke weg, die ganz in der Zukunft
-liegen (`Plan.start_date >= heute`): Eine Übertragung importiert nichts und weiß
-über die absolvierten Trainings genauso wenig wie der Import selbst
+**Die Lehre daraus lautet nicht „warte einen Tag", sondern „zerstöre keine
+`PlanSession`, an der noch ein Training landen kann".** Das Warten war das Mittel,
+solange es kein anderes gab. Seit die Zeile umzieht statt zu sterben, behält sie
+ihre Kennung, und `finde_offene_planeinheit()` findet sie am Abend genauso wie
+vorher — der Schutz ist nicht aufgegeben, sondern durch einen stärkeren ersetzt.
+
+Gefragt wird deshalb nicht mehr nach `start_date` (der beschreibt nach dem Umzug
+eine Vergangenheit, die der Block gar nicht mehr hält), sondern danach, was
+**übrig** ist: Kein verbliebener Tag darf vor heute liegen. Damit greift der
+Riegel genau dort weiter, wo er soll — löst jemand am Tag nach der Neuplanung eine
+Übertragung aus, ohne dass ein Abgleich dazwischenlag, hält der abgelöste Block
+noch seinen Tag der Neuplanung, und der verbietet das Löschen
 (`runner._raeume_workouts_auf(…, nach_abgleich=False)`). Erst der Abgleich, der
 die Aktivitäten gerade geholt und über `finde_offene_planeinheit()` verknüpft hat,
-darf urteilen. Der Preis ist ein abgelöster Block, der einen Tag länger unter
-„Frühere Pläne" steht — gemessen an einem Aufbau, der für immer weg ist, ist das
-nichts. **Ohne verbundenes Konto greift die Schonung nicht**: Dann entstehen nie
-Trainings und käme nie ein Garmin-Lauf, der aufräumt — die Blöcke sammelten sich
-für immer.
+darf urteilen. **Ohne verbundenes Konto greift die Schonung nicht**: Dann entstehen
+nie Trainings und käme nie ein Garmin-Lauf, der aufräumt — die Blöcke sammelten
+sich für immer.
 
 Im Frontend rechnet `planung.ts` beide Startdaten aus: heute für den Ersatz, der
 Tag nach dem Blockende fürs Anhängen — **nie rückwirkend**, ein vor einer Woche
@@ -407,6 +479,43 @@ Alembic bestehende Datenbanken bräche. Das zuletzt genutzte Konto merkt sich
 `localStorage` (`tricoach.lastUser`, geschrieben im `AuthContext` nach
 erfolgreicher An- oder Neuanmeldung, gelesen von `Login.tsx`) und ist beim
 nächsten Mal vorausgewählt — steht es nicht mehr in der Liste, das erste Konto.
+
+**Der Fragebogen wird angepasst, nicht ersetzt** (`routers/questionnaire.py`,
+`NewTraining.tsx?request=<id>`). Es gab nur „neu ausfüllen", und jede Runde legte
+eine neue Zeile an — der laufende Block zeigte weiter auf die alte. Wer sich ein
+Powermeter kaufte oder von Triathlon auf Laufen umstellte, erreichte damit genau
+den Block nicht, an dem er gerade trainierte. Im Trainingsplan steht deshalb
+„Fragebogen anpassen"; ganz von vorn geht es weiter über „Neues Training" in der
+Navigation.
+
+**Dieselbe Zeile, damit jeder Plan seinen Verweis behält.** `PUT` statt `POST`,
+und `PlanOut` trägt jetzt `request_id`, damit die Oberfläche überhaupt weiß,
+welche Zeile gemeint ist. Bei Altbestand (`request_id = NULL`) fällt sie auf
+`api.latestRequest()` zurück — dieselbe Wahl, die auch `_letzter_fragebogen()`
+trifft. Den Knopf dort auszublenden wäre die schlechtere Antwort: Der Fragebogen
+existiert ja, er ist nur nicht verlinkt, und der Athlet stünde vor einem leeren
+Formular statt vor seinen Antworten.
+
+**Überschrieben wird vollständig, ohne `exclude_unset`** — die bewusste
+Gegenentscheidung zum Profil. Der Wizard ist **ein** Formular und schickt immer
+alle Antworten; bei einem Teil-Update wäre „ich will kein Ergänzungstraining
+mehr" (`supplemental: []`) nicht von „dieses Feld war nicht dabei" zu
+unterscheiden, und ein abgewählter Wunsch stünde weiter im nächsten Prompt.
+
+**`created_at` wandert dabei nicht**, und daran hängt eine Falle:
+`_letzter_fragebogen()` sortiert danach. Liegt neben der bearbeiteten Zeile eine
+jüngere, griffe der Export daneben — die Anpassung wirkte nie, ohne dass
+irgendwo etwas fehlschlüge, der unangenehmste aller Fehlerfälle. Den Zeitstempel
+hochzusetzen wäre eine Zeile und machte die Spalte zur Lüge (die Liste sortiert
+danach, und „wann habe ich den ausgefüllt" hätte keine Antwort mehr).
+Durchgereicht wird stattdessen die **Kennung**: `planErzeugenPfad()` hängt sie an
+(beide Planungsknöpfe geben `plan.request_id` mit), und `ki/automatik` nimmt die
+des aktiven Blocks statt `None`. Damit trägt sich die Wahl fort — `uebernimm_plan`
+schreibt sie an den neuen Plan, der nächste Lauf liest sie dort.
+
+**Der laufende Block ändert sich nicht**, und der Wizard sagt das im letzten
+Schritt ausdrücklich: Die Änderung gilt ab dem nächsten Block. Ohne den Satz wäre
+„Fragebogen anpassen" ein Versprechen, das die App nicht hält.
 
 **Garmin ist die einzige Quelle für absolvierte Trainings** (`routers/logs.py`).
 Es gibt keinen Weg mehr, eine Einheit von Hand einzutragen oder zu bearbeiten:
@@ -687,12 +796,15 @@ Dieselbe Überlegung wie bei den Tabellen: Eine zweite Darstellung liefe mit der
 ersten auseinander.
 
 **„Heute" wird bei jedem Rendern neu bestimmt, nicht beim Laden der App**
-(`useHeute()` in `GarminKalender.tsx`). Die Tagesmarkierung im Kalender hing an
-einer modulweiten Konstante, und weil alle Routen statisch in `App.tsx` liegen,
-war das genau ein Aufruf: der Moment, in dem der Tab aufging. Eine Sitzung über
-Mitternacht markierte am Morgen weiter den Vortag — am Telefon der Normalfall,
-denn dort schläft ein Tab, statt zu schließen. Kein Zeitzonenfehler: `iso()`
-liest die Ortszeitanteile und nicht `toISOString()`.
+(`useHeute()` in `components/useHeute.ts`). Die Tagesmarkierung im Kalender hing
+an einer modulweiten Konstante, und weil alle Routen statisch in `App.tsx`
+liegen, war das genau ein Aufruf: der Moment, in dem der Tab aufging. Eine
+Sitzung über Mitternacht markierte am Morgen weiter den Vortag — am Telefon der
+Normalfall, denn dort schläft ein Tab, statt zu schließen. Kein Zeitzonenfehler:
+Gerechnet wird über `planung.heuteIso()`, das die Ortszeitanteile liest und nicht
+`toISOString()` — dieselbe Regel, die auch die Startdaten neuer Blöcke bestimmt.
+Der Hook steht in einem eigenen Modul, seit die Planansicht ihn ebenfalls
+braucht: Ihn aus einer *Seite* zu importieren zöge deren ganzes Modul mit.
 
 Der Haken an der naheliegenden Lösung ist, dass ein Wert je Rendern nur hilft,
 wenn gerendert wird — ein offener Kalender tut das über Nacht nicht. Deshalb ein
@@ -701,6 +813,16 @@ zu fragen) **und** `visibilitychange`, weil Telefone Zeitgeber im Hintergrund
 drosseln und nicht nachholen — dieselbe Überlegung wie bei `pollJob`. Ein Aufruf
 ohne Tageswechsel kostet nichts: Gleicher Tag heißt gleicher String, und React
 verwirft die Zuweisung von selbst.
+
+**Die Planansicht zeigt ab heute** (`PlanView.tsx`). Ein Block trägt seit der
+Übernahme der Vergangenheit die Tage seiner Vorgänger mit, und die wächst mit
+jeder Neuplanung — nach einem Monat Automatik stünden dreißig erledigte Tage über
+dem, was noch kommt. Vergangenes ist deshalb eingeklappt, darüber „Vergangene
+Tage anzeigen (N)". Zwei Ausnahmen, beide nötig: Ein Block, der **ganz vorbei**
+ist, zeigt alle Tage — sonst stünde die Seite unter „Frühere Pläne" leer, und das
+ist dort der Normalfall. Und die **Wochensumme zählt alle Einheiten der Woche**,
+auch die ausgeblendeten: Eine Bilanz, die sich mit einem Anzeigeschalter ändert,
+wäre keine.
 
 **Tabellen werden auf schmalen Bildschirmen zu Karten.** Acht Spalten passen nur
 mit Querscrollen auf ein Telefon, und was man wegschieben muss, sieht man nicht.
@@ -1908,11 +2030,13 @@ nicht irreführend.
 
 Drei Grenzen dabei. Geräumt wird nur, was in der **Zukunft** liegt und zu einem
 **inaktiven** Plan gehört; Vergangenes erledigt `raeume_vergangene_auf`. Erst
-**ab dem Beginn des aktiven Blocks** — wer die Folgewoche plant, hat für den
-Rest dieser Woche weiterhin nur den alten Block, und dessen Einheiten aus dem
-Kalender zu werfen ließe ihn bis zum Blockbeginn ohne Vorgabe dastehen (dieselbe
-Grenze nennt der Hinweis beim Übernehmen: „ab dem <Datum> entfallen dort N
-Tage"). Und **nicht der Block, der gerade übertragen wird** (`ausser_plan_id`):
+**ab dem Beginn des aktiven Blocks** (`aktiv.beginn`, nicht `start_date`) — wer
+die Folgewoche plant, hat für den Rest dieser Woche weiterhin nur den alten
+Block, und dessen Einheiten aus dem Kalender zu werfen ließe ihn bis zum
+Blockbeginn ohne Vorgabe dastehen (dieselbe Grenze nennt der Hinweis beim
+Übernehmen: „ab dem <Datum> entfallen dort N Tage"). Auf `start_date` gerechnet
+fiele sie still auf `heute` zurück, sobald der Block die Vergangenheit seines
+Vorgängers übernommen hat — und die Folgewoche stünde ohne Vorgabe da. Und **nicht der Block, der gerade übertragen wird** (`ausser_plan_id`):
 Auch ein stillgelegter Plan lässt sich gezielt auf die Uhr legen, und ohne die
 Ausnahme löschte derselbe Lauf am Ende wieder, was er eben hochgeladen hat.
 
@@ -2612,7 +2736,38 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   am Fragebogen: Ein Plan von vor dieser Änderung oder einer ohne Fragebogen
   (`request_id = NULL`) fällt auf die Triathlonfassung zurück und bekommt
   weiterhin alle drei Sportarten angeboten. Wer eine Einzeldisziplin will,
-  füllt den Fragebogen neu aus — der nächste Block greift.
+  passt den Fragebogen an — der nächste Block greift.
+- **Ein gelöschter aktiver Plan nimmt die ganze Kette mit.** Seit ein Block die
+  Vergangenheit seiner Vorgänger übernimmt, hängt an ihm nicht mehr nur seine
+  eigene Woche. `SessionLog` überlebt (die Verknüpfung wird auf `NULL` gesetzt),
+  aber `geplant_war` ist für jeden absorbierten Tag weg — derselbe Verlust wie
+  am 16.08.2026, nur ausdrücklich vom Nutzer ausgelöst. Der Bestätigungsdialog
+  nennt bislang nur die Zahl der Einheiten.
+- **Der aktive Block wächst auf vier Wochen Erbe und bleibt dort stehen** —
+  an 365 simulierten Tagen: 35 Einheiten ab Tag 28, `GET /api/plans/active`
+  konstant 15,3 kB, ein Plan. Der Garmin-Kalender wächst nie
+  (`planbare_einheiten()` filtert auf `plan.beginn`, konstant sieben;
+  `entferne_link()` löscht die Zuordnung mit dem Termin), der Export an die KI
+  ebenso wenig (byte-identisch zum alten Verhalten). **In der Datenbank
+  schrumpft es deutlich**: nach einem Jahr 35 `plan_sessions`-Zeilen statt der
+  2555, die 365 stehengebliebene Blöcke ergäben.
+- **Ein `SessionLog` jenseits der vier Wochen verliert seinen Verweis auf den
+  geplanten Aufbau** (`plan_session_id = NULL`). Das Training selbst bleibt
+  vollständig; nur `geplant_war` wäre für so alte Einheiten nicht mehr
+  aufzulösen — der Export zeigt sie ohnehin nicht. Wer den Rückblick je
+  vertieft, bekommt für die neu sichtbaren Tage keinen Aufbau nachgeliefert:
+  Er ist zu dem Zeitpunkt schon weg.
+- **Eine heute schon absolvierte Einheit steht bis morgen doppelt** — einmal
+  als erledigte (umgehängt), einmal als neu geplante. Ihr Garmin-Termin bleibt
+  den Tag über stehen: `raeume_vergangene_auf` greift erst ab
+  `scheduled_date < heute`, und für `ersetzte_links` gehört sie nach dem Umzug
+  zum aktiven Block.
+- **Ein alter Mehrwochenplan wird beim Ersetzen aufgelöst.** Wer noch einen
+  Vier-Wochen-Block aus der Frühzeit aktiv hat und „Neu planen ab heute"
+  drückt, findet ihn danach nicht mehr unter „Frühere Pläne": Seine Einheiten
+  leben im neuen Block weiter, sein `title`, `summary`, `coaching_notes` und
+  `raw_json` nicht. Eine Obergrenze für die Übernahme hilft nicht — der Rest
+  jenseits davon trüge wieder ein Training und bliebe wieder stehen.
 - **Ein Wechsel der Disziplin ändert den laufenden Block nicht.** Er zeigt auf
   den Fragebogen, aus dem er entstanden ist (dieselbe Lage wie bei der
   Ausrüstung). Wer aus einem Triathlonblock heraus auf „Laufen" umstellt, plant
@@ -2769,15 +2924,20 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   dort ein Wattziel ohne Messwert; umgekehrt fährt er auf der Rolle ohne
   Regelung. Korrigieren lässt sich das nur über die Einzelanpassung („mach das
   auf der Rolle"), nicht mit einem Schalter an der Einheit.
-- Die **Ausrüstung stammt aus dem Fragebogen des Plans**, und jeder Fragebogen
-  ist eine neue Zeile. Wer sich ein Powermeter kauft und den Fragebogen neu
-  ausfüllt, ändert damit **nicht** den laufenden Block: Der zeigt weiter auf die
-  alte Zeile und bleibt draußen pulsgesteuert. Erst der nächste Block greift.
+- Die **Ausrüstung stammt aus dem Fragebogen des Plans**. Wer sich ein
+  Powermeter kauft, passt den Fragebogen an, statt einen neuen auszufüllen —
+  dann bleibt die Zeile dieselbe und der laufende Block zeigt weiter auf sie.
+  Von selbst greift es trotzdem nicht: Der Fingerabdruck der Einheiten ändert
+  sich nicht, die Radeinheiten gelten also als aktuell. Erst der nächste Block
+  baut die Workouts neu. Wer stattdessen „Neues Training" ausfüllt, legt eine
+  neue Zeile an, und der laufende Block bleibt an der alten hängen.
 - **Pläne von vor dieser Änderung tragen `request_id = NULL`** und gelten
   deshalb als „Ausrüstung unbekannt" — sie bekommen auf dem Rad weiterhin
   Wattziele. Wer das für einen laufenden Block korrigieren will, trägt die
   `request_id` von Hand nach; danach meldet der Abgleich die Radeinheiten als
-  „geändert" und lädt sie neu hoch.
+  „geändert" und lädt sie neu hoch. Der Trainingsplan bietet bei `NULL` trotzdem
+  „Fragebogen anpassen" an und meint damit den zuletzt gespeicherten — das
+  bearbeitet die richtige Zeile, verknüpft den Plan aber nicht mit ihr.
 - **Die Satzpause kommt von der KI oder gar nicht.** Der Prompt verlangt sie
   jetzt als eigenen `rest`-Eintrag in der Serie; liefert die KI keine, bleibt
   die Serie die Übung allein, und der Athlet drückt zwischen den Durchgängen
@@ -2904,8 +3064,9 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   (`blockStatus()`), mehr nicht.
 - **Mit dem Schalter wird der laufende Block täglich überbügelt.** Das ist
   gewollt — der Export trägt `ersetzt_laufenden_block`, `raeume_abgeloeste_plaene`
-  räumt hinterher auf. Wer ihn setzt und drei Tage nicht hinsieht, hat trotzdem
-  drei Blöcke geplant bekommen, von denen zwei nie eine Einheit trugen. Und es
+  räumt hinterher auf, und die abgelösten Blöcke verschwinden dabei samt ihrer
+  Vergangenheit im nachfolgenden. Wer ihn setzt und drei Tage nicht hinsieht,
+  hat trotzdem dreimal geplant — sichtbar ist davon nur der letzte Block. Und es
   kostet **jeden Tag** einen Opus-Lauf aus demselben Kontingent, das man daneben
   selbst benutzt. Der Prompt weiß davon (`NEUPLANUNGSHINWEIS`) und plant den
   ersten Tag entsprechend — aber nur, solange der Schalter steht: Wer ihn abends

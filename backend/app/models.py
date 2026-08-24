@@ -180,8 +180,27 @@ class Plan(Base):
     coaching_notes: Mapped[str | None] = mapped_column(Text)
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date] = mapped_column(Date)
+    # Der Tag, ab dem dieser Block selbst geplant wurde — anders als
+    # `start_date` wandert er nie. Ein Block übernimmt die Vergangenheit des
+    # Blocks, den er ablöst (`plan_aufraeumen.uebernimm_vergangenheit`), und
+    # `start_date` reicht danach weiter zurück als das, was diese KI-Antwort je
+    # vorgesehen hat. Wer wissen will, was *dieser* Block vorhatte — der
+    # Kalender, die Umsetzungsquote, `aktueller_plan` im Export, das
+    # Blockumfeld der Einzelanpassung, die Übertragung —, fragt hier. Ohne die
+    # Spalte bräuchte jede der fünf Stellen ihre eigene Grenze, und fünf
+    # Grenzen laufen auseinander.
+    geplant_ab: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     raw_json: Mapped[dict] = mapped_column(JSON, default=dict)  # KI-Antwort im Original
+
+    @property
+    def beginn(self) -> date:
+        """`geplant_ab` mit Rückfall — Blöcke von vor der Spalte kennen sie nicht.
+
+        Dort galten beide Daten noch dasselbe: Vor der Übernahme der
+        Vergangenheit wanderte `start_date` nie.
+        """
+        return self.geplant_ab or self.start_date
 
     user: Mapped[User] = relationship(back_populates="plans")
     request: Mapped["TrainingRequest | None"] = relationship(back_populates="plans")

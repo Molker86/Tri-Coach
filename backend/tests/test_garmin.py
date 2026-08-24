@@ -582,18 +582,18 @@ def _block(client, auth, *, start, tage, titel, sport="run"):
     return antwort.json()["plan"]
 
 
-def test_abgeloester_block_ueberlebt_bis_der_abgleich_ihn_beurteilen_kann(
-    client, garmin_auth, fake
-):
+def test_der_geplante_aufbau_ueberlebt_die_neuplanung(client, garmin_auth, fake):
     """Täglich neu planen darf die Historie nicht auffressen.
 
     Der Ablauf ist: morgens abgleichen, dann den Block neu bauen. Wer einmal
-    andersherum vorgeht, verlor bisher den geplanten Aufbau für immer — am
-    16.08.2026 wurde um 16:24 neu geplant, die Mobility desselben Tages kam um
-    17:41 aus Garmin, und dazwischen hatte das Aufräumen den alten Block
-    gelöscht. Die Bedingung "an diesem Block hängt kein Training" kann beim
-    Import noch gar nicht stimmen: Das Training liegt auf der Uhr, nicht in
-    dieser Datenbank.
+    andersherum vorgeht, verlor den geplanten Aufbau für immer — am 16.08.2026
+    wurde um 16:24 neu geplant, die Mobility desselben Tages kam um 17:41 aus
+    Garmin, und dazwischen hatte das Aufräumen den alten Block gelöscht.
+
+    Die Lehre daraus lautet nicht "warte einen Tag", sondern "zerstöre keine
+    `PlanSession`, an der noch ein Training landen kann". Der alte Block
+    verschwindet deshalb sofort — aber seine Einheiten ziehen vorher in den
+    neuen um, mit ihrer Kennung, und das Training von gestern findet sie dort.
     """
     gestern = HEUTE - timedelta(days=1)
     fake._aktivitaeten = [baue_aktivitaet(4001, gestern, typkey="running")]
@@ -608,13 +608,13 @@ def test_abgeloester_block_ueberlebt_bis_der_abgleich_ihn_beurteilen_kann(
     _block(client, garmin_auth, start=HEUTE, tage=3, titel="Neuer Block")
 
     titel = {p["title"] for p in client.get("/api/plans", headers=garmin_auth).json()}
-    assert titel == {"Alter Block", "Neuer Block"}, "Der alte Block wurde zu früh gelöscht"
+    assert titel == {"Neuer Block"}, "Der abgelöste Block sollte weg sein"
 
-    # Jetzt der Abgleich — und erst danach darf beurteilt werden.
+    # Der gestrige Tag steht trotzdem im Plan — er ist mit umgezogen.
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert gestern.isoformat() in {s["date"] for s in aktiv["sessions"]}
+
     _backfill(client, garmin_auth, tage=5)
-
-    titel = {p["title"] for p in client.get("/api/plans", headers=garmin_auth).json()}
-    assert titel == {"Alter Block", "Neuer Block"}
 
     payload = client.get("/api/plans/export", headers=garmin_auth).json()["payload"]
     einheit = next(

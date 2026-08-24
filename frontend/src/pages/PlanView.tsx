@@ -6,7 +6,8 @@ import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
 import { Alert, EmptyState, Loading } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
-import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
+import { useHeute } from '../components/useHeute'
+import { naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type {
   GarminJob,
   GarminPlanUebertragung,
@@ -24,13 +25,14 @@ const DAY_FORMAT: Intl.DateTimeFormatOptions = { weekday: 'long' }
 // dabei lohnt die Rückfrage, ob trotzdem gelöscht werden soll.
 const GARMIN_HAKT = [409, 429, 502]
 
-function isToday(iso: string): boolean {
-  return iso === heuteIso()
-}
 
 export default function PlanView() {
   const { planId } = useParams()
   const navigate = useNavigate()
+  // Über Mitternacht hinaus richtig — die Seite bleibt am Telefon offen liegen.
+  const heute = useHeute()
+  const [zeigeVergangenes, setZeigeVergangenes] = useState(false)
+  const [fragebogenId, setFragebogenId] = useState<number | null>(null)
   // useLocation statt window.location: Unter Ingress trägt window.location.pathname
   // den Prefix /api/hassio_ingress/<token>, navigateTo aber nicht — der Vergleich
   // wäre dort immer verschieden.
@@ -104,6 +106,16 @@ export default function PlanView() {
         setPlans(summaries)
         if (loaded) {
           ladeGarmin(loaded.id)
+          // Nur für Blöcke von vor `_letzter_fragebogen()`: Sie tragen keinen
+          // Verweis, obwohl der Fragebogen existiert. Dieselbe Wahl, die auch
+          // der Export trifft — den Knopf auszublenden ließe den Athleten vor
+          // einem leeren Formular statt vor seinen Antworten stehen.
+          if (loaded.request_id === null) {
+            api
+              .latestRequest()
+              .then((letzter) => setFragebogenId(letzter?.id ?? null))
+              .catch(() => setFragebogenId(null))
+          } else setFragebogenId(loaded.request_id)
           // Ein übernommener Block geht von selbst nach Garmin. Wer hier
           // landet, hat dafür nichts gedrückt — der Fortschritt muss also von
           // allein auftauchen, sonst wirkt die Seite untätig, während im
@@ -116,7 +128,10 @@ export default function PlanView() {
               }
             })
             .catch(() => undefined)
-        } else setGarmin(null)
+        } else {
+          setGarmin(null)
+          setFragebogenId(null)
+        }
         if (navigateTo && navigateTo !== location.pathname) {
           navigate(navigateTo)
         }
@@ -134,6 +149,8 @@ export default function PlanView() {
 
   useEffect(() => {
     reload()
+    // Wieder einklappen, wenn ein anderer Block aufgeschlagen wird.
+    setZeigeVergangenes(false)
     return () => abbrechenRef.current?.()
   }, [planId])
 
@@ -214,27 +231,53 @@ export default function PlanView() {
     return karte
   }, [garmin])
 
+  const vergangeneTage = useMemo(
+    () =>
+      plan
+        ? new Set(plan.sessions.filter((s) => s.date < heute).map((s) => s.date)).size
+        : 0,
+    [plan, heute],
+  )
+
+  // Ein Block trägt seit der Übernahme der Vergangenheit die Tage seiner
+  // Vorgänger mit, und die wächst mit jeder Neuplanung. Wer den Plan aufschlägt,
+  // will wissen, was *noch* kommt. Die Ausnahme ist ein Block, der ganz vorbei
+  // ist: Dort stünde die Seite sonst leer — und unter „Frühere Pläne" ist das
+  // der Normalfall.
+  const nochOffen = plan?.sessions.some((s) => s.date >= heute) ?? false
+  const zeigtAlles = zeigeVergangenes || !nochOffen
+
   // Einheiten nach Woche und Tag gruppieren. Ein Block über wenige Tage liegt
   // komplett in Woche 1 — die Wochenebene zeigen wir dann gar nicht erst an, sie
   // bleibt nur für ältere Mehrwochenpläne im Verlauf erhalten.
   const weeks = useMemo(() => {
     if (!plan) return []
-    const byWeek = new Map<number, Map<string, PlanSession[]>>()
+    const byWeek = new Map<number, { minuten: number; days: Map<string, PlanSession[]> }>()
 
     for (const session of plan.sessions) {
-      if (!byWeek.has(session.week_number)) byWeek.set(session.week_number, new Map())
-      const days = byWeek.get(session.week_number)!
-      if (!days.has(session.date)) days.set(session.date, [])
-      days.get(session.date)!.push(session)
+      let woche = byWeek.get(session.week_number)
+      if (!woche) {
+        woche = { minuten: 0, days: new Map() }
+        byWeek.set(session.week_number, woche)
+      }
+      // Die Wochensumme zählt **alle** Einheiten der Woche, auch die
+      // ausgeblendeten: Eine Bilanz, die sich mit einem Anzeigeschalter ändert,
+      // wäre keine.
+      woche.minuten += session.duration_min ?? 0
+      if (!zeigtAlles && session.date < heute) continue
+      if (!woche.days.has(session.date)) woche.days.set(session.date, [])
+      woche.days.get(session.date)!.push(session)
     }
 
     return [...byWeek.entries()]
+      .filter(([, woche]) => woche.days.size > 0)
       .sort(([a], [b]) => a - b)
-      .map(([weekNumber, days]) => ({
+      .map(([weekNumber, woche]) => ({
         weekNumber,
-        days: [...days.entries()].sort(([a], [b]) => a.localeCompare(b)),
+        minuten: woche.minuten,
+        days: [...woche.days.entries()].sort(([a], [b]) => a.localeCompare(b)),
       }))
-  }, [plan])
+  }, [plan, heute, zeigtAlles])
 
   if (loading) return <Loading />
   if (error) return <Alert kind="error">{error}</Alert>
@@ -335,17 +378,17 @@ export default function PlanView() {
               anhand der aktuellen Lage neu, „nächste 7 Tage" hängt hinten an.
               Läuft der Block nicht mehr, fallen beide zusammen — dann bleibt
               nur einer stehen. */}
-          {plan.is_active && plan.end_date >= heuteIso() && (
-            <Link className="btn btn-primary" to={planErzeugenPfad(heuteIso())}>
+          {plan.is_active && plan.end_date >= heute && (
+            <Link className="btn btn-primary" to={planErzeugenPfad(heute, undefined, plan.request_id)}>
               Neu planen ab heute
             </Link>
           )}
           {plan.is_active && (
             <Link
               className="btn btn-secondary"
-              to={planErzeugenPfad(naechsterBlockStart(plan.end_date))}
+              to={planErzeugenPfad(naechsterBlockStart(plan.end_date), undefined, plan.request_id)}
             >
-              {plan.end_date >= heuteIso()
+              {plan.end_date >= heute
                 ? 'Nächste 7 Tage planen'
                 : 'Nächsten Block planen'}
             </Link>
@@ -366,10 +409,15 @@ export default function PlanView() {
           <Link className="btn btn-secondary" to="/profil">
             Meine Daten anpassen
           </Link>
-          {/* Der Fragebogen ist nur nötig, wenn sich die Rahmenbedingungen
-              geändert haben — für einen frischen Block reicht der letzte. */}
-          <Link className="btn btn-secondary" to="/neues-training">
-            Fragebogen neu ausfüllen
+          {/* „Anpassen" statt „neu ausfüllen": Dieselbe Zeile bleibt bestehen,
+              und jeder Plan, der auf sie zeigt, behält seinen Verweis — ein
+              neuer Fragebogen erreichte den laufenden Block nie. Ganz von vorn
+              geht es weiter über „Neues Training" in der Navigation. */}
+          <Link
+            className="btn btn-secondary"
+            to={fragebogenId ? `/neues-training?request=${fragebogenId}` : '/neues-training'}
+          >
+            {fragebogenId ? 'Fragebogen anpassen' : 'Fragebogen ausfüllen'}
           </Link>
           <button
             className="btn btn-danger"
@@ -421,29 +469,31 @@ export default function PlanView() {
       )}
 
       <div className="card mt-2">
+        {vergangeneTage > 0 && nochOffen && (
+          <button
+            className="btn btn-ghost btn-sm mb-1"
+            onClick={() => setZeigeVergangenes((an) => !an)}
+          >
+            {zeigeVergangenes
+              ? 'Vergangene Tage ausblenden'
+              : `Vergangene Tage anzeigen (${vergangeneTage})`}
+          </button>
+        )}
         {weeks.map((week) => (
           <div className="week-block" key={week.weekNumber}>
             {weeks.length > 1 && (
               <div className="week-head">
                 <h3>Woche {week.weekNumber}</h3>
-                <span className="week-stats">
-                  {week.days.reduce(
-                    (sum, [, sessions]) =>
-                      sum +
-                      sessions.reduce((inner, s) => inner + (s.duration_min ?? 0), 0),
-                    0,
-                  )}{' '}
-                  min
-                </span>
+                <span className="week-stats">{week.minuten} min</span>
               </div>
             )}
 
             {week.days.map(([date, sessions]) => (
-              <div className={`day-row ${isToday(date) ? 'is-today' : ''}`} key={date}>
+              <div className={`day-row ${date === heute ? 'is-today' : ''}`} key={date}>
                 <div className="day-row-head">
                   <div className="day-label">
                     {new Date(date).toLocaleDateString('de-DE', DAY_FORMAT)}
-                    {isToday(date) && ' · heute'}
+                    {date === heute && ' · heute'}
                   </div>
                   <div className="day-date">
                     {new Date(date).toLocaleDateString('de-DE', {

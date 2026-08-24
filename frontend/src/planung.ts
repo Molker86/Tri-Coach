@@ -38,7 +38,18 @@ export function naechsterBlockStart(endDatum: string): string {
   return danach > heute ? danach : heute
 }
 
-/** Weg zum Austausch mit der KI, mit vorbelegtem Zeitraum. */
-export function planErzeugenPfad(start: string, tage: number = PLAN_TAGE): string {
-  return `/plan-erzeugen?start=${start}&days=${tage}`
+/** Weg zum Austausch mit der KI, mit vorbelegtem Zeitraum.
+ *
+ * `requestId` ist der Fragebogen des Blocks, aus dem heraus geplant wird. Ohne
+ * ihn nähme der Export den zuletzt *angelegten* — und wer seinen Fragebogen
+ * anpasst, statt einen neuen auszufüllen, ändert `created_at` nicht: Die
+ * Anpassung wirkte dann nie, sobald daneben eine jüngere Zeile liegt.
+ */
+export function planErzeugenPfad(
+  start: string,
+  tage: number = PLAN_TAGE,
+  requestId?: number | null,
+): string {
+  const fragebogen = requestId ? `&request=${requestId}` : ''
+  return `/plan-erzeugen?start=${start}&days=${tage}${fragebogen}`
 }

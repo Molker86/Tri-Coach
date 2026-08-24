@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import {
   Alert,
@@ -57,16 +57,38 @@ const EMPTY_REQUEST: TrainingRequestInput = {
 
 export default function NewTraining() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  // Der Fragebogen, der bearbeitet wird — sonst `null`, und alles läuft wie
+  // bisher. Derselbe Wizard für beides: Eine zweite Route hieße zwei Stellen,
+  // an denen ein neuer Schritt nachzuziehen wäre.
+  const bearbeitet = Number(params.get('request')) || null
 
   const [form, setForm] = useState<TrainingRequestInput>(EMPTY_REQUEST)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [stepIndex, setStepIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [laden, setLaden] = useState(true)
 
   useEffect(() => {
-    api.getProfile().then(setProfile).catch((err) => setError(err.message))
-  }, [])
+    // Beides zusammen abwarten: Rendert der Wizard eine Runde auf
+    // `EMPTY_REQUEST`, steht im ersten Schritt „Laufen", bevor „Triathlon"
+    // nachkommt — und wer in dem Moment weiterklickt, hat die Disziplin
+    // unbemerkt gewechselt.
+    Promise.all([
+      api.getProfile(),
+      bearbeitet ? api.getRequest(bearbeitet) : Promise.resolve(null),
+    ])
+      .then(([geladenesProfil, fragebogen]) => {
+        setProfile(geladenesProfil)
+        if (fragebogen) {
+          const { id: _i, created_at: _c, ...antworten } = fragebogen
+          setForm(antworten)
+        }
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLaden(false))
+  }, [bearbeitet])
 
   // Die Tagesbelegung je Sportart hat nur zu entscheiden, wo es mehr als eine
   // gibt — bei einem Laufblock steht an jedem Trainingstag ohnehin ein Lauf.
@@ -191,15 +213,24 @@ export default function NewTraining() {
         const { age: _a, bmi: _b, hr_zones: _z, updated_at: _u, ...payload } = profile
         await api.updateProfile(payload)
       }
-      const created = await api.createRequest(form)
-      navigate(`/plan-erzeugen?request=${created.id}`)
+      if (bearbeitet) {
+        // Dieselbe Zeile bleibt bestehen, damit jeder Plan, der auf sie zeigt,
+        // seinen Verweis behält. Und zurück in den Plan statt weiter in die
+        // Planerzeugung: Die Änderung gilt ab dem nächsten Block, und ob der
+        // jetzt oder morgen früh entsteht, entscheidet der Athlet.
+        await api.updateRequest(bearbeitet, form)
+        navigate('/plan')
+      } else {
+        const created = await api.createRequest(form)
+        navigate(`/plan-erzeugen?request=${created.id}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.')
       setBusy(false)
     }
   }
 
-  if (!profile && !error) return <Loading />
+  if (laden && !error) return <Loading />
 
   return (
     <div className="page-narrow" style={{ margin: '0 auto' }}>
@@ -668,7 +699,9 @@ export default function NewTraining() {
           <>
             <h1>Zusammenfassung</h1>
             <p className="muted">
-              Prüfe deine Angaben. Danach erzeugt Tri-Coach das Datenpaket für die KI.
+              {bearbeitet
+                ? 'Prüfe deine Angaben. Sie gelten ab dem nächsten Block.'
+                : 'Prüfe deine Angaben. Danach erzeugt Tri-Coach das Datenpaket für die KI.'}
             </p>
 
             <div className="table-wrap">
@@ -762,9 +795,16 @@ export default function NewTraining() {
               </table>
             </div>
 
+            {/* Der laufende Block zeigt auf den Fragebogen, aus dem er entstanden
+                ist — geändert wird er dadurch nicht. Ohne diesen Satz wäre
+                „Fragebogen anpassen" ein Versprechen, das die App nicht hält. */}
             <Alert kind="info">
-              Im nächsten Schritt bekommst du einen fertigen Text zum Kopieren. Den
-              schickst du an eine KI und fügst deren Antwort hier wieder ein.
+              {bearbeitet
+                ? 'Der laufende Block bleibt, wie er ist. Die Änderungen greifen beim '
+                  + 'nächsten Block — automatisch beim nächsten Abgleich oder sofort '
+                  + 'über „Neu planen ab heute“.'
+                : 'Im nächsten Schritt bekommst du einen fertigen Text zum Kopieren. '
+                  + 'Den schickst du an eine KI und fügst deren Antwort hier wieder ein.'}
             </Alert>
           </>
         )}
@@ -780,7 +820,11 @@ export default function NewTraining() {
 
           {step === 'summary' ? (
             <button className="btn btn-primary btn-lg" onClick={finish} disabled={busy}>
-              {busy ? 'Wird gespeichert …' : 'Datenpaket erzeugen'}
+              {busy
+                ? 'Wird gespeichert …'
+                : bearbeitet
+                  ? 'Änderungen speichern'
+                  : 'Datenpaket erzeugen'}
             </button>
           ) : (
             <button

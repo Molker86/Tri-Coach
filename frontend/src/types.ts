@@ -132,6 +132,8 @@ export interface PlanSession {
 
 export interface Plan {
   id: number
+  /** Der Fragebogen, aus dem der Block entstand — `null` bei Altbestand. */
+  request_id: number | null
   title: string
   summary: string | null
   coaching_notes: string | null
