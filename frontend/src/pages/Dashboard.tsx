@@ -311,108 +311,130 @@ export default function Dashboard() {
 
       {wellness.length > 0 && <ErholungsKacheln tage={wellness} />}
 
-      <div className="grid grid-2">
-        <div className="card">
-          <div className="card-title">
-            <h2>Heute</h2>
-            {plan && <Link className="small" to="/plan">Ganzen Plan ansehen</Link>}
-          </div>
+      <div className="card">
+        <div className="card-title">
+          <h2>Heute</h2>
+          {plan && <Link className="small" to="/plan">Ganzen Plan ansehen</Link>}
+        </div>
 
-          {!plan ? (
-            <EmptyState icon="📋" title="Kein aktiver Plan">
-              <p className="small">
-                Beantworte den Fragebogen und lass dir einen Plan erzeugen. Oder sieh dir
-                deine früheren Pläne an.
-              </p>
-              <Link className="btn btn-secondary" to="/plan">
-                Frühere Pläne ansehen
-              </Link>
-              <Link className="btn btn-primary" to="/neues-training">
-                Neues Training starten
-              </Link>
-            </EmptyState>
-          ) : todaySessions.length === 0 ? (
-            <p className="muted mb-0">
-              {plan.end_date < today
-                ? `Der Block lief vom ${formatDay(plan.start_date)} bis ${formatDay(
-                    plan.end_date,
-                  )} und ist abgeschlossen.`
-                : `Für heute ist nichts vorgesehen. Der Block läuft vom ${formatDay(
-                    plan.start_date,
-                  )} bis ${formatDay(plan.end_date)}.`}
+        {/* Ausrichtung und Steuerungshinweise standen bisher nur im
+            Trainingsplan — dabei gehören sie über die Einheit von heute: Sie
+            sagen, warum der Block so liegt und woran zu steuern ist, und
+            werden gelesen, bevor der Athlet auf die Vorgabe des Tages sieht.
+            Wer den Block automatisch erzeugen lässt, sieht die Planansicht
+            sonst nie. */}
+        {plan && (plan.summary || plan.coaching_notes) && (
+          <>
+            {plan.summary && (
+              <>
+                <h3>Zur Ausrichtung des Blocks</h3>
+                <p className={plan.coaching_notes ? '' : 'mb-0'}>{plan.summary}</p>
+              </>
+            )}
+            {plan.coaching_notes && (
+              <>
+                <h3>Hinweise zur Steuerung</h3>
+                <p className="mb-0">{plan.coaching_notes}</p>
+              </>
+            )}
+            <hr className="divider" />
+          </>
+        )}
+
+        {!plan ? (
+          <EmptyState icon="📋" title="Kein aktiver Plan">
+            <p className="small">
+              Beantworte den Fragebogen und lass dir einen Plan erzeugen. Oder sieh dir
+              deine früheren Pläne an.
             </p>
-          ) : (
-            /* Dieselbe Karte wie im Trainingsplan, nicht mehr eine nachgebaute:
-               Sie war hier ein toter `<div>` ohne Zone, Garmin-Marke und
-               „angepasst" — und ohne Weg zum Dialog. Wer eine Einheit ansehen
-               oder umschreiben lassen wollte, musste erst die Seite wechseln. */
-            <div className="session-list">
-              {todaySessions.map((session) => (
-                <SessionCard
-                  key={session.id}
-                  session={session}
-                  onOpen={() => setSelected(session)}
-                />
-              ))}
+            <Link className="btn btn-secondary" to="/plan">
+              Frühere Pläne ansehen
+            </Link>
+            <Link className="btn btn-primary" to="/neues-training">
+              Neues Training starten
+            </Link>
+          </EmptyState>
+        ) : todaySessions.length === 0 ? (
+          <p className="muted mb-0">
+            {plan.end_date < today
+              ? `Der Block lief vom ${formatDay(plan.start_date)} bis ${formatDay(
+                  plan.end_date,
+                )} und ist abgeschlossen.`
+              : `Für heute ist nichts vorgesehen. Der Block läuft vom ${formatDay(
+                  plan.start_date,
+                )} bis ${formatDay(plan.end_date)}.`}
+          </p>
+        ) : (
+          /* Dieselbe Karte wie im Trainingsplan, nicht mehr eine nachgebaute:
+             Sie war hier ein toter `<div>` ohne Zone, Garmin-Marke und
+             „angepasst" — und ohne Weg zum Dialog. Wer eine Einheit ansehen
+             oder umschreiben lassen wollte, musste erst die Seite wechseln. */
+          <div className="session-list">
+            {todaySessions.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                onOpen={() => setSelected(session)}
+              />
+            ))}
 
-              {/* Kein Knopf zum Erfassen mehr: Die Einheit gilt als absolviert,
-                  sobald sie der Garmin-Abgleich als Aktivität hereinholt. */}
-            </div>
-          )}
-        </div>
+            {/* Kein Knopf zum Erfassen mehr: Die Einheit gilt als absolviert,
+                sobald sie der Garmin-Abgleich als Aktivität hereinholt. */}
+          </div>
+        )}
+      </div>
 
-        <div className="card">
-          <h2>Als Nächstes</h2>
-          {upcoming.length === 0 ? (
-            <p className="muted mb-0">Keine weiteren Einheiten geplant.</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table-cards">
-                <tbody>
-                  {upcoming.map((session) => (
-                    <tr key={session.id}>
-                      <td className="nowrap muted small" data-label="Tag">
-                        {new Date(session.date).toLocaleDateString('de-DE', {
-                          weekday: 'short',
-                          day: '2-digit',
-                          month: '2-digit',
-                        })}
-                      </td>
-                      <td className="cell-title">
-                        {/* Ein Knopf und nicht die ganze Zeile mit `onClick`:
-                            Eine anklickbare Zeile ist für Tastatur und
-                            Vorlesehilfe kein Bedienelement. */}
-                        <button
-                          className="linklike"
-                          onClick={() => setSelected(session)}
-                        >
-                          {sportIcon(session.sport)} {session.title}
-                        </button>
-                      </td>
-                      <td
-                        className="nowrap muted small"
-                        data-label={session.duration_min ? 'Dauer' : undefined}
+      <div className="card">
+        <h2>Als Nächstes</h2>
+        {upcoming.length === 0 ? (
+          <p className="muted mb-0">Keine weiteren Einheiten geplant.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table-cards">
+              <tbody>
+                {upcoming.map((session) => (
+                  <tr key={session.id}>
+                    <td className="nowrap muted small" data-label="Tag">
+                      {new Date(session.date).toLocaleDateString('de-DE', {
+                        weekday: 'short',
+                        day: '2-digit',
+                        month: '2-digit',
+                      })}
+                    </td>
+                    <td className="cell-title">
+                      {/* Ein Knopf und nicht die ganze Zeile mit `onClick`:
+                          Eine anklickbare Zeile ist für Tastatur und
+                          Vorlesehilfe kein Bedienelement. */}
+                      <button
+                        className="linklike"
+                        onClick={() => setSelected(session)}
                       >
-                        {session.duration_min ? `${session.duration_min} min` : ''}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                        {sportIcon(session.sport)} {session.title}
+                      </button>
+                    </td>
+                    <td
+                      className="nowrap muted small"
+                      data-label={session.duration_min ? 'Dauer' : undefined}
+                    >
+                      {session.duration_min ? `${session.duration_min} min` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-          {stats?.compliance && stats.compliance.rate_pct !== null && (
-            <>
-              <hr className="divider" />
-              <h3>Umsetzung</h3>
-              <p className="small muted mb-0">
-                {stats.compliance.logged} von {stats.compliance.planned_past} fälligen
-                Einheiten erfasst ({stats.compliance.rate_pct} %).
-              </p>
-            </>
-          )}
-        </div>
+        {stats?.compliance && stats.compliance.rate_pct !== null && (
+          <>
+            <hr className="divider" />
+            <h3>Umsetzung</h3>
+            <p className="small muted mb-0">
+              {stats.compliance.logged} von {stats.compliance.planned_past} fälligen
+              Einheiten erfasst ({stats.compliance.rate_pct} %).
+            </p>
+          </>
+        )}
       </div>
 
       {stats && stats.weekly.some((w) => w.sessions > 0) && (

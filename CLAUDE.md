@@ -750,6 +750,21 @@ Nach einer angepassten Einheit steht eine andere Vorgabe im Plan. `garminZustand
 bleibt dort leer — dafür zusätzlich `api.garminWorkoutStatus()` zu holen wäre
 eine Anfrage für eine Randnotiz.
 
+**Ausrichtung und Steuerungshinweise stehen auch auf der Startseite**
+(`plan.summary` / `plan.coaching_notes`, direkt unter der Überschrift der
+„Heute"-Karte und **über** den Einheiten des Tages — die Einordnung wird
+gelesen, bevor der Athlet auf die Vorgabe sieht; die Trennlinie steht deshalb
+darunter). Sie standen bisher nur im Trainingsplan — und genau dorthin geht
+niemand, der den Block automatisch erzeugen lässt: Die Uhr trägt das Workout,
+die Startseite die Einheit von heute, und *warum* der Block so liegt und woran
+zu steuern ist, las man nirgends. Zwei Überschriften, im Wortlaut
+wie in der Planansicht — zwei Fassungen desselben Textes liefen auseinander.
+Dafür wird „Heute" auf die **ganze Breite** gezogen und „Als Nächstes" darunter
+gestellt (`grid grid-2` entfällt): Ein Fließtext von ein paar Sätzen in einer
+halbbreiten Spalte neben einer Tabelle liest sich schlecht, und die Reihenfolge
+stimmt so auch inhaltlich — heute, dann der Rest des Blocks. Am Telefon ändert
+sich nichts; dort standen die beiden Karten schon vorher untereinander.
+
 **Der Pfad-Prefix kommt zur Laufzeit, nicht aus dem Build.** Ingress liefert die
 App unter `/api/hassio_ingress/<token>/` aus, nicht unter `/`. Absolute Pfade
 laufen dort ins Leere: Der Browser löst sie gegen die Home-Assistant-Wurzel auf,
