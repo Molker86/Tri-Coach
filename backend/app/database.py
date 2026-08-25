@@ -136,6 +136,9 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "ai_jobs": {
         "plan_session_id": "INTEGER",
         "wunsch": "TEXT",
+        # Der Ernährungsplan, den ein Lauf erzeugt hat. Eigene Spalte statt
+        # `plan_id`, weil das Frontend darauf einen Trainingsblock erwartet.
+        "ernaehrungsplan_id": "INTEGER",
     },
     # Der Claude-Zugang je Nutzer, verschlüsselt. Vorher gab es ihn nur als
     # Add-on-Option in der Umgebung; bestehende Datenbanken haben die Spalte

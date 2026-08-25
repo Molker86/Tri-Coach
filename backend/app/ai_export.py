@@ -599,20 +599,32 @@ def _einheit_felder(session: Any) -> dict[str, Any]:
     return {k: v for k, v in felder.items() if v is not None}
 
 
-def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
-    """Der ganze laufende Block, mit der zu ändernden Einheit markiert.
+def _planumfeld(
+    plan: Plan,
+    *,
+    ab: date | None = None,
+    bis: date | None = None,
+    markiere: PlanSession | None = None,
+) -> dict[str, Any]:
+    """Ein Trainingsblock als Tagesliste — Titel, Ausrichtung, Einheiten je Tag.
 
-    Ohne ihn entschiede die KI über eine Einheit im luftleeren Raum: Sie sähe
-    nicht, dass am Vortag ein Intervalltraining steht und am Folgetag die lange
-    Einheit — also genau das, woran der Abstand zum letzten Reiz und die
-    Intensitätsverteilung hängen. `trainingshistorie.aktueller_plan` nennt nur
-    Titel und Zeitraum; für diese Aufgabe reicht das nicht.
+    Steht für sich, weil zwei Aufgaben denselben Ausschnitt brauchen: die
+    Einzelanpassung (mit markierter Einheit, siehe `_blockumfeld`) und die
+    Ernährungsplanung (über das Fenster, für das gedeckt wird). Zwei Kopien
+    liefen mit dem ersten neuen Feld auseinander, und dann sähe die eine
+    Aufgabe eine andere Einheit als die andere.
+
+    `ab` schneidet vorn ab — ohne Angabe bei `plan.beginn`, denn ein Block
+    trägt die Vergangenheit seiner Vorgänger mit, und die wächst unbegrenzt.
+    `bis` schneidet hinten ab, wo nur ein Teil des Blocks gefragt ist.
     """
+    grenze = ab or plan.beginn
     tage: dict[str, list[dict[str, Any]]] = {}
-    # Ab `beginn`: Der Block trägt die Vergangenheit seiner Vorgänger mit, und
-    # die wächst unbegrenzt. Gefragt ist das Umfeld *dieses* Blocks — und
-    # angepasst werden ohnehin nur Einheiten ab heute.
-    umfeld = [s for s in plan.sessions if s.date >= plan.beginn]
+    umfeld = [
+        s
+        for s in plan.sessions
+        if s.date >= grenze and (bis is None or s.date <= bis)
+    ]
     for eintrag in sorted(umfeld, key=lambda s: (s.date, s.order_in_day)):
         zeile: dict[str, Any] = {
             "sportart": eintrag.sport,
@@ -621,7 +633,7 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
             "dauer_min": eintrag.duration_min,
             "intensitaetszone": eintrag.intensity_zone,
         }
-        if eintrag.id == session.id:
+        if markiere is not None and eintrag.id == markiere.id:
             # Die Markierung steht an der Einheit selbst und nicht nur oben im
             # Prompt: Bei zwei Einheiten desselben Sports am selben Tag wäre
             # sonst nicht zu erkennen, welche von beiden gemeint ist.
@@ -630,8 +642,8 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
 
     return {
         "titel": plan.title,
-        "start": plan.beginn.isoformat(),
-        "ende": plan.end_date.isoformat(),
+        "start": grenze.isoformat(),
+        "ende": (bis or plan.end_date).isoformat(),
         "ausrichtung": plan.summary,
         "hinweise_zur_steuerung": plan.coaching_notes,
         "tage": [
@@ -643,6 +655,18 @@ def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
             for tag, einheiten in tage.items()
         ],
     }
+
+
+def _blockumfeld(plan: Plan, session: PlanSession) -> dict[str, Any]:
+    """Der ganze laufende Block, mit der zu ändernden Einheit markiert.
+
+    Ohne ihn entschiede die KI über eine Einheit im luftleeren Raum: Sie sähe
+    nicht, dass am Vortag ein Intervalltraining steht und am Folgetag die lange
+    Einheit — also genau das, woran der Abstand zum letzten Reiz und die
+    Intensitätsverteilung hängen. `trainingshistorie.aktueller_plan` nennt nur
+    Titel und Zeitraum; für diese Aufgabe reicht das nicht.
+    """
+    return _planumfeld(plan, markiere=session)
 
 
 def _anpassung_block(
@@ -1996,3 +2020,422 @@ def erzeuge_einheit_export(
     payload["einheit_anpassen"] = _anpassung_block(session, plan, wunsch)
 
     return Export(payload=payload, prompt=build_einheit_prompt(payload))
+
+
+# --------------------------------------------------------------------------
+# Ernährung
+#
+# Dritte Aufgabe an dieselbe KI, mit eigenem Prompt und eigenem Antwortformat.
+# Ein eigener Prompt und keine angehängte Ausnahme am Blockprompt: Dort
+# entscheidet die KI über Zusammensetzung und Umfang des Trainings — hier steht
+# das Training fest und wird nur noch gedeckt.
+#
+# Der Kontext ist trotzdem **derselbe**: `_lade_kontext()` und `build_payload()`
+# unverändert. Wer den Ernährungsplan auf Trainingsblock und Gewicht verkürzte,
+# entschiede ausgerechnet dort ohne Belastungslage, wo Kohlenhydratmenge und
+# Erholungsernährung daran hängen.
+# --------------------------------------------------------------------------
+
+
+# Das Fachgebiet, das der Prompt aufruft. Steht hier und nicht in `schemas.py`
+# neben `DISCIPLINE_LABEL`: Anders als jene Tabellen liest diese nur eine
+# einzige Stelle — der Prompt. Ein zweiter Ort für dieselbe Zuordnung wäre
+# Aufwand ohne Leser.
+ERNAEHRUNGS_FACHGEBIET = {
+    "run": "Laufernährung",
+    "swim": "Schwimmernährung",
+    "bike": "Radsporternährung",
+    "triathlon": "Triathlonernährung",
+}
+
+
+MAHLZEIT_SCHEMA: dict[str, Any] = {
+    "zeitpunkt": "06:30 | „90 min vor dem Start\" — Uhrzeit oder Abstand zur Einheit",
+    "name": "Frühstück | Pre-Workout | Recovery-Shake …",
+    "beschreibung": "Was konkret gegessen bzw. getrunken wird, mit Mengen",
+    "bezug": "vor | waehrend | nach — Bezug zur Einheit des Tages; weglassen, wenn keiner besteht",
+    "kalorien_kcal": "int, optional",
+    "kohlenhydrate_g": "int, optional",
+    "protein_g": "int, optional",
+    "fett_g": "int, optional",
+}
+
+
+ERNAEHRUNG_RESPONSE_SCHEMA: dict[str, Any] = {
+    "schema_version": "1.0",
+    "ernaehrungsplan": {
+        "titel": "Kurzer Name des Blocks",
+        "ausrichtung": "1-3 Sätze: worauf dieser Ernährungsblock ausgerichtet ist",
+        "begruendung": "1-3 Sätze: woran du dich orientiert hast — Belastung, "
+        "Zielsetzung, persönliche Vorgaben. Bist du einer persönlichen Vorgabe "
+        "nicht gefolgt, steht hier woran es lag.",
+        "tage": [
+            {
+                "datum": "YYYY-MM-DD",
+                "trainingshinweis": "Wofür dieser Tag gedeckt wird, in einem Satz",
+                "kalorien_kcal": "int",
+                "kohlenhydrate_g": "int",
+                "protein_g": "int",
+                "fett_g": "int",
+                "fluessigkeit_ml": "int",
+                "notiz": "optional: was an diesem Tag besonders zu beachten ist",
+                "mahlzeiten": [MAHLZEIT_SCHEMA],
+            }
+        ],
+        "supplemente": [
+            {
+                "name": "Name des Präparats",
+                "dosierung": "z. B. „3 mg/kg Körpergewicht\" oder „5 g täglich\"",
+                "zeitpunkt": "Wann eingenommen wird",
+                "begruendung": "Wofür — kurz und auf diesen Athleten bezogen",
+            }
+        ],
+    },
+}
+
+
+# Punkt 2 in zwei Fassungen, aus demselben Grund wie `FITNESSREGELN_*` beim
+# Trainingsprompt: Regeln zu Daten, die es nicht gibt, laden zum Erfinden ein.
+#
+# Übernommen ist nur die **Verzweigung**, nicht der Text: `FITNESSREGELN_MIT_DATEN`
+# sagt der KI, wann sie die *Intensität* zurücknimmt — für eine Ernährungsaufgabe
+# die falsche Anweisung. Dieselben Größen, andere Schlussfolgerung.
+ERNAEHRUNGSDATEN_MIT = """2. **Zustand des Athleten**: `fitnessdaten` trägt Garmins Messungen der \
+letzten Wochen. `auffaelligkeiten` ist bereits verdichtet — lies sie zuerst. \
+Eine HRV unter der eigenen Baseline, ein steigender Ruhepuls, ein Schlafdefizit \
+oder eine niedrige Trainingsreife heißen hier **nicht** weniger Energie, sondern \
+das Gegenteil: verfügbare Kohlenhydrate hoch, Proteinzufuhr über den Tag \
+verteilt, Mikronährstoff- und Flüssigkeitslage prüfen. Ein Energiedefizit ist bei \
+diesem Bild die häufigste behebbare Ursache. `mittelwerte` stellt 7 gegen 28 Tage \
+— ein fallendes Gewicht bei gleichbleibender Last ist eine Unterversorgung, \
+solange das Ziel nicht ausdrücklich Gewichtsreduktion heißt."""
+
+ERNAEHRUNGSDATEN_OHNE = """2. **Zustand des Athleten**: Es ist **kein** Gerät \
+verbunden. Der Payload trägt deshalb keinen `fitnessdaten`-Block, und die \
+Trainingshistorie ist leer oder dünn: Schlaf, HRV, Ruhepuls und Trainingsreife \
+liegen dir für diesen Athleten **nicht** vor. Leite daraus nichts ab und erfinde \
+keine Werte. Plane aus Fragebogen, Profil und dem geplanten Trainingsblock, und \
+bleib bei den Tagessummen eher konservativ — ohne Rückmeldung über die Erholung \
+lässt sich ein Defizit nicht bemerken."""
+
+
+ERNAEHRUNG_PROMPT_TEMPLATE = """Du bist ein Experte für {fachgebiet} — \
+Ernährungswissenschaftler und Sportwissenschaftler für Ausdauersport, der Athleten \
+auf Wettkampfniveau betreut. Erstelle einen Ernährungsplan auf Profi-Niveau für die \
+{tage} Tage vom {start} bis {ende}.
+
+## Aufgabe
+Der Trainingsblock für diesen Zeitraum **steht bereits fest** und ist nicht Teil \
+deiner Aufgabe: Er steht unter `ernaehrung.trainingsblock`, Tag für Tag mit \
+Sportart, Dauer und Intensitätszone. Deine Aufgabe ist, ihn zu decken — was der \
+Athlet an welchem Tag zu welcher Zeit isst und trinkt, damit er die geplanten \
+Reize verträgt, sie verwertet und sich davon erholt.
+
+{ziel}
+
+## Verbindliche Ernährungsprinzipien
+1. **Der Tag folgt der Einheit, nicht umgekehrt.** Kohlenhydratmenge und Timing \
+richten sich nach Dauer und Intensität des Tages: Ein Tag mit einer langen oder \
+harten Einheit wird anders gedeckt als ein Ruhetag oder ein lockerer Grundlagentag. \
+Nenne für jeden Tag die Tagessummen (`kalorien_kcal`, `kohlenhydrate_g`, \
+`protein_g`, `fett_g`, `fluessigkeit_ml`) und begründe die Abstufung in \
+`trainingshinweis` mit der Einheit, die an dem Tag ansteht.
+{datenregeln}
+3. **Um die Einheit herum wird eigens geplant.** Zu jeder Trainingseinheit gehören \
+die Mahlzeit davor, die Zufuhr während der Einheit (ab etwa 75 min Belastung, in \
+g Kohlenhydrate je Stunde) und die Erholungsmahlzeit danach. Setze `bezug` auf \
+`vor`, `waehrend` bzw. `nach`, damit die App sie der Einheit zuordnen kann. An \
+Tagen ohne Einheit entfällt der Bezug — dort steht die Regelmäßigkeit im \
+Vordergrund.
+4. **Energieverfügbarkeit ist die Untergrenze, nicht das Ziel.** Rechne die \
+Tagessummen aus Grundumsatz, Alltagsbelastung und der geplanten Trainingslast. \
+Auf welchem Umfang der Athlet gerade steht, sagt \
+`trainingshistorie.wochenuebersicht` Woche für Woche, und \
+`trainingshistorie.letzte_volle_woche` benennt die letzte vollständige davon — \
+eine angefangene Woche ist kein Maßstab. \
+`trainingshistorie.acute_chronic_workload_ratio` sagt, ob die Last gerade steigt. \
+Eine Unterversorgung ist bei Ausdauersportlern der häufigste Grund für stagnierende \
+Anpassung, gestörten Schlaf und Verletzungen — plane sie nur, wenn das Ziel \
+ausdrücklich Gewichtsreduktion heißt, und dann moderat und nicht an den Tagen mit \
+den harten Einheiten.
+5. **Protein und Erholung.** Verteile die Proteinzufuhr über den Tag statt sie in \
+eine Mahlzeit zu legen, und lege eine Portion in die Stunde nach einer harten oder \
+langen Einheit. Beschwerden unter `athlet.verletzungen_einschraenkungen` gehören \
+hierher: Was der Athlet dort nennt, hat oft eine Erholungs- oder \
+Bindegewebskomponente — sag in `begruendung`, wenn du daraufhin etwas anders planst.
+6. **Konkret statt allgemein.** Jede Mahlzeit nennt Lebensmittel und Mengen, nicht \
+Nährstoffklassen: „120 g Haferflocken mit 300 ml Milch, 1 Banane, 30 g Walnüsse" \
+statt „kohlenhydratreiches Frühstück". Ein Plan, den man nicht einkaufen kann, ist \
+keiner.
+7. **Supplemente nur, wo sie etwas tragen.** Nenne unter `supplemente`, was für \
+**diesen** Athleten und **diesen** Block einen belegten Nutzen hat — mit Dosierung, \
+Zeitpunkt und einem Satz wofür. Eine Liste aus Gewohnheit ist schlechter als eine \
+leere Liste; wenn nichts nötig ist, gib `[]` zurück. Was über die Ernährung \
+abzudecken ist, wird nicht supplementiert.
+8. **Realistisch bleiben.** Der Plan wird gegessen oder er wirkt nicht. Halte dich \
+an den Alltag des Athleten, wie ihn `trainingswunsch` und die persönlichen Vorgaben \
+beschreiben — Zeitbudget, Trainingszeiten, was er sich zubereiten kann.
+{individualisierung}
+## Ausgabeformat — zwingend einhalten
+Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
+davor oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
+
+Struktur:
+{schema}
+
+Regeln für die Ausgabe:
+- Genau **ein** Eintrag unter `tage` je Kalendertag von {start} bis {ende} — \
+lückenlos, auch für Ruhetage.
+- `datum` als YYYY-MM-DD, in genau diesem Zeitraum.
+- Mengen als ganze Zahlen ohne Einheit im Feld (die Einheit steht im Feldnamen).
+- Was du nicht sinnvoll angeben kannst, **lass weg**, statt es zu schätzen oder \
+auf 0 zu setzen — eine 0 liest sich wie eine Messung.
+- Alle Texte auf Deutsch.
+
+## Athletendaten
+{payload}
+"""
+
+
+# Steht nur im Prompt, wenn der Athlet etwas hinterlegt hat. Ein leerer Absatz
+# „Er hat keine Vorgaben" wäre eine Aussage über jemanden, der zu der Frage
+# schlicht nichts gesagt hat.
+INDIVIDUALISIERUNG_HINWEIS = """
+9. **Persönliche Vorgaben des Athleten** — im Wortlaut:
+
+„{hinweise}"
+
+Diese Vorgaben sind **verbindlich**, nicht nachrangig: Ein Plan, der eine \
+Unverträglichkeit übergeht oder Mahlzeiten verlangt, die der Athlet nicht bekommt, \
+wird nicht befolgt und ist damit wertlos. Steht dort eine medizinische \
+Einschränkung, plane innerhalb davon. Führt eine Vorgabe zu einer schlechteren \
+Versorgung, erfülle sie **so weit, wie es vertretbar ist**, und sag in \
+`begruendung` klar, wo du warum abgewichen bist.
+"""
+
+
+def _ernaehrung_datenregeln(payload: dict[str, Any]) -> str:
+    """Punkt 2, in der Fassung, die zu den vorliegenden Daten passt."""
+    return (
+        ERNAEHRUNGSDATEN_MIT
+        if payload.get("fitnessdaten")
+        else ERNAEHRUNGSDATEN_OHNE
+    )
+
+
+def _individualisierung(hinweise: str | None) -> str:
+    """Punkt 9 — nur, wenn der Athlet etwas hinterlegt hat.
+
+    Der Text geht als fertiger **Wert** in die Vorlage: `.format()` formatiert
+    eingesetzte Werte nicht erneut, geschweifte Klammern im Freitext des
+    Athleten sind hier also folgenlos. Umgekehrt wäre ein Freitext, der als
+    Vorlagenteil durchliefe, ein Absturz — dieselbe Falle wie bei
+    `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
+    """
+    text = (hinweise or "").strip()
+    if not text:
+        return ""
+    return INDIVIDUALISIERUNG_HINWEIS.format(hinweise=text)
+
+
+def _zielabsatz(payload: dict[str, Any]) -> str:
+    """Was der Athlet erreichen will — als eigener Absatz statt als Zeile im JSON.
+
+    Steht ausdrücklich im Prompttext und nicht nur im Payload: Ob gedeckt oder
+    reduziert wird, hängt daran, und ein Ziel, das nur in Zeile 400 eines
+    JSON-Blocks steht, wird schwächer gewichtet als eines im Auftrag.
+    """
+    wunsch = payload.get("trainingswunsch") or {}
+    zeilen: list[str] = []
+
+    ziel = wunsch.get("ziel")
+    beschreibung = wunsch.get("ziel_beschreibung")
+    if ziel:
+        zeilen.append(f"- **Ziel**: {ziel}")
+    if beschreibung:
+        zeilen.append(f"- **In seinen Worten**: „{beschreibung}“")
+
+    if wunsch.get("wettkampfdatum"):
+        wochen = wunsch.get("wochen_bis_wettkampf")
+        distanz = wunsch.get("wettkampfdistanz")
+        teile = [f"am {wunsch['wettkampfdatum']}"]
+        if distanz:
+            teile.append(str(distanz))
+        if wochen is not None:
+            teile.append(f"noch {wochen} Wochen")
+        zeilen.append(f"- **Wettkampf**: {' · '.join(teile)}")
+
+    if wunsch.get("wunsch_wochenstunden"):
+        zeilen.append(
+            f"- **Angestrebter Wochenumfang**: {wunsch['wunsch_wochenstunden']} h"
+        )
+
+    if not zeilen:
+        # Ohne Fragebogen wird nichts behauptet — dieselbe Regel wie beim
+        # fehlenden Fitnessblock.
+        return (
+            "## Zielsetzung\nEs liegt **kein** ausgefüllter Fragebogen vor. Richte "
+            "dich allein nach dem geplanten Trainingsblock und dem Profil des "
+            "Athleten und lege dich auf kein Ziel fest, das dort nicht steht."
+        )
+
+    return "## Zielsetzung\n" + "\n".join(zeilen)
+
+
+def build_ernaehrung_prompt(payload: dict[str, Any]) -> str:
+    """Der Prompt für einen Ernährungsblock."""
+    ernaehrung = payload.get("ernaehrung", {})
+    zeitraum = ernaehrung.get("zeitraum", {})
+    # Wie überall: Die Disziplin kommt aus dem Payload und nicht aus der
+    # Signatur — so erben beide Auslöser sie ohne Zutun.
+    disziplin = _disziplin(payload)
+    return ERNAEHRUNG_PROMPT_TEMPLATE.format(
+        # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
+        # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
+        fachgebiet=ERNAEHRUNGS_FACHGEBIET.get(
+            disziplin, ERNAEHRUNGS_FACHGEBIET[DISZIPLIN_FALLBACK]
+        ),
+        ziel=_zielabsatz(payload),
+        datenregeln=_ernaehrung_datenregeln(payload),
+        individualisierung=_individualisierung(
+            ernaehrung.get("persoenliche_hinweise")
+        ),
+        tage=zeitraum.get("tage", ""),
+        start=zeitraum.get("startdatum", ""),
+        ende=zeitraum.get("enddatum", ""),
+        schema=json.dumps(ERNAEHRUNG_RESPONSE_SCHEMA, indent=2, ensure_ascii=False),
+        payload=json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
+
+def ernaehrung_zeitraum(plan: Plan, start_date: date | None, days: int | None) -> tuple[date, int]:
+    """Startdatum und Tageszahl, auf den Trainingsblock begrenzt.
+
+    An **einer** Stelle, weil drei sie brauchen: der Export, die Übernahme und
+    der Endpunkt, der der Oberfläche die Obergrenze nennt. Drei Rechnungen
+    liefen auseinander, und dann plante der Knopf einen anderen Zeitraum, als
+    das Feld daneben anzeigt.
+
+    Weiter zu planen, als der Trainingsblock reicht, hieße für Tage zu decken,
+    deren Belastung niemand kennt — deshalb die Deckelung auf `plan.end_date`.
+    """
+    start = start_date or date.today()
+    # Nie vor dem Blockbeginn: Für die Tage davor gibt es kein geplantes
+    # Training, an dem sich die Deckung ausrichten könnte.
+    start = max(start, plan.beginn)
+    moeglich = (plan.end_date - start).days + 1
+    if moeglich < 1:
+        raise ExportFehler(
+            "Der aktive Trainingsblock endet am "
+            f"{plan.end_date.isoformat()} und deckt den gewünschten Zeitraum "
+            "nicht mehr ab. Plane zuerst den nächsten Trainingsblock."
+        )
+    return start, max(1, min(days or moeglich, moeglich))
+
+
+# Was die Ernährungsaufgabe aus der Trainingshistorie tatsächlich liest.
+#
+# **Positivliste, keine Ausschlussliste**, und das ist die eigentliche
+# Entscheidung: Wer künftig einen Schlüssel an `_history_block()` ergänzt, tut
+# das für die Trainingsplanung — er landet dann nicht ungefragt auch hier. Ein
+# Ausschluss hätte den umgekehrten Verlauf: Jedes neue Feld wäre stillschweigend
+# drin, und der Payload wüchse zurück.
+ERNAEHRUNG_HISTORIE_FELDER = (
+    "zeitraum",
+    # Die Belastungslage, auf der der Athlet steht — die Grundlage für den
+    # Energiebedarf. Verdichtet, weil Sprachmodelle beim Summieren von
+    # Zahlenreihen unzuverlässig sind; dieselbe Begründung wie bei
+    # `fitnessdaten.auffaelligkeiten`.
+    "wochenuebersicht",
+    "letzte_volle_woche",
+    "acute_chronic_workload_ratio",
+    # Bis wann die Daten reichen. Ohne den Schlüssel läse die KI eine Lücke am
+    # Ende als trainingsfreie Tage und deckte sie zu knapp.
+    "datenstand",
+)
+
+
+def _ernaehrungshistorie(historie: dict[str, Any]) -> dict[str, Any]:
+    """Die Historie auf das, was einen Ernährungsplan trägt.
+
+    `trainingshistorie.einheiten` ist die Hälfte des ganzen Payloads — 28
+    Einheiten mit Zonenzeiten, Abschnitten, Trainingseffekt und Aufbautext.
+    Das steht dort für Punkt 12 der Trainingsplanung („fortschreiben statt neu
+    erfinden"): Aus 5x1000 m soll 6x1000 m werden. **Hier wird nichts
+    fortgeschrieben** — der Trainingsblock steht fest und ist Vorgabe, und der
+    Prompt sagt das ausdrücklich. Für die Frage, wie viel Energie ein Athlet
+    braucht, entscheidet der Umfang, und den beschreibt `wochenuebersicht`
+    genauer und kürzer als 28 Einzeleinträge.
+
+    Ebenfalls draußen: `aktueller_plan` (steht als ganzer Block schon unter
+    `ernaehrung.trainingsblock`), die Abstände je Sportart und die
+    Umsetzungsquote — sie entscheiden, *welche* Einheit als nächstes drankommt,
+    und das ist nicht diese Aufgabe.
+
+    Der Fitnessblock bleibt dagegen vollständig: `fitnessdaten.tage` ist die
+    **einzige** Stelle mit dem Gewichtsverlauf — `mittelwerte` führt ihn nicht —,
+    und der Gewichtstrend ist die Kennzahl der Energiebilanz schlechthin.
+    """
+    return {
+        schluessel: historie[schluessel]
+        for schluessel in ERNAEHRUNG_HISTORIE_FELDER
+        if schluessel in historie
+    }
+
+
+def erzeuge_ernaehrung_export(
+    db: Session,
+    user: User,
+    *,
+    plan: Plan,
+    start_date: date | None = None,
+    days: int | None = None,
+    hinweise: str | None = None,
+) -> Export:
+    """Datenpaket und Prompt für einen Ernährungsblock.
+
+    Derselbe Kontext wie bei den beiden anderen Aufgaben — `_lade_kontext()` und
+    `build_payload()` unverändert —, dazu ein Zusatzblock unter `ernaehrung`.
+    Genau der Zuschnitt von `erzeuge_einheit_export()`, und aus demselben Grund:
+    Ein zweiter Lader liefe mit dem ersten neuen Feld auseinander.
+    """
+    start, tage = ernaehrung_zeitraum(plan, start_date, days)
+    ende = start + timedelta(days=tage - 1)
+
+    kontext = _lade_kontext(db, user, plan.request_id)
+
+    payload = build_payload(
+        user=user,
+        profile=user.profile,
+        request=kontext.request,
+        logs=kontext.logs,
+        plan=plan,
+        wellness=kontext.wellness,
+        start_date=start,
+        days=tage,
+        # Hier wird kein Trainingsblock verdrängt: Der Block bleibt, gedeckt
+        # wird er nur. Der Ersatzhinweis behauptete das Gegenteil.
+        ersetzt_block=False,
+        garmin_konto=kontext.garmin,
+        workout_links=kontext.workout_links,
+    )
+    # Aus dem gemeinsamen Payload wird die Historie hier verschmälert. Gebaut
+    # wird sie trotzdem von `build_payload()`: Ein zweiter Weg dorthin liefe mit
+    # dem ersten neuen Feld auseinander, und die Rechenzeit über höchstens 28
+    # Einheiten fällt gegen einen Claude-Lauf nicht ins Gewicht.
+    if "trainingshistorie" in payload:
+        payload["trainingshistorie"] = _ernaehrungshistorie(
+            payload["trainingshistorie"]
+        )
+
+    payload["ernaehrung"] = {
+        "zeitraum": {
+            "startdatum": start.isoformat(),
+            "enddatum": ende.isoformat(),
+            "tage": tage,
+        },
+        "trainingsblock": _planumfeld(plan, ab=start, bis=ende),
+        "persoenliche_hinweise": (hinweise or "").strip() or None,
+    }
+
+    return Export(payload=payload, prompt=build_ernaehrung_prompt(payload))

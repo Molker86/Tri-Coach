@@ -4,6 +4,7 @@ import { Loading } from './components/ui'
 import { useAuth } from './auth/AuthContext'
 import Dashboard from './pages/Dashboard'
 import Einstellungen from './pages/Einstellungen'
+import Ernaehrung from './pages/Ernaehrung'
 import GarminKalender from './pages/GarminKalender'
 import GarminPage from './pages/GarminPage'
 import History from './pages/History'
@@ -42,6 +43,7 @@ export default function App() {
       <Route path="/plan-erzeugen" element={<Protected><PlanExchange /></Protected>} />
       <Route path="/plan" element={<Protected><PlanView /></Protected>} />
       <Route path="/plan/:planId" element={<Protected><PlanView /></Protected>} />
+      <Route path="/ernaehrung" element={<Protected><Ernaehrung /></Protected>} />
       <Route path="/verlauf" element={<Protected><History /></Protected>} />
       <Route path="/profil" element={<Protected><ProfilePage /></Protected>} />
       <Route path="/garmin" element={<Protected><GarminPage /></Protected>} />

@@ -457,11 +457,12 @@ export type KiJobState =
 export interface KiJob {
   id: number
   /**
-   * 'einheit' passt eine einzelne Planeinheit an, 'manual' plant einen ganzen
-   * Block. 'auto' steht nur noch an Läufen von vor dem Wegfall der
-   * automatischen Planung.
+   * 'einheit' passt eine einzelne Planeinheit an, 'ernaehrung' schreibt den
+   * Ernährungsplan zum aktiven Block, 'manual' plant einen ganzen Block.
+   * 'auto' steht nur noch an Läufen von vor dem Wegfall der automatischen
+   * Planung.
    */
-  kind: 'manual' | 'auto' | 'einheit'
+  kind: 'manual' | 'auto' | 'einheit' | 'ernaehrung'
   state: KiJobState
   started_at: string
   finished_at: string | null
@@ -472,6 +473,8 @@ export interface KiJob {
   plan_session_id: number | null
   /** Nur bei kind === 'einheit': der Wunsch im Wortlaut. */
   wunsch: string | null
+  /** Nur bei kind === 'ernaehrung': der entstandene Ernährungsplan. */
+  ernaehrungsplan_id: number | null
   progress_pct: number
   /** Welches Modell tatsächlich geantwortet hat — es gibt keinen stillen Rückfall. */
   model_used: string | null
@@ -527,4 +530,91 @@ export interface EinheitAnpassung {
   garmin: 'uebertragen' | 'entfernt' | 'keine'
   /** Warum dort nichts geschah, sofern es einen Grund gibt, den man kennen muss. */
   garmin_hinweis: string | null
+}
+
+
+/* --------------------------------------------------------------------------
+   Ernährung
+
+   Spiegelt die `Ernaehrungs*Out`-Schemas aus `backend/app/schemas.py`. Es gibt
+   keine Codegenerierung: Ändert sich dort ein Feld, muss es hier mitgezogen
+   werden.
+   -------------------------------------------------------------------------- */
+
+/** Bezug einer Mahlzeit zur Einheit des Tages. */
+export type ErnaehrungsBezug = 'vor' | 'waehrend' | 'nach'
+
+export interface ErnaehrungsMahlzeit {
+  id: number
+  order_in_day: number
+  /** Uhrzeit („06:30") oder Abstand zur Einheit („90 min vor dem Start"). */
+  zeitpunkt: string
+  name: string
+  beschreibung: string | null
+  bezug: ErnaehrungsBezug | null
+  kalorien_kcal: number | null
+  kohlenhydrate_g: number | null
+  protein_g: number | null
+  fett_g: number | null
+}
+
+export interface ErnaehrungsTag {
+  id: number
+  date: string
+  /** Wofür der Tag gedeckt wird, in einem Satz. */
+  trainingshinweis: string | null
+  kalorien_kcal: number | null
+  kohlenhydrate_g: number | null
+  protein_g: number | null
+  fett_g: number | null
+  fluessigkeit_ml: number | null
+  notiz: string | null
+  mahlzeiten: ErnaehrungsMahlzeit[]
+}
+
+export interface ErnaehrungsSupplement {
+  id: number
+  order_index: number
+  name: string
+  dosierung: string | null
+  zeitpunkt: string | null
+  begruendung: string | null
+}
+
+export interface Ernaehrungsplan {
+  id: number
+  /** Der Trainingsblock, aus dem er entstand — ohne Fremdschlüssel. */
+  plan_id: number | null
+  created_at: string
+  start_date: string
+  end_date: string
+  title: string
+  summary: string | null
+  begruendung: string | null
+  tage: ErnaehrungsTag[]
+  supplemente: ErnaehrungsSupplement[]
+}
+
+export interface ErnaehrungsImportResult {
+  plan: Ernaehrungsplan
+  warnings: string[]
+}
+
+/** Woran sich die Tageszahl bemisst — kommt fertig gerechnet aus dem Server. */
+export interface ErnaehrungsSpielraum {
+  hat_trainingsblock: boolean
+  start_date: string
+  max_tage: number
+  vorgabe_tage: number
+  block_titel: string | null
+  block_start: string | null
+  block_ende: string | null
+  /** Warum nicht (mehr) geplant werden kann. */
+  hinweis: string | null
+}
+
+/** Der dauerhafte Freitext aus „Ernährungsplan individualisieren". */
+export interface ErnaehrungsProfil {
+  hinweise: string | null
+  updated_at: string | null
 }

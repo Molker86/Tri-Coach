@@ -806,6 +806,147 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 }
 
 /* ==========================================================================
+   Ernährungsplan — Mo–So als Spalten
+
+   Dieselbe Technik wie der Kalender darüber: **ein** Markup für zwei Größen,
+   am Schreibtisch sieben Spalten, am Telefon eine Tagesliste. Eigene Klassen
+   statt der `.kalender-*` trotzdem — dort ist die Zelle eine Chipliste fester
+   Höhe aus einer fremden Gegenstelle, hier eine Mahlzeitenliste, die so lang
+   wird wie der Tag. Geteilte Klassen hießen, dass eine Änderung am Kalender
+   still den Ernährungsplan mitzieht.
+   ========================================================================== */
+
+/* Datums- und Tagesfeld neben dem Planungsknopf: beschriftet, aber schmal —
+   sie stehen in derselben Zeile wie die Knöpfe und sollen sie nicht umbrechen. */
+.ern-feld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ern-feld input { width: 9rem; }
+.ern-feld input[type='number'] { width: 5.5rem; }
+
+.ern-kopf {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ern-raster {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.ern-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 120px;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.ern-fueller { border: none; background: none; min-height: 0; }
+.ern-tag.is-leer { background: var(--surface-2); }
+.ern-tag.is-heute { border-color: var(--accent); background: var(--accent-soft); }
+
+.ern-tag-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.ern-tag-zahl {
+  font-size: 0.82rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Am Schreibtisch steht der Wochentag über der Spalte. */
+.ern-tag-name { display: none; font-size: 0.78rem; color: var(--text-muted); }
+
+.ern-training {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.ern-summen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ern-summen b { color: var(--text); font-weight: 650; }
+
+.ern-mahlzeit {
+  border-left: 3px solid var(--border-strong);
+  padding: 0.1rem 0 0.1rem 0.45rem;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+/* Was an der Einheit hängt, hebt sich ab — das ist der Teil, dessen Zeitpunkt
+   der Athlet nicht verschieben darf. */
+.ern-mahlzeit.bezug-vor { border-left-color: var(--accent); }
+.ern-mahlzeit.bezug-waehrend { border-left-color: var(--warning, var(--accent)); }
+.ern-mahlzeit.bezug-nach { border-left-color: var(--success); }
+
+.ern-mahlzeit-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.ern-mahlzeit-zeit {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.ern-mahlzeit-name { color: var(--text-muted); }
+.ern-mahlzeit-text { color: var(--text); }
+
+.ern-mahlzeit-makros {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ern-notiz {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 700px) {
+  /* Sieben Spalten sind auf einem Telefon weder lesbar noch treffsicher.
+     Übrig bleiben die Tage, für die etwas geplant ist. */
+  .ern-kopf { display: none; }
+  .ern-raster { grid-template-columns: 1fr; gap: 0.5rem; }
+  .ern-fueller, .ern-tag.is-leer { display: none; }
+  .ern-tag { min-height: 0; padding: 0.7rem; }
+  .ern-tag-name { display: inline; }
+  .ern-mahlzeit { font-size: 0.88rem; }
+  .ern-summen, .ern-training { font-size: 0.8rem; }
+}
+
+/* ==========================================================================
    Badges und Hinweise
    ========================================================================== */
 
@@ -1230,7 +1371,7 @@ textarea.paste-area {
     bottom: 0;
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     background: var(--surface);
     border-top: 1px solid var(--border);
     padding-bottom: env(safe-area-inset-bottom);
@@ -1244,11 +1385,13 @@ textarea.paste-area {
     justify-content: center;
     gap: 0.2rem;
     min-height: 56px;
-    padding: 0.5rem 0.15rem;
+    padding: 0.5rem 0.1rem;
     background: none;
     border: none;
     font: inherit;
-    font-size: 0.68rem;
+    /* Sechs Spalten statt fünf, seit „Ernährung" dazugekommen ist: Auf 360 px
+       bleiben 60 px je Reiter, und „Übersicht" ist die längste Beschriftung. */
+    font-size: 0.62rem;
     font-weight: 600;
     letter-spacing: 0.01em;
     color: var(--text-faint);

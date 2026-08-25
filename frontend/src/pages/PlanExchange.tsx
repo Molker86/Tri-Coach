@@ -77,7 +77,14 @@ export default function PlanExchange() {
       .kiStatus()
       .then((status) => {
         setKiStatus(status)
-        if (status.aktiver_job) beobachte(status.aktiver_job)
+        // Nur die Blockplanung, nicht jeder Lauf: Es gibt genau **einen**
+        // aktiven KI-Lauf für alle Aufgaben. Ein Ernährungslauf trägt am Ende
+        // kein `plan_id`, fiele hier also in den Fehlerzweig — und seine
+        // Erfolgsmeldung stünde als Fehler über dem Trainingsplan.
+        const art = status.aktiver_job?.kind
+        if (status.aktiver_job && (art === 'manual' || art === 'auto')) {
+          beobachte(status.aktiver_job)
+        }
       })
       .catch(() => setKiStatus(null))
     // Der Block wird aus dem gebaut, was aus der Uhr da ist. Ist der letzte

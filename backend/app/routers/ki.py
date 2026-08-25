@@ -7,16 +7,18 @@ from ..config import KI_EFFORT, KI_MODELL
 from ..crypto import verschluessle
 from ..deps import CurrentUser, DbSession
 from ..ki.client import ist_angemeldet, token_aus
-from ..ki.runner import EINHEIT, ENDZUSTAENDE, runner
+from ..ki.runner import EINHEIT, ENDZUSTAENDE, ERNAEHRUNG, runner
 from ..models import KiJob, KiSettings, TrainingRequest
 from ..schemas import (
     KiEinheitIn,
+    KiErnaehrungIn,
     KiJobOut,
     KiPlanenIn,
     KiSettingsIn,
     KiSettingsOut,
     KiStatusOut,
 )
+from .ernaehrung import pruefe_zeitraum
 from .plans import anpassbare_einheit
 
 router = APIRouter(prefix="/api/ki", tags=["ki"])
@@ -215,4 +217,25 @@ def passe_einheit_an(data: KiEinheitIn, user: CurrentUser, db: DbSession) -> KiJ
         plan_session_id=session.id,
         wunsch=data.wunsch,
     )
+    return db.get(KiJob, job_id)
+
+
+@router.post(
+    "/ernaehrung", response_model=KiJobOut, status_code=status.HTTP_202_ACCEPTED
+)
+def plane_ernaehrung(
+    data: KiErnaehrungIn, user: CurrentUser, db: DbSession
+) -> KiJob:
+    """Lässt Claude den Ernährungsplan zum aktiven Trainingsblock schreiben.
+
+    Steht hier und nicht im Ernährungsrouter — genau wie `POST /einheit`: An
+    dieser Stelle stehen `_pruefe_startbar()` und der Runner, und der Riegel „es
+    läuft schon ein Lauf" gilt für alle Jobarten gleich. Die inhaltliche Grenze
+    kommt umgekehrt von dort (`pruefe_zeitraum`), damit Knopf und Zwischenablage
+    denselben Zeitraum zulassen.
+    """
+    _pruefe_startbar(_einstellungen(db, user.id))
+    _, start, tage = pruefe_zeitraum(db, user.id, data.start_date, data.days)
+
+    job_id = runner.starte(user.id, ERNAEHRUNG, start_date=start, days=tage)
     return db.get(KiJob, job_id)

@@ -4,14 +4,21 @@ import { useAuth } from '../auth/AuthContext'
 
 /** Die Kopfleiste am Schreibtisch.
  *
- * Sieben Einträge ist die Obergrenze — ein achter drückt die Leiste auf zwei
- * Zeilen. „Training erfassen" ist entfallen, weil es keine Handeingabe mehr
- * gibt: Absolvierte Einheiten kommen ausschließlich über den Garmin-Abgleich.
+ * Die Grenze ist die **Breite**, nicht die Zahl: `.nav` bricht um, sobald die
+ * Beschriftungen nicht mehr nebeneinander passen. Mit „Ernährung" wären es
+ * acht Einträge geworden, deshalb sind zwei Labels kürzer — „Trainingsplan"
+ * heißt am Telefon ohnehin schon „Plan", und „Fragebogen" trifft besser, was
+ * die Seite tut. Zusammen sind die acht Beschriftungen kürzer als die sieben
+ * davor.
+ *
+ * „Training erfassen" ist entfallen, weil es keine Handeingabe mehr gibt:
+ * Absolvierte Einheiten kommen ausschließlich über den Garmin-Abgleich.
  */
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Übersicht' },
-  { to: '/plan', label: 'Trainingsplan' },
-  { to: '/neues-training', label: 'Neues Training' },
+  { to: '/plan', label: 'Plan' },
+  { to: '/ernaehrung', label: 'Ernährung' },
+  { to: '/neues-training', label: 'Fragebogen' },
   { to: '/verlauf', label: 'Verlauf' },
   { to: '/garmin', label: 'Garmin' },
   { to: '/profil', label: 'Meine Daten' },
@@ -20,15 +27,19 @@ const NAV_ITEMS = [
 
 /** Was am Telefon unten in die Leiste kommt.
  *
- * Sieben gleichwertige Reiter nebeneinander sind auf einem Telefon weder
- * lesbar noch treffsicher. Unten stehen deshalb nur die vier Wege des
- * Trainingsalltags — nachsehen, was ansteht, und nachsehen, was war. Den Platz
- * des früheren „Erfassen" nimmt Garmin ein: Von dort kommen die absolvierten
- * Einheiten, also gehört der Abgleich in den Alltag und nicht hinter „Mehr“.
+ * Acht gleichwertige Reiter nebeneinander sind auf einem Telefon weder lesbar
+ * noch treffsicher. Unten stehen deshalb nur die Wege des Trainingsalltags —
+ * nachsehen, was ansteht, was zu essen ist und was war. Den Platz des früheren
+ * „Erfassen" nimmt Garmin ein: Von dort kommen die absolvierten Einheiten,
+ * also gehört der Abgleich in den Alltag und nicht hinter „Mehr“.
+ *
+ * „Ernährung" steht bewusst zwischen Plan und Garmin: Es ist die Antwort auf
+ * denselben Tag, den der Plan vorgibt, und wird zusammen mit ihm gelesen.
  */
 const MOBILE_PRIMARY = [
   { to: '/dashboard', label: 'Übersicht', icon: IconHome },
   { to: '/plan', label: 'Plan', icon: IconCalendar },
+  { to: '/ernaehrung', label: 'Ernährung', icon: IconApfel },
   { to: '/garmin', label: 'Garmin', icon: IconWatch },
   { to: '/verlauf', label: 'Verlauf', icon: IconChart },
 ]
@@ -36,7 +47,7 @@ const MOBILE_PRIMARY = [
 /** Und was dahinter liegt.
  *
  * „Einstellungen" gehört bewusst hierher und nicht nach unten: Die untere
- * Leiste steht im CSS auf fünf Spalten (vier Wege plus „Mehr"), ein fünfter
+ * Leiste steht im CSS auf sechs Spalten (fünf Wege plus „Mehr"), ein sechster
  * Weg spränge sie. Und sie ist eine Seite, die man einmal einrichtet und
  * danach selten wieder öffnet.
  */
@@ -197,6 +208,15 @@ function IconChart() {
     <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 19.5V4M4 19.5h16" />
       <path d="m7.5 15 3.5-4.5 3 2.5L19 7" />
+    </svg>
+  )
+}
+
+function IconApfel() {
+  return (
+    <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 8.6c-1.6-1.5-4.3-1.7-5.9.3-1.7 2.1-1.4 5.7.6 8.5 1 1.4 2.3 2.3 3.4 2.3.8 0 1.3-.3 1.9-.3s1.1.3 1.9.3c1.1 0 2.4-.9 3.4-2.3 2-2.8 2.3-6.4.6-8.5-1.6-2-4.3-1.8-5.9-.3Z" />
+      <path d="M12 8.6V5.3M12 5.3c2 0 3.3-1.1 3.5-2.8-2-.2-3.3 1-3.5 2.8Z" />
     </svg>
   )
 }

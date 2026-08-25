@@ -1057,6 +1057,8 @@ class KiJobOut(BaseModel):
     # Anpassungslauf einer bestimmten Einheit zuordnen will.
     plan_session_id: int | None = None
     wunsch: str | None = None
+    # Nur bei `kind == "ernaehrung"`: der entstandene Ernährungsplan.
+    ernaehrungsplan_id: int | None = None
     progress_pct: int
     model_used: str | None = None
     cost_usd: float | None = None
@@ -1147,6 +1149,18 @@ class KiEinheitIn(BaseModel):
     wunsch: Wunsch
 
 
+class KiErnaehrungIn(BaseModel):
+    """Einen Ernährungsplan zum aktiven Trainingsblock schreiben lassen.
+
+    `days` bleibt offen: Die Obergrenze hängt am Trainingsblock und wird im
+    Router geprüft (`ernaehrung.pruefe_zeitraum`) — hier stünde sie als zweite,
+    unabhängige Zahl daneben und liefe irgendwann davon weg.
+    """
+
+    start_date: date | None = None
+    days: int | None = Field(None, ge=1, le=31)
+
+
 class EinheitAnpassenIn(BaseModel):
     """Der Handweg: die Antwort der KI zu einer Einheit, eingefügt.
 
@@ -1171,3 +1185,196 @@ class EinheitAnpassungOut(BaseModel):
     # und der Grund, falls nichts geschah.
     garmin: str = "keine"
     garmin_hinweis: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Ernährung
+#
+# Dieselbe Aufteilung wie beim Plan: `AI*In` liest die Antwort der KI (tolerant,
+# `extra="ignore"`), die `*Out` geben die gespeicherten Daten an die Oberfläche.
+# --------------------------------------------------------------------------
+
+# Der Bezug einer Mahlzeit zur Einheit des Tages. Wie überall im Import gilt:
+# Was nicht zu deuten ist, fällt weg statt den Block zu kippen — ein falscher
+# Bezug wäre schlechter als keiner.
+BEZUG_ALIASES = {
+    "vor": "vor", "pre": "vor", "before": "vor", "davor": "vor",
+    "vorher": "vor", "pre_workout": "vor", "pre-workout": "vor",
+    "waehrend": "waehrend", "während": "waehrend", "during": "waehrend",
+    "intra": "waehrend", "intra_workout": "waehrend",
+    "nach": "nach", "post": "nach", "after": "nach", "danach": "nach",
+    "post_workout": "nach", "post-workout": "nach", "recovery": "nach",
+}
+
+
+def normalize_bezug(wert: str | None) -> str | None:
+    if not wert:
+        return None
+    return BEZUG_ALIASES.get(str(wert).strip().lower().replace(" ", "_"))
+
+
+class AIMahlzeitIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    zeitpunkt: str = ""
+    name: str = ""
+    beschreibung: str | None = None
+    bezug: str | None = None
+
+    kalorien_kcal: int | None = Field(None, ge=0, le=10000)
+    kohlenhydrate_g: int | None = Field(None, ge=0, le=2000)
+    protein_g: int | None = Field(None, ge=0, le=1000)
+    fett_g: int | None = Field(None, ge=0, le=1000)
+
+    @field_validator("bezug", mode="before")
+    @classmethod
+    def _norm_bezug(cls, v: Any) -> str | None:
+        return normalize_bezug(v if isinstance(v, str) else None)
+
+
+class AIErnaehrungsTagIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    datum: date
+    trainingshinweis: str | None = None
+
+    kalorien_kcal: int | None = Field(None, ge=0, le=20000)
+    kohlenhydrate_g: int | None = Field(None, ge=0, le=3000)
+    protein_g: int | None = Field(None, ge=0, le=1000)
+    fett_g: int | None = Field(None, ge=0, le=1000)
+    fluessigkeit_ml: int | None = Field(None, ge=0, le=20000)
+
+    notiz: str | None = None
+    mahlzeiten: list[AIMahlzeitIn] = []
+
+
+class AISupplementIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    dosierung: str | None = None
+    zeitpunkt: str | None = None
+    begruendung: str | None = None
+
+
+class AIErnaehrungBody(BaseModel):
+    """Der Ernährungsblock, wie ihn die KI liefert."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    titel: str = "Ernährungsplan"
+    ausrichtung: str | None = None
+    begruendung: str | None = None
+    tage: list[AIErnaehrungsTagIn] = []
+    supplemente: list[AISupplementIn] = []
+
+
+class AIErnaehrungImport(BaseModel):
+    """Wurzelobjekt. Toleriert die Hülle wie das flache Objekt."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: str | None = None
+    ernaehrungsplan: AIErnaehrungBody
+
+
+class ErnaehrungImportIn(BaseModel):
+    raw: str  # der eingefügte JSON-Text
+    start_date: date | None = None
+    # Wie viele Tage beim Export angefordert wurden — nur für die Prüfmeldungen.
+    days: int | None = Field(None, ge=1, le=31)
+
+
+class ErnaehrungsMahlzeitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_in_day: int
+    zeitpunkt: str
+    name: str
+    beschreibung: str | None = None
+    bezug: str | None = None
+    kalorien_kcal: int | None = None
+    kohlenhydrate_g: int | None = None
+    protein_g: int | None = None
+    fett_g: int | None = None
+
+
+class ErnaehrungsTagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    date: date
+    trainingshinweis: str | None = None
+    kalorien_kcal: int | None = None
+    kohlenhydrate_g: int | None = None
+    protein_g: int | None = None
+    fett_g: int | None = None
+    fluessigkeit_ml: int | None = None
+    notiz: str | None = None
+    mahlzeiten: list[ErnaehrungsMahlzeitOut] = []
+
+
+class ErnaehrungsSupplementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_index: int
+    name: str
+    dosierung: str | None = None
+    zeitpunkt: str | None = None
+    begruendung: str | None = None
+
+
+class ErnaehrungsplanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    plan_id: int | None = None
+    created_at: UtcDatetime
+    start_date: date
+    end_date: date
+    title: str
+    summary: str | None = None
+    begruendung: str | None = None
+    tage: list[ErnaehrungsTagOut] = []
+    supplemente: list[ErnaehrungsSupplementOut] = []
+
+
+class ErnaehrungsImportOut(BaseModel):
+    plan: ErnaehrungsplanOut
+    warnings: list[str] = []
+
+
+class ErnaehrungsSpielraumOut(BaseModel):
+    """Woran sich die Tageszahl auf der Ernährungsseite bemisst.
+
+    `max_tage` ist die Zahl der Tage, die der aktive Trainingsblock ab
+    `start_date` noch abdeckt — und zugleich die Vorgabe. Weiter zu planen als
+    der Trainingsblock reicht hieße, für Tage zu decken, deren Belastung
+    niemand kennt.
+    """
+
+    hat_trainingsblock: bool
+    start_date: date
+    max_tage: int
+    vorgabe_tage: int
+    block_titel: str | None = None
+    block_start: date | None = None
+    block_ende: date | None = None
+    # Warum nicht (mehr) geplant werden kann — sonst stünde die Seite ohne ein
+    # Wort da, und der Athlet suchte den Fehler bei sich.
+    hinweis: str | None = None
+
+
+class ErnaehrungsProfilOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    hinweise: str | None = None
+    updated_at: UtcDatetime | None = None
+
+
+class ErnaehrungsProfilIn(BaseModel):
+    """Der Freitext aus „individualisieren". Leer heißt: löschen."""
+
+    hinweise: str = Field("", max_length=4000)

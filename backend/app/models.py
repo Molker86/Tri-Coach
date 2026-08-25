@@ -704,8 +704,8 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # manual | einheit — „auto" steht nur noch an Läufen aus der Zeit vor dem
-    # Wegfall der Automatik.
+    # manual | einheit | ernaehrung — „auto" steht nur noch an Läufen aus der
+    # Zeit vor dem Wegfall der Automatik.
     kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
     # queued | running | done | failed | cancelled | interrupted
@@ -725,6 +725,11 @@ class KiJob(Base):
     wunsch: Mapped[str | None] = mapped_column(Text)
 
     plan_id: Mapped[int | None] = mapped_column(Integer)
+    # Nur bei `kind == "ernaehrung"` belegt: der entstandene Ernährungsplan.
+    # Eine eigene Spalte und nicht `plan_id`: Das Frontend springt nach einem
+    # geglückten Lauf auf `/plan/{plan_id}`, und dort läge dann die Kennung
+    # eines Ernährungsplans — ein Trainingsblock, den es nicht gibt.
+    ernaehrungsplan_id: Mapped[int | None] = mapped_column(Integer)
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
 
     # Welches Modell tatsächlich geantwortet hat. Steht hier, weil kein stiller
@@ -738,3 +743,161 @@ class KiJob(Base):
 
     message: Mapped[str | None] = mapped_column(Text)  # deutscher Klartext
     error: Mapped[str | None] = mapped_column(Text)
+
+
+# --------------------------------------------------------------------------
+# Ernährung
+#
+# Zweistufig wie `Plan`/`PlanSession`, aus demselben Grund: Die Ansicht zeigt
+# Tage nebeneinander und darin, was wann gegessen wird. Ein JSON-Klumpen am
+# Plan wäre schneller geschrieben und ließe sich weder sortieren noch je Tag
+# nachschlagen.
+# --------------------------------------------------------------------------
+
+
+class Ernaehrungsplan(Base):
+    """Ein Ernährungsblock über dieselben Tage, die der Trainingsblock abdeckt.
+
+    Es gibt je Nutzer **höchstens einen**. Ein neuer übernimmt die Tage seines
+    Vorgängers, die vor seinem eigenen Beginn liegen, und löscht ihn danach —
+    dieselbe Überlegung wie beim Trainingsblock (`uebernimm_vergangenheit`):
+    Wer morgen neu plant, soll heute nicht verlieren. Damit braucht die Ansicht
+    keine Liste früherer Pläne, und ein `is_active` gäbe es nichts zu
+    unterscheiden.
+    """
+
+    __tablename__ = "ernaehrungsplaene"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    # Der Trainingsblock, aus dem er entstanden ist — ohne Fremdschlüssel, wie
+    # `KiJob.plan_id`: Der Block darf gelöscht werden, ohne den Ernährungsplan
+    # mitzunehmen. Was er beschreibt, steht in seinen eigenen Tagen.
+    plan_id: Mapped[int | None] = mapped_column(Integer)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+
+    title: Mapped[str] = mapped_column(String(255))
+    summary: Mapped[str | None] = mapped_column(Text)
+    begruendung: Mapped[str | None] = mapped_column(Text)
+
+    # Die ursprüngliche KI-Antwort, wie bei `Plan.raw_json`.
+    raw_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    tage: Mapped[list["ErnaehrungsTag"]] = relationship(
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        order_by="ErnaehrungsTag.date",
+    )
+    supplemente: Mapped[list["ErnaehrungsSupplement"]] = relationship(
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        order_by="ErnaehrungsSupplement.order_index",
+    )
+
+
+class ErnaehrungsTag(Base):
+    """Ein Tag des Ernährungsblocks: Tagessummen und was daran ansteht."""
+
+    __tablename__ = "ernaehrungs_tage"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ernaehrungsplan_id: Mapped[int] = mapped_column(
+        ForeignKey("ernaehrungsplaene.id"), index=True
+    )
+    date: Mapped[date] = mapped_column(Date, index=True)
+
+    # Wofür der Tag gedeckt wird, in einem Satz („Schlüsseleinheit: 90 min Rad
+    # Z4"). Steht hier und nicht nur im Trainingsplan, damit die Ansicht ohne
+    # eine zweite Abfrage erklärt, warum an dem Tag mehr auf dem Teller liegt.
+    trainingshinweis: Mapped[str | None] = mapped_column(Text)
+
+    kalorien_kcal: Mapped[int | None] = mapped_column(Integer)
+    kohlenhydrate_g: Mapped[int | None] = mapped_column(Integer)
+    protein_g: Mapped[int | None] = mapped_column(Integer)
+    fett_g: Mapped[int | None] = mapped_column(Integer)
+    fluessigkeit_ml: Mapped[int | None] = mapped_column(Integer)
+
+    notiz: Mapped[str | None] = mapped_column(Text)
+
+    plan: Mapped[Ernaehrungsplan] = relationship(back_populates="tage")
+    mahlzeiten: Mapped[list["ErnaehrungsMahlzeit"]] = relationship(
+        back_populates="tag",
+        cascade="all, delete-orphan",
+        order_by="ErnaehrungsMahlzeit.order_in_day",
+    )
+
+
+class ErnaehrungsMahlzeit(Base):
+    """Eine Mahlzeit: wann, was und wofür."""
+
+    __tablename__ = "ernaehrungs_mahlzeiten"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("ernaehrungs_tage.id"), index=True)
+    order_in_day: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Als Text und nicht als Uhrzeit: Die Hälfte der Angaben ist relativ zur
+    # Einheit („90 min vor dem Start"), und eine feste Uhrzeit dafür wäre
+    # erfunden — die Einheit hat selbst keine.
+    zeitpunkt: Mapped[str] = mapped_column(String(48), default="")
+    name: Mapped[str] = mapped_column(String(120), default="")
+    beschreibung: Mapped[str | None] = mapped_column(Text)
+
+    # vor | waehrend | nach — der Bezug zur Trainingseinheit des Tages, sofern
+    # es einen gibt. Ein Frühstück an einem Ruhetag hat keinen.
+    bezug: Mapped[str | None] = mapped_column(String(16))
+
+    kalorien_kcal: Mapped[int | None] = mapped_column(Integer)
+    kohlenhydrate_g: Mapped[int | None] = mapped_column(Integer)
+    protein_g: Mapped[int | None] = mapped_column(Integer)
+    fett_g: Mapped[int | None] = mapped_column(Integer)
+
+    tag: Mapped[ErnaehrungsTag] = relationship(back_populates="mahlzeiten")
+
+
+class ErnaehrungsSupplement(Base):
+    """Ein Nahrungsergänzungsmittel mit Dosierung, Zeitpunkt und Begründung.
+
+    Am Plan und nicht am Tag: Das meiste läuft durchgehend (Kreatin, Vitamin D);
+    was an einen Tag gebunden ist, sagt `zeitpunkt` im Wortlaut.
+    """
+
+    __tablename__ = "ernaehrungs_supplemente"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ernaehrungsplan_id: Mapped[int] = mapped_column(
+        ForeignKey("ernaehrungsplaene.id"), index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    name: Mapped[str] = mapped_column(String(120))
+    dosierung: Mapped[str | None] = mapped_column(String(120))
+    zeitpunkt: Mapped[str | None] = mapped_column(String(160))
+    begruendung: Mapped[str | None] = mapped_column(Text)
+
+    plan: Mapped[Ernaehrungsplan] = relationship(back_populates="supplemente")
+
+
+class ErnaehrungsProfil(Base):
+    """Was den Athleten dauerhaft einschränkt — eine Zeile je Nutzer.
+
+    Eigene Tabelle und keine Spalte an `AthleteProfile`: Der Text überlebt jeden
+    Plan und gehört der Ernährungsseite. Am Profil liefe er durch dessen
+    Teil-Update-Pfad (`exclude_unset`), den das Profilformular bedient, ohne das
+    Feld zu kennen. Dieselbe Trennung wie bei `KiSettings`.
+
+    Und er überlebt ausdrücklich auch das **Löschen** eines Ernährungsplans:
+    Eine Laktoseintoleranz endet nicht, weil ein Block weg ist.
+    """
+
+    __tablename__ = "ernaehrungs_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+
+    hinweise: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

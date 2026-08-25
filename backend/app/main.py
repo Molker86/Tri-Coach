@@ -14,7 +14,16 @@ from .database import init_db
 from .garmin.automatik import automatik_schleife
 from .garmin.runner import markiere_unterbrochene_jobs
 from .ki.runner import runner as ki_runner
-from .routers import auth, garmin, ki, logs, plans, profile, questionnaire
+from .routers import (
+    auth,
+    ernaehrung,
+    garmin,
+    ki,
+    logs,
+    plans,
+    profile,
+    questionnaire,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +76,7 @@ app.include_router(plans.router)
 app.include_router(logs.router)
 app.include_router(garmin.router)
 app.include_router(ki.router)
+app.include_router(ernaehrung.router)
 
 
 @app.get("/api/health")

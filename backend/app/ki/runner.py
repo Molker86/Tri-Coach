@@ -32,6 +32,17 @@ ENDZUSTAENDE = frozenset({"done", "failed", "cancelled", "interrupted"})
 # falschen Lauf startete.
 EINHEIT = "einheit"
 
+# Die Jobart, die den Ernährungsplan zum aktiven Trainingsblock schreibt.
+ERNAEHRUNG = "ernaehrung"
+
+# Womit ein Lauf startet. Als Tabelle statt als Kette von Bedingungen: Beim
+# dritten Fall wurde der Ausdruck unlesbar.
+_STARTMELDUNG = {
+    EINHEIT: "Die Anpassung wird vorbereitet …",
+    ERNAEHRUNG: "Der Ernährungsplan wird vorbereitet …",
+}
+_STARTMELDUNG_VORGABE = "Der Planungslauf wird vorbereitet …"
+
 # Ob Läufe in einen eigenen Thread abgegeben werden. Die Tests stellen das ab
 # und lassen synchron laufen — sonst müsste jeder Test den Fortschritt abfragen
 # und wäre von der Zeit abhängig.
@@ -94,11 +105,7 @@ class KiRunner:
                 days=days,
                 plan_session_id=plan_session_id,
                 wunsch=wunsch,
-                message=(
-                    "Die Anpassung wird vorbereitet …"
-                    if kind == EINHEIT
-                    else "Der Planungslauf wird vorbereitet …"
-                ),
+                message=_STARTMELDUNG.get(kind, _STARTMELDUNG_VORGABE),
             )
             db.add(job)
             db.commit()
@@ -147,7 +154,13 @@ class KiRunner:
         try:
             if job.kind == EINHEIT:
                 self._einheit_lauf(db, job, user, einstellungen)
+            elif job.kind == ERNAEHRUNG:
+                self._ernaehrung_lauf(db, job, user, einstellungen)
             else:
+                # Der Auffangfall ist die Blockplanung („manual" und das alte
+                # „auto"). Eine neue Jobart gehört deshalb **davor** als `elif`
+                # — hier hineinzufallen hieße, still einen Trainingsblock zu
+                # planen, den niemand bestellt hat.
                 self._block_lauf(db, job, user, einstellungen)
             _setze_status(einstellungen, "ready", None)
             db.commit()
@@ -259,6 +272,70 @@ class KiRunner:
         garmin, hinweis = automatik.uebertrage_geaenderte_einheit(db, user.id, session)
         _fertig(job, _einheit_meldung(ergebnis, garmin, hinweis))
 
+    def _ernaehrung_lauf(
+        self, db, job: KiJob, user: User, einstellungen: KiSettings
+    ) -> None:
+        """Der Ernährungsplan zum aktiven Trainingsblock.
+
+        Derselbe Ablauf wie beim Block, nur mit einem anderen Export und einem
+        anderen Parser — und **ohne Nachlauf**: Ein Ernährungsplan geht nirgends
+        hin, er steht in der App. Auf die Uhr kommt er nicht.
+        """
+        from .. import ai_export, ernaehrung_import
+        from ..models import Plan
+
+        # Ob überhaupt geplant werden darf, hat der Endpunkt geprüft
+        # (`routers.ernaehrung.pruefe_zeitraum`) — hier bleibt die Frage, ob es
+        # den Block noch gibt: Zwischen dem Knopfdruck und diesem Punkt liegen
+        # Minuten, in denen er gelöscht worden sein kann. Dieselbe Vorsicht wie
+        # bei `_EinheitFehlt`.
+        plan = (
+            db.query(Plan)
+            .filter(Plan.user_id == user.id, Plan.is_active.is_(True))
+            .order_by(Plan.created_at.desc())
+            .first()
+        )
+        if plan is None:
+            raise _TrainingsplanFehlt()
+
+        profil = ernaehrung_import.profil_hinweise(db, user.id)
+
+        try:
+            export = ai_export.erzeuge_ernaehrung_export(
+                db,
+                user,
+                plan=plan,
+                start_date=job.start_date,
+                days=job.days,
+                hinweise=profil,
+            )
+        except ai_export.ExportFehler as exc:
+            raise _TrainingsplanFehlt(str(exc)) from exc
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            export.prompt,
+            "Claude stellt den Ernährungsplan zusammen — das dauert einige "
+            "Minuten …",
+        )
+
+        job.message = "Die Antwort wird geprüft und übernommen …"
+        db.commit()
+
+        ergebnis = ernaehrung_import.uebernimm_ernaehrungsplan(
+            db,
+            user.id,
+            antwort.text,
+            trainingsplan=plan,
+            start_date=job.start_date,
+            days=job.days,
+        )
+
+        job.ernaehrungsplan_id = ergebnis.plan.id
+        _fertig(job, _ernaehrung_meldung(ergebnis, antwort.modell))
+
     def _frage_claude(
         self,
         db,
@@ -337,6 +414,19 @@ class _EinheitFehlt(Exception):
     )
 
 
+class _TrainingsplanFehlt(Exception):
+    """Ohne aktiven Trainingsblock gibt es nichts zu decken."""
+
+    vorgabe = (
+        "Es liegt kein aktiver Trainingsplan mehr vor. Ein Ernährungsplan "
+        "richtet sich nach dem geplanten Training — plane zuerst einen Block."
+    )
+
+    def __init__(self, meldung: str | None = None) -> None:
+        self.meldung = meldung or self.vorgabe
+        super().__init__(self.meldung)
+
+
 def _einstellungen(db, user_id: int) -> KiSettings:
     """Die Einstellungen des Nutzers, notfalls frisch angelegt.
 
@@ -371,7 +461,7 @@ def _notiere_fehler(job: KiJob, einstellungen: KiSettings, exc: Exception) -> No
         status = "rate_limited"
     elif isinstance(exc, KiFehler):
         status = "error"
-    elif isinstance(exc, _EinheitFehlt):
+    elif isinstance(exc, (_EinheitFehlt, _TrainingsplanFehlt)):
         # Am Zugang zur KI liegt es nicht: Sie hat sauber geantwortet, nur ist
         # der Empfänger der Antwort verschwunden. Den Status stehen zu lassen
         # ist hier richtig — sonst stünde an jedem Knopf der App eine Warnung
@@ -417,6 +507,22 @@ def _einheit_meldung(ergebnis, garmin: str, hinweis: str | None) -> str:
     if ergebnis.warnings:
         teile.append("Hinweis: " + " ".join(ergebnis.warnings[:2]))
     return " ".join(teile)
+
+
+def _ernaehrung_meldung(ergebnis, modell: str | None) -> str:
+    tage = len(ergebnis.plan.tage)
+    mahlzeiten = sum(len(tag.mahlzeiten) for tag in ergebnis.plan.tage)
+    meldung = (
+        f"Ernährungsplan übernommen: {tage} Tag(e), {mahlzeiten} Mahlzeiten"
+    )
+    if modell:
+        meldung += f" (geschrieben von {modell})"
+    meldung += "."
+    if ergebnis.plan.supplemente:
+        meldung += f" Dazu {len(ergebnis.plan.supplemente)} Supplement(e)."
+    if ergebnis.warnings:
+        meldung += " Hinweis: " + " ".join(ergebnis.warnings[:3])
+    return meldung
 
 
 def _erfolgsmeldung(ergebnis, modell: str | None) -> str:

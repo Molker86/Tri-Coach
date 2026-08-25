@@ -2,6 +2,10 @@ import type {
   AiExport,
   AuthResponse,
   EinheitAnpassung,
+  Ernaehrungsplan,
+  ErnaehrungsImportResult,
+  ErnaehrungsProfil,
+  ErnaehrungsSpielraum,
   GarminConnectResult,
   GarminDublette,
   GarminEinheitStatus,
@@ -309,6 +313,49 @@ export const api = {
     request<EinheitAnpassung>(`/plans/sessions/${planSessionId}/anpassen`, {
       method: 'POST',
       body: { raw, wunsch },
+    }),
+
+  // Ernährung — dieselbe Job-Maschinerie wie beim Block (`kiJob`,
+  // `kiAbbrechen` gelten mit), eigene Tabellen dahinter.
+  kiErnaehrung: (startDate?: string, days?: number) =>
+    request<KiJob>('/ki/ernaehrung', {
+      method: 'POST',
+      body: { start_date: startDate ?? null, days: days ?? null },
+    }),
+  /** Woran sich die Tageszahl bemisst — gerechnet im Server, nicht hier. */
+  ernaehrungSpielraum: (startDate?: string) =>
+    request<ErnaehrungsSpielraum>(
+      `/ernaehrung/spielraum${startDate ? `?start_date=${startDate}` : ''}`,
+    ),
+  ernaehrungAktiv: () => request<Ernaehrungsplan | null>('/ernaehrung/aktiv'),
+  ernaehrungLoeschen: () =>
+    request<void>('/ernaehrung/aktiv', { method: 'DELETE' }),
+
+  // Der Weg über die Zwischenablage — die Rückfallebene ohne Claude-Zugang.
+  ernaehrungExport: (startDate?: string, days?: number) => {
+    const p = new URLSearchParams()
+    if (startDate) p.set('start_date', startDate)
+    if (days) p.set('days', String(days))
+    const query = p.toString()
+    return request<AiExport>(`/ernaehrung/export${query ? `?${query}` : ''}`)
+  },
+  ernaehrungPruefen: (raw: string, startDate?: string, days?: number) =>
+    request<ErnaehrungsImportResult>('/ernaehrung/validate', {
+      method: 'POST',
+      body: { raw, start_date: startDate ?? null, days: days ?? null },
+    }),
+  ernaehrungImportieren: (raw: string, startDate?: string, days?: number) =>
+    request<ErnaehrungsImportResult>('/ernaehrung/import', {
+      method: 'POST',
+      body: { raw, start_date: startDate ?? null, days: days ?? null },
+    }),
+
+  ernaehrungProfil: () => request<ErnaehrungsProfil>('/ernaehrung/profil'),
+  /** Ein leerer Text löscht die Angaben ausdrücklich. */
+  ernaehrungProfilSpeichern: (hinweise: string) =>
+    request<ErnaehrungsProfil>('/ernaehrung/profil', {
+      method: 'PUT',
+      body: { hinweise },
     }),
 }
 
