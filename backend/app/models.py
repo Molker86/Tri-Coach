@@ -451,6 +451,10 @@ class GarminAccount(Base):
     # der Oberfläche nicht umstellen. `config.GARMIN_SYNC_HOUR` ist damit nur
     # noch die Vorgabe für ein neu verbundenes Konto.
     sync_hour: Mapped[int] = mapped_column(Integer, default=GARMIN_SYNC_HOUR)
+    # Dazu die Minute. Die Schleife wacht minütlich auf, seit die Planung an
+    # einer eigenen Uhrzeit hängt — damit ist eine Minutenangabe keine
+    # Scheingenauigkeit mehr, sondern trifft wirklich.
+    sync_minute: Mapped[int] = mapped_column(Integer, default=0)
     profile_sync_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Ob ein frisch übernommener Block von selbst auf die Uhr geht. Vorgabe an:
     # Wer ein Konto verbindet, will seinen Plan dort haben — und ein Block über
@@ -524,6 +528,12 @@ class WellnessDay(Base):
     garmin_load_acute: Mapped[float | None] = mapped_column(Float)
     garmin_load_chronic: Mapped[float | None] = mapped_column(Float)
     garmin_acwr_status: Mapped[str | None] = mapped_column(String(24))
+    # Garmins optimales Lastfenster zur Akutlast — die Grenzen, zwischen denen
+    # die Uhr die Belastung dieses Athleten für passend hält. Gemessen, nicht
+    # geraten: Der Prompt gibt sie als Grenze weiter, statt eine eigene zu
+    # erfinden.
+    garmin_load_min: Mapped[float | None] = mapped_column(Float)
+    garmin_load_max: Mapped[float | None] = mapped_column(Float)
 
     body_battery_high: Mapped[int | None] = mapped_column(Integer)
     body_battery_low: Mapped[int | None] = mapped_column(Integer)
@@ -690,7 +700,13 @@ class KiSettings(Base):
     # Vorgabe aus: Ein Lauf kostet spürbar vom Kontingent des Abos, und was
     # Kontingent verbraucht, schaltet der Nutzer selbst ein.
     auto_plan_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Der Tagesriegel dazu — verhindert einen zweiten Lauf am selben Tag, etwa
+    # Wann. Einmal die Woche reicht: Ein Block deckt sieben Tage ab, und jeder
+    # Lauf kostet Kontingent. Wochentag wie `date.weekday()` — Montag 0, Sonntag
+    # 6; die Vorgabe ist Sonntag 09:00, also der Abend vor der neuen Woche.
+    auto_plan_weekday: Mapped[int] = mapped_column(Integer, default=6)
+    auto_plan_hour: Mapped[int] = mapped_column(Integer, default=9)
+    auto_plan_minute: Mapped[int] = mapped_column(Integer, default=0)
+    # Der Riegel dazu — verhindert einen zweiten Lauf in derselben Woche, etwa
     # nach einem Neustart. Wird nur fortgeschrieben, wenn wirklich einer startet.
     last_auto_plan_on: Mapped[date | None] = mapped_column(Date)
     # Altlast: Die Blocklänge der Automatik kommt aus `ai_export.PLAN_DAYS_DEFAULT`.

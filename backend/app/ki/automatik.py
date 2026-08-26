@@ -1,13 +1,23 @@
-"""Der nächste Block entsteht nach dem täglichen Abgleich — wenn er bestellt ist.
+"""Der nächste Block entsteht einmal die Woche — wenn er bestellt ist.
+
+**Einmal die Woche, nicht täglich.** Ein Block deckt sieben Tage ab; ihn jeden
+Morgen zu überschreiben hieß, dass von jedem Block nur der erste Tag je erreicht
+wurde — und jeder Lauf kostet Kontingent. Wochentag und Uhrzeit stehen je Nutzer
+in `KiSettings` (Vorgabe Sonntag 09:00).
 
 **Keine eigene Schleife.** Es gab hier einmal eine zweite Viertelstundenschleife
-neben der von Garmin; sie ist nicht zurückgekommen, und das ist keine Sparsamkeit,
-sondern die bessere Bauart: Ausgelöst wird am Ende eines erfolgreichen
-*automatischen* Abgleichs (`garmin/runner.py`), und damit ist die Reihenfolge
-garantiert, die der Prompt ohnehin voraussetzt — erst die Daten, dann der Block.
-Liefe beides unabhängig, könnte die Planung dem Abgleich zuvorkommen; die KI
-läse die Lücke als Ruhetag und plante Aufbau auf einen Tag, an dem hart
-trainiert wurde (siehe `ai_export._datenstand` und Punkt 2 der Prinzipien).
+neben der von Garmin; sie ist nicht zurückgekommen. Geweckt wird aus
+`garmin/automatik.starte_faellige_planung()` — es gibt genau einen Zeitgeber im
+Prozess.
+
+**Aber nicht mehr am Abgleich hängend.** Ausgelöst wurde das einmal am Ende
+eines erfolgreichen automatischen Abgleichs. Das garantierte zwar die
+Reihenfolge „erst die Daten, dann der Block", band die Planung aber an dessen
+Uhrzeit: Wer den Abgleich auf 06:00 legte und die Planung auf Sonntag 09:00,
+bekam nie einen Block. Die Reihenfolge trägt jetzt die Uhrzeit — der Abgleich
+läuft täglich, die Planung wöchentlich; wer sie nach dem Abgleich haben will,
+stellt sie später ein. Dass die Daten einen Tag alt sein können, sagt der Prompt
+über `trainingshistorie.datenstand` ohnehin ausdrücklich.
 
 **Und nichts entsteht ungefragt.** Der Schalter steht je Nutzer in
 `KiSettings.auto_plan_enabled` und ist ab Werk aus. Ein Lauf mit Opus bei
@@ -16,13 +26,13 @@ selbst braucht — was Kontingent verbraucht, schaltet der Nutzer selbst ein.
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 
 from ..ai_export import PLAN_DAYS_DEFAULT
 from ..database import SessionLocal
-from ..models import GarminSyncJob, KiSettings, Plan, TrainingRequest
+from ..models import KiSettings, Plan, TrainingRequest
 from .client import ist_angemeldet, token_aus
 from .runner import runner
 
@@ -34,41 +44,53 @@ logger = logging.getLogger(__name__)
 AUTO = "auto"
 
 
-def plane_nach_abgleich(user_id: int, sync_job_id: int) -> int | None:
-    """Legt nach dem täglichen Abgleich den nächsten Block an — falls fällig.
+def plane(user_id: int) -> int | None:
+    """Legt den nächsten Block an — falls fällig.
 
     Gibt die Kennung des gestarteten Laufs zurück, sonst `None`. Wirft nie: Der
-    Aufrufer ist ein Abgleich, der gerade erfolgreich war, und ein Fehlschlag
-    hier darf ihn nicht nachträglich zu einem Fehlschlag machen.
+    Aufrufer ist eine Schleife, die weiterlaufen muss.
     """
     try:
-        return _plane(user_id, sync_job_id)
+        return _plane(user_id)
     except Exception:  # noqa: BLE001
-        logger.exception("Automatische Planung nach dem Abgleich fehlgeschlagen")
+        logger.exception("Automatische Planung fehlgeschlagen")
         return None
 
 
-def _plane(user_id: int, sync_job_id: int) -> int | None:
+def ist_faellig(einstellungen: KiSettings, jetzt: datetime, heute: date) -> bool:
+    """Ob für diese Einstellungen jetzt ein Block entstehen soll.
+
+    Drei Bedingungen, und die dritte ist die wichtige: Der Wochentag muss
+    stimmen, die Uhrzeit erreicht sein, und seit dem letzten Lauf müssen sieben
+    Tage vergangen sein. Die Wochensperre zählt Tage, statt den Wochentag als
+    Sperre zu nehmen — sonst liefe ein zweiter Block in derselben Woche, sobald
+    jemand den Wochentag mitten in der Woche umstellt.
+    """
+    if not einstellungen.auto_plan_enabled:
+        return False
+    if heute.weekday() != einstellungen.auto_plan_weekday:
+        return False
+    if (jetzt.hour, jetzt.minute) < (
+        einstellungen.auto_plan_hour,
+        einstellungen.auto_plan_minute,
+    ):
+        return False
+    letzter = einstellungen.last_auto_plan_on
+    return letzter is None or (heute - letzter).days >= 7
+
+
+def _plane(user_id: int) -> int | None:
     heute = date.today()
+    jetzt = datetime.now()
 
     with SessionLocal() as db:
-        sync = db.get(GarminSyncJob, sync_job_id)
-        # Nur der Abgleich, den die Automatik selbst angestoßen hat. Wer
-        # „Jetzt synchronisieren" drückt, will Daten — dass ihn das zusätzlich
-        # Kontingent kostete, sähe er der Schaltfläche nicht an.
-        if sync is None or sync.kind != "auto" or sync.state != "done":
-            return None
-
         einstellungen = db.scalar(
             select(KiSettings).where(KiSettings.user_id == user_id)
         )
-        if einstellungen is None or not einstellungen.auto_plan_enabled:
-            return None
-
-        # Der Tagesriegel. Ein zweiter automatischer Abgleich am selben Tag ist
-        # durch `last_sync_at` schon ausgeschlossen; das hier hält auch dann,
-        # wenn jemand ihn von Hand zurücksetzt oder die App neu startet.
-        if einstellungen.last_auto_plan_on == heute:
+        # Der Riegel steht hier **nochmal**, obwohl der Weckruf ihn schon
+        # geprüft hat: Zwischen Prüfung und Start liegt eine zweite Sitzung, und
+        # der Vermerk wird erst hier gesetzt.
+        if einstellungen is None or not ist_faellig(einstellungen, jetzt, heute):
             return None
 
         # Ohne Fragebogen hat der Export nichts, woraus er einen Block bauen
@@ -83,8 +105,8 @@ def _plane(user_id: int, sync_job_id: int) -> int | None:
 
         # Anders als beim Knopf wird hier **nicht** gewartet: Ein Lauf, der in
         # einen anderen fällt, hat niemanden, der ihn nachholt — aber ein
-        # zweiter Block am selben Tag wäre auch keine Hilfe. Morgen ist der
-        # nächste Abgleich.
+        # zweiter Block wäre auch keine Hilfe. Der nächste Aufwacher ist in
+        # einer Minute dran, und der Wochentag dauert noch.
         if runner.laeuft_gerade() is not None:
             return None
 
@@ -102,7 +124,7 @@ def _plane(user_id: int, sync_job_id: int) -> int | None:
 
         # Erst vormerken, dann starten: Der Lauf hängt sich an ein eigenes
         # Schloss und meldet sich nicht zurück. Bliebe der Vermerk aus, liefe
-        # nach einem Neustart derselbe Tag noch einmal.
+        # eine Minute später derselbe Tag noch einmal.
         einstellungen.last_auto_plan_on = heute
         db.commit()
 

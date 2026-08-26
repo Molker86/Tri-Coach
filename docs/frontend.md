@@ -38,7 +38,17 @@ API** (`api.kiSettings` hatte keinen Aufrufer), und der Claude-Zugang
 ausschließlich in den Add-on-Optionen — wofür man die App verlassen, Home
 Assistant öffnen und das Add-on neu starten musste. Drei Karten: Garmin
 (Abgleich an/aus, Abgleichzeit, Übertragung auf die Uhr, Profilübernahme),
-KI-Planung (Token, automatische Planung, Modell, Denktiefe) und Darstellung.
+KI-Planung (Token, automatische Planung samt Wochentag und Uhrzeit, Modell,
+Denktiefe) und Darstellung.
+
+**Uhrzeiten stehen als getrennte Auswahlfelder** (`.uhrzeit-wahl`), Stunde und
+Minute nebeneinander, die Minuten in Fünferschritten. Kein `<input type="time">`:
+Die Seite besteht sonst aus `<select>` und Häkchen, und ein Feld mit eigener
+Tastaturbedienung und eigenem Parsing wäre der einzige Fremdkörper. Fünferschritte,
+weil sechzig Einträge zu durchsuchen kein Gewinn an Genauigkeit ist — die Schleife
+im Server wacht zwar minütlich auf, aber „so ungefähr um neun" ist die Frage, die
+hier beantwortet wird. Der Wochentag kommt aus `WEEKDAYS` (`constants.ts`), das
+Montag zuerst zählt und damit zu `date.weekday()` im Backend passt.
 
 Gespeichert wird **sofort, ohne Speichern-Knopf** — dieselbe Handhabung wie
 bisher auf der Garmin-Seite. Die eine Ausnahme ist der Token: Ein Zugang, der

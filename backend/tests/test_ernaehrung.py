@@ -284,7 +284,7 @@ def test_der_prompt_traegt_den_ganzen_trainingsblock(client, auth, monkeypatch):
     prompt = aufzeichnung["prompt"]
     for i in range(4):
         assert f"Einheit {i + 1}" in prompt
-    assert '"intensitaetszone": "Z2"' in prompt
+    assert '"intensitaetszone":"Z2"' in prompt
     assert "steht bereits fest" in prompt
 
 

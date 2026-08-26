@@ -81,8 +81,7 @@ def anpassbare_einheit(db, plan_session_id: int, user_id: int) -> PlanSession:
     * **Vergangene Tage nicht.** „Nachträglich ändern" heißt: nach der Planung
       des Blocks, nicht nach dem Tag. Eine Einheit von gestern umzuschreiben
       änderte nichts mehr an dem, was stattgefunden hat — es verfälschte nur
-      den Soll-Ist-Vergleich, aus dem der nächste Block entsteht (`_geplant_war`
-      im Export).
+      die Umsetzungsquote und das, was in Garmin liegt.
     * **Bereits absolvierte nicht.** Hängt ein Training daran, ist die Einheit
       Vergangenheit, auch wenn ihr Tag noch läuft.
     """

@@ -92,6 +92,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     # behauptete Stunden. Die Werte zieht `_uebertrage_spalten()` herüber.
     "wellness_days": {
         "recovery_time_min": "INTEGER",
+        # Garmins optimales Lastfenster. Bleibt an bestehenden Tagen leer — die
+        # Grenzen kommen mit dem nächsten Abgleich, rückwirkend nur, soweit er
+        # reicht.
+        "garmin_load_min": "FLOAT",
+        "garmin_load_max": "FLOAT",
     },
     # Bis wann Daten geholt wurden. Ohne den Wert holt der erste Abgleich nach
     # dem Update einmal das volle Jahr — richtig so: Was vorher gedeckt war,
@@ -106,6 +111,10 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # 10 statt der bisherigen 9 — ändern lässt sie sich danach in den
         # Einstellungen.
         "sync_hour": "INTEGER NOT NULL DEFAULT 10",
+        # Dazu die Minute, seit die Schleife minütlich aufwacht. Bestehende
+        # Konten bleiben auf ihrer vollen Stunde — 0 ist genau das, was sie
+        # bisher getan haben.
+        "sync_minute": "INTEGER NOT NULL DEFAULT 0",
     },
     # Zählwerke für die Gegenrichtung: geplante Einheiten nach Garmin schieben.
     "garmin_sync_jobs": {
@@ -153,6 +162,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     # nicht. Leer heißt weiterhin „nimm den aus der Umgebung".
     "ki_settings": {
         "token_encrypted": "TEXT",
+        # Wann die Automatik plant. Bestehende Einstellungen bekommen die
+        # Vorgabe Sonntag 09:00 — vorher lief sie täglich nach dem Abgleich und
+        # hatte gar keine eigene Zeit.
+        "auto_plan_weekday": "INTEGER NOT NULL DEFAULT 6",
+        "auto_plan_hour": "INTEGER NOT NULL DEFAULT 9",
+        "auto_plan_minute": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 

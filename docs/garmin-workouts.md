@@ -44,7 +44,7 @@ aus Connect hat gezeigt, wozu „ungefähr" reicht: Über „Seitstütz 3x40 s j
 Seite" stand dort **4:00** — arithmetisch richtig (sechs Durchgänge zu 40 s,
 weil „je Seite" verdoppelt), und trotzdem las der Athlet einen Widerspruch,
 weil die ganze Übungszeile als Beschreibung *eines* 40-Sekunden-Schritts
-danebenstand. Punkt 10 nennt deshalb sechs Regeln, und jede nimmt der App eine
+danebenstand. Das Antwortschema nennt beim Feld `steps` sechs Regeln, und jede nimmt der App eine
 Entscheidung ab, die ihr nicht zusteht:
 
 * **Genau ein Maß je Eintrag.** `_schritt_json()` nimmt Distanz vor Zeit vor
@@ -460,7 +460,7 @@ Massageball, gilt ein Treffer deshalb nur, wenn der Katalogeintrag die Rolle
 selbst nennt. Der Preis ist der bekannte: kein Titel, keine Animation — dafür
 keine falsche.
 
-**Die Klammer trennt, sie verbindet nicht** (`_KLAMMER` in `finde()`). Punkt 9
+**Die Klammer trennt, sie verbindet nicht** (`_KLAMMER` in `finde()`). Punkt 3
 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen englischen
 Namen in Klammern — über die Klammergrenze hinweg gelesen stand der eine
 unmittelbar neben dem anderen, und für `_grundform_ok` sah „Unterarmstütz (Front

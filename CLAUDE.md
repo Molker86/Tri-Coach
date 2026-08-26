@@ -43,9 +43,9 @@ wird angepasst, nicht ersetzt".
 **Und die Mitte kann die App inzwischen selbst: Sie fragt Claude direkt.**
 Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — und wer
 will, auch das nicht mehr: Ein Schalter in den Einstellungen lässt den nächsten
-Block **nach dem täglichen Garmin-Abgleich** von selbst entstehen. Ab Werk ist
-er aus, denn jeder Lauf kostet Kontingent; siehe „Geplant wird auf Zuruf — oder
-nach dem Abgleich".
+Block **einmal pro Woche** von selbst entstehen, an einem wählbaren Wochentag zu
+wählbarer Uhrzeit (Vorgabe Sonntag 09:00). Ab Werk ist er aus, denn jeder Lauf
+kostet Kontingent; siehe „Geplant wird auf Zuruf — oder einmal die Woche".
 Aufgerufen wird **Claude Code headless** als Unterprozess, nicht die API mit
 Token-Abrechnung: Das Abo war da, und ein Aufruf am Tag kostet darüber nichts
 extra. Der Weg über die Zwischenablage bleibt vollständig erhalten — als
@@ -62,9 +62,12 @@ im Profil sagt ihr einmal und dauerhaft, was einschränkt: Unverträglichkeiten,
 Kantine, Schichtdienst. Siehe „Ernährung wird geplant wie Training".
 
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Abgleich an/aus
-samt Uhrzeit, Übertragung auf die Uhr, Profilübernahme, der Claude-Zugang
-(verschlüsselt in der Datenbank statt im Klartext in den Add-on-Optionen),
-automatische Planung, Modell und Denktiefe — dazu Hell/Dunkel. Und auf der
+samt Uhrzeit **auf die Minute**, Übertragung auf die Uhr, Profilübernahme, der
+Claude-Zugang (verschlüsselt in der Datenbank statt im Klartext in den
+Add-on-Optionen), automatische Planung samt Wochentag und Uhrzeit, Modell und
+Denktiefe — dazu Hell/Dunkel. Beide Automatiken laufen **unabhängig
+voneinander**: Der Abgleich täglich, die Planung einmal die Woche (Vorgabe
+Sonntag 09:00). Wer sie nach dem Abgleich haben will, legt sie später. Und auf der
 Startseite öffnet jede Einheit denselben Dialog wie im Trainingsplan: ansehen,
 per Freitext anpassen lassen.
 
@@ -123,9 +126,9 @@ Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
 erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
 Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
 (`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
-`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 10
-— nur noch die **Vorgabe** für ein neu verbundenes Konto; maßgeblich ist
-`GarminAccount.sync_hour` aus den Einstellungen).
+`TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 9
+— nur noch die **Vorgabe** für ein neu verbundenes Konto; maßgeblich sind
+`GarminAccount.sync_hour` und `.sync_minute` aus den Einstellungen).
 
 Für die KI-Planung: `CLAUDE_CODE_OAUTH_TOKEN` (der Abo-Zugang; den Namen gibt
 Claude Code vor, der Unterprozess liest genau diese Variable) — inzwischen der
@@ -134,8 +137,10 @@ statt beidem eine angemeldete CLI; geprüft wird nicht die Variable, sondern
 `claude auth status`. Dazu `TRI_KI_CLI` (Pfad zum Programm, Vorgabe `claude`),
 `TRI_KI_MODELL` (Vorgabe `opus`), `TRI_KI_EFFORT` (Vorgabe `max`) und
 `TRI_KI_TIMEOUT_S` (Vorgabe 900). Ein Gegenstück zu `TRI_GARMIN_AUTOSYNC` gibt
-es hier **nicht**: Die automatische Planung hängt am Abgleich, hat also keine
-eigene Schleife — `TRI_GARMIN_AUTOSYNC=0` legt beides zugleich still.
+es hier **nicht**: Die automatische Planung hat keine eigene Schleife, sondern
+wird als zweiter Zweig derselben Weckschleife gerufen — `TRI_GARMIN_AUTOSYNC=0`
+legt beides zugleich still. Ausgelöst wird sie inzwischen aber **unabhängig vom
+Abgleich**, an ihrer eigenen Uhrzeit.
 
 ## Architekturentscheidungen — wo was steht
 
@@ -154,10 +159,10 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Freitext, Disziplinwahl, Fragebogen ändern.
   *Bei `ai_export.py`, `plan_import.py`, `plan_aufraeumen.py`,
   `routers/plans.py`, `routers/questionnaire.py`.*
-- [docs/ki-und-prompt.md](docs/ki-und-prompt.md) — die dreizehn
-  Trainingsprinzipien und warum jedes einzelne dort steht, `RESPONSE_SCHEMA`,
-  Claude Code als Unterprozess, Jobs und Schloss, automatische Planung,
-  Tokenablage.
+- [docs/ki-und-prompt.md](docs/ki-und-prompt.md) — warum der Prompt die
+  Trainingslehre **nicht** vorgibt, erfundene Schwelle gegen gemessene Grenze,
+  die fünf handwerklichen Vorgaben, `RESPONSE_SCHEMA`, Claude Code als
+  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`.
@@ -208,9 +213,11 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Anfragekörper mehr, aus dem eine Einheit entstünde. Ein neues Feld gehört
   dorthin *und* in `mapping.aktivitaet_zu_log()` — sonst bleibt die Spalte leer.
   Was nur der Export liest, gehört umgekehrt **nicht** in `SessionLogOut`: Die
-  Ausführungsspalten (`hr_zone_seconds`, `garmin_abschnitte`,
-  `garmin_uebungen`, `garmin_compliance`) stehen dort bewusst nicht, sonst zöge
-  jedes neue Feld `frontend/src/types.ts` mit.
+  Ausführungsspalten (`hr_zone_seconds`, `garmin_abschnitte`, `garmin_uebungen`)
+  stehen dort bewusst nicht, sonst zöge jedes neue Feld
+  `frontend/src/types.ts` mit. `garmin_compliance` wird weiter befüllt, aber von
+  niemandem mehr gelesen — es ist Garmins Bewertung *gegen die Vorgabe* und
+  damit ein Planvergleich.
 - Jeder Zugriff auf Garmin-JSON läuft über `mapping.hole()` / `erster_wert()` /
   `als_liste()`, nie über `d["a"]["b"]`: Die API ist undokumentiert, ändert
   Feldnamen ohne Vorwarnung, und ihre Typangaben stimmen nicht (`get_activities`
@@ -229,8 +236,10 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
 - **Auffälligkeiten aus den Fitnessdaten** (`wellness_auffaelligkeiten`): HRV
   unter der eigenen Baseline, Schlafdefizit, steigender Ruhepuls, niedrige
   Trainingsreife, kritischer Trainingsstatus, Garmin-ACWR über 1,3, hoher
-  Stress, Gewichtsverlust. Die Schwellen stehen als Konstanten am Kopf des
-  Abschnitts und entsprechen den Zahlen im Prompt.
+  Stress, Gewichtsverlust. **Nur noch für die Ernährung** — der Trainingsprompt
+  bekommt die Rohwerte und Garmins gemessene Grenzen und zieht den Schluss
+  selbst; siehe „Die vierte Ebene `auffaelligkeiten`".
 - **Umsetzungsquote**: Nur Planeinheiten, deren Datum bereits vergangen ist,
   zählen als fällig. Ein Block, der erst morgen startet, hat deshalb
-  korrekterweise `rate_pct: null`.
+  korrekterweise `rate_pct: null`. Steuert das Dashboard, **nicht** die
+  Planung — die KI sah in einer niedrigen Quote den Auftrag, kleiner zu planen.

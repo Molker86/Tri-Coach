@@ -696,6 +696,29 @@ def importiere_tageswerte(
                     hole(status, "acuteTrainingLoadDTO", "dailyTrainingLoadChronic")
                 ),
                 garmin_acwr_status=hole(status, "acuteTrainingLoadDTO", "acwrStatus"),
+                # Garmins optimales Lastfenster. Mehrere Namen, weil der
+                # Endpunkt es je nach Gerätegeneration anders nennt und die API
+                # undokumentiert ist — belegt ist der erste, der etwas liefert.
+                garmin_load_min=als_zahl(
+                    erster_wert(
+                        status,
+                        ("acuteTrainingLoadDTO", "minTrainingLoadAcute"),
+                        ("acuteTrainingLoadDTO", "minLoadAcute"),
+                        ("acuteTrainingLoadDTO", "loadTunnelMin"),
+                        ("minTrainingLoadAcute",),
+                        ("loadTunnelMin",),
+                    )
+                ),
+                garmin_load_max=als_zahl(
+                    erster_wert(
+                        status,
+                        ("acuteTrainingLoadDTO", "maxTrainingLoadAcute"),
+                        ("acuteTrainingLoadDTO", "maxLoadAcute"),
+                        ("acuteTrainingLoadDTO", "loadTunnelMax"),
+                        ("maxTrainingLoadAcute",),
+                        ("loadTunnelMax",),
+                    )
+                ),
             )
 
         stress = _hole_geschuetzt(

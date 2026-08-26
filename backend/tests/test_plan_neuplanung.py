@@ -68,46 +68,26 @@ def _plaene(client, auth) -> list[dict]:
 # --------------------------------------------------------------------------
 
 
-def test_export_meldet_die_abloesung(client, auth):
+def test_export_meldet_die_abloesung_nicht_mehr(client, auth):
+    """Der verdrängte Block reiste einmal als Kontext mit — jetzt nicht mehr.
+
+    `ersetzt_laufenden_block` nannte Titel, bisheriges Ende und jede verworfene
+    Einheit, damit die KI erkennt, welcher Reiz gerade ausfällt. Der Preis war,
+    dass sie die alten Vorgaben als Vorlage las und fortschrieb, statt aus dem
+    Verlauf neu zu entscheiden — und der Nutzen ist ohnehin gedeckt: Was
+    stattgefunden hat, steht in `trainingshistorie.einheiten`.
+    """
     _importiere(client, auth, start=HEUTE, tage=7, titel="Der laufende Block")
 
-    antwort = client.get(
+    daten = client.get(
         "/api/plans/export",
         headers=auth,
         params={"start_date": HEUTE.isoformat(), "days": 7},
-    )
-    assert antwort.status_code == 200, antwort.text
-    daten = antwort.json()
-    ersetzt = daten["payload"]["planungszeitraum"]["ersetzt_laufenden_block"]
+    ).json()
 
-    assert ersetzt["titel"] == "Der laufende Block"
-    assert ersetzt["bisheriges_ende"] == (HEUTE + timedelta(days=6)).isoformat()
-    assert ersetzt["verworfene_tage"] == [
-        (HEUTE + timedelta(days=i)).isoformat() for i in range(7)
-    ]
-    # Ruhetage sind kein verworfener Reiz und stehen deshalb nicht in der Liste.
-    assert all(e["sportart"] != "rest" for e in ersetzt["verworfene_einheiten"])
-    assert len(ersetzt["verworfene_einheiten"]) == 5
-
-    assert "ersetzt einen laufenden" in daten["prompt"]
-    assert "Der laufende Block" in daten["prompt"]
-
-
-def test_block_ab_morgen_verwirft_nur_den_rest(client, auth):
-    """Was schon gelaufen ist, bleibt unangetastet — verworfen wird ab dem Start."""
-    _importiere(client, auth, start=HEUTE - timedelta(days=3), tage=7, titel="Läuft")
-
-    morgen = HEUTE + timedelta(days=1)
-    ersetzt = client.get(
-        "/api/plans/export",
-        headers=auth,
-        params={"start_date": morgen.isoformat(), "days": 7},
-    ).json()["payload"]["planungszeitraum"]["ersetzt_laufenden_block"]
-
-    # Der Block lief vom Tag -3 bis Tag +3; ab morgen bleiben drei Tage übrig.
-    assert ersetzt["verworfene_tage"] == [
-        (morgen + timedelta(days=i)).isoformat() for i in range(3)
-    ]
+    assert "ersetzt_laufenden_block" not in daten["payload"]["planungszeitraum"]
+    assert "ersetzt einen laufenden" not in daten["prompt"]
+    assert "Der laufende Block" not in daten["prompt"]
 
 
 def test_anhaengender_block_ersetzt_nichts(client, auth):
@@ -171,13 +151,12 @@ def test_erfasstes_training_zieht_in_den_neuen_block_um(client, auth, erfasse):
     assert umgezogen["structure"] == einheit["structure"]
 
 
-def test_absolvierte_einheit_gilt_nicht_als_verworfen(client, auth, erfasse):
-    """Was stattgefunden hat, ist Verlauf und keine verdrängte Vorgabe.
+def test_absolvierte_einheit_zieht_in_den_neuen_block_um(client, auth, erfasse):
+    """Was stattgefunden hat, ist Verlauf und geht bei der Neuplanung nicht verloren.
 
     Wer morgens läuft und mittags neu plant, hat eine absolvierte Einheit auf dem
-    Starttag liegen — und seit sie in den neuen Block umzieht, hängt sie an genau
-    dem Plan, den `_ersatz_block` durchsieht. Ungefiltert stünde derselbe Lauf
-    zweimal im Payload: hier als „verworfen", in der Historie als absolviert.
+    Starttag liegen. Sie zieht in den neuen Block um und steht danach genau
+    einmal im Paket — in der Historie, als absolviert.
     """
     alt = _importiere(client, auth, start=HEUTE, tage=7, titel="Alter Block")
     heutige = next(
@@ -203,16 +182,10 @@ def test_absolvierte_einheit_gilt_nicht_als_verworfen(client, auth, erfasse):
     assert len(heute_im_plan) == 2
     assert sum(1 for s in heute_im_plan if s["logged"]) == 1
 
+    # In der Historie steht sie genau einmal.
     payload = client.get("/api/plans/export", headers=auth).json()["payload"]
-    ersatz = payload["planungszeitraum"]["ersetzt_laufenden_block"]
-    heute_verworfen = [
-        e for e in ersatz["verworfene_einheiten"] if e["datum"] == HEUTE.isoformat()
-    ]
-    assert len(heute_verworfen) == 1, "Die absolvierte Einheit gilt als verworfen"
-
-    # In der Historie steht sie dagegen sehr wohl.
     historie = payload["trainingshistorie"]["einheiten"]
-    assert any(e["datum"] == HEUTE.isoformat() for e in historie)
+    assert sum(1 for e in historie if e["datum"] == HEUTE.isoformat()) == 1
 
 
 def test_der_neue_block_uebernimmt_die_vergangenen_tage(client, auth):
@@ -320,20 +293,26 @@ def test_umhaengen_ist_wiederholbar(client, auth):
     assert len(nachher["sessions"]) == len(vorher["sessions"])
 
 
-def test_geerbte_tage_zaehlen_nicht_in_die_umsetzungsquote(client, auth):
-    """Die Quote misst diesen Block, nicht das Erbe seiner Vorgänger.
+def test_der_export_kennt_die_umsetzungsquote_nicht_mehr(client, auth):
+    """Die Quote steuert das Dashboard, nicht die Planung.
 
-    Die geerbten Tage liegen jenseits des Rückblickfensters; ungebremst zählten
-    sie als „geplant, nicht gemacht", und die Quote fiele mit jedem Tag
-    Neuplanung — Punkt 1 des Prompts liest das als Auftrag, kleiner zu planen.
+    Sie sagte der KI, wie viel des letzten Blocks umgesetzt wurde — und der
+    Prompt las eine niedrige Quote als Auftrag, kleiner zu planen. Ein Athlet,
+    der zwei Wochen krank war, bekam so immer kleinere Blöcke. Was er
+    tatsächlich getan hat, steht in der Historie; `sportscience.compliance()`
+    bleibt für die Kachel unter `/api/logs/stats`.
     """
     _importiere(client, auth, start=HEUTE - timedelta(days=6), tage=7, titel="Alter Block")
     _importiere(client, auth, start=HEUTE, tage=7, titel="Neuer Block")
 
-    payload = client.get("/api/plans/export", headers=auth).json()["payload"]
-    quote = payload["trainingshistorie"]["umsetzung_aktueller_plan"]
-    # Der neue Block beginnt heute — vor heute liegt von *ihm* nichts.
-    assert quote["planned_past"] == 0
+    historie = client.get("/api/plans/export", headers=auth).json()["payload"][
+        "trainingshistorie"
+    ]
+    assert "umsetzung_aktueller_plan" not in historie
+    assert "aktueller_plan" not in historie
+
+    # Das Dashboard bekommt sie weiterhin.
+    assert "compliance" in client.get("/api/logs/stats", headers=auth).json()
 
 
 def test_abgeschlossener_block_bleibt_stehen(client, auth):

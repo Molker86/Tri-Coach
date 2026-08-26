@@ -60,7 +60,7 @@ sonst im Abgleich — eine in Connect *gelöschte* Bewertung bleibt hier stehen.
 Im Export steht das Befinden als `befinden_0_10` an der Einheit, aber **nur wo es
 belegt ist**: Ein `null` an den übrigen wäre keine leere Angabe, sondern eine
 Behauptung über eine Einheit, zu der der Athlet nichts gesagt hat. Genau das sagt
-auch Punkt 11 des Prompts — die Felder tragen, wo sie stehen, und ihr Fehlen wird
+auch das Datenpaket — die Felder tragen, wo sie stehen, und ihr Fehlen wird
 nicht gedeutet. Ein Wochenmittel gibt es bewusst nicht: Bewertet wird ein
 Bruchteil der Einheiten (am Testkonto zwei von zwanzig), und ein Schnitt daraus
 sähe aus wie eine Aussage über die Woche.
@@ -159,21 +159,34 @@ Zuschnitt; für bestehende Datenbanken ist `synced_through` leer, der erste
 Abgleich nach dem Update holt also einmal das ganze Jahr.
 
 **Wann abgeglichen wird, steht am Konto** (`GarminAccount.sync_hour`,
-`automatik._abgleichstunde`). Die Stunde war einmal die Konstante
+`.sync_minute`, `automatik._abgleichzeit`). Die Stunde war einmal die Konstante
 `GARMIN_SYNC_HOUR` und damit im laufenden Prozess unveränderlich — eine
 Umgebungsvariable lässt sich in der Oberfläche nicht umstellen. Jetzt steht sie
 je Konto in der Datenbank und ist in den Einstellungen wählbar; die Konstante
-ist nur noch die Vorgabe für ein neu verbundenes Konto (und wechselte dabei von
-9 auf **10 Uhr**). Der Riegel wanderte dafür aus dem Kopf von
-`starte_faellige_syncs` in die Schleife über die Konten: Jeder Aufwacher öffnet
-seither eine Sitzung, statt vorher billig zurückzukehren — bei SQLite auf
-demselben Rechner folgenlos, und anders geht „je Nutzer eine Stunde" nicht.
-Geprüft wird ausdrücklich gegen `None` und **nicht** mit `or`: Mitternacht ist
-eine gültige Einstellung, und `0 or 10` ergäbe zehn.
+ist nur noch die Vorgabe für ein neu verbundenes Konto (**9 Uhr**). Der Riegel
+wanderte dafür aus dem Kopf von `starte_faellige_syncs` in die Schleife über die
+Konten: Jeder Aufwacher öffnet seither eine Sitzung, statt vorher billig
+zurückzukehren — bei SQLite auf demselben Rechner folgenlos, und anders geht
+„je Nutzer eine Stunde" nicht. Geprüft wird ausdrücklich gegen `None` und
+**nicht** mit `or`: Mitternacht ist eine gültige Einstellung, und `0 or 10`
+ergäbe zehn.
 
-Volle Stunden, keine Minuten: Die Schleife wacht viertelstündlich auf, der
-Abgleich beginnt also innerhalb der Viertelstunde danach. Eine Minutenangabe
-wäre eine Genauigkeit, die es gar nicht gibt.
+**Stunde und Minute — die Entscheidung hat sich gedreht.** Hier stand einmal
+„volle Stunden, keine Minuten: Die Schleife wacht viertelstündlich auf, eine
+Minutenangabe wäre eine Genauigkeit, die es gar nicht gibt." Das stimmte,
+solange der Abgleich die einzige Automatik war. Seit die KI-Planung an einer
+**eigenen** Uhrzeit hängt und nicht mehr am Ende des Abgleichs, muss ein
+eingestellter Zeitpunkt wirklich treffen: Wer 09:05 einstellt und um 09:20 die
+erste Anfrage sieht, hat keine Einstellung, sondern einen Vorschlag. Das
+Weckintervall ist deshalb von 900 auf **60 Sekunden** gesunken. Der Preis ist
+eine kurze Sitzung je Minute statt je Viertelstunde — bei SQLite auf demselben
+Rechner unmessbar.
+
+**Die Tagessperre rechnet in Ortszeit.** `last_sync_at` steht in UTC, verglichen
+wird gegen das lokale `date.today()`. Ungerechnet fiel ein Lauf kurz nach
+Mitternacht Ortszeit als „gestern" in die Datenbank, und die Sperre griff nicht
+— bei einer Abgleichstunde am Vormittag folgenlos, bei einer nachts nicht.
+`_als_datum()` geht deshalb über `zeit.als_utc()` und `astimezone()`.
 
 **Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
 `BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach
@@ -205,20 +218,22 @@ Fällt heute nicht auf einen Montag, fielen die Einheiten dazwischen aus der
 Übersicht, obwohl sie in `einheiten` standen (an echten Daten fünf Einheiten,
 darunter eine über 137 Minuten). Die KI sah zwei widersprüchliche Darstellungen
 desselben Zeitraums. Jedem Bucket steht deshalb `ist_vollstaendig` dabei, und
-`letzte_volle_woche` benennt den Maßstab, den Punkt 6 für sein „bis zu 10 %
-mehr" braucht — der letzte Eintrag der Übersicht taugt dafür nie.
+`letzte_volle_woche` benennt die letzte abgeschlossene Woche als Vergleichsgröße
+— der letzte Eintrag der Übersicht taugt dafür nie. (Der Prompt hing daran
+einmal eine Steigerungsgrenze von 10 % auf; die ist gefallen, das Feld bleibt
+als Datum.)
 
 **Fällig ist, was vor heute lag** (`sportscience.compliance`). Der heutige Tag
 ist nicht vorbei; die Einheit von heute Abend als versäumt zu zählen, drückt die
 Quote genau dann, wenn der Block frisch ist. An echten Daten wurden aus zwei von
 zwei umgesetzten Einheiten 33 %, weil die beiden noch bevorstehenden von heute
-mitzählten — und Punkt 1 des Prompts macht aus einer niedrigen Quote den Auftrag,
+mitzählten — und der Prompt machte aus einer niedrigen Quote einmal den Auftrag,
 kleiner zu planen.
 
 **Garmins `recoveryTime` sind Minuten** (`WellnessDay.recovery_time_min`). Die
 Spalte hieß einmal `recovery_time_h` und übernahm den Wert ungerechnet. Ein
 Eintrag von 911 stand damit als „911 Stunden Erholung" im Export und in den
-Auffälligkeiten, und der Prompt macht daraus „in diesem Zeitfenster nichts über
+Auffälligkeiten, und der Prompt machte daraus „in diesem Zeitfenster nichts über
 Z2" — 38 Tage lang. Die Schwelle `ERHOLUNGSZEIT_HOCH_H = 24` feuerte
 entsprechend bei 24 *Minuten*, also fast immer. Der Name sagt jetzt die Einheit,
 umgerechnet wird erst zur Anzeige (`sportscience.erholung_stunden`) — sonst liefe
@@ -227,7 +242,7 @@ läuft über `database._UMZUZIEHENDE_SPALTEN`: ergänzen, kopieren, alte Spalte
 löschen, alles idempotent.
 
 **Watt- und Tempokorridore kommen mit, nicht nur ihre Schwellenwerte**
-(`sportscience.power_zones` / `pace_zones`). Punkt 10 verlangt zu jeder Einheit
+(`sportscience.power_zones` / `pace_zones`). Punkt 4 verlangt zu jeder Einheit
 ein `target_power` bzw. `target_pace`, lieferte der KI aber nur die nackte FTP —
 sie musste die Anteile raten, während `garmin/workouts.py` sie längst festlegt.
 Beide lesen jetzt dieselbe Tabelle `FTP_ZONEN_ANTEIL`: Aus denselben Korridoren,
@@ -238,23 +253,26 @@ wird nichts, denn eine erfundene Schwellenpace stünde als Vorgabe im Plan. Der
 Prompt sagt für diesen Fall ausdrücklich, dass die Vorgabe aus Pace und
 `hf_schnitt` vergleichbarer Einheiten der Historie abzuleiten ist.
 
-**Was geplant war, steht an der absolvierten Einheit** (`ai_export._geplant_war`,
-Punkt 12 des Prompts). Die Verknüpfung legt der Abgleich über die Workout-Kennung
-an (`garmin/matching.py`), der Aufbau lag also vor — er wurde nur nie
-exportiert. Die KI sah von einem Intervalltraining „29 min, 4,4 km, HF 150" und
-konnte es nicht fortschreiben: Aus 5x1000 m wird so nie 6x1000 m. Für einen
-Block, der ausdrücklich den *nächsten Schritt* setzen soll, war das die größte
-inhaltliche Lücke. Mitgeliefert wird auch die geplante Dauer — weicht die
-absolvierte deutlich ab, war die Vorgabe zu ambitioniert, und das sagt mehr als
-jede Umsetzungsquote.
+**Was geplant war, steht nicht mehr im Export — die Entscheidung ist
+zurückgenommen.** `ai_export._geplant_war` lieferte den Aufbau der zugehörigen
+Planeinheit an jede absolvierte mit, damit die KI einen Reiz fortschreiben kann:
+Aus 5x1000 m soll 6x1000 m werden. Der Gedanke war richtig, der Preis zu hoch —
+das Modell nahm den alten Block als Vorlage, statt aus dem Verlauf neu zu
+entscheiden, und eine deutlich unter der Vorgabe liegende Dauer las es als
+Auftrag, kleiner zu planen. Maßstab ist jetzt allein, was stattgefunden hat;
+siehe „Frühere Blöcke dieser App stehen nicht mehr im Paket" in
+[ki-und-prompt.md](ki-und-prompt.md).
+
+**Die Verknüpfung selbst bleibt** (`garmin/matching.py`, `SessionLog.plan_session`).
+Sie trägt weiterhin die Umsetzungsquote im Dashboard, das Aufräumen in Garmin und
+die Markierung „erledigt" im Trainingsplan — nur der Export liest sie nicht mehr.
 
 **Wie eine Einheit ausgeführt wurde, nicht nur dass sie stattfand**
 (`mapping.zonensekunden` / `abschnitte_aus_detail`, `_history_block`). Der Export
 beschrieb eine absolvierte Einheit mit Dauer, Strecke und Schnittpuls — und das
 sagt über eine Intervalleinheit fast nichts. Die Schlüsseleinheit vom 19.08.2026
 stand als „37 min, HF-Schnitt 148" da; geplant waren 60 min mit 3x8 min Schwelle.
-Ob die drei Intervalle standen, war nicht abzulesen, und Punkt 12 („Fortschreiben
-statt neu erfinden") schrieb damit die *Vorgabe* fort statt die Ausführung. Drei
+Ob die drei Intervalle standen, war nicht abzulesen. Drei
 Größen schließen die Lücke, und **keine davon kostet eine zusätzliche Anfrage**
 (die vierte, die Übungsliste, kostet eine — siehe „Was in einer Krafteinheit
 wirklich passiert ist"):
@@ -304,16 +322,15 @@ ohnehin ein Powermeter misst.
 die Lücke zwischen Vorgabe und Ausführung; bei Kraft und Mobility klaffte sie
 weiter, denn dort beschreibt `structure` keinen Zeitverlauf, und
 `splitSummaries` meldet nur einen Sammelabschnitt. Eine Krafteinheit stand im
-Export als „35 min, RPE 5" — welche Übungen darin vorkamen, war allein aus
-`geplant_war.aufbau` zu erraten, also aus der *Vorgabe*.
+Export als „35 min, RPE 5" — welche Übungen darin vorkamen, war allein aus der
+*Vorgabe* zu erraten.
 `get_activity_exercise_sets()` sagt es: die Übungen mit Garmins Katalognamen
 (`HIP_RAISE`/`SINGLE_LEG_HIP_RAISE`), je Satz mit Dauer und Wiederholungen.
 
 **Das war einmal ausdrücklich abgelehnt**, und beide Gründe von damals sind
-gefallen. „Steht bei unseren eigenen Workouts ohnehin in `geplant_war`" gilt
-nicht: Genau der Unterschied zwischen Vorgabe und Ausführung ist der Punkt —
-sonst bräuchte es `absolvierte_abschnitte` und `workout_einhaltung_pct` auch
-nicht. Und „bei Mobility durchweg `UNKNOWN`" ist überholt: Seit die App ihre
+gefallen. „Steht bei unseren eigenen Workouts ohnehin in der Vorgabe" gilt
+nicht — und seit die Vorgabe den Export gar nicht mehr erreicht, erst recht
+nicht: Was die Uhr gezählt hat, ist die einzige Auskunft über die Ausführung. Und „bei Mobility durchweg `UNKNOWN`" ist überholt: Seit die App ihre
 Workouts mit Übungskennungen überträgt (`garmin/uebungen.py`), zählt die Uhr
 **benannte** Sätze, statt sie zu raten. An der Mobility-Einheit vom 20.08.2026
 kamen `STRETCH_PIGEON_POSE`, `STRETCH_LUNGING_HIP_FLEXOR`, `STRETCH_PIRIFORMIS`
@@ -350,9 +367,9 @@ als *einer* über die volle Dauer — so kam die Krafteinheit vom 17.08. zurück
 sechs Übungen zu je einem Satz. Und `wiederholungen` stammt aus Garmins
 Bewegungserkennung am Handgelenk und zählt bei Körpergewichtsübungen zu
 niedrig: An derselben Einheit standen für `CLAM_BRIDGE` **3** Wiederholungen
-über 232 Sekunden. Verlässlich sind Übungsauswahl und Dauer; was vorgesehen war,
-steht weiter in `geplant_war.aufbau`. Der Wert für die Planung liegt genau dort,
-wo die Beschwerde hängt: Punkt 9 verlangt, Übungsauswahl und Körperregion zu
+über 232 Sekunden. Verlässlich sind Übungsauswahl und Dauer. Der Wert für die
+Planung liegt genau dort,
+wo die Beschwerde hängt: Punkt 3 verlangt, Übungsauswahl und Körperregion zu
 wechseln, und `kategorie` (`PLANK`, `HIP_RAISE`, `CALF_RAISE`) benennt die
 Bewegungsgruppe, an der das zu entscheiden ist.
 
@@ -373,8 +390,8 @@ Tri-Coach-Workout kamen, `None` an jeder frei gestarteten). Maßgeblich ist
 deshalb allein sie — und **der Tag fällt damit ganz weg**: Ein Workout liegt auf
 der Uhr und wird gestartet, wenn es passt. Am 17.08.2026 stand die
 „Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren; das ist keine
-Nichtumsetzung, und Punkt 12 sagt es der KI ausdrücklich. Der **Plantag kommt
-mit**, wo er abweicht (`geplant_fuer` in `ai_export._geplant_war`).
+Nichtumsetzung — die Umsetzungsquote im Dashboard wertet sie
+deshalb als erfüllt.
 
 Drei Dinge halten das davon ab, Falsches zu behaupten. Die Vorlage muss **schon
 auf der Uhr gelegen haben, als trainiert wurde** — die fünfzehn Pool-Slots
@@ -433,13 +450,15 @@ lebt er, solange die Einheit lebt, und stirbt mit ihr. Der Preis ist eine
 scheinbar doppelte Angabe — die Alternative wäre, den Link künstlich am Leben zu
 halten, und der belegt einen von fünfzehn Pool-Plätzen.
 
-**Der Prompt sagt, bis wann die Daten reichen** (`_datenstand`, Punkt 2). Der
-Block wird täglich nach dem Abgleich gebaut. Läuft die Reihenfolge einmal
-andersherum, fehlt das Training des Tages schlicht — und die KI hat keine
-Möglichkeit, das zu merken: Sie liest die Lücke als Ruhetag und plant Aufbau auf
-einen Tag, an dem hart trainiert wurde. `trainingshistorie.datenstand` nennt
-deshalb `garmin_daten_bis` und `letzter_abgleich`, und Punkt 2 sagt ausdrücklich,
-dass alles danach **nicht geholt** und nicht als Pause zu deuten ist. Ohne
+**Der Prompt sagt, bis wann die Daten reichen** (`_datenstand`). Das war wichtig,
+solange der Block unmittelbar nach dem Abgleich gebaut wurde — und es ist
+wichtiger geworden, seit beide an **eigenen Uhrzeiten** hängen: Wer die Planung
+vor den Abgleich legt, plant auf dem Stand von gestern, und die KI hat keine
+Möglichkeit, das von selbst zu merken. Sie läse die Lücke als Ruhetag und plante
+Aufbau auf einen Tag, an dem hart trainiert wurde.
+`trainingshistorie.datenstand` nennt deshalb `garmin_daten_bis` und
+`letzter_abgleich`, und der Prompt sagt ausdrücklich, dass alles danach **nicht
+geholt** und nicht als Pause zu deuten ist. Ohne
 verbundenes Konto fehlt der Schlüssel ganz. Im Frontend steht derselbe Stand über
 dem Planungsknopf (`AbgleichStand` in `PlanExchange.tsx`) — als Hinweis, nicht
 als Sperre: Den Planungslauf einen Abgleich anstoßen zu lassen hieße, ihn hinter
@@ -471,7 +490,7 @@ damit Einheitenliste, Wochenübersicht, ACWR und Abstände dieselbe Menge sehen.
 **Die Abstände zählen über die ganze Historie, nicht über vier Wochen**
 (`_days_since_by_sport`, `_days_since_hard_session`). Eine Sportart, die länger
 ruht als das Fenster reicht, verschwand sonst aus dem Ergebnis — ausgerechnet
-die, die Punkt 8 vorziehen soll. Und `tage_seit_letzter_intensiver_einheit: null`
+die, die Punkt 1 vorziehen soll. Und `tage_seit_letzter_intensiver_einheit: null`
 hieß sowohl „seit über vier Wochen nichts Hartes" als auch „keine Daten",
 während Punkt 4 des Prompts genau an dieser Zahl hängt — er schreibt keinen
 Abstand mehr vor, verlangt aber, dass die KI ihn kennt.
@@ -530,17 +549,36 @@ Serialisierer gerade dort verlöre.
 **Fitnessdaten sind ein eigener Block im Export, nicht Teil der Historie**
 (`ai_export._fitness_block`). Die Historie beschreibt absolvierte *Einheiten*,
 die Fitnessdaten den *Zustand*. Auf oberster Ebene kann der Prompt sie
-namentlich mit eigenen Regeln ansprechen. Der Block hat vier Ebenen, weil die KI
-vier Fragen hat: `aktuell`, `mittelwerte` (7 gegen 28 Tage), `auffaelligkeiten`
-(vorverdichtete deutsche Sätze aus `sportscience.wellness_auffaelligkeiten`) und
-`tage`. Vorverdichtet, weil Sprachmodelle beim Mitteln von Zahlenreihen
-unzuverlässig sind. Die Regeln dazu stehen als Punkt 2 der Trainingsprinzipien
-und existieren in **zwei** Fassungen: Ohne verbundenes Konto entfällt der Block,
-und der Prompt sagt stattdessen ausdrücklich, dass auch die Trainingshistorie
-leer ist und der Block allein aus Fragebogen und Profil entsteht — Regeln
-zu Daten, die es nicht gibt, laden zum Erfinden ein. Die Schwellen in
-`wellness_auffaelligkeiten` und die Zahlen im Prompt müssen zusammen geändert
-werden.
+namentlich ansprechen. Der Block hat drei Ebenen, weil die KI drei Fragen hat:
+`aktuell`, `mittelwerte` (7 gegen 28 Tage) und `tage`. Der Verweis darauf steht
+im Aufgabenteil des Prompts und existiert in **zwei** Fassungen: Ohne
+verbundenes Konto entfällt der Block, und der Prompt sagt stattdessen
+ausdrücklich, dass auch die Trainingshistorie leer ist und der Block allein aus
+Fragebogen und Profil entsteht — Regeln zu Daten, die es nicht gibt, laden zum
+Erfinden ein.
+
+**`tage` reicht 14 Tage zurück** (`ai_export.WELLNESS_TAGE`), nicht über den
+vollen Rückblick. Für einen Block über wenige Tage entscheidet die jüngste
+Entwicklung; die Vierwochensicht steht als `mittelwerte.28_tage` daneben. Über
+vier Wochen waren die Tageswerte ein Fünftel des gesamten Prompts.
+
+**Die vierte Ebene `auffaelligkeiten` gibt es nur noch für die Ernährung**
+(`mit_auffaelligkeiten`). Das sind vorverdichtete deutsche Sätze aus
+`sportscience.wellness_auffaelligkeiten` — Schlüsse aus **selbstgesetzten**
+Schwellen, und genau die sind aus dem Trainingsprompt verschwunden. Sie dort als
+fertige Sätze weiterzureichen wäre derselbe Eingriff durch die Hintertür. Was
+stattdessen dasteht, sind die Rohwerte und **Garmins eigene, am Athleten
+gemessene Grenzen**: `hrv_normalbereich_ms` (aus `baseline.balancedLow` /
+`balancedUpper`) und `training_status.lastfenster` (aus dem
+`acuteTrainingLoadDTO`). Der Prompt benennt beide namentlich — ohne die Nennung
+übersah die KI sie im Paket. Der Ernährungsprompt behält die Verdichtung: Er
+bekommt eine stark gekürzte Historie und keine Einzeleinheiten.
+
+Das Lastfenster wird über `erster_wert()` mit mehreren Namensvarianten gelesen
+(`minTrainingLoadAcute`, `minLoadAcute`, `loadTunnelMin` …). Die API ist
+undokumentiert, und die Felder heißen je nach Gerätegeneration anders; liefert
+keine davon etwas, bleiben die Spalten leer und der Schlüssel fällt aus dem
+Export — wie bei jedem anderen unbelegten Garmin-Wert.
 
 **Profilwerte kommen automatisch nach — außer dem Maximalpuls**
 (`profile_sync.py`). Gewicht, Körperfett, Ruhepuls, HRV und VO2max werden

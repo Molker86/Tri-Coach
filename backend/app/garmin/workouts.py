@@ -957,7 +957,7 @@ def _uebungselement(teil: str, sport: str) -> Element:
     return Block(anzahl=durchgaenge, schritte=[schritt])
 
 
-# Punkt 9 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
+# Punkt 3 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
 # englischen Namen in Klammern. Davor steht der deutsche Name, dahinter der
 # Umfang: „Seitstütz (Side Plank) 3x40 s je Seite“.
 _ENGLISCHE_KLAMMER = re.compile(r"^[^(]*\(\s*(?P<englisch>[^)]+?)\s*\)\s*(?P<rest>.*)$")

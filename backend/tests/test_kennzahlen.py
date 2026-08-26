@@ -331,34 +331,15 @@ def _planeinheit(tag, titel="Kraft kompakt"):
     )
 
 
-def test_geplant_war_nennt_den_plantag_wo_er_abweicht():
-    """Der Alltag: Ein Workout liegt auf der Uhr und wird gestartet, wenn es passt.
+def test_die_historie_nennt_keine_frueheren_vorgaben():
+    """Was Tri-Coach geplant hatte, ist kein Maßstab mehr — auch nicht je Einheit.
 
-    Die Zuordnung läuft über die Workout-Kennung und kennt keinen Tagesbezug
-    (`garmin/matching.py`) — dass der Athlet die Einheit vorgezogen hat, ist
-    deshalb eine eigene Aussage und keine Ungenauigkeit.
+    An jeder absolvierten Einheit stand einmal `geplant_war` mit Titel, Typ,
+    Aufbau und Dauer der zugehörigen Planeinheit, dazu `geplant_fuer` bei
+    Tagesabweichung. Die KI verglich daraus Absolviertes mit Vorgesehenem und
+    schrieb den alten Block fort, statt aus dem Verlauf neu zu entscheiden.
+    Maßstab ist allein, was stattgefunden hat.
     """
-    from app.ai_export import _geplant_war
+    from app import ai_export
 
-    trainiert, geplant = date(2026, 8, 17), date(2026, 8, 20)
-    gefunden = _geplant_war(
-        SimpleNamespace(date=trainiert, plan_session=_planeinheit(geplant))
-    )
-    assert gefunden["aufbau"] == "Hüftbrücke (Glute Bridge) 3x15"
-    assert gefunden["geplant_fuer"] == "2026-08-20"
-
-
-def test_am_plantag_absolviert_traegt_kein_geplant_fuer():
-    from app.ai_export import _geplant_war
-
-    tag = date(2026, 8, 17)
-    gefunden = _geplant_war(SimpleNamespace(date=tag, plan_session=_planeinheit(tag)))
-    assert "geplant_fuer" not in gefunden
-
-
-def test_ohne_zuordnung_bleibt_geplant_war_leer():
-    """Ein spontanes Training hatte keine Vorgabe — eine leere Hülle sähe aus
-    wie eine verfehlte."""
-    from app.ai_export import _geplant_war
-
-    assert _geplant_war(SimpleNamespace(date=date(2026, 8, 17), plan_session=None)) is None
+    assert not hasattr(ai_export, "_geplant_war")

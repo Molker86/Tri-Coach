@@ -855,15 +855,19 @@ class GarminAccountOut(BaseModel):
     rate_limited_until: UtcDatetime | None = None
     auto_sync_enabled: bool
     sync_hour: int
+    sync_minute: int
     profile_sync_enabled: bool
     auto_push_enabled: bool
 
 
 class GarminSettingsIn(BaseModel):
     auto_sync_enabled: bool | None = None
-    # Volle Stunden: Die Automatik wacht viertelstündlich auf, eine
-    # Minutenangabe wäre eine Genauigkeit, die es gar nicht gibt.
+    # Stunde **und** Minute. Volle Stunden reichten, solange die Automatik
+    # viertelstündlich aufwachte — sie tut es inzwischen minütlich, weil die
+    # Planung an einer eigenen Uhrzeit hängt, und damit trifft eine
+    # Minutenangabe wirklich.
     sync_hour: int | None = Field(None, ge=0, le=23)
+    sync_minute: int | None = Field(None, ge=0, le=59)
     profile_sync_enabled: bool | None = None
     auto_push_enabled: bool | None = None
 
@@ -1086,6 +1090,11 @@ class KiSettingsOut(BaseModel):
     status: str
     status_message: str | None = None
     auto_plan_enabled: bool
+    # Wann geplant wird: Wochentag wie `date.weekday()` (Montag 0, Sonntag 6),
+    # dazu Uhrzeit und Minute.
+    auto_plan_weekday: int
+    auto_plan_hour: int
+    auto_plan_minute: int
     last_auto_plan_on: date | None = None
     # **Nie der Token selbst**, nur seine Lage. „unlesbar" heißt: gespeichert,
     # aber der `TRI_SECRET_KEY` passt nicht mehr dazu — dann hilft nur neu
@@ -1100,6 +1109,9 @@ class KiSettingsIn(BaseModel):
     model: str | None = Field(None, max_length=48)
     effort: Literal["", "low", "medium", "high", "xhigh", "max"] | None = None
     auto_plan_enabled: bool | None = None
+    auto_plan_weekday: int | None = Field(None, ge=0, le=6)
+    auto_plan_hour: int | None = Field(None, ge=0, le=23)
+    auto_plan_minute: int | None = Field(None, ge=0, le=59)
     # Der Zugang im Klartext — er wird verschlüsselt abgelegt und nie wieder
     # herausgegeben. Ein leerer String löscht ausdrücklich; deshalb wird das
     # Feld im Router eigens behandelt und nicht über die Teil-Update-Schleife,

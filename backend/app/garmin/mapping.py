@@ -687,7 +687,7 @@ def uebungen_aus_saetzen(saetze: Any) -> list[dict[str, Any]] | None:
         eintrag: dict[str, Any] = {"uebung": name or kategorie, "saetze": werte["saetze"]}
         # Die Kategorie nur, wo sie etwas hinzufügt: Sie benennt die
         # Bewegungsgruppe (`HIP_RAISE` zu `SINGLE_LEG_HIP_RAISE`) und trägt
-        # damit die Abwechslungsregel aus Punkt 9 des Prompts.
+        # damit die Abwechslungsregel aus Punkt 3 des Prompts.
         if name and name != kategorie:
             eintrag["kategorie"] = kategorie
 

@@ -49,11 +49,12 @@ def uebernimm_vergangenheit(
     **Vergangenheit** aber nicht. Die blieb bisher am abgelösten Block hängen,
     und weil an ihr das Training von gestern klebt, war er nie zu löschen: Nach
     einem Monat täglicher Neuplanung dreißig Einträge unter „Frühere Pläne", von
-    denen jeder genau einen Tag trug.
+    denen jeder genau einen Tag trug. (Geplant wird inzwischen wöchentlich, aber
+    „Neu planen" von Hand steht weiterhin jederzeit offen.)
 
-    Ihn zu löschen war nie erlaubt — an `PlanSession.id` hängen `_geplant_war`,
-    die Zuordnung der nächsten Aktivität (`PlanSession.garmin_workout_id`) und
-    die Umsetzungsquote; das ist der Datenverlust vom
+    Ihn zu löschen war nie erlaubt — an `PlanSession.id` hängen die Zuordnung
+    der nächsten Aktivität (`PlanSession.garmin_workout_id`), die
+    Umsetzungsquote und die Markierung „erledigt"; das ist der Datenverlust vom
     16.08.2026. **Umgehängt statt gelöscht** bleibt die Zeile bestehen, mit ihrer
     Kennung, ihrem Log und ihrer Garmin-Zuordnung (`GarminWorkoutLink` zeigt auf
     `plan_session_id`, nicht auf den Plan). Nur ihr Plan ist ein anderer. Danach
@@ -134,8 +135,8 @@ def verfallene_erbschaft_loeschen(db: Session, aktiv: Plan, *, heute: date) -> i
     der nie zu löschen. Ohne Grenze wüchse er damit unbegrenzt: Wer ein Jahr lang
     täglich neu plant, schleppt 365 vergangene Tage mit.
 
-    **Weiter als der Export reicht, liest sie aber niemand.** `_geplant_war`
-    läuft ausschließlich über `recent`, also über
+    **Weiter als der Export reicht, liest sie aber niemand.** Der Export läuft
+    ausschließlich über `recent`, also über
     `HISTORY_WEEKS`; `compliance()` zählt ab `beginn`; `anpassbare_einheit`
     lässt nur Tage ab heute zu; `planbare_einheiten()` filtert auf `beginn`. Was
     älter ist, hängt allein noch in der Planansicht — und dort ist die

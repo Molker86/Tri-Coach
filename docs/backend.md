@@ -108,7 +108,7 @@ so keinen Korridor auf der Uhr. Über den KI-Knopf war das teuer, weil die Antwo
 nirgends gespeichert wird und der Lauf damit ganz verloren war. Jetzt fällt der
 Wert heraus und wird über `verworfene_zielwerte` als Hinweis gemeldet.
 **Zurechtgebogen wird nichts** — ein erfundener Korridor stünde ungeprüft auf der
-Uhr. Punkt 10 des Prompts und `RESPONSE_SCHEMA` sagen die Regel zusätzlich
+Uhr. Punkt 4 des Prompts und `RESPONSE_SCHEMA` sagen die Regel zusätzlich
 ausdrücklich; das senkt die Häufigkeit, ersetzt das Aufräumen aber nicht.
 
 Welche Felder so behandelt werden, steht in `_ZIELWERT_SPANNEN`: `target_hr_low`,

@@ -5,292 +5,168 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
 
 ## Der Prompt (`ai_export.py`)
 
-`PROMPT_TEMPLATE` enthält die verbindlichen Trainingsprinzipien und
-`RESPONSE_SCHEMA` das erwartete Antwortformat. Die Prinzipien sind auf den kurzen
-Block zugeschnitten: Einordnung in den bisherigen Verlauf statt 3:1-Zyklus,
-und beim Triathlon Disziplinenwahl nach dem längsten
-Abstand statt „alle drei pro Woche". Das Template wird mit `.format()` gefüllt —
-neue Platzhalter (`{tage}`, `{start}`, `{ende}`) müssen in `build_prompt()`
-mitversorgt werden.
+`PROMPT_TEMPLATE` enthält den Auftrag und die handwerklichen Vorgaben,
+`_response_schema()` das erwartete Antwortformat. Das Template wird mit
+`.format()` gefüllt — neue Platzhalter müssen in `build_prompt()` mitversorgt
+werden.
 
-**Die Punkte 3 und 4 sagen, woran — nicht wie viel.** Sie schrieben einmal
-„polarisiert, der Großteil in Z1/Z2", „höchstens eine intensive Einheit je drei
-Tage" und „mindestens 48 h zwischen zwei intensiven Einheiten" vor. Das sind
-Trainerentscheidungen und keine Datenlage: Die Rolle im Prompt ist ein
-Ausdauer-Trainingswissenschaftler, der sie mitbringt — was ihm fehlt, sind die
-Daten *dieses* Athleten. Beide Punkte nennen sie deshalb weiterhin namentlich
-(`wochenuebersicht`, `zeit_in_hf_zonen_min`,
-`tage_seit_letzter_intensiver_einheit`) und geben die Entscheidung ausdrücklich
-zurück.
+**Der Prompt schreibt die Trainingslehre nicht mehr vor.** Er war einmal rund
+22.000 Zeichen lang und bestand aus dreizehn nummerierten „verbindlichen
+Trainingsprinzipien": eine Steigerungsgrenze von 10 % gegen
+`letzte_volle_woche`, Readiness-Schwellen bei 40 und 65, ACWR über 1.3 als
+Auftrag zurückzunehmen, ein Schlafdefizit von 45 Minuten als Auftrag die
+intensive Einheit zu streichen, Listen von Zielschlüsseln, die einen Reiz
+verlangen oder nicht. Jede dieser Zahlen war einzeln begründet, und in Summe
+entschieden sie den Block, bevor das Modell die Daten gelesen hatte.
 
-Zwei Dinge hängen daran und sind beim Kürzen ausdrücklich stehen geblieben.
-`_days_since_hard_session()` rechnet über die **ganze** Historie statt über vier
-Wochen, weil Punkt 4 diese Zahl liest — der Block beginnt nicht bei null, und
-ohne den Namen im Prompt verlöre das Feld seinen einzigen Leser. Und die Punkte
-bleiben **an ihrer Nummer**: „Punkte 1 bis 4 und 13" steht im Prompt an zwei
-Stellen, in diesem Dokument an mehreren, und `test_flow.py` prüft den Wortlaut.
-Der Einzelanpassungsprompt wurde mitgezogen (Punkt 1 und der Aufgabentext) —
-zwei Wege mit zwei Maßstäben wären schlechter als ein strenger.
+Die Rolle im Prompt ist ein Ausdauer-Trainingswissenschaftler. Umfang,
+Verteilung und Reizwahl bringt er mit — was ihm fehlt, sind die Daten *dieses*
+Athleten, und die stehen vollständig im Paket. Der Auftrag sagt deshalb
+ausdrücklich: „**Umfang, Intensität und Zusammensetzung entscheidest du.**
+Maßstab sind allein das Ziel in `trainingswunsch.ziel`, die absolvierten
+Einheiten in `trainingshistorie` und die Gesundheitsdaten in `fitnessdaten`.
+Dieses Dokument gibt dir dafür weder Quoten noch Steigerungsgrenzen vor."
 
-**Punkt 8 existiert in zwei Fassungen**, je nach gewählter Disziplin
-(`_prinzip_disziplin()`) — für Triathlon wörtlich der alte Text, sonst eine
-Fassung, die die anderen Disziplinen und `brick` ausschließt. Punkt 13 verliert
-dabei seinen Ausweichsatz, und `_session_schema()` nimmt die Sportarten aus dem
+`test_der_prompt_gibt_die_trainingslehre_nicht_vor` ist die Bremse gegen den
+Rückweg: Es prüft den **Anweisungsteil** (nicht den ganzen Prompt — „1.3" steht
+als ACWR-Messwert völlig zu Recht im Datenpaket) darauf, dass keine dieser
+Zahlen zurückkehrt. `test_der_anweisungstext_bleibt_kurz` hält die
+Größenordnung. Gewachsen ist der Prompt in kleinen Schritten, jeder einzelne
+begründet; die Grenze soll nicht den nächsten Absatz verhindern, sondern den
+zwanzigsten.
+
+**Erfundene Schwelle gegen gemessene Grenze — das ist die Trennlinie.** „Readiness
+unter 40 heißt locker" ist eine Zahl aus diesem Dokument und fällt weg. Der
+HRV-Normalbereich, den Garmin an *diesem* Athleten gemessen hat
+(`balancedLow`/`balancedUpper` → `hrv_normalbereich_ms`), und das optimale
+Lastfenster des Trainingsstatus (`training_status.lastfenster`) sind dagegen
+Daten: Sie bleiben im Paket und werden im Prompt **namentlich benannt**, denn
+ohne die Nennung übersah die KI sie dort. Gelesen wird der Tageswert gegen seine
+Grenze; den Schluss zieht das Modell. Aus demselben Grund fällt
+`fitnessdaten.auffaelligkeiten` aus dem Trainingspaket — fertige deutsche
+Warnsätze aus genau den Schwellen, die gerade gestrichen wurden, wären derselbe
+Eingriff durch die Hintertür. Der Ernährungsprompt behält sie: Er bekommt eine
+stark gekürzte Historie und braucht die Verdichtung.
+
+**Frühere Blöcke dieser App stehen nicht mehr im Paket.** Es gab dafür vier
+Stellen — `geplant_war` an jeder absolvierten Einheit, `aktueller_plan` mit dem
+`summary` des letzten Laufs, `umsetzung_aktueller_plan` mit der Quote und
+`ersetzt_laufenden_block` mit den verworfenen Einheiten — und einen eigenen
+Prinzipienpunkt („Fortschreiben statt neu erfinden"), der daraus las, ob eine
+Vorgabe „zu ambitioniert" war. Der Gedanke war gut: Aus 5x1000 m soll 6x1000 m
+werden. Der Preis war, dass das Modell den alten Block als Vorlage nahm, statt
+aus dem Verlauf neu zu entscheiden — und dass eine niedrige Umsetzungsquote als
+Auftrag gelesen wurde, kleiner zu planen. Wer zwei Wochen krank war, bekam so
+immer kleinere Blöcke. **Maßstab ist jetzt allein, was stattgefunden hat.**
+
+Was von der Ausführung erhalten bleibt, sind die **gemessenen** Felder:
+`zeit_in_hf_zonen_min`, `absolvierte_abschnitte` und `absolvierte_uebungen`.
+Sie sagen, was der Athlet getan hat, nicht was er tun sollte. Nur
+`workout_einhaltung_pct` ist mitgegangen — Garmins Bewertung *gegen die
+Vorgabe* ist ein Planvergleich. `sportscience.compliance()` bleibt bestehen und
+füttert die Kachel unter `/api/logs/stats`; sie verlässt nur den Export.
+
+**Fünf handwerkliche Vorgaben, keine dreizehn Prinzipien.** Was bleibt, ist das,
+was die App technisch braucht — die Nummern haben sich dabei verschoben, und
+Kommentare wie Tests wurden mitgezogen:
+
+| # | Was | Warum es bleibt |
+|---|---|---|
+| 1 | Disziplin (`_prinzip_disziplin()`) | Der Fragebogen kennt vier; ein Laufblock darf kein `swim` enthalten |
+| 2 | Verfügbare Tage, Zeitbudget | Steht im Fragebogen und ist keine Trainingsentscheidung |
+| 3 | Ergänzungstraining (`PRINZIP_ERGAENZUNG`) | Übungsliste, Abwechslung, **englische Übungsnamen** |
+| 4 | Steuerungsgrößen (`_prinzip_steuergroessen()`) | Zonen, Schwimm-/Radort, Bauplan — daraus baut die App das Workout |
+| 5 | Beschwerden | Der einzige Freitext, den kein Gerät gemessen hat |
+
+**Punkt 1 existiert in zwei Fassungen**, je nach gewählter Disziplin — für
+Triathlon wörtlich der alte Text, sonst eine Fassung, die die anderen
+Disziplinen und `brick` ausschließt. Punkt 5 verliert dabei seinen
+Ausweichsatz, und `_session_schema()` nimmt die Sportarten aus dem
 Antwortformat. Siehe „Die gewählte Disziplin entscheidet, was im Block vorkommen
-darf". Die **Nummern bleiben**, wie überall im Prompt.
+darf".
 
-**Der Preis, offen gesagt:** Punkt 6 existiert nur, weil ein Regelwerk aus
-lauter Bremsen das Modell zu sicheren Z2-Wochen treibt (siehe gleich). Die
-Bremsen zu lockern verschiebt das Gleichgewicht in die andere Richtung, und
-nichts in der App prüft das Ergebnis nach. Ob es trägt, zeigt sich nur an den
-Blöcken.
-
-**Punkt 6 ist das Gegengewicht zu allen anderen.** Die Prinzipien 1 bis 4 sind
-Bremsen — sie beschreiben ausschließlich, wann zurückgenommen wird (ACWR, HRV,
-Trainingsreife, der Abstand zum letzten harten Reiz). Ein Regelwerk, das nur bremst, liest sich für ein
-Sprachmodell als Auftrag zur Vorsicht: Es plante zuverlässig sichere
-Z2-Wochen und nie den Reiz, aus dem Anpassung entsteht. Punkt 6 dreht die
-Beweislast um — greift keine Bremse, ist Aufbau die Vorgabe, mit mindestens
-einem gezielten Reiz und bis zu ~10 % mehr Wochenlast. Weil ein Block nur wenige
-Tage weit reicht und jeder Export bei null anfängt, entsteht Progression nicht
-aus einem Zyklusplan, sondern allein daraus, dass jeder einzelne Block sie
-enthält.
-
-Punkt 6 spricht die **Zielschlüssel namentlich an** („Standardplan", „Aufbau",
-„Bestzeit", „Wettkampfvorbereitung" verlangen einen Reiz; „Grundlagenausdauer",
-„Gesundheit", „Gewichtsreduktion", „Erstfinish", „Wiedereinstieg" stellen
-Regelmäßigkeit voran). „Standardplan" hat zusätzlich einen eigenen Absatz, weil
-er das einzige Ziel ohne äußeren Bezugspunkt ist: kein Wettkampf, kein
-Schwerpunkt — Maßstab ist allein die Best Practice, und die Reizwahl kommt aus
-der Lücke in der Historie. Ohne diesen Absatz füllte das Modell die Leerstelle
-mit dem Sichersten, also Z2. Der Absatz zählt bewusst **keine Einheitentypen
-auf**: Eine Liste („Schwelle, VO2max, Z1 …") wäre wieder eine Vorgabe und würde
-genau die Ableitung ersetzen, die hier den Sinn des Ziels ausmacht. Und er sagt
-ausdrücklich, dass er kein Freibrief ist — „bestmöglich" ohne diesen Satz liest
-sich als Erlaubnis, die Bremsen aus Punkt 1 bis 4 zu übergehen. Die Schlüssel stehen in `GOAL_OPTIONS`
-(`frontend/src/constants.ts`) und gehen unverändert als `trainingswunsch.ziel`
-in den Payload — ein neues Ziel oder ein umbenannter Schlüssel muss deshalb im
-Prompt mitgezogen werden, sonst fällt es dort stillschweigend in keine der
-beiden Gruppen.
-
-Punkt 2 der Prinzipien ist der Platzhalter `{fitnessregeln}` und existiert in
-zwei Fassungen (`FITNESSREGELN_MIT_DATEN` / `_OHNE_DATEN`) — welche eingesetzt
+Der Absatz zur Erholungslage ist der Platzhalter `{fitnessregeln}` und existiert
+in zwei Fassungen (`FITNESSREGELN_MIT_DATEN` / `_OHNE_DATEN`) — welche eingesetzt
 wird, entscheidet `build_prompt()` daran, ob der Payload einen
-`fitnessdaten`-Block trägt. Beide Texte laufen durch `.format()`: geschweifte
-Klammern müssten verdoppelt werden.
+`fitnessdaten`-Block trägt. Regeln zu Daten, die es nicht gibt, laden zum
+Erfinden ein. Beide Texte laufen durch `.format()`: geschweifte Klammern müssten
+verdoppelt werden.
 
-Punkt 9 verlangt bei `strength` und `mobility` eine **Übungsliste** in
+**Der Bauplan steht nur noch einmal.** `_STEUER_BAUPLAN` schrieb dieselben sechs
+`steps`-Regeln aus, die `SESSION_SCHEMA["steps"]` schon trägt — zusammen rund
+5.500 Zeichen für einen Sachverhalt. Geblieben ist die Fassung im Schema (sie
+steht direkt am Feld, wo das Modell sie beim Ausfüllen liest, und trägt die drei
+Beispiele); der Prompt verweist in einem Satz darauf.
+
+**Kompaktes JSON statt Einrückung.** `json.dumps(..., separators=(",", ":"))`
+für Schema und Payload spart rund ein Viertel des Prompts, ohne dass eine
+Information verlorenginge. Gelesen wird das Paket von einem Modell — auch auf
+dem Weg über die Zwischenablage, wo der Mensch es nur kopiert. Wer nach einem
+Feld sucht, sucht im `payload`-Teil der Antwort, der weiterhin strukturiert
+zurückkommt.
+
+**Die Fitnessdaten reichen 14 Tage zurück** (`WELLNESS_TAGE`), nicht vier
+Wochen. Für einen Block über wenige Tage entscheidet die jüngste Entwicklung,
+und die Vierwochensicht steht als `mittelwerte.28_tage` daneben. Über den vollen
+Rückblick waren die Tageswerte ein Fünftel des gesamten Prompts.
+
+Punkt 3 verlangt bei `strength` und `mobility` eine **Übungsliste** in
 `structure` und hinter jeder deutschen Bezeichnung den geläufigen englischen
-Namen in Klammern („Seitstütz (Side Plank) 3x40 s je Seite“). Das ist kein
+Namen in Klammern („Seitstütz (Side Plank) 3x40 s je Seite"). Das ist kein
 Schönheitswunsch: Der englische Name ist der Schlüssel in Garmins Übungskatalog
 und entscheidet darüber, ob auf der Uhr die Bewegungsanimation erscheint
 (`garmin/uebungen.py`). Das Wörterbuch dort fängt den Fall ohne Klammer ab —
 beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 
-**Wie lang eine Ergänzungseinheit ist, sagt der Prompt nicht mehr.** Er verlangte
-einmal „kurz“ — eine Zahl, die weder aus der Belastungslage noch aus der
+**Wie lang eine Ergänzungseinheit ist, sagt der Prompt nicht.** Er verlangte
+einmal „kurz" — eine Zahl, die weder aus der Belastungslage noch aus der
 Beschwerde stammt, sondern aus der Annahme, Kraft und Mobility seien Beiwerk.
 Genau diese Annahme steht der Behandlung im Weg: Eine abgeschwächte Muskelgruppe
-oberhalb des Gelenks braucht Arbeitszeit, und der Prompt räumte sie nicht ein.
-Die Länge leitet die KI deshalb aus Belastungslage, Ziel und Beschwerdebild ab
-und trägt sie in `duration_min` ein — dieselbe Linie wie bei den Punkten 3 und 4:
-Die Rolle ist ein Trainingswissenschaftler, dem die Daten fehlen und nicht das
-Maß. Der Hinweistext im Fragebogen sagt es ebenso wenig
-(`SUPPLEMENTAL_OPTIONS` in `frontend/src/constants.ts`) — er stand vor demselben
-Feld, das die KI jetzt füllt.
+oberhalb des Gelenks braucht Arbeitszeit. Der Hinweistext im Fragebogen sagt es
+ebenso wenig (`SUPPLEMENTAL_OPTIONS` in `frontend/src/constants.ts`).
 
-**„Regelmäßig" heißt dort ausdrücklich nicht „dasselbe noch einmal".** Punkt 9
-sagte nur „Mobility kurz und regelmäßig" — und genau das hat die KI getan: Am
-18.08.2026 verordnete sie eine Mobility-Einheit für Hüfte und lateralen
-Oberschenkel, am 19.08. eine für Hüfte, Gesäß und Oberschenkelaußenseite. Sie hat
-dabei nichts übersehen: Die Einheit vom Vortag lag mitsamt vollständiger
-Übungsliste im Export, und `tage_seit_letzter_einheit_je_sportart` sagte
-`mobility: 1`. **Die Wiederholung war eine Prompt-Lücke, kein Datenmangel** — die
-naheliegende Diagnose „sie weiß zu wenig" war hier die falsche. Punkt 9 verlangt
-deshalb jetzt, in `trainingshistorie.einheiten` nach der letzten Ergänzungseinheit
-zu sehen und Übungsauswahl wie Körperregion zu wechseln — zuerst in
-`absolvierte_uebungen`, was die Uhr gezählt hat, erst dann in
-`geplant_war.aufbau` oder `notiz`; dieselbe Region an zwei
-aufeinanderfolgenden Tagen ist ein Fehler. Die Ausnahme davon war zunächst als
-bloße Erlaubnis formuliert („eine Region, die akut zwickt, darf wiederholt
-werden") und hat sich genau darin als zu schwach erwiesen — siehe „Punkt 13 ist
-die Beschwerde des Athleten" weiter unten: Die Abwechslungsregel gilt jetzt
-ausdrücklich nur für gesunde Regionen.
+**„Regelmäßig" heißt dort ausdrücklich nicht „dasselbe noch einmal".** Punkt 3
+sagte einmal nur „Mobility kurz und regelmäßig" — und genau das hat die KI
+getan: Am 18.08.2026 verordnete sie eine Mobility-Einheit für Hüfte und
+lateralen Oberschenkel, am 19.08. eine für Hüfte, Gesäß und
+Oberschenkelaußenseite. Sie hat dabei nichts übersehen: Die Einheit vom Vortag
+lag mitsamt Übungsliste im Export, und `tage_seit_letzter_einheit_je_sportart`
+sagte `mobility: 1`. **Die Wiederholung war eine Prompt-Lücke, kein
+Datenmangel** — die naheliegende Diagnose „sie weiß zu wenig" war hier die
+falsche. Der Punkt verlangt deshalb, in `trainingshistorie.einheiten` nach der
+letzten Ergänzungseinheit zu sehen und Übungsauswahl wie Körperregion zu
+wechseln — zuerst in `absolvierte_uebungen`, was die Uhr gezählt hat, sonst in
+`notiz`.
 
-Daran hing eine Falle, die der bestehende Test
-`test_der_prompt_nennt_nur_felder_die_es_gibt` sofort gefangen hat: Der Verweis
-lautete zunächst auf `summary`, und das Antwortformat der Einzelanpassung hat
-keins. `PRINZIP_ERGAENZUNG` geht deshalb jetzt wie `FITNESSREGELN_*` durch ein
-eigenes `.format()` (`_prinzip_ergaenzung()`) — `.format()` formatiert
-eingesetzte Werte **nicht** erneut, der Platzhalter muss also gefüllt sein, bevor
-der Text in die Vorlage geht.
+Daran hing eine Falle, die `test_der_prompt_nennt_nur_felder_die_es_gibt`
+gefangen hat: Der Verweis lautete zunächst auf `summary`, und das Antwortformat
+der Einzelanpassung hat keins. `PRINZIP_ERGAENZUNG` geht deshalb wie
+`FITNESSREGELN_*` durch ein eigenes `.format()` (`_prinzip_ergaenzung()`) —
+`.format()` formatiert eingesetzte Werte **nicht** erneut, der Platzhalter muss
+also gefüllt sein, bevor der Text in die Vorlage geht.
 
-Punkt 12 liest neben `geplant_war` jetzt auch, **wie** die Einheit ausgeführt
-wurde — `zeit_in_hf_zonen_min`, `absolvierte_abschnitte`,
-`workout_einhaltung_pct` und, bei Kraft und Mobility, `absolvierte_uebungen` —
-und schreibt von dort aus fort statt von der Vorgabe. Zu den Übungen nennt er
-zwei Einschränkungen, die aus echten Daten stammen (aufgezeichnete statt
-absolvierte Sätze, zu niedrig gezählte Wiederholungen) — siehe „Was in einer
-Krafteinheit wirklich passiert ist".
-Dazu `geplant_fuer`: Eine an einem anderen Tag absolvierte Einheit ist erfüllt,
-nur verschoben, und ausdrücklich keine Nichtumsetzung. Auch hier gilt die Sperre
-aus Punkt 11: Die Felder fehlen an vielen Einheiten, und ihr Fehlen ist keine
-Aussage.
+**Punkt 5 ist die Beschwerde des Athleten, und sie wirkt in zwei Richtungen.**
+`athlet.verletzungen_einschraenkungen` reiste lange im Payload mit, ohne dass
+ein Punkt darauf zeigte. Beim Ausdauerteil las das Modell den Freitext von
+selbst; die Ergänzungseinheiten dagegen **wichen der betroffenen Region aus**,
+weil die Abwechslungsregel den Wechsel der Körperregion verlangte und nichts
+dagegenstand. Genau umgekehrt ist es richtig: Ein Läuferknie wird in Kraft und
+Mobility behandelt, nicht umgangen. Deshalb **Bremse** (Umfang, Intensität,
+Untergrund) *und* **Auftrag** (die wahrscheinliche Ursache ableiten und die
+Übungen planen, die sie angehen).
 
-**Punkt 13 ist die Beschwerde des Athleten — und sie war die ganze Zeit da,
-ohne dass eine Regel darauf zeigte.** `athlet.verletzungen_einschraenkungen`
-steht seit jeher im Payload (`_athlete_block`), aber keines der zwölf Prinzipien
-nannte den Schlüssel. Dass der Ausdauerteil trotzdem darauf einging, war
-Eigeninitiative des Modells: Im Block vom 20.08.2026 („leichtes Läuferknie
-rechts + leichte muskuläre Probleme auf der rechten Po-Seite") lag die
-Schlüsseleinheit knieschonend auf dem Rad, der Koppellauf war gekürzt und die
-Coaching-Notes trugen ein Abbruchkriterium. **Die Ergänzungseinheiten desselben
-Blocks wichen der Region dagegen ausdrücklich aus** — „ohne zusätzliche Belastung
-des rechten Knies", „ohne die zuletzt trainierte Hüft-/Gesäßregion erneut zu
-belasten" — und planten stattdessen Schultergürtel und Brustwirbelsäule. Für ein
-Läuferknie mit begleitenden Gesäßbeschwerden ist das die Umkehrung des Richtigen:
-Die Gesäß- und Hüftabduktorenarbeit *ist* die Behandlung.
+Die Abwechslungsregel gilt seither ausdrücklich **nur für gesunde Regionen** —
+als bloße Erlaubnis formuliert („eine Region, die akut zwickt, darf wiederholt
+werden") war sie zu schwach. Aber die Ausnahme gilt der **Region, nicht der
+Einheit**: Zwei aufeinanderfolgende Tage an derselben Region müssen sich in
+Form, Übungsauswahl oder Progression unterscheiden, sonst kam dieselbe
+Dehneinheit drei Tage hintereinander — ausdrücklich gedeckt durch die Ausnahme,
+die sie behandeln sollte.
 
-Auch das war kein Aussetzer, sondern eine Prompt-Lücke — dieselbe Sorte wie bei
-der doppelten Mobility-Einheit oben. Punkt 9 verlangt, Übungsauswahl und
-Körperregion zu wechseln, und die betroffene Region war am 17./18.08. dran
-gewesen; die Ausnahme („eine Region, die akut zwickt") stand als *Erlaubnis zur
-Wiederholung* mitten in einem Absatz, dessen Hauptaussage das Gegenteil sagt, und
-verwies obendrein auf den „Fragebogen", während der Text unter `athlet` liegt.
-Die Abwechslungsregel hat also gegen die Beschwerde gewonnen.
-
-Drei Änderungen, die zusammengehören. Punkt 13 nennt den Schlüssel und trennt
-die **zwei Richtungen**: als *Bremse* auf die betroffene Belastung (Reiz auf eine
-andere Disziplin verlegen statt streichen) und als *Auftrag* ans
-Ergänzungstraining (Ursache ableiten — typisch eine abgeschwächte Muskelgruppe
-oberhalb des Gelenks — und die Übungen dagegen planen). Der Satz „auszusparen ist
-die falsche Antwort" steht ausdrücklich da, weil genau das passiert ist; bei
-akuter Reizung wird schmerzfrei geplant (isometrisch, kleinerer Bewegungsumfang),
-nicht gar nicht. In `PRINZIP_ERGAENZUNG` gilt die Abwechslungsregel jetzt
-ausdrücklich nur für **gesunde** Regionen — eine genannte Beschwerde ist der
-Grund, ihre Region zu behalten, und abgewechselt wird um sie herum. Und Punkt 6
-zählt 13 zu den **Bremsen**: Sonst läse „greift keine der Bremsen aus 1 bis 4,
-also wird aufgebaut" über die Beschwerde hinweg.
-
-Punkt 13 steht **hinten**, obwohl er inhaltlich zu den Bremsen 1 bis 4 gehört:
-Einfügen hieße alle Querverweise im Prompt umnummerieren, und die Nummern stehen
-an einem guten Dutzend Stellen — im Prompt selbst wie in diesem Dokument. Der
-Einzelanpassungsprompt hat denselben Punkt als **Nummer 8**, kürzer gefasst: Dort
-steht der Block fest, und der Auftrag ans Ergänzungstraining kommt ohnehin über
-den geteilten Punkt 5 mit. Der Zusatz „unabhängig davon, ob der Wunsch sie
-erwähnt" ist dort das Entscheidende — wer „nur 40 Minuten Zeit" schreibt, nimmt
-sein Knie damit nicht zurück.
-
-**Und dann kam dieselbe Dehneinheit drei Tage hintereinander.** Am laufenden
-Betrieb aufgefallen, mit eingeschalteter Automatik und einem Läuferknie im
-Freitext: drei Blöcke in Folge, jeder mit einer Mobility-Einheit auf dieselbe
-Region, während die medizinische Lage bei diesem Bild Kräftigung verlangt. Wieder
-**keine Datenlücke** — `tage_seit_letzter_einheit_je_sportart` meldete
-`mobility: 1`, `absolvierte_uebungen` nannte die gezählten Übungen. Der Prompt
-hat die Wiederholung angefordert, und zwar an vier Stellen zugleich:
-
-*Punkt 9 behandelte die beiden Formen ungleich.* „Falls gewünscht, Kraft (…) —
-nie unmittelbar vor einer Schlüsseleinheit. Mobility kurz und regelmäßig": eine
-Bedingung samt Sperre gegen die eine Form, ein unbedingter Wiederholungsauftrag
-für die andere. Bei täglicher Neuplanung liest sich „regelmäßig" als „heute
-wieder". Beide stehen jetzt gleichrangig, beide unter
-`trainingswunsch.zusatztraining`, und die Terminierungsregel ist als solche
-benannt: Passt Kraft an einem Tag nicht, steht sie an einem anderen — sie wird
-nicht durch Mobility **ersetzt**.
-
-*Die Beschwerde-Ausnahme deckte zu viel.* Sie war die Antwort auf den umgekehrten
-Fehler (siehe oben) und bleibt richtig, unterschied aber nicht zwischen
-*derselben Region* und *derselben Einheit* — womit dieselbe Übungsliste am
-Folgetag ausdrücklich gedeckt war. Sie gilt jetzt der Region: Zwei
-aufeinanderfolgende Tage daran müssen sich in **Form, Übungsauswahl oder
-Progression** unterscheiden.
-
-*Punkt 12 zog auf die zuletzt gewählte Form zurück.* „Ein Satz mehr, zehn
-Sekunden länger, eine schwerere Variante derselben Bewegung" — gestern gedehnt
-hieß damit heute länger dehnen. Der Formwechsel steht jetzt daneben: derselben
-Region mit der nächsten Form begegnen, erst mobilisieren, dann belasten.
-
-*Punkt 13 stellte beide Zweige gleich stark auf.* „Eine abgeschwächte **oder
-verkürzte** Muskelgruppe" — und bei sonst gleichem Text gewinnt die kürzere,
-überall zulässige Form. Die abgeleitete Ursache entscheidet jetzt ausdrücklich
-auch über die *Form* der Arbeit, und eine Beschwerde, die über mehrere Blöcke
-dieselbe Antwort bekommt, ohne nachzulassen, ist ein Grund zum Wechseln statt
-zum Wiederholen.
-
-**Vorgeschrieben wird dabei nichts.** Dass ein Läuferknie Kräftigung braucht,
-steht nirgends im Prompt — dieselbe Linie wie bei den Punkten 3 und 4: Die Rolle
-ist ein Trainingswissenschaftler, der das mitbringt. Entfernt wurde nur die
-Schieflage, die ihn zur kürzeren Form gedrängt hat. Was bleibt, ist eine Zusage
-der KI; nachrechnen kann die App sie nicht.
-
-**Der eigentliche Verstärker stand gar nicht im Prompt: Nur der erste Tag wird je
-erreicht** (`NEUPLANUNGSHINWEIS`, `planungszeitraum.taegliche_neuplanung`). Bei
-eingeschalteter Automatik entsteht morgen früh ein frischer Block ab dann — die
-Tage ab dem zweiten sind vergeben, bevor der Block überhaupt gebaut ist. Die KI
-wusste davon nichts und verteilte ihre Einheiten sinnvoll über sieben Tage; was
-Punkt 9 vom ersten Tag wegdrängte (Kraft nicht unmittelbar vor einer
-Schlüsseleinheit), landete auf Tag 3 und fand **nie** statt. Auf Tag 1 blieb die
-kurze, überall zulässige Mobility — dreimal hintereinander.
-
-Der Hinweis sagt deshalb ausdrücklich **nicht**, Tag 1 finde sicher statt: Ob
-trainiert wird, entscheidet der Athlet. Sicher ist nur die Gegenrichtung, und
-genau die ist die Aussage. Maßgeblich ist der **Schalter, nicht der Auslöser**
-(`KiSettings.auto_plan_enabled`, gelesen in `_lade_kontext()`): Steht die
-Automatik an, wird auch ein von Hand angestoßener Block morgen ersetzt. Der
-Schlüssel steht nur, wenn er wahr ist — dieselbe Regel wie bei
-`ersetzt_laufenden_block`, denn ein `false` wäre eine Aussage über einen Zustand,
-der die KI nichts angeht. Die Einzelanpassung bekommt ihn nicht: Dort wird nichts
-verdrängt.
-
-Daran hing ein Fehler, den `test_der_geteilte_punkt_nennt_keine_punktnummer` jetzt
-festhält: Die neue Formwahl in Punkt 9 verwies zunächst auf „Punkt 13" — und
-Punkt 9 ist mit der Einzelanpassung geteilt, wo die Beschwerderegel **Punkt 8**
-heißt. Die Nummer kommt aus der Vorlage, der Text steht ohne sie; das gilt für
-`PRINZIP_ERGAENZUNG` und die `_STEUER_*`-Stücke gleichermaßen.
-
-`ERSATZ_HINWEIS` behauptete bei alledem „Der Athlet plant ihn **bewusst** neu" —
-bei der Automatik hat ein Zeitgeber entschieden. Der Satz trägt jetzt beide
-Auslöser.
-
-Der Kopf der Aufgabe sagt außerdem, dass `erzeugt_am` **Datum und Uhrzeit**
-trägt und der erste Tag womöglich schon halb vorbei ist — samt der Folgerung,
-dass Ruhe die richtige Antwort ist, wenn zu wenig übrig bleibt. Eine Einheit, die
-nicht mehr stattfinden kann, verfälscht ab morgen die Umsetzungsquote.
-
-Punkt 11 ordnet die **Selbstauskunft** ein: `rpe_quelle: "athlet"` und
-`befinden_0_10` stammen vom Athleten und wiegen schwerer als jede Schätzung und
-als die gemessene Last; alles andere ist geschätzt und wird gegen `hf_schnitt`,
-`trimp` und `garmin_trainingslast` gelesen. Der wichtigere Teil des Punktes ist
-die Sperre dahinter: Beide Felder **fehlen an den meisten Einheiten**, und das
-ist keine Aussage über sie. Ohne den Satz deutet ein Sprachmodell die Leerstelle
-— entweder als „hat sich nicht gemeldet, also war es hart" oder als stille
-Bestätigung — und richtet den Block an einer einzelnen bewerteten Einheit aus.
-
-Punkt 9 und Punkt 10 stehen **nicht** in der Vorlage, sondern als
-`PRINZIP_ERGAENZUNG` und `PRINZIP_STEUERGROESSEN` daneben: Der Prompt für die
-Einzelanpassung setzt dieselben Texte an anderer Stelle ein (siehe „Eine
-einzelne Einheit wird angepasst"). Wer sie ändert, ändert beide Aufgaben — das
-ist die Absicht. Die Nummer gehört in die Vorlage, nicht in den Text.
-
-Punkt 10 verlangt außerdem die **Schrittliste** `steps` — den Bauplan der
-Einheit für die Uhr, neben `structure` als Text für den Athleten. Wer den einen
-ändert, prüft den anderen mit: Der Prompt verlangt, dass beide dieselbe Einheit
-beschreiben. Die sechs Regeln dazu (ein Maß je Eintrag, `repeat` wie die Uhr
-zählt, Pausen als eigene Einträge, `text` je Schritt, Teilsegmente
-ausgeschrieben, `duration_min` als Summe) stehen im Absatz „Der Bauplan für die
-Uhr“ und noch einmal ausführlicher in `SESSION_SCHEMA["steps"]` — beide Texte
-gehören zusammen geändert. Nachrechnen kann die App davon nur die Summe, und
-auch die nur, wenn jeder Schritt eine Dauer trägt (`plan_import._schrittzeit`);
-alles Übrige bleibt eine Zusage der KI, die `validate_coverage()` bestenfalls
-melden kann.
-
-Änderungen am Antwortformat müssen an drei Stellen zusammenpassen:
-`RESPONSE_SCHEMA`, die `AI*In`-Schemas in `schemas.py` und `build_plan()` in
-`plan_import.py`. Die Felder einer Einheit stehen dafür einmal in
-`SESSION_SCHEMA` und werden von `RESPONSE_SCHEMA` wie
-`EINHEIT_RESPONSE_SCHEMA` benutzt; ein neues Feld muss zusätzlich in
-`AISessionIn` und in `plan_import.uebernimm_einheit()` — sonst kommt es beim
-Anpassen einer einzelnen Einheit nicht an.
+**Vorgeschrieben wird dabei nichts.** Dass ein Läuferknie Kräftigung der
+Hüftabduktoren braucht, steht nicht im Prompt: Welche Übung zu welcher
+Beschwerde gehört, ist die Fachkenntnis des Modells. Der Prompt sagt nur, *dass*
+die Beschwerde behandelt gehört und dass Aussparen die falsche Antwort ist.
 
 ## Die KI im Server (`ki/`)
 
@@ -359,36 +235,50 @@ lief mit **null Warnungen** durch. Ein striktes Schema wäre ein zweiter, eigene
 Fehlerpfad — und eine Fessel für genau das Modell, von dem hier die beste
 Antwort erwartet wird. Bleibt in der Hinterhand.
 
-**Geplant wird auf Zuruf — oder nach dem Abgleich, wenn man darum bittet**
+**Geplant wird auf Zuruf — oder einmal die Woche, wenn man darum bittet**
 (`ki/automatik.py`, `KiSettings.auto_plan_enabled`). Es gab hier einmal eine
 Automatik mit einer **eigenen Viertelstundenschleife**, die den nächsten Block
 anlegte, sobald der alte auslief; sie wurde entfernt, weil ein Plan, der über
 Nacht von selbst entsteht, am Morgen auf der Uhr steht, ohne dass ihn jemand
-bestellt hätte. Zurück ist die Funktion, nicht die Bauart — und beide
-Unterschiede sind der Punkt.
+bestellt hätte. Zurück ist die Funktion, nicht die Bauart.
 
-**Kein zweiter Loop.** Ausgelöst wird am Ende eines erfolgreichen
-*automatischen* Abgleichs, aus `garmin/runner._fuehre_aus` heraus. Das ist
-nicht bloß sparsamer: Es garantiert die Reihenfolge, die `_datenstand` und
-Punkt 2 des Prompts ohnehin voraussetzen — erst die Daten, dann der Block.
-Zwei unabhängige Wecker könnten sie vertauschen, und die KI läse die Lücke als
-Ruhetag und plante Aufbau auf einen Tag, an dem hart trainiert wurde. Gerufen
-wird **nach** dem Schloss des Garmin-Runners, nicht darin: Der Planungslauf
-stößt an seinem Ende selbst eine Übertragung an, die sonst gegen ein Schloss
-liefe, das derselbe Faden noch hält. Der Import steht in der Funktion, weil
-`ki/runner` über `garmin.automatik` zurückgreift.
+**Einmal die Woche, nicht täglich.** Die Automatik plante zuerst nach *jedem*
+automatischen Abgleich, also jeden Tag. Ein Block deckt aber sieben Tage ab:
+Täglich neu geplant wurde von jedem Block nur der erste Tag je erreicht, und
+was die KI auf Tag 3 legte, fand nie statt — der Prompt brauchte einen eigenen
+Absatz, um sie darauf hinzuweisen. Dazu kostete jeder Lauf Kontingent. Wochentag
+und Uhrzeit stehen jetzt je Nutzer in `KiSettings` (`auto_plan_weekday` nach
+`date.weekday()`, `auto_plan_hour`, `auto_plan_minute`; Vorgabe **Sonntag
+09:00**).
+
+**Kein zweiter Loop — aber auch nicht mehr am Abgleich.** Der Weckruf kommt aus
+`garmin/automatik.starte_faellige_planung()`, dem zweiten Zweig derselben
+Schleife: Es gibt weiterhin genau **einen** Zeitgeber im Prozess. Ausgelöst
+wurde die Planung dagegen einmal am Ende eines erfolgreichen automatischen
+Abgleichs, aus `garmin/runner._fuehre_aus` heraus. Das garantierte die
+Reihenfolge „erst die Daten, dann der Block", band die Planung aber an die
+Uhrzeit des Abgleichs: Wer ihn auf 06:00 legte und die Planung auf Sonntag
+09:00, bekam nie einen Block — und wer den Abgleich abschaltete, auch nicht.
+Beide Zweige sind deshalb unabhängig. Die Reihenfolge trägt jetzt die Uhrzeit
+(die Oberfläche sagt es dazu), und dass die Daten einen Tag alt sein können,
+steht der KI ohnehin als `trainingshistorie.datenstand` zur Verfügung.
 
 **Und der Schalter steht je Nutzer, ab Werk aus.** Nicht in der Umgebung: Ein
 Wert aus `config.py` ließe sich ohne Neustart nicht ändern, und was Kontingent
-verbraucht, schaltet der Nutzer selbst ein (Einstellungen → KI-Planung). Fünf
-Riegel, jeder mit eigenem Grund: der Abgleich muss `kind="auto"` **und** `done`
-sein (ein Abgleich per Knopfdruck will Daten, nicht ungefragt Kontingent),
-`auto_plan_enabled` muss stehen, `last_auto_plan_on` nicht heute sein, ein
-Fragebogen vorliegen (sonst scheiterte der Lauf sicher und kostete trotzdem),
-und der Zugang tragen. Geplant wird dann **ab heute** mit `PLAN_DAYS_DEFAULT` —
-der laufende Block wird ersetzt, wie bei „Neu planen ab heute". Ein Fehlschlag
-wird protokolliert und verschluckt: Der Aufrufer ist ein Abgleich, der gerade
-erfolgreich war, und der darf daran nicht nachträglich scheitern.
+verbraucht, schaltet der Nutzer selbst ein (Einstellungen → KI-Planung). Die
+Riegel stehen in `ist_faellig()` und daneben: `auto_plan_enabled` muss stehen,
+Wochentag und Uhrzeit erreicht sein, ein Fragebogen vorliegen (sonst scheiterte
+der Lauf sicher und kostete trotzdem), und der Zugang tragen. Geplant wird dann
+**ab heute** mit `PLAN_DAYS_DEFAULT` — der laufende Block wird ersetzt, wie bei
+„Neu planen ab heute". Ein Fehlschlag wird protokolliert und verschluckt: Der
+Aufrufer ist eine Schleife, die weiterlaufen muss.
+
+**Die Wochensperre zählt Tage, nicht Wochentage.** `(heute - last).days >= 7`
+statt „an diesem Wochentag noch nicht gelaufen": Sonst liefe ein zweiter Block
+in derselben Woche, sobald jemand den Wochentag mitten in der Woche umstellt.
+Vorgemerkt wird **vor** dem Start, nicht danach — der Lauf hängt an einem
+eigenen Schloss und meldet sich nicht zurück, und eine Minute später wäre
+derselbe Tag sonst noch einmal fällig.
 
 `plan_days` bleibt Altlast an `KiSettings` (NOT NULL in bestehenden
 Datenbanken); die Blocklänge kommt aus `ai_export.PLAN_DAYS_DEFAULT`.

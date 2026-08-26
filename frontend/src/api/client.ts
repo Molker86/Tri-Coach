@@ -208,6 +208,7 @@ export const api = {
   garminSettings: (data: {
     auto_sync_enabled?: boolean
     sync_hour?: number
+    sync_minute?: number
     profile_sync_enabled?: boolean
     auto_push_enabled?: boolean
   }) =>

@@ -1,18 +1,29 @@
 """Was ohne Zutun läuft: der tägliche Abgleich und der Weg auf die Uhr.
 
-Zwei Auslöser, ein Gedanke — der Athlet soll nichts anstoßen müssen, was die
-App selbst weiß. Der Abgleich hängt an der Uhrzeit, die Übertragung am
-Übernehmen eines Blocks (`starte_uebertragung_fuer_neuen_plan`).
+Drei Auslöser, ein Gedanke — der Athlet soll nichts anstoßen müssen, was die
+App selbst weiß. Der Abgleich hängt an der Uhrzeit, die Wochenplanung an
+Wochentag und Uhrzeit, die Übertragung am Übernehmen eines Blocks
+(`starte_uebertragung_fuer_neuen_plan`).
 
 Kein Cron und kein Zeitplaner-Paket: Das Add-on ist ein einziger
 Uvicorn-Prozess, ein zweites Laufzeitteil wäre mehr Betrieb als Nutzen.
 
-Die Schleife wacht viertelstündlich auf und *prüft*, ob heute schon abgeglichen
-wurde, statt auf einen festen Zeitpunkt zu zielen. Das ist gegen Neustarts
-robust: Der letzte Lauf steht in der Datenbank, nicht in einem Wecker. War der
-Rechner um neun Uhr aus, holt es der erste Aufwacher nach dem Start nach.
-Gestartet wird deshalb ab `GARMIN_SYNC_HOUR`, nicht auf die Minute genau — der
-Lauf beginnt innerhalb der Viertelstunde danach.
+Die Schleife wacht minütlich auf und *prüft*, ob das Fällige schon gelaufen ist,
+statt auf einen festen Zeitpunkt zu zielen. Das ist gegen Neustarts robust: Der
+letzte Lauf steht in der Datenbank, nicht in einem Wecker. War der Rechner um
+neun Uhr aus, holt es der erste Aufwacher nach dem Start nach.
+
+Minütlich und nicht mehr viertelstündlich, seit beide Automatiken eine eigene
+Uhrzeit **mit Minute** haben: Eine eingestellte 09:05 muss auch um 09:05
+losgehen und nicht irgendwann bis 09:20. Der Preis ist eine kurze DB-Sitzung je
+Minute — bei SQLite auf demselben Rechner folgenlos.
+
+**Zwei unabhängige Zweige.** Der Garmin-Abgleich läuft täglich zu seiner
+Uhrzeit; die KI-Planung wöchentlich an ihrem Wochentag zu ihrer eigenen. Die
+Planung hing einmal am Abgleich und lief nur unmittelbar danach — dann fiel sie
+aus, sobald jemand die beiden Uhrzeiten auseinanderlegte oder den Abgleich
+abschaltete. Sie hat trotzdem **keine eigene Schleife**: Der Weckruf kommt
+weiterhin von hier, es gibt genau einen Zeitgeber im Prozess.
 
 Der Abgleich läuft im Server, nicht im Browser — es muss niemand die Seite
 offen haben.
@@ -27,14 +38,16 @@ from sqlalchemy.orm import Session
 
 from ..config import GARMIN_SYNC_HOUR
 from ..database import SessionLocal
+from ..ki import automatik as ki_automatik
 from ..models import (
     AthleteProfile,
     GarminAccount,
     GarminWorkoutLink,
+    KiSettings,
     Plan,
     PlanSession,
 )
-from ..zeit import liegt_in_der_zukunft
+from ..zeit import als_utc, liegt_in_der_zukunft
 from . import uebertragung, workouts
 from .errors import GarminFehler, GarminNichtVerbunden
 from .runner import runner
@@ -43,12 +56,14 @@ from .verbindung import garmin_sitzung
 
 logger = logging.getLogger(__name__)
 
-WECKINTERVALL_S = 900
+WECKINTERVALL_S = 60
 
 
 async def automatik_schleife() -> None:
     while True:
         await asyncio.sleep(WECKINTERVALL_S)
+        # Getrennte `try`-Blöcke: Ein Fehler im Abgleich darf die Planung nicht
+        # mit ausfallen lassen — sie hängt nicht mehr an ihm.
         try:
             # In einen Thread ausgelagert: Der Abgleich ist blockierendes I/O
             # und würde die Ereignisschleife sonst für Minuten anhalten.
@@ -57,6 +72,13 @@ async def automatik_schleife() -> None:
             raise
         except Exception:  # noqa: BLE001
             logger.exception("Automatischer Garmin-Abgleich fehlgeschlagen")
+
+        try:
+            await asyncio.to_thread(starte_faellige_planung)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("Automatische Planung fehlgeschlagen")
 
 
 def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
@@ -82,7 +104,7 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
             # Vorgabe. Der Preis ist, dass jeder Aufwacher eine Sitzung öffnet,
             # statt vorher billig zurückzukehren — bei SQLite auf demselben
             # Rechner folgenlos, und anders geht „je Nutzer eine Stunde" nicht.
-            if jetzt.hour < _abgleichstunde(konto):
+            if (jetzt.hour, jetzt.minute) < _abgleichzeit(konto):
                 continue
             if konto.last_sync_at is not None and _als_datum(konto.last_sync_at) >= heute:
                 continue
@@ -102,24 +124,65 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
             # Nur ein Konto je Aufwachen: Zwei Läufe gleichzeitig sind ohnehin
             # durch das Schloss im Runner ausgeschlossen, und nacheinander
             # gestartet erzeugten sie genau die Anfragedichte, gegen die Garmins
-            # Sperre gerichtet ist. Der nächste ist in einer Viertelstunde dran.
+            # Sperre gerichtet ist. Der nächste ist in einer Minute dran.
             break
 
     return gestartet
 
 
-def _abgleichstunde(konto: GarminAccount) -> int:
-    """Ab welcher Ortszeit-Stunde dieses Konto abgeglichen werden darf.
+def starte_faellige_planung(jetzt: datetime | None = None) -> int:
+    """Startet für jeden fälligen Nutzer einen Planungslauf. Gibt deren Anzahl zurück.
 
-    Ausdrücklich gegen `None` geprüft und nicht `or`: Mitternacht ist eine
-    gültige Einstellung, und `0 or 10` ergäbe zehn — der Nutzer bekäme lautlos
-    eine andere Zeit als die eingestellte.
+    Das Gegenstück zu `starte_faellige_syncs`, und bewusst **unabhängig** davon:
+    Wer den Abgleich abschaltet oder auf eine andere Uhrzeit legt, soll trotzdem
+    seinen Wochenblock bekommen. Beide Zweige teilen sich nur den Zeitgeber.
+
+    Die Fälligkeit selbst steht in `ki.automatik.ist_faellig()` — hier wird sie
+    nur vorgeprüft, damit nicht für jeden Nutzer eine zweite Sitzung aufgeht.
     """
-    return konto.sync_hour if konto.sync_hour is not None else GARMIN_SYNC_HOUR
+    jetzt = jetzt or datetime.now()
+    heute = date.today()
+    gestartet = 0
+
+    with SessionLocal() as db:
+        einstellungen = db.scalars(
+            select(KiSettings).where(KiSettings.auto_plan_enabled.is_(True))
+        ).all()
+        faellig = [
+            e.user_id for e in einstellungen if ki_automatik.ist_faellig(e, jetzt, heute)
+        ]
+
+    for user_id in faellig:
+        if ki_automatik.plane(user_id) is not None:
+            gestartet += 1
+            # Nur ein Lauf je Aufwachen, aus demselben Grund wie beim Abgleich:
+            # Das Schloss im KI-Runner ließe den zweiten ohnehin nicht durch,
+            # und der nächste Aufwacher ist in einer Minute dran.
+            break
+
+    return gestartet
+
+
+def _abgleichzeit(konto: GarminAccount) -> tuple[int, int]:
+    """Ab welcher Ortszeit dieses Konto abgeglichen werden darf.
+
+    Ausdrücklich gegen `None` geprüft und nicht `or`: Mitternacht und die volle
+    Stunde sind gültige Einstellungen, und `0 or 10` ergäbe zehn — der Nutzer
+    bekäme lautlos eine andere Zeit als die eingestellte.
+    """
+    stunde = konto.sync_hour if konto.sync_hour is not None else GARMIN_SYNC_HOUR
+    minute = konto.sync_minute if konto.sync_minute is not None else 0
+    return stunde, minute
 
 
 def _als_datum(zeitpunkt: datetime) -> date:
-    return zeitpunkt.date()
+    """Das **Ortszeit**-Datum eines Zeitstempels aus der Datenbank.
+
+    `last_sync_at` wird in UTC geschrieben, verglichen wird gegen das lokale
+    `date.today()`. Ohne die Umrechnung fiel ein Lauf kurz nach Mitternacht
+    Ortszeit als „gestern" in die Datenbank, und die Tagessperre griff nicht.
+    """
+    return als_utc(zeitpunkt).astimezone().date()
 
 
 # --------------------------------------------------------------------------

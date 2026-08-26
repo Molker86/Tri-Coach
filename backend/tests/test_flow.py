@@ -220,93 +220,123 @@ def test_der_prompt_verlangt_arbeit_an_der_beschwerde(client, auth):
         assert "**Als Bremse**" in prompt
         assert "**Als Auftrag**" in prompt
         assert "**auszusparen, ist die falsche Antwort**" in prompt
-        # Punkt 6 darf über die Beschwerde nicht hinwegplanen.
-        assert "Die Punkte 1 bis 4 und 13 sind" in prompt
-        # Und die Abwechslungsregel aus Punkt 9 gilt nur für gesunde Regionen.
+        # Und die Abwechslungsregel aus dem Ergänzungstraining gilt nur für
+        # gesunde Regionen.
         assert "Diese Abwechslungsregel gilt für gesunde" in prompt
         # Die Ausnahme deckt aber nur die Region, nicht die Einheit: Sonst kam
         # drei Tage hintereinander dieselbe Dehnübung, ausdrücklich gedeckt.
         assert "**Die Ausnahme gilt der Region, nicht der Einheit**" in prompt
-        assert "Dieselbe Übungsliste am Folgetag ist keine Behandlung" in prompt
-        # Und die Ursache entscheidet über die Form, nicht die Tageslänge.
-        assert "auch über die **Form** der Arbeit" in prompt
     finally:
         client.put("/api/profile", headers=auth, json={"injuries": None})
 
 
-def test_punkt_9_stellt_kraft_und_mobility_gleich(client, auth):
+def test_ergaenzung_stellt_kraft_und_mobility_gleich(client, auth):
     """Kraft stand unter Vorbehalt, Mobility nicht — und das entschied den Block.
 
     „Falls gewünscht, Kraft (…) — nie unmittelbar vor einer Schlüsseleinheit.
     Mobility kurz und regelmäßig": eine Bedingung samt Sperre gegen die eine
-    Form, ein unbedingter Wiederholungsauftrag für die andere. Bei täglicher
-    Neuplanung las sich „regelmäßig" als „heute wieder", und die Krafteinheit
-    rutschte auf einen späteren Blocktag, den es nie gab.
+    Form, ein unbedingter Wiederholungsauftrag für die andere. Die Krafteinheit
+    rutschte dann auf einen späteren Blocktag statt stattzufinden.
     """
     prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
 
     assert "Kraft und Mobility stehen gleichrangig" in prompt
     # Die Terminierungsregel bleibt — sie ist sachlich richtig —, taugt aber
     # nicht mehr als Grund, die Krafteinheit ganz wegzulassen.
-    assert "eine Frage des Tages und kein Grund, sie wegzulassen" in prompt
     assert "statt durch eine Mobility-Einheit ersetzt zu werden" in prompt
-    # „Regelmäßig" gilt jetzt für beide Formen, nicht nur für Mobility.
-    assert "Beide Formen gehören regelmäßig" in prompt
     # Und „kurz" ist keine Vorgabe mehr: Die Länge leitet die KI selbst ab.
-    assert "**Wie lang eine solche Einheit ist, entscheidest du**" in prompt
+    assert "es gibt keine Vorgabe, sie kurz zu halten" in prompt
     assert "kurz und regelmäßig" not in prompt
 
 
-def test_der_prompt_sagt_wenn_morgen_neu_geplant_wird(client, auth):
-    """Bei aktiver Automatik sind die Tage ab dem zweiten schon vergeben.
+def test_der_prompt_nennt_den_tag_der_naechsten_neuplanung(client, auth):
+    """Bei aktiver Automatik ist der Block nur bis zum Planungstag sicher.
 
-    Die KI verteilte Kraft und Mobility über sieben Tage, von denen der nächste
-    Lauf sechs verwirft — was Punkt 9 vom ersten Tag wegdrängt, landete auf
-    Tag 3 und fand nie statt. Bewusst **nicht** die Behauptung, Tag 1 finde
-    sicher statt: Ob trainiert wird, entscheidet der Athlet.
+    Der Hinweis nennt den **eingestellten Wochentag**. „Morgen früh" stand hier
+    einmal fest im Text und stimmte, solange täglich geplant wurde — seit es
+    wöchentlich geschieht, wäre es schlicht falsch.
     """
     ohne = client.get("/api/plans/export", headers=auth).json()["prompt"]
     assert "automatisch neu geplant" not in ohne
 
-    client.put("/api/ki/settings", headers=auth, json={"auto_plan_enabled": True})
+    client.put(
+        "/api/ki/settings",
+        headers=auth,
+        # Mittwoch: ein Tag, der nicht die Vorgabe ist — sonst bestünde der Test
+        # auch, wenn der Wochentag gar nicht durchgereicht würde.
+        json={"auto_plan_enabled": True, "auto_plan_weekday": 2},
+    )
     try:
         mit = client.get("/api/plans/export", headers=auth).json()["prompt"]
-        assert "**Dieser Block wird morgen früh automatisch neu geplant.**" in mit
-        assert "Ob der erste Tag stattfindet, entscheidet der Athlet" in mit
-        # Der Platzhalter für die Blocklänge muss gefüllt sein — `.format()`
-        # formatiert eingesetzte Werte nicht erneut.
+        assert "**Dieser Block wird am kommenden Mittwoch automatisch neu geplant.**" in mit
+        # Beide Platzhalter müssen gefüllt sein — `.format()` formatiert
+        # eingesetzte Werte nicht erneut.
         assert "{tage}" not in mit
-        assert "über alle 7 Tage stimmig" in mit
+        assert "{wochentag}" not in mit
+        assert "Plane die 7 Tage trotzdem stimmig" in mit
     finally:
         client.put(
             "/api/ki/settings", headers=auth, json={"auto_plan_enabled": False}
         )
 
 
-def test_der_prompt_gibt_die_trainingslehre_nicht_vor(client, auth):
-    """Punkt 3 und 4 schrieben Quote und Stundenzahl vor — das tun sie nicht mehr.
+def anweisungsteil(prompt: str) -> str:
+    """Der Prompt ohne Antwortschema und Datenpaket.
 
-    Die Rolle im Prompt ist ein Ausdauer-Trainingswissenschaftler; die
-    Verteilung und den Abstand zwischen zwei Reizen bringt er mit. Was ihm
-    fehlt, sind die Daten dieses Athleten — die nennen beide Punkte weiterhin
-    namentlich, und daran hängt mehr als der Prompt: `_days_since_hard_session`
-    rechnet ausdrücklich über die ganze Historie statt über vier Wochen, weil
-    Punkt 4 diese Zahl liest.
+    Wer nach einer Zahl sucht, die nicht mehr vorkommen darf, muss das am
+    Anweisungstext tun: „1.3" steht als ACWR-Messwert völlig zu Recht im
+    Datenpaket, und „10 %" fände sich früher oder später in irgendeinem Feld.
+    """
+    return prompt.split("## Ausgabeformat")[0]
+
+
+def test_der_anweisungstext_bleibt_kurz(client, auth):
+    """Die Bremse gegen den Rückweg: Der Prompt war einmal 22.000 Zeichen lang.
+
+    Gewachsen ist er in kleinen Schritten — jeder einzelne begründet, in Summe
+    ein Dokument, das dem Modell die Trainingslehre vorschrieb. Diese Grenze
+    ist bewusst großzügig gesetzt; sie soll den nächsten Absatz nicht
+    verhindern, sondern den zwanzigsten.
     """
     prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
+    assert len(anweisungsteil(prompt)) < 9000
 
-    # Keine festen Vorgaben mehr.
+
+def test_der_prompt_gibt_die_trainingslehre_nicht_vor(client, auth):
+    """Der Prompt schrieb Quoten, Stundenzahlen und Steigerungsgrenzen vor.
+
+    Die Rolle im Prompt ist ein Ausdauer-Trainingswissenschaftler; Verteilung,
+    Abstand zwischen zwei Reizen und Umfang bringt er mit. Was ihm fehlt, sind
+    die Daten dieses Athleten — und die stehen vollständig im Paket.
+
+    Dieser Test ist die Bremse gegen den Rückweg: Jede Zahl, die hier wieder
+    auftaucht, ist eine Entscheidung, die dem Modell abgenommen wird.
+    """
+    prompt = anweisungsteil(
+        client.get("/api/plans/export", headers=auth).json()["prompt"]
+    )
+
+    # Keine festen Vorgaben mehr — weder zur Regeneration ...
     assert "48 h" not in prompt
     assert "je drei Tage" not in prompt
     assert "Polarisiert" not in prompt
+    # ... noch zum Umfang: Die 10-%-Regel gegen die letzte volle Woche war die
+    # engste Fessel im ganzen Dokument.
+    assert "10 %" not in prompt
+    assert "letzte_volle_woche" not in prompt
+    # ... noch zur Erholungslage: Garmins Werte werden gelesen, nicht in
+    # Schwellen übersetzt.
+    assert "1.3" not in prompt
+    assert "unter 40" not in prompt
+    assert "OVERREACHING" not in prompt
 
     # Aber weiterhin die Felder, an denen die Entscheidung hängt.
-    assert "`tage_seit_letzter_intensiver_einheit`" in prompt
-    assert "`zeit_in_hf_zonen_min`" in prompt
+    assert "`trainingswunsch.ziel`" in prompt
+    assert "`trainingshistorie`" in prompt
 
-    # Punkt 6 zählt beide weiterhin zu den Bremsen — sonst läse sich "greift
-    # keine davon, also wird aufgebaut" über sie hinweg.
-    assert "Die Punkte 1 bis 4 und 13 sind" in prompt
+    # Und ausdrücklich die Ansage, dass die KI selbst entscheidet.
+    assert "**Umfang, Intensität und Zusammensetzung entscheidest du.**" in prompt
+    assert "weder Quoten noch Steigerungsgrenzen vor" in prompt
 
 
 def test_ai_export_honours_block_length(client, auth):
@@ -824,10 +854,12 @@ def test_export_includes_history_after_logging(client, auth):
     assert history["tage_seit_letzter_einheit_je_sportart"]["run"] == 0
     assert history["tage_seit_letzter_intensiver_einheit"] is None  # RPE 6 < 7
 
-    # Der aktive Plan startet erst morgen — es ist noch keine Einheit fällig
-    # gewesen, also gibt es auch keine Umsetzungsquote.
-    assert history["umsetzung_aktueller_plan"]["planned_past"] == 0
-    assert history["umsetzung_aktueller_plan"]["rate_pct"] is None
+    # Was Tri-Coach einmal vorgegeben hatte, steht nicht mehr im Paket: weder
+    # als Quote noch als Block noch an der einzelnen Einheit. Maßstab ist
+    # allein, was stattgefunden hat.
+    assert "umsetzung_aktueller_plan" not in history
+    assert "aktueller_plan" not in history
+    assert "geplant_war" not in history["einheiten"][0]
 
     weekly = history["wochenuebersicht"]
     assert weekly[-1]["total_minutes"] == 62  # laufende Woche

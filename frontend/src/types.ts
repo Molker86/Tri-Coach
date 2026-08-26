@@ -285,8 +285,9 @@ export interface GarminAccount {
   synced_through: string | null
   rate_limited_until: string | null
   auto_sync_enabled: boolean
-  /** Ortszeit-Stunde, ab der abgeglichen wird. Einstellbar, Vorgabe 10. */
+  /** Ortszeit, zu der abgeglichen wird. Einstellbar, Vorgabe 09:00. */
   sync_hour: number
+  sync_minute: number
   profile_sync_enabled: boolean
   auto_push_enabled: boolean
 }
@@ -491,8 +492,12 @@ export interface KiSettings {
   effort: '' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   status: 'ready' | 'error' | 'token_expired' | 'rate_limited'
   status_message: string | null
-  /** Ob nach dem täglichen Garmin-Abgleich von selbst ein Block entsteht. */
+  /** Ob einmal pro Woche von selbst ein Block entsteht. */
   auto_plan_enabled: boolean
+  /** Wochentag wie `Date.getDay()` in Montag-Zählung: 0 = Montag, 6 = Sonntag. */
+  auto_plan_weekday: number
+  auto_plan_hour: number
+  auto_plan_minute: number
   last_auto_plan_on: string | null
   /**
    * Die Lage des Tokens, nie der Token selbst. `unlesbar` heißt: hinterlegt,
@@ -506,6 +511,9 @@ export interface KiSettingsIn {
   model: string
   effort: KiSettings['effort']
   auto_plan_enabled: boolean
+  auto_plan_weekday: number
+  auto_plan_hour: number
+  auto_plan_minute: number
   /** Leerer String löscht den hinterlegten Zugang. */
   token: string
 }

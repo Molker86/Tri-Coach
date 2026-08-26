@@ -429,7 +429,7 @@ _SPORT_TEXT = {**DISCIPLINE_LABEL, "brick": "Koppeltraining"}
 def _fremde_sportarten(body: AIPlanBody, disziplin: str | None) -> list[str]:
     """Ausdauereinheiten, die nicht zur gewählten Disziplin gehören.
 
-    Punkt 8 des Prompts sagt der KI, dass ein Laufblock nur Laufeinheiten
+    Punkt 1 des Prompts sagt der KI, dass ein Laufblock nur Laufeinheiten
     enthält — nachprüfen kann das nur der Import, und auch der meldet es bloß:
     Ein abgelehnter Block wäre die teuerste denkbare Antwort auf eine Einheit,
     die der Athlet notfalls selbst anpassen kann (dieselbe Linie wie überall

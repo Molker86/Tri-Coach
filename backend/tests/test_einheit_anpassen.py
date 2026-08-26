@@ -230,7 +230,7 @@ def test_der_prompt_traegt_wunsch_block_und_historie(client, auth, monkeypatch):
     # Und das, was nur diese Aufgabe braucht.
     assert '"einheit_anpassen"' in prompt
     assert '"bisherige_einheit"' in prompt
-    assert '"dies_ist_die_anzupassende_einheit": true' in prompt
+    assert '"dies_ist_die_anzupassende_einheit":true' in prompt
     # Der ganze Block steht mit drin, damit die KI den Abstand zum letzten
     # und zum nächsten harten Reiz beurteilen kann.
     assert "Einheit 2" in prompt

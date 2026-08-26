@@ -16,9 +16,14 @@ import { Link } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import { Alert, Field, Loading, TextField } from '../components/ui'
 import { type Farbwahl, leseFarbwahl, setzeFarbwahl } from '../theme'
+import { WEEKDAYS } from '../constants'
 import type { GarminStatus, KiSettings, KiSettingsIn, KiStatus } from '../types'
 
 const STUNDEN = Array.from({ length: 24 }, (_, i) => i)
+// Fünferschritte: Die Schleife wacht zwar minütlich auf, aber eine Liste mit
+// sechzig Einträgen zu durchsuchen, um „so ungefähr um neun" auszudrücken, ist
+// kein Gewinn an Genauigkeit.
+const MINUTEN = Array.from({ length: 12 }, (_, i) => i * 5)
 
 const MODELLE = [
   { wert: '', text: 'Vorgabe' },
@@ -140,6 +145,7 @@ function GarminKarte(props: {
   onAendern: (daten: {
     auto_sync_enabled?: boolean
     sync_hour?: number
+    sync_minute?: number
     profile_sync_enabled?: boolean
     auto_push_enabled?: boolean
   }) => void
@@ -176,22 +182,36 @@ function GarminKarte(props: {
           <Field
             label="Ab welcher Uhrzeit"
             hint={
-              'Die App sieht viertelstündlich nach, der Abgleich beginnt also ' +
-              'innerhalb der Viertelstunde danach. War der Rechner um diese Zeit ' +
-              'aus, wird es nach dem nächsten Start nachgeholt.'
+              'Die App sieht minütlich nach. War der Rechner um diese Zeit aus, ' +
+              'wird es nach dem nächsten Start nachgeholt.'
             }
           >
-            <select
-              value={konto.sync_hour}
-              disabled={props.busy || !konto.auto_sync_enabled}
-              onChange={(e) => props.onAendern({ sync_hour: Number(e.target.value) })}
-            >
-              {STUNDEN.map((stunde) => (
-                <option key={stunde} value={stunde}>
-                  ab {String(stunde).padStart(2, '0')}:00 Uhr
-                </option>
-              ))}
-            </select>
+            <div className="uhrzeit-wahl">
+              <select
+                value={konto.sync_hour}
+                disabled={props.busy || !konto.auto_sync_enabled}
+                onChange={(e) => props.onAendern({ sync_hour: Number(e.target.value) })}
+              >
+                {STUNDEN.map((stunde) => (
+                  <option key={stunde} value={stunde}>
+                    {String(stunde).padStart(2, '0')}
+                  </option>
+                ))}
+              </select>
+              <span aria-hidden="true">:</span>
+              <select
+                value={konto.sync_minute}
+                disabled={props.busy || !konto.auto_sync_enabled}
+                onChange={(e) => props.onAendern({ sync_minute: Number(e.target.value) })}
+              >
+                {MINUTEN.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {String(minute).padStart(2, '0')}
+                  </option>
+                ))}
+              </select>
+              <span className="uhrzeit-einheit">Uhr</span>
+            </div>
           </Field>
 
           <label className="check-row">
@@ -365,13 +385,11 @@ function KiKarte(props: {
             onChange={(e) => props.onAendern({ auto_plan_enabled: e.target.checked })}
           />
           <span>
-            Nach dem täglichen Abgleich automatisch einen Block planen
+            Einmal pro Woche automatisch einen Block planen
             <span className="field-hint">
-              Läuft direkt im Anschluss an den Garmin-Abgleich, damit der Block
-              auf den Daten von heute steht. Er ersetzt dabei den laufenden ab
-              heute. Kostet <strong>jeden Tag</strong> einen Lauf aus dem
-              Kontingent deines Claude-Abos — dasselbe Kontingent, das du daneben
-              selbst benutzt.
+              Der neue Block deckt sieben Tage ab und ersetzt den laufenden. Kostet{' '}
+              <strong>einen Lauf pro Woche</strong> aus dem Kontingent deines
+              Claude-Abos — dasselbe Kontingent, das du daneben selbst benutzt.
               {einstellungen.last_auto_plan_on &&
                 ` Zuletzt am ${new Date(
                   einstellungen.last_auto_plan_on,
@@ -379,6 +397,58 @@ function KiKarte(props: {
             </span>
           </span>
         </label>
+
+        <Field
+          label="Wann"
+          hint={
+            'Der Block entsteht aus den Daten, die zu diesem Zeitpunkt da ' +
+            'sind — lege ihn deshalb nach den Garmin-Abgleich.'
+          }
+        >
+          <div className="uhrzeit-wahl">
+            <select
+              value={einstellungen.auto_plan_weekday}
+              disabled={props.busy || !einstellungen.auto_plan_enabled}
+              onChange={(e) =>
+                props.onAendern({ auto_plan_weekday: Number(e.target.value) })
+              }
+            >
+              {WEEKDAYS.map((tag, i) => (
+                <option key={tag.key} value={i}>
+                  {tag.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={einstellungen.auto_plan_hour}
+              disabled={props.busy || !einstellungen.auto_plan_enabled}
+              onChange={(e) =>
+                props.onAendern({ auto_plan_hour: Number(e.target.value) })
+              }
+            >
+              {STUNDEN.map((stunde) => (
+                <option key={stunde} value={stunde}>
+                  {String(stunde).padStart(2, '0')}
+                </option>
+              ))}
+            </select>
+            <span aria-hidden="true">:</span>
+            <select
+              value={einstellungen.auto_plan_minute}
+              disabled={props.busy || !einstellungen.auto_plan_enabled}
+              onChange={(e) =>
+                props.onAendern({ auto_plan_minute: Number(e.target.value) })
+              }
+            >
+              {MINUTEN.map((minute) => (
+                <option key={minute} value={minute}>
+                  {String(minute).padStart(2, '0')}
+                </option>
+              ))}
+            </select>
+            <span className="uhrzeit-einheit">Uhr</span>
+          </div>
+        </Field>
 
         <div className="grid grid-2">
           <Field label="Modell" hint={`Vorgabe: ${props.zustand?.modell ?? '—'}`}>

@@ -259,9 +259,9 @@ vergleicht die erzeugten Texte Zeichen für Zeichen, damit sie es bleiben.
 `_session_schema`). Der Fragebogen kennt vier Disziplinen — Laufen, Schwimmen,
 Radfahren, Triathlon —, aber `discipline` steuerte im Backend **nichts**: Der
 Wert wanderte als Label in den Payload und wurde sonst nirgends gelesen. Ein
-reiner Läufer bekam damit wortgleich denselben Prompt wie ein Triathlet. Punkt 8
+reiner Läufer bekam damit wortgleich denselben Prompt wie ein Triathlet. Punkt 1
 hieß „Triathlon" und erklärte ihm, welche der *drei* Disziplinen vorzuziehen sei
-und wann eine Koppeleinheit passt; Punkt 13 riet bei Beschwerden, „den Reiz auf
+und wann eine Koppeleinheit passt; Punkt 5 riet bei Beschwerden, „den Reiz auf
 eine Disziplin zu verlegen, die sie nicht berührt — bei drei Disziplinen ist das
 fast immer möglich"; und das Antwortformat bot `swim`, `bike`, `brick`,
 `swim_location` und `bike_location` gleich mit an. Das ist keine Auslassung,
@@ -270,11 +270,11 @@ sondern eine Einladung: Wer Schwimmen im Schema anbietet, bekommt Schwimmen.
 **Für Triathlon bleibt der Prompt Wort für Wort derselbe.** Er passt dort gut,
 die Tests prüfen seinen Wortlaut, und die Prinzipien tragen die Disziplinenwahl
 über `tage_seit_letzter_einheit_je_sportart` bereits sauber. Geändert wird nur,
-was *daneben* gilt: Bei einer Einzeldisziplin nennt Punkt 8 sie beim Namen und
+was *daneben* gilt: Bei einer Einzeldisziplin nennt Punkt 1 sie beim Namen und
 schließt die anderen beiden samt `brick` ausdrücklich aus — auch als Ausgleich
 oder schonendere Alternative —, und die Abwechslung entsteht innerhalb der
-Disziplin statt zwischen Disziplinen. Punkt 13 verliert dort seinen Ausweichsatz:
-Der Weg über eine andere Sportart, den Punkt 8 gerade verboten hat, wäre ein
+Disziplin statt zwischen Disziplinen. Punkt 5 verliert dort seinen Ausweichsatz:
+Der Weg über eine andere Sportart, den Punkt 1 gerade verboten hat, wäre ein
 Widerspruch im selben Dokument. Umso mehr hängt am Ergänzungsauftrag, der
 zweiten Richtung desselben Punktes.
 
@@ -333,7 +333,7 @@ Ergänzungswunsch, nicht an der Disziplin.
 er hängt jetzt an der Zahl der Sportarten statt am Literal `'triathlon'`, und
 die Chips kommen aus derselben Tabelle. Der eigentliche Fehler saß aber
 woanders: Wer erst Triathlon wählte, die Tage belegte und dann auf „Laufen"
-zurückging, schickte `day_sport_map` mit Schwimm- und Radtagen ab — und Punkt 7
+zurückging, schickte `day_sport_map` mit Schwimm- und Radtagen ab — und Punkt 2
 verlangt, sich **strikt** an die Sportart-Zuordnung je Tag zu halten. Der
 Disziplinwechsel dampft die Belegung deshalb auf die Sportarten der neuen
 Disziplin ein und wirft leer gewordene Tage ganz heraus; dieselbe Aufräumregel

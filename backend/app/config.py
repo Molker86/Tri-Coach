@@ -60,16 +60,16 @@ GARMIN_AUTOSYNC = os.environ.get("TRI_GARMIN_AUTOSYNC", "1").strip() not in {
     "false",
     "no",
 }
-# Ortszeit-Stunde, ab der ein neuer Tag abgeglichen werden darf. Zehn Uhr: Die
-# Nachtdaten (Schlaf, HRV, Trainingsreife) sind bis dahin sicher fertig und die
-# Uhr hat nach dem Aufstehen synchronisiert — vor dem Frühsport gilt der Tag bei
-# Garmin sonst noch als unvollständig.
+# Ortszeit-Stunde, ab der ein neuer Tag abgeglichen werden darf. Neun Uhr: Die
+# Nachtdaten (Schlaf, HRV, Trainingsreife) sind bis dahin fertig und die Uhr hat
+# nach dem Aufstehen synchronisiert — vor dem Frühsport gilt der Tag bei Garmin
+# sonst noch als unvollständig.
 #
 # **Steuert den Abgleich nicht mehr selbst.** Maßgeblich ist
 # `GarminAccount.sync_hour`, und den stellt der Nutzer in den Einstellungen.
 # Dieser Wert ist nur die Vorgabe für ein neu verbundenes Konto und der
 # Rückfall, falls die Spalte einmal leer ist.
-GARMIN_SYNC_HOUR = int(os.environ.get("TRI_GARMIN_SYNC_HOUR", "10"))
+GARMIN_SYNC_HOUR = int(os.environ.get("TRI_GARMIN_SYNC_HOUR", "9"))
 
 
 # --------------------------------------------------------------------------

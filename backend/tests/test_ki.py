@@ -256,17 +256,18 @@ def test_einstellungen_sind_teil_updates(client, auth):
 
 
 def test_die_planung_hat_keine_eigene_schleife():
-    """Ein Block entsteht am Ende eines Abgleichs, nicht auf eigenen Verdacht.
+    """Ein Block entsteht aus der Garmin-Weckschleife, nicht aus einer zweiten.
 
     Die Sorge dahinter ist dieselbe wie vorher, als es hier gar keine Automatik
     gab: Eine zweite Weckschleife fiele erst am aufgebrauchten Kontingent des
-    Abos auf, und dann an einem Tag ohne Plan. Sie hätte außerdem keine
-    Reihenfolge — käme sie dem Abgleich zuvor, plante die KI auf einem
-    Datenstand von gestern.
+    Abos auf, und dann an einem Tag ohne Plan.
 
-    Der Schalter steht deshalb je Nutzer in der Datenbank und nicht in der
-    Umgebung: In `config.py` wäre er ein Wert, den man ohne Neustart nicht
-    ändern kann.
+    Der Weckruf kommt deshalb weiterhin aus `garmin.automatik` — dass die
+    Planung inzwischen an einer **eigenen Uhrzeit** hängt und nicht mehr am
+    Abgleich, ändert daran nichts: Es gibt genau einen Zeitgeber im Prozess.
+
+    Der Schalter steht je Nutzer in der Datenbank und nicht in der Umgebung: In
+    `config.py` wäre er ein Wert, den man ohne Neustart nicht ändern kann.
     """
     from app import config
     from app.ki import automatik
@@ -288,34 +289,39 @@ def nutzer_id(auth: dict[str, str]) -> int:
     return decode_access_token(auth["Authorization"].removeprefix("Bearer "))
 
 
-def abgleich_job(auth, *, kind="auto", state="done") -> tuple[int, int]:
-    """Ein abgeschlossener Abgleich, wie ihn der Garmin-Runner hinterlässt."""
+def stelle_planungszeit(auth, *, tag: int | None = None, stunde=0, minute=0) -> int:
+    """Setzt die Automatik auf einen Zeitpunkt, der jetzt gerade erreicht ist.
+
+    `tag=None` heißt „heute" — sonst liefe der Test nur an einem Sonntag.
+    """
     from app.database import SessionLocal
-    from app.models import GarminSyncJob
+    from app.models import KiSettings
 
     user_id = nutzer_id(auth)
     with SessionLocal() as db:
-        job = GarminSyncJob(
-            user_id=user_id,
-            kind=kind,
-            state=state,
-            range_start=HEUTE,
-            range_end=HEUTE,
-            day_loop_start=HEUTE,
+        einstellungen = (
+            db.query(KiSettings).filter(KiSettings.user_id == user_id).first()
         )
-        db.add(job)
+        einstellungen.auto_plan_weekday = HEUTE.weekday() if tag is None else tag
+        einstellungen.auto_plan_hour = stunde
+        einstellungen.auto_plan_minute = minute
         db.commit()
-        return user_id, job.id
+    return user_id
 
 
-def test_nach_dem_abgleich_entsteht_ein_block(client, auth, monkeypatch):
-    """Der eingeschaltete Fall: Abgleich fertig, Block da."""
+def bestellt(client, auth, monkeypatch) -> int:
+    """Fragebogen, Antwort und eingeschaltete Automatik — der Normalfall."""
     lege_fragebogen_an(client, auth)
     ki_antwortet(monkeypatch, antwort_json(HEUTE))
     client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+    return stelle_planungszeit(auth)
 
-    user_id, job_id = abgleich_job(auth)
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is not None
+
+def test_am_planungstag_entsteht_ein_block(client, auth, monkeypatch):
+    """Der eingeschaltete Fall: Wochentag und Uhrzeit erreicht, Block da."""
+    user_id = bestellt(client, auth, monkeypatch)
+
+    assert ki_automatik.plane(user_id) is not None
     assert client.get("/api/plans/active", headers=auth).json() is not None
 
 
@@ -324,39 +330,81 @@ def test_ohne_schalter_entsteht_nichts(client, auth, monkeypatch):
     lege_fragebogen_an(client, auth)
     ki_antwortet(monkeypatch, antwort_json(HEUTE))
 
-    user_id, job_id = abgleich_job(auth)
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+    assert ki_automatik.plane(nutzer_id(auth)) is None
 
 
-def test_ein_abgleich_per_knopfdruck_plant_nicht(client, auth, monkeypatch):
-    """„Jetzt synchronisieren" will Daten — dass es Kontingent kostet, sieht man nicht."""
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+def test_an_einem_anderen_wochentag_entsteht_nichts(client, auth, monkeypatch):
+    """Einmal die Woche heißt: an genau einem Wochentag."""
+    bestellt(client, auth, monkeypatch)
+    user_id = stelle_planungszeit(auth, tag=(HEUTE.weekday() + 3) % 7)
 
-    user_id, job_id = abgleich_job(auth, kind="manual")
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+    assert ki_automatik.plane(user_id) is None
 
 
-def test_ein_gescheiterter_abgleich_plant_nicht(client, auth, monkeypatch):
-    """Ohne frische Daten wäre der Block auf einem Stand von gestern gebaut."""
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+def test_vor_der_uhrzeit_entsteht_nichts(client, auth, monkeypatch):
+    """Der Tag stimmt, die Uhrzeit noch nicht — dann wartet die Automatik."""
+    bestellt(client, auth, monkeypatch)
+    # 23:59 ist praktisch nie schon erreicht; die eine Minute im Jahr, in der
+    # das anders wäre, fängt der zweite Teil der Bedingung ab.
+    user_id = stelle_planungszeit(auth, stunde=23, minute=59)
 
-    user_id, job_id = abgleich_job(auth, state="failed")
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+    from datetime import datetime
+
+    if (datetime.now().hour, datetime.now().minute) < (23, 59):
+        assert ki_automatik.plane(user_id) is None
 
 
-def test_nur_ein_block_je_tag(client, auth, monkeypatch):
-    """Der Tagesriegel — er hält auch über einen Neustart hinweg."""
-    lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
-    client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
+def test_die_planung_braucht_keinen_abgleich(client, auth, monkeypatch):
+    """Sie hing einmal am Ende eines erfolgreichen automatischen Abgleichs.
 
-    user_id, job_id = abgleich_job(auth)
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is not None
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+    Wer den Abgleich auf 06:00 legte und die Planung auf Sonntag 09:00, bekam
+    dann nie einen Block — und wer den Abgleich ganz abschaltete, auch nicht.
+    Hier läuft überhaupt kein Garmin-Job, und trotzdem muss geplant werden.
+    """
+    user_id = bestellt(client, auth, monkeypatch)
+
+    from app.database import SessionLocal
+    from app.models import GarminSyncJob
+
+    with SessionLocal() as db:
+        assert (
+            db.query(GarminSyncJob).filter(GarminSyncJob.user_id == user_id).count() == 0
+        )
+
+    assert ki_automatik.plane(user_id) is not None
+
+
+def test_nur_ein_block_je_woche(client, auth, monkeypatch):
+    """Der Wochenriegel — er hält auch über einen Neustart hinweg.
+
+    Gezählt werden Tage seit dem letzten Lauf, nicht der Wochentag: Sonst liefe
+    ein zweiter Block, sobald jemand den Wochentag mitten in der Woche
+    umstellt.
+    """
+    user_id = bestellt(client, auth, monkeypatch)
+
+    assert ki_automatik.plane(user_id) is not None
+    assert ki_automatik.plane(user_id) is None
+    # Auch an einem anderen Wochentag derselben Woche nicht.
+    assert ki_automatik.plane(stelle_planungszeit(auth, tag=(HEUTE.weekday() + 1) % 7)) is None
+
+
+def test_nach_sieben_tagen_ist_wieder_geoeffnet(client, auth, monkeypatch):
+    """Die Sperre zählt sieben Tage — danach entsteht der nächste Block."""
+    from app.database import SessionLocal
+    from app.models import KiSettings
+
+    user_id = bestellt(client, auth, monkeypatch)
+    assert ki_automatik.plane(user_id) is not None
+
+    with SessionLocal() as db:
+        einstellungen = (
+            db.query(KiSettings).filter(KiSettings.user_id == user_id).first()
+        )
+        einstellungen.last_auto_plan_on = HEUTE - timedelta(days=7)
+        db.commit()
+
+    assert ki_automatik.plane(user_id) is not None
 
 
 def test_ohne_fragebogen_entsteht_nichts(client, auth, monkeypatch):
@@ -364,8 +412,7 @@ def test_ohne_fragebogen_entsteht_nichts(client, auth, monkeypatch):
     ki_antwortet(monkeypatch, antwort_json(HEUTE))
     client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
 
-    user_id, job_id = abgleich_job(auth)
-    assert ki_automatik.plane_nach_abgleich(user_id, job_id) is None
+    assert ki_automatik.plane(stelle_planungszeit(auth)) is None
 
 
 def test_die_automatik_nimmt_den_fragebogen_des_aktiven_blocks(
@@ -394,8 +441,7 @@ def test_die_automatik_nimmt_den_fragebogen_des_aktiven_blocks(
     juenger = lege_fragebogen_an(client, auth)
     assert juenger != alter
 
-    user_id, job_id = abgleich_job(auth)
-    lauf = ki_automatik.plane_nach_abgleich(user_id, job_id)
+    lauf = ki_automatik.plane(stelle_planungszeit(auth))
     assert lauf is not None
 
     with SessionLocal() as db:

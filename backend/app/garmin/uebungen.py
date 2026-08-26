@@ -461,7 +461,7 @@ def _verzeichnis(welcher: str) -> dict[str, Uebung]:
     # Zuletzt die Dehnungsnamen ohne ihr angehängtes „Stretch“. Der Katalog
     # hängt es an fast jede Dehnung („Child's Pose Stretch“, „Pigeon Pose
     # Stretch“), die geläufige Bezeichnung kommt aber ohne aus — und genau die
-    # schreibt die KI in die Klammer, weil Punkt 9 des Prompts nach dem
+    # schreibt die KI in die Klammer, weil Punkt 3 des Prompts nach dem
     # *geläufigen* englischen Namen fragt. Verlangt werden zwei verbleibende
     # Wörter: „Hamstring Stretch“ fiele sonst auf „hamstring“ zusammen und
     # zöge jede Zeile an sich, in der das Wort vorkommt.
@@ -571,7 +571,7 @@ def finde(text: str | None, welcher: str = "kraft") -> Uebung | None:
     und Garmin lehnt eine dort unbekannte Kategorie mit 400 ab.
 
     Gesucht wird je Klammerabschnitt getrennt, und das ist nicht bloß Kosmetik:
-    Punkt 9 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
+    Punkt 3 des Prompts verlangt hinter der deutschen Bezeichnung den geläufigen
     englischen Namen in Klammern, und über die Klammergrenze hinweg gelesen
     stand der eine direkt neben dem anderen. Für `_grundform_ok` sah
     „Unterarmstütz (Front Plank)“ damit aus wie ein qualifizierter Unterarmstütz

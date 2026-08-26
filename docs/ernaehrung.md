@@ -26,7 +26,7 @@ Daten, die es nicht gibt, laden zum Erfinden ein.
 **Die Historie kommt ohne ihre Einheiten** (`ERNAEHRUNG_HISTORIE_FELDER`,
 `_ernaehrungshistorie()`). `trainingshistorie.einheiten` war an echten Daten die
 **Hälfte des ganzen Payloads** — 28 absolvierte Einheiten mit Zonenzeiten,
-Abschnitten, Trainingseffekt und Aufbautext. Das steht dort für Punkt 12 der
+Abschnitten und Trainingseffekt. Das steht dort für die Reizwahl der
 Trainingsplanung („fortschreiben statt neu erfinden"): Aus 5x1000 m soll
 6x1000 m werden. **Hier wird nichts fortgeschrieben** — der Block steht fest und
 ist Vorgabe. Für die Frage, wie viel Energie ein Athlet braucht, entscheidet der
@@ -49,7 +49,7 @@ Trainingsplanung; er landet dann nicht ungefragt auch hier. Ein Ausschluss hätt
 den umgekehrten Verlauf: Jedes neue Feld wäre stillschweigend drin, und der
 Payload wüchse zurück. `test_der_trainingsprompt_behaelt_seine_einheiten` hält
 die Gegenrichtung fest — das Kürzen gilt **nur** für die Ernährung, sonst fiele
-Punkt 12 aus.
+diese Ableitung aus.
 
 **Der Fitnessblock bleibt dagegen vollständig**, obwohl `fitnessdaten.tage`
 weitere 18 % trägt: Es ist die **einzige** Stelle mit dem Gewichtsverlauf —

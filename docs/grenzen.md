@@ -51,7 +51,7 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   `acuteTrainingLoadDTO.dailyTrainingLoadAcute` — die App speichert es längst
   als `garmin_load_acute`. Die Spalte `weekly_training_load` bleibt als
   Altlast stehen; wer sie füllen will, holt sie von dort.
-- **Die Beschwerde ist Freitext, und die Ursache dahinter rät die KI.** Punkt 13
+- **Die Beschwerde ist Freitext, und die Ursache dahinter rät die KI.** Punkt 5
   verlangt, aus „Läuferknie rechts" die wahrscheinliche Ursache abzuleiten und
   die Übungen dagegen zu planen — das ist eine Vermutung aus einem Satz, keine
   Untersuchung. Die App kann daran nichts prüfen: Sie weiß nicht, ob die
@@ -80,9 +80,9 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
 - **Ein gelöschter aktiver Plan nimmt die ganze Kette mit.** Seit ein Block die
   Vergangenheit seiner Vorgänger übernimmt, hängt an ihm nicht mehr nur seine
   eigene Woche. `SessionLog` überlebt (die Verknüpfung wird auf `NULL` gesetzt),
-  aber `geplant_war` ist für jeden absorbierten Tag weg — derselbe Verlust wie
-  am 16.08.2026, nur ausdrücklich vom Nutzer ausgelöst. Der Bestätigungsdialog
-  nennt bislang nur die Zahl der Einheiten.
+  aber die Zuordnung zur Planeinheit ist für jeden absorbierten Tag weg — und
+  damit die Umsetzungsquote im Dashboard und das Aufräumen in Garmin. Der
+  Bestätigungsdialog nennt bislang nur die Zahl der Einheiten.
 - **Der aktive Block wächst auf vier Wochen Erbe und bleibt dort stehen** —
   an 365 simulierten Tagen: 35 Einheiten ab Tag 28, `GET /api/plans/active`
   konstant 15,3 kB, ein Plan. Der Garmin-Kalender wächst nie
@@ -91,12 +91,11 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   ebenso wenig (byte-identisch zum alten Verhalten). **In der Datenbank
   schrumpft es deutlich**: nach einem Jahr 35 `plan_sessions`-Zeilen statt der
   2555, die 365 stehengebliebene Blöcke ergäben.
-- **Ein `SessionLog` jenseits der vier Wochen verliert seinen Verweis auf den
-  geplanten Aufbau** (`plan_session_id = NULL`). Das Training selbst bleibt
-  vollständig; nur `geplant_war` wäre für so alte Einheiten nicht mehr
-  aufzulösen — der Export zeigt sie ohnehin nicht. Wer den Rückblick je
-  vertieft, bekommt für die neu sichtbaren Tage keinen Aufbau nachgeliefert:
-  Er ist zu dem Zeitpunkt schon weg.
+- **Ein `SessionLog` jenseits der vier Wochen verliert seine Zuordnung zur
+  Planeinheit** (`plan_session_id = NULL`). Das Training selbst bleibt
+  vollständig, und der Export las die Zuordnung ohnehin nie — sie trägt nur noch
+  Umsetzungsquote und Aufräumen, und beides interessiert sich nicht für so alte
+  Einheiten.
 - **Eine heute schon absolvierte Einheit steht bis morgen doppelt** — einmal
   als erledigte (umgehängt), einmal als neu geplante. Ihr Garmin-Termin bleibt
   den Tag über stehen: `raeume_vergangene_auf` greift erst ab
@@ -229,10 +228,12 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   danach ist die Zuordnung für seine Tage nicht mehr herzustellen. Für Einheiten
   aus der Zeit davor bleibt das Feld leer; sie behalten die Zuordnung, die sie
   unter der alten Regel bekommen haben.
-- **`geplant_fuer` sagt nur, dass der Tag abwich, nicht warum.** Ob der Athlet
-  die Einheit vorgezogen oder eine andere ausgelassen hat, steht nirgends. Die
-  Umsetzungsquote wertet die verschobene Einheit aber richtig als umgesetzt —
-  die Zuordnung kennt keinen Tagesbezug mehr.
+- **Dass eine Einheit an einem anderen Tag stattfand, sieht die KI nicht mehr.**
+  Der Export nannte den Plantag einmal als `geplant_fuer`; seit frühere Vorgaben
+  gar nicht mehr mitreisen, steht in der Historie nur noch der Tag, an dem
+  wirklich trainiert wurde. Die Umsetzungsquote im Dashboard wertet die
+  verschobene Einheit weiterhin richtig als umgesetzt — die Zuordnung kennt
+  keinen Tagesbezug.
 - Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus
   einem zweiten Gerät, korrigierter Schlaf), holt kein Abgleich mehr von
   allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im
@@ -321,7 +322,7 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   bleibt ein **Zusatzgewicht** ungelesen: `weightValue` steht fest auf „ohne“
   (-1), auch wenn „mit 8 kg Kurzhantel“ in der Zeile steht.
 - **Der Prompt verlangt den Bauplan, erzwingen kann ihn niemand.** `steps` ist
-  Pflicht laut Punkt 10, aber die Antwort geht durch keinen Schemazwang
+  Pflicht laut Punkt 4, aber die Antwort geht durch keinen Schemazwang
   (`--json-schema` liegt weiter „in der Hinterhand“). Fehlt die Liste, greift
   der Zerleger und der Hinweis sagt es — die Einheit geht dann ohne
   Satzpausen und mit verdoppelten Durchgängen auf die Uhr, so wie vorher.
@@ -435,16 +436,23 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   und im Kalender bleibt der letzte übertragene Block liegen, bis ein Abgleich
   seine vergangenen Tage abräumt. Das Dashboard weist auf den Zustand hin
   (`blockStatus()`), mehr nicht.
-- **Mit dem Schalter wird der laufende Block täglich überbügelt.** Das ist
-  gewollt — der Export trägt `ersetzt_laufenden_block`, `raeume_abgeloeste_plaene`
-  räumt hinterher auf, und die abgelösten Blöcke verschwinden dabei samt ihrer
-  Vergangenheit im nachfolgenden. Wer ihn setzt und drei Tage nicht hinsieht,
-  hat trotzdem dreimal geplant — sichtbar ist davon nur der letzte Block. Und es
-  kostet **jeden Tag** einen Opus-Lauf aus demselben Kontingent, das man daneben
-  selbst benutzt. Der Prompt weiß davon (`NEUPLANUNGSHINWEIS`) und plant den
-  ersten Tag entsprechend — aber nur, solange der Schalter steht: Wer ihn abends
-  ausschaltet, hat morgen früh einen Block, dessen späte Tage plötzlich zählen,
-  und der Hinweis von heute stand umsonst darin. Umgekehrt genauso.
+- **Mit dem Schalter wird der laufende Block wöchentlich überbügelt.** Das ist
+  gewollt — `raeume_abgeloeste_plaene` räumt hinterher auf, und die abgelösten
+  Blöcke verschwinden dabei samt ihrer Vergangenheit im nachfolgenden. Dass der
+  neue Block den alten verdrängt, sagt der Export der KI **nicht** mehr: Der
+  Hinweis samt Liste der verworfenen Einheiten reiste einmal als
+  `ersetzt_laufenden_block` mit und wurde als Vorlage gelesen. Es kostet einen
+  Opus-Lauf pro Woche aus demselben Kontingent, das man daneben selbst benutzt.
+  Der Prompt weiß vom nächsten Termin (`NEUPLANUNGSHINWEIS` nennt den
+  eingestellten Wochentag) — aber nur, solange der Schalter steht: Wer ihn
+  abends ausschaltet, hat einen Block, dessen späte Tage plötzlich zählen, und
+  der Hinweis von heute stand umsonst darin. Umgekehrt genauso.
+- **Zwischen Abgleich und Planung liegt keine Reihenfolge mehr.** Sie hing
+  einmal am Ende eines erfolgreichen automatischen Abgleichs und konnte deshalb
+  nie auf veralteten Daten laufen. Jetzt haben beide eine eigene Uhrzeit: Wer
+  die Planung **vor** den Abgleich legt, plant auf dem Stand von gestern. Die
+  Oberfläche sagt es dazu, geprüft wird es nicht — und die KI liest den Stand in
+  `trainingshistorie.datenstand`, aber nur, wenn sie hinsieht.
 - **Die automatische Planung hängt am Abgleich.** Ohne verbundenes Garmin-Konto
   gibt es keinen, und damit auch keinen Auslöser — dann bleibt es beim Knopf.
   Ebenso, wenn `TRI_GARMIN_AUTOSYNC=0` steht oder der Abgleich scheitert: Ein

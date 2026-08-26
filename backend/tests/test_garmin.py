@@ -574,17 +574,17 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     stats = client.get("/api/logs/stats", headers=garmin_auth).json()
     assert stats["compliance"]["logged"] == 1
 
-    # Der geplante Aufbau muss mit in den Export: Ohne ihn sieht die KI von
-    # einem Intervalltraining nur Dauer und Schnittpuls und kann es nicht
-    # fortschreiben — aus 5x1000 m wird sonst nie 6x1000 m.
+    # Der geplante Aufbau geht **nicht** mit in den Export: Die KI verglich
+    # daraus Absolviertes mit Vorgesehenem und schrieb die alte Vorgabe fort.
+    # Die Verknüpfung selbst bleibt — sie trägt die Umsetzungsquote im
+    # Dashboard und das Aufräumen in Garmin.
     payload = client.get("/api/plans/export", headers=garmin_auth).json()["payload"]
     einheit = next(
         e
         for e in payload["trainingshistorie"]["einheiten"]
         if e["datum"] == tag.isoformat() and e["sportart"] == "run"
     )
-    assert einheit["geplant_war"]["aufbau"] == "15 min Z2 / 5x1000 m Z4 / 10 min Z1"
-    assert einheit["geplant_war"]["typ"] == "endurance"
+    assert "geplant_war" not in einheit
     # Und der Wochentag steht dabei, damit die KI Muster wie "samstags lang"
     # erkennt, ohne aus dem Datum rechnen zu müssen.
     assert einheit["wochentag"] == WEEKDAYS[tag.weekday()]
@@ -929,11 +929,11 @@ def _block(client, auth, *, start, tage, titel, sport="run"):
     return antwort.json()["plan"]
 
 
-def test_der_geplante_aufbau_ueberlebt_die_neuplanung(client, garmin_auth, fake):
-    """Täglich neu planen darf die Historie nicht auffressen.
+def test_die_zuordnung_ueberlebt_die_neuplanung(client, garmin_auth, fake):
+    """Neu planen darf die Historie nicht auffressen.
 
-    Der Ablauf ist: morgens abgleichen, dann den Block neu bauen. Wer einmal
-    andersherum vorgeht, verlor den geplanten Aufbau für immer — am 16.08.2026
+    Der Ablauf ist: abgleichen, dann den Block neu bauen. Wer einmal
+    andersherum vorgeht, verlor die Zuordnung für immer — am 16.08.2026
     wurde um 16:24 neu geplant, die Mobility desselben Tages kam um 17:41 aus
     Garmin, und dazwischen hatte das Aufräumen den alten Block gelöscht.
 
@@ -973,12 +973,15 @@ def test_der_geplante_aufbau_ueberlebt_die_neuplanung(client, garmin_auth, fake)
 
     _backfill(client, garmin_auth, tage=5)
 
+    # Die absolvierte Einheit steht weiter in der Historie — mit dem, was
+    # gemessen wurde, nicht mit dem, was vorgesehen war.
     payload = client.get("/api/plans/export", headers=garmin_auth).json()["payload"]
     einheit = next(
         e for e in payload["trainingshistorie"]["einheiten"]
         if e["datum"] == gestern.isoformat()
     )
-    assert einheit["geplant_war"]["aufbau"] == "15 min Z2 / 5x1000 m Z4 / 10 min Z1"
+    assert einheit["dauer_min"] is not None
+    assert "geplant_war" not in einheit
 
 
 def test_ein_block_ganz_in_der_zukunft_wird_sofort_geraeumt(client, garmin_auth, fake):
@@ -1030,7 +1033,9 @@ def test_zonenverteilung_und_abschnitte_kommen_in_den_export(
         {"art": "aufwaermen", "anzahl": 1, "dauer_min": 9, "hf_schnitt": 129},
         {"art": "belastung", "anzahl": 6, "dauer_min": 17, "hf_schnitt": 163},
     ]
-    assert mit_abschnitten[0]["workout_einhaltung_pct"] == 48
+    # Garmins Workout-Einhaltung ist eine Bewertung *gegen die Vorgabe* und
+    # damit ein Planvergleich — sie fährt nicht mehr mit.
+    assert "workout_einhaltung_pct" not in mit_abschnitten[0]
     # Der rohe Typ sagt, ob drinnen oder draußen gefahren wurde.
     assert mit_abschnitten[0]["garmin_typ"] == "running"
 
@@ -1391,16 +1396,44 @@ def test_export_enthaelt_fitnessdaten_und_regeln(client, verbunden):
     assert fitness["aktuell"]["training_readiness"]["score_0_100"] == 78
     assert fitness["aktuell"]["training_status"]["acwr_garmin"] == 0.92
     assert fitness["mittelwerte"]["schlaf_h"]["7_tage"] is not None
-    assert len(fitness["tage"]) >= 20
+    # Zwei Wochen Tageswerte, nicht vier: Für einen Block über wenige Tage
+    # zählt die jüngste Entwicklung, den Rest decken die Mittelwerte ab.
+    assert 0 < len(fitness["tage"]) <= 14
 
-    # Und der Prompt muss die Regeln dazu tragen, sonst liest die KI sie nicht.
-    assert "Erholungslage aus den Fitnessdaten" in export["prompt"]
-    assert "training_readiness.score_0_100" in export["prompt"]
+    # Und der Prompt muss auf die Fitnessdaten zeigen, sonst liest die KI sie
+    # nicht — aber ohne sie in Schwellwerte zu übersetzen.
+    assert "`fitnessdaten` beschreibt den Zustand von heute" in export["prompt"]
     assert "Keine Gerätedaten vorhanden" not in export["prompt"]
 
 
-def test_export_meldet_auffaelligkeiten(client, garmin_auth, fake):
-    """Eine schlechte Erholungslage muss als Satz im Export stehen."""
+def test_der_prompt_nennt_garmins_gemessene_grenzen(client, verbunden):
+    """Erfundene Schwellen sind raus — **gemessene** Grenzen ausdrücklich nicht.
+
+    Der Unterschied ist die ganze Entscheidung: „Readiness unter 40 heißt
+    locker" ist eine Zahl aus dem Prompt, `hrv_normalbereich_ms` dagegen ein an
+    diesem Athleten gemessener Bereich. Er stand schon immer im Paket; ohne die
+    namentliche Nennung übersah die KI ihn dort.
+    """
+    _backfill(client, verbunden)
+    export = client.get("/api/plans/export", headers=verbunden).json()
+
+    grenzen = export["payload"]["fitnessdaten"]["aktuell"]["hrv_normalbereich_ms"]
+    assert grenzen["unten"] == 52 and grenzen["oben"] == 71
+
+    assert "`hrv_normalbereich_ms`" in export["prompt"]
+    assert "`training_status.lastfenster`" in export["prompt"]
+    assert "gemessene Grenzen, keine Vorgabe dieses Dokuments" in export["prompt"]
+
+
+def test_auffaelligkeiten_nur_noch_fuer_die_ernaehrung(client, garmin_auth, fake):
+    """Fertige Warnsätze stehen im Ernährungspaket, nicht mehr im Trainingspaket.
+
+    Sie sind Schlüsse aus **selbstgesetzten** Schwellen — dieselben, die aus dem
+    Trainingsprompt geflogen sind. Sie dort durch die Hintertür wieder
+    hineinzugeben wäre inkonsequent: Die Rohwerte und Garmins gemessene Grenzen
+    stehen vollständig da, den Schluss zieht die KI. Die Ernährung bekommt eine
+    stark gekürzte Historie und braucht die Verdichtung weiterhin.
+    """
     client.post(
         "/api/garmin/connect",
         json={"email": "athlet@example.com", "password": "geheim"},
@@ -1425,8 +1458,28 @@ def test_export_meldet_auffaelligkeiten(client, garmin_auth, fake):
             tag.readiness_score = 25
         db.commit()
 
-    export = client.get("/api/plans/export", headers=garmin_auth).json()
-    hinweise = export["payload"]["fitnessdaten"]["auffaelligkeiten"]
+    training = client.get("/api/plans/export", headers=garmin_auth).json()
+    assert "auffaelligkeiten" not in training["payload"]["fitnessdaten"]
+    # Die Rohwerte samt Grenze bleiben — daraus zieht die KI den Schluss selbst.
+    aktuell = training["payload"]["fitnessdaten"]["aktuell"]
+    assert aktuell["hrv_ms"] == 40.0
+    assert aktuell["hrv_normalbereich_ms"]["unten"] == 52.0
+    assert aktuell["hrv_status"] == "UNBALANCED"
+
+    # Die Funktion selbst bleibt und trägt weiterhin das Ernährungspaket.
+    from app.sportscience import wellness_auffaelligkeiten
+    from app.database import SessionLocal as _SL
+    from datetime import date as _date
+
+    with _SL() as db:
+        konto = db.query(GarminAccount).filter_by(email="athlet@example.com").all()
+        tage = (
+            db.query(WellnessDay)
+            .filter(WellnessDay.user_id == konto[-1].user_id)
+            .order_by(WellnessDay.date.desc())
+            .all()
+        )
+        hinweise = wellness_auffaelligkeiten(tage, _date.today())
 
     assert any("Normalbereich" in h for h in hinweise)
     assert any("UNBALANCED" in h for h in hinweise)
