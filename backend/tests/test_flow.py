@@ -529,6 +529,25 @@ def test_import_warns_about_gaps(client, auth):
     assert any("Ohne Eintrag geblieben" in w for w in warnings)
 
 
+def test_import_warnt_bei_fehlender_ausrichtung_und_steuerung(client, auth):
+    """Ohne diese Meldung fiele eine leer gebliebene KI-Antwort erst in der
+    Ansicht auf — dort ohne jeden Hinweis, woran es lag."""
+    start = date.today() + timedelta(days=41)
+    ohne_text = make_ai_plan(start, days=4)
+    ohne_text["plan"]["summary"] = None
+    ohne_text["plan"]["coaching_notes"] = None
+
+    response = client.post(
+        "/api/plans/validate",
+        headers=auth,
+        json={"raw": json.dumps(ohne_text), "days": 4},
+    )
+    assert response.status_code == 200
+    warnings = response.json()["warnings"]
+    assert any("summary" in w for w in warnings)
+    assert any("coaching_notes" in w for w in warnings)
+
+
 def test_import_verwirft_unbrauchbaren_zielpuls_statt_abzulehnen(client, auth):
     """Eine 0 im Zielpuls darf den Block nicht kippen.
 
@@ -712,6 +731,8 @@ def test_import_accepts_old_week_format(client, auth):
     legacy = {
         "plan": {
             "title": "Antwort im Wochenformat",
+            "summary": "Aufbau über zwei Wochen im alten Format.",
+            "coaching_notes": "Bei Überlastung eine Einheit auslassen.",
             "start_date": start.isoformat(),
             "weeks": [
                 {"week_number": 1, "focus": "Basis", "days": make_ai_days(start, 7)},

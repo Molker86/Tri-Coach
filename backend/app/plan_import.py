@@ -488,6 +488,23 @@ def validate_coverage(
             "Blocks, fällt das nur über die Zahl der Tage auf."
         )
 
+    # Beide Felder sind im Schema optional, weil ein Block ohne sie noch
+    # brauchbar ist — anders als ein fehlender Tag lässt sich das aber nicht
+    # aus der Tagesliste ablesen. Ohne diese Meldung fiele ein leer
+    # gebliebenes Feld erst auf, wenn „Zur Ausrichtung des Blocks“ oder
+    # „Hinweise zur Steuerung“ in der Ansicht fehlen — und dann ohne jeden
+    # Hinweis darauf, dass die KI-Antwort daran schuld war.
+    if not body.summary:
+        warnings.append(
+            "Ohne „summary“ geliefert — der Abschnitt „Zur Ausrichtung des "
+            "Blocks“ bleibt leer."
+        )
+    if not body.coaching_notes:
+        warnings.append(
+            "Ohne „coaching_notes“ geliefert — der Abschnitt „Hinweise zur "
+            "Steuerung“ bleibt leer."
+        )
+
     if expected_days and len(all_dates) != expected_days:
         warnings.append(
             f"Der Plan enthält {len(all_dates)} statt {expected_days} Tage."
