@@ -6,9 +6,17 @@ import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
-import { schlafdauer, sportIcon } from '../constants'
+import { schlafdauer, sportIcon, sportLabel } from '../constants'
 import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
-import type { GarminAccount, Plan, PlanSession, Profile, Stats, WellnessDay } from '../types'
+import type {
+  GarminAccount,
+  Plan,
+  PlanSession,
+  Profile,
+  Stats,
+  WeeklyBucket,
+  WellnessDay,
+} from '../types'
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
@@ -37,6 +45,80 @@ function datenstand(letzterAbgleich: string | null): string {
   }
   const tag = zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'short' })
   return `Garmin-Daten vom ${tag}, ${uhrzeit} Uhr`
+}
+
+/** Immer diese drei, immer in dieser Reihenfolge.
+ *
+ * Erst hingen die Zeilen daran, ob überhaupt Kilometer zusammenkamen — eine
+ * Woche aus Indoor-Rad, Kraft und Mobility hatte deshalb gar nichts zum
+ * Aufklappen, und die Kachel ließ sich nicht anklicken. Genau dann ist die
+ * Aufschlüsselung aber die Antwort auf die Frage, die man stellt: *welche*
+ * Disziplin steht auf null. Die drei stehen also fest, auch mit 0,0 km, und
+ * fest in der Triathlonreihenfolge — nach Umfang sortiert sprängen die Zeilen
+ * von Woche zu Woche.
+ */
+const DISTANZ_DISZIPLINEN = ['swim', 'bike', 'run']
+
+/** Die Wochenkilometer je Sportart: die drei Disziplinen und, was sonst noch
+ *  Strecke hatte (Koppeltraining). Kraft und Mobility fahren nie welche und
+ *  wären als Dauer-Nullzeile nur Rauschen. */
+function distanzNachSport(woche: WeeklyBucket | undefined) {
+  const bySport = woche?.by_sport ?? {}
+  const weitere = Object.entries(bySport)
+    .filter(([sport, wert]) => wert.km > 0 && !DISTANZ_DISZIPLINEN.includes(sport))
+    .map(([sport, wert]) => ({ sport, km: wert.km }))
+    .sort((a, b) => b.km - a.km)
+  return [
+    ...DISTANZ_DISZIPLINEN.map((sport) => ({ sport, km: bySport[sport]?.km ?? 0 })),
+    ...weitere,
+  ]
+}
+
+/** Wochenkilometer, aufklappbar nach Sportart.
+ *
+ * Die Summe allein sagt wenig: 25 km sind auf dem Rad eine kurze Ausfahrt und
+ * im Wasser eine Woche, die es nie gab. Die Aufschlüsselung hängt deshalb an
+ * der Kachel selbst statt in einer eigenen Tabelle. Anklickbar ist die **ganze
+ * Kachel** — dort greift die Hand hin, nicht auf eine Textzeile darunter —,
+ * aber als echter `<button>` und nicht als `div` mit `onClick`, sonst wäre sie
+ * für Tastatur und Vorlesehilfe kein Bedienelement. Innen deshalb nur `span`:
+ * Ein `div` im Knopf ist kein gültiges HTML.
+ */
+function DistanzKachel({ woche }: { woche: WeeklyBucket | undefined }) {
+  const [offen, setOffen] = useState(false)
+  const nachSport = distanzNachSport(woche)
+
+  return (
+    <div className="stat">
+      <button
+        type="button"
+        className="stat-toggle"
+        aria-expanded={offen}
+        onClick={() => setOffen((wert) => !wert)}
+      >
+        <span className="stat-label">Distanz diese Woche</span>
+        <span className="stat-value">
+          {woche?.total_km ?? 0}
+          <span className="stat-unit">km</span>
+        </span>
+        <span className="stat-hint">
+          {offen ? 'Aufschlüsselung ausblenden' : 'Nach Sportart aufschlüsseln'}
+        </span>
+      </button>
+      {offen && (
+        <ul className="stat-split">
+          {nachSport.map((eintrag) => (
+            <li key={eintrag.sport}>
+              <span>
+                {sportIcon(eintrag.sport)} {sportLabel(eintrag.sport)}
+              </span>
+              <span>{eintrag.km.toFixed(1)} km</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 /** Wie es um den aktiven Trainingsblock steht.
@@ -229,6 +311,7 @@ export default function Dashboard() {
   const block = blockStatus(plan, today)
   const missingCoreValues =
     profile && (!profile.max_hr || !profile.resting_hr || !profile.birth_date)
+  const garminProblem = garminKonto != null && garminKonto.status !== 'connected'
 
   return (
     <>
@@ -301,6 +384,19 @@ export default function Dashboard() {
         </Alert>
       )}
 
+      {/* Ein stehengebliebener Abgleich sieht auf dieser Seite aus wie eine
+          Woche ohne Training: Alle Zahlen stehen auf null, und der Datenstand
+          in der Kopfzeile ist die einzige, leicht zu übersehende Erklärung.
+          Deshalb hier ausdrücklich — es ist der einzige Grund, aus dem die
+          Kacheln lügen können. */}
+      {garminProblem && (
+        <Alert kind="warning">
+          {garminKonto?.status_message ?? 'Der Garmin-Abgleich hat ein Problem.'} Bis dahin
+          fehlen alle Trainings und Werte seit dem letzten Abgleich.{' '}
+          <Link to="/garmin">Verbindung prüfen</Link>
+        </Alert>
+      )}
+
       <div className="grid grid-4 mb-1">
         <Stat
           label="Diese Woche"
@@ -308,11 +404,7 @@ export default function Dashboard() {
           unit="Einheiten"
           hint={currentWeek ? `${currentWeek.total_minutes} min gesamt` : undefined}
         />
-        <Stat
-          label="Distanz diese Woche"
-          value={currentWeek?.total_km ?? 0}
-          unit="km"
-        />
+        <DistanzKachel woche={currentWeek} />
         <Stat
           label="4-Wochen-Umfang"
           value={stats ? Math.round(stats.total_minutes / 60) : 0}

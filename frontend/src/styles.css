@@ -294,6 +294,51 @@ a { color: var(--accent); }
   margin-top: 0.3rem;
 }
 
+/* Die ganze Kachel als Knopf. Die Vorgaben des Browsers werden zurückgenommen
+   wie bei `.linklike`; die Kinder sind `span` (ein `div` im Knopf ist kein
+   gültiges HTML) und brauchen deshalb ihr Blockverhalten hier. */
+.stat-toggle {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat-toggle > span { display: block; }
+
+.stat-toggle:hover .stat-hint,
+.stat-toggle:focus-visible .stat-hint { color: var(--accent); }
+
+/* Aufschlüsselung der Wochenkilometer in der Kachel selbst. Bewusst keine
+   Tabelle: Es sind drei Zeilen, und eine Tabelle bekäme am Telefon wieder die
+   Kartenbehandlung (`.table-cards`) — drei Karten in einer Kachel. */
+.stat-split {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.stat-split li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+.stat-split li span:last-child {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    Formulare
    ========================================================================== */

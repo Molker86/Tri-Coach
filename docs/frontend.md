@@ -98,6 +98,36 @@ wäre eine Aussage über Daten, die es nicht gibt. Dafür holt `reload()` jetzt
 zusätzlich `api.garminStatus()` — anders als `api.garminWorkoutStatus()` (siehe
 oben) kostet das nichts gegen Garmin, der Endpunkt liest die eigene Datenbank.
 
+**Die Kilometerkachel klappt nach Sportart auf, und ein hängender Abgleich
+sagt das auch.** Beides kommt aus derselben Beschwerde: „Distanz diese Woche
+zeigt nichts an, obwohl in Garmin Trainings sind." Die Zahl war beide Male
+richtig — erst war der Garmin-Zugang abgelaufen und es kam seit Tagen kein
+Training mehr an, danach bestand die Woche aus Indoor-Radfahren ohne
+Geschwindigkeitsmesser, Kraft und Mobility: Garmin selbst liefert für solche
+Einheiten `distance: 0.0`, auch im Detail. Vier Einheiten, 126 Minuten, null
+Kilometer ist dann die Wahrheit. Erklärt hat sie auf der Startseite nur
+niemand.
+
+Deshalb zwei Dinge. Erstens steht bei `konto.status !== 'connected'` eine
+Warnung oben auf der Seite, mit Garmins eigener Meldung und einem Weg zu
+`/garmin` — ein stehengebliebener Abgleich ist der einzige Grund, aus dem
+sämtliche Kacheln zugleich auf null stehen können, *ohne* dass die Woche leer
+war, und der Datenstand in der Kopfzeile (siehe oben) nennt zwar das Datum des
+letzten Abgleichs, aber nicht, dass der nächste gar nicht mehr kommt.
+
+Zweitens klappt die Kachel nach Sportart auf (`DistanzKachel`). Die
+Aufschlüsselung zeigt **immer** Schwimmen, Rad und Laufen, auch mit 0,0 km:
+Zuerst hingen die Zeilen daran, ob überhaupt Kilometer zusammenkamen — und
+damit war die Kachel ausgerechnet in der Woche nicht anklickbar, in der man
+fragt, welche Disziplin auf null steht. Sortiert wird fest in
+Triathlonreihenfolge statt nach Umfang, sonst sprängen die Zeilen von Woche zu
+Woche; Kraft und Mobility bleiben draußen, weil sie nie Strecke haben.
+Anklickbar ist die **ganze Kachel**, dort greift die Hand hin — aber als echter
+`<button>` (`.stat-toggle`, Geschwister von `.linklike`), und die Kinder sind
+`span`, weil ein `div` im Knopf kein gültiges HTML ist. Eine neue API braucht
+das nicht: `by_sport` steht längst in jedem `WeeklyBucket`, weil der Export es
+ohnehin liest.
+
 **Ausrichtung und Steuerungshinweise stehen auch auf der Startseite**
 (`plan.summary` / `plan.coaching_notes`, direkt unter der Überschrift der
 „Heute"-Karte und **über** den Einheiten des Tages — die Einordnung wird
