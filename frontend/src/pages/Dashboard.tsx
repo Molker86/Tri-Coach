@@ -6,7 +6,7 @@ import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
-import { sportIcon } from '../constants'
+import { schlafdauer, sportIcon } from '../constants'
 import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type { GarminAccount, Plan, PlanSession, Profile, Stats, WellnessDay } from '../types'
 
@@ -30,11 +30,13 @@ function datenstand(letzterAbgleich: string | null): string {
       month: 'long',
     })
   }
-  const wann = new Date(letzterAbgleich).toLocaleString('de-DE', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  })
-  return `Garmin-Daten vom ${wann} Uhr`
+  const zeitpunkt = new Date(letzterAbgleich)
+  const uhrzeit = zeitpunkt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  if (zeitpunkt.toDateString() === new Date().toDateString()) {
+    return `Garmin-Daten von heute, ${uhrzeit} Uhr`
+  }
+  const tag = zeitpunkt.toLocaleDateString('de-DE', { dateStyle: 'short' })
+  return `Garmin-Daten vom ${tag}, ${uhrzeit} Uhr`
 }
 
 /** Wie es um den aktiven Trainingsblock steht.
@@ -150,8 +152,7 @@ function ErholungsKacheln({ tage }: { tage: WellnessDay[] }) {
       />
       <Stat
         label="Schlaf letzte Nacht"
-        value={schlafSekunden !== null ? (schlafSekunden / 3600).toFixed(1) : '–'}
-        unit="h"
+        value={schlafSekunden !== null ? schlafdauer(schlafSekunden) : '–'}
         hint={schlafScore !== null ? `Schlafscore ${schlafScore}` : undefined}
       />
       <Stat

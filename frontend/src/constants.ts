@@ -227,3 +227,15 @@ const PACE_FORMAT_DEFAULT = { label: 'Pace', unit: 'min/km', example: '5:26' }
 export function paceFormat(sport: string): { label: string; unit: string; example: string } {
   return PACE_FORMAT[sport] ?? PACE_FORMAT_DEFAULT
 }
+
+/** Schlafdauer als „7 h 24 min".
+ *
+ * Als Dezimalstunde („7.4 h") liest sich der Nachkommateil wie Minuten und ist
+ * doch keiner — 7.4 h sind 7 h 24 min, nicht 7 h 40 min.
+ */
+export function schlafdauer(sekunden: number): string {
+  const minutenGesamt = Math.round(sekunden / 60)
+  const stunden = Math.floor(minutenGesamt / 60)
+  const minuten = minutenGesamt % 60
+  return stunden > 0 ? `${stunden} h ${minuten} min` : `${minuten} min`
+}

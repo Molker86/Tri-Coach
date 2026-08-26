@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
-import { paceFormat, sportIcon, sportLabel } from '../constants'
+import { paceFormat, schlafdauer, sportIcon, sportLabel } from '../constants'
 import type { SessionLog, WellnessDay } from '../types'
 
 const STATUS_LABEL: Record<SessionLog['status'], string> = {
@@ -316,9 +316,7 @@ function FitnessTabelle({ tage }: { tage: WellnessDay[] }) {
                   })}
                 </td>
                 <td data-label="Schlaf">
-                  {tag.sleep_seconds !== null
-                    ? `${(tag.sleep_seconds / 3600).toFixed(1)} h`
-                    : '–'}
+                  {tag.sleep_seconds !== null ? schlafdauer(tag.sleep_seconds) : '–'}
                 </td>
                 <td data-label="Schlafscore">{tag.sleep_score ?? '–'}</td>
                 <td data-label="HRV">
