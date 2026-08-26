@@ -10,4 +10,5 @@ frontend/dist
 .gitignore
 README.md
 CLAUDE.md
+docs
 start.sh

@@ -32,7 +32,7 @@ panel_title: Tri-Coach
 #
 # `password?` statt `str?`: Die Oberfläche maskiert den Wert dann. Er liegt
 # trotzdem im Klartext in /data/options.json und wandert damit in jedes
-# Home-Assistant-Backup — siehe „Bekannte Grenzen“ in CLAUDE.md.
+# Home-Assistant-Backup — siehe docs/grenzen.md.
 options:
   secret_key: ""
   claude_oauth_token: ""
