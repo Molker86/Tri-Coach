@@ -1,6 +1,6 @@
 """Importierte Einheiten an offene Planeinheiten knüpfen."""
 
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,6 +35,12 @@ def finde_planeinheit(
     tag`); liegen mehrere davor, gewinnt die jüngste. Und eine bereits erfasste
     Planeinheit bleibt erfasst: `uq_log_plan_session` lässt nur einen Log je
     Einheit zu.
+
+    Ist die jüngste schon belegt, geht es die Reihe weiter abwärts statt
+    aufzugeben. Denn belegt heißt nicht „diese Aktivität gehört dorthin",
+    sondern nur „dort hängt schon ein Training" — und weil die fünfzehn Slots
+    reihum gehen, tragen mehrere Einheiten dieselbe Kennung. Wer beim ersten
+    Treffer abbräche, ließe die freie Einheit daneben für immer unverknüpft.
     """
     if not workout_id:
         return None
@@ -53,10 +59,9 @@ def finde_planeinheit(
         if einheit.garmin_pushed_at is not None
         and einheit.garmin_pushed_at.date() <= tag
     ]
-    if not davor:
-        return None
-
-    einheit = max(davor, key=lambda s: s.garmin_pushed_at or datetime.min)
-    if db.scalar(select(SessionLog.id).where(SessionLog.plan_session_id == einheit.id)):
-        return None
-    return einheit.id
+    for einheit in sorted(davor, key=lambda s: s.garmin_pushed_at, reverse=True):
+        if not db.scalar(
+            select(SessionLog.id).where(SessionLog.plan_session_id == einheit.id)
+        ):
+            return einheit.id
+    return None

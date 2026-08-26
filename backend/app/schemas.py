@@ -657,6 +657,17 @@ class PlanImportIn(BaseModel):
     days: int | None = Field(None, ge=1, le=31)
 
 
+class VerknuepfungIn(BaseModel):
+    """Welches bereits importierte Training zu einer Planeinheit gehört.
+
+    Nur eine Kennung: Erfunden wird hier nichts, es wird ein vorhandener
+    `SessionLog` benannt. Der Weg, ein Training von Hand *anzulegen*, bleibt
+    verschlossen — Garmin ist die einzige Quelle.
+    """
+
+    log_id: int
+
+
 # --------------------------------------------------------------------------
 # Plan-Ausgabe
 # --------------------------------------------------------------------------

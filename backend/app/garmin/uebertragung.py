@@ -281,7 +281,7 @@ def uebertrage_einheit(
         link = _link(db, session.id)
 
     if link is not None and _ist_aktuell(link, finger, session.date):
-        _merke_uebertragung(db, session, link)
+        _merke_uebertragung(db, session, link, inhalt_neu=False)
         return "unveraendert"
 
     if link is not None:
@@ -297,7 +297,7 @@ def uebertrage_einheit(
     # verschieben noch zurücknehmen, und ein zweiter Druck auf den Knopf legte
     # einen zweiten daneben. Er wird deshalb an der Einheit vermerkt.
     link.last_error = _terminiere(db, api, link, session.date)
-    _merke_uebertragung(db, session, link)
+    _merke_uebertragung(db, session, link, inhalt_neu=True)
     db.commit()
     if link.last_error:
         raise GarminFehler(link.last_error)
@@ -404,7 +404,7 @@ def _belege_pool_slot(
 
 
 def _merke_uebertragung(
-    db: Session, session: PlanSession, link: GarminWorkoutLink
+    db: Session, session: PlanSession, link: GarminWorkoutLink, *, inhalt_neu: bool
 ) -> None:
     """Hält an der Einheit fest, als welches Workout sie auf der Uhr lag.
 
@@ -414,13 +414,22 @@ def _merke_uebertragung(
     Datenbank steht. `garmin/matching.py` läse danach nichts mehr und schriebe
     jede absolvierte Einheit als nicht umgesetzt fort.
 
-    `garmin_pushed_at` rückt mit jeder gesendeten Fassung nach: Es beantwortet
-    die Frage, seit wann *dieser* Inhalt auf der Uhr liegt — nötig, weil die
-    fünfzehn Pool-Vorlagen wiederverwendet werden und dieselbe Kennung nach ein
-    paar Wochen etwas anderes trägt.
+    `garmin_pushed_at` rückt nur mit einer *gesendeten* Fassung nach: Es
+    beantwortet die Frage, seit wann *dieser* Inhalt auf der Uhr liegt — nötig,
+    weil die fünfzehn Pool-Vorlagen wiederverwendet werden und dieselbe Kennung
+    nach ein paar Wochen etwas anderes trägt.
+
+    Ein Lauf, der nichts zu senden hatte (`"unveraendert"`), lässt ihn deshalb
+    stehen. Rückte er auch dort vor, verlöre eine Einheit ihre Zuordnung
+    rückwirkend: `matching.finde_planeinheit` verlangt `garmin_pushed_at <=
+    Trainingstag`, und eine Übertragung am Tag *nach* dem Training schöbe den
+    Zeitstempel über den Trainingstag hinaus — die absolvierte Einheit stünde
+    für immer als nicht umgesetzt da.
     """
+    kennung_neu = session.garmin_workout_id != link.garmin_workout_id
     session.garmin_workout_id = link.garmin_workout_id
-    session.garmin_pushed_at = jetzt_utc()
+    if inhalt_neu or kennung_neu or session.garmin_pushed_at is None:
+        session.garmin_pushed_at = jetzt_utc()
     db.commit()
 
 

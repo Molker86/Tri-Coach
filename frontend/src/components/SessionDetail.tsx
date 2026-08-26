@@ -12,7 +12,7 @@ import { api } from '../api/client'
 import { Alert, Modal } from './ui'
 import { INTENSITY_ZONE_COLOR, sessionTypeLabel, sportIcon, sportLabel } from '../constants'
 import { heuteIso } from '../planung'
-import type { AiExport, EinheitAnpassung, KiJob, PlanSession } from '../types'
+import type { AiExport, EinheitAnpassung, KiJob, PlanSession, SessionLog } from '../types'
 
 export function SessionDetail({
   session,
@@ -140,14 +140,11 @@ export function SessionDetail({
           Ruhetag gibt es nichts zu erfassen — der Satz wäre dort eine Zusage
           ins Leere. */}
       {session.sport !== 'rest' && (
-        <div className="row row-end mt-2">
+        <div className="mt-2">
           {session.logged ? (
             <Verknuepfung session={session} onGeloest={onUebernommen} />
           ) : (
-            <span className="small muted">
-              Wird als absolviert markiert, sobald die Einheit aus dem Workout auf
-              der Uhr kommt.
-            </span>
+            <Zuordnung session={session} onZugeordnet={onUebernommen} />
           )}
         </div>
       )}
@@ -213,6 +210,123 @@ function Verknuepfung({
       </button>
     </div>
   )
+}
+
+/** Ein absolviertes Training aus den Nachbartagen dieser Einheit zuschreiben.
+ *
+ * Gegenstück zu `Verknuepfung`. Nötig, weil die Zuordnung sonst allein an der
+ * Workout-Kennung hängt (`garmin/matching.py`): Wer auf der Uhr einen älteren
+ * Kalendereintrag startet oder wem Garmin das Aktivitätsdetail schuldig
+ * bleibt, bekommt keine — und die tatsächlich absolvierte Einheit stünde für
+ * immer als nicht umgesetzt da.
+ *
+ * An einem künftigen Tag gibt es nichts zuzuordnen; dort bleibt es beim
+ * Hinweis, wie bisher.
+ */
+function Zuordnung({
+  session,
+  onZugeordnet,
+}: {
+  session: PlanSession
+  onZugeordnet: () => void
+}) {
+  const [logs, setLogs] = useState<SessionLog[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [fehler, setFehler] = useState<string | null>(null)
+
+  const hinweis = (
+    <span className="small muted">
+      Wird als absolviert markiert, sobald die Einheit aus dem Workout auf der
+      Uhr kommt.
+    </span>
+  )
+
+  if (session.date > heuteIso()) {
+    return <div className="row row-end">{hinweis}</div>
+  }
+
+  async function lade() {
+    setFehler(null)
+    setBusy(true)
+    try {
+      setLogs(await api.zuordenbareLogs(session.id))
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : 'Laden fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function ordneZu(log: SessionLog) {
+    setFehler(null)
+    setBusy(true)
+    try {
+      await api.verknuepfungSetzen(session.id, log.id)
+      onZugeordnet()
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : 'Zuordnen fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="row row-end">
+        {hinweis}
+        {logs === null && (
+          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={lade}>
+            {busy ? 'Wird geladen …' : 'Von Hand zuordnen'}
+          </button>
+        )}
+      </div>
+
+      {fehler && <Alert kind="error">{fehler}</Alert>}
+
+      {logs !== null &&
+        (logs.length === 0 ? (
+          <p className="small muted mt-1 mb-0">
+            Um diesen Tag herum liegt kein Training, das noch keiner Einheit
+            zugeordnet ist.
+          </p>
+        ) : (
+          <div className="mt-1">
+            <p className="small muted mb-1">
+              Welches Training zählt als „{session.title}“? Es bleibt dabei
+              unverändert im Verlauf — zugeordnet wird nur die Vorgabe.
+            </p>
+            <div className="row">
+              {logs.map((log) => (
+                <button
+                  key={log.id}
+                  className="btn btn-ghost btn-sm btn-block"
+                  disabled={busy}
+                  onClick={() => ordneZu(log)}
+                >
+                  {trainingZeile(log)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+    </>
+  )
+}
+
+/** Ein Training in einer Zeile — genug, um es wiederzuerkennen, nicht mehr. */
+function trainingZeile(log: SessionLog): string {
+  const teile = [
+    new Date(log.date).toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+    }),
+    `${sportIcon(log.sport)} ${sportLabel(log.sport)}`,
+  ]
+  if (log.duration_min) teile.push(`${log.duration_min} min`)
+  if (log.distance_km) {
+    teile.push(`${log.distance_km.toFixed(1).replace('.', ',')} km`)
+  }
+  return teile.join(' · ')
 }
 
 /** Eine einzelne Einheit umschreiben lassen — Freitext hinein, Einheit heraus.

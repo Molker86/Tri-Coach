@@ -742,6 +742,161 @@ def test_bei_zwei_einheiten_auf_derselben_kennung_gewinnt_die_juengste_davor(
     assert importiert["plan_session_id"] == erwartet["id"]
 
 
+def test_belegte_juengste_kennung_gibt_an_die_freie_daneben_ab(
+    client, garmin_auth, fake
+):
+    """Zwei Trainings aus demselben Pool-Slot, zwei freie Einheiten dafür.
+
+    Der Slot geht reihum, also tragen mehrere Einheiten dieselbe Kennung. Wer
+    beim ersten Treffer abbräche, weil dort schon ein Training hängt, ließe das
+    zweite für immer unverknüpft — obwohl die passende Einheit frei danebensteht.
+    """
+    start = HEUTE - timedelta(days=5)
+    frueher = HEUTE - timedelta(days=2)
+    spaeter = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [
+        baue_aktivitaet(3801, frueher, typkey="running"),
+        baue_aktivitaet(3802, spaeter, typkey="running"),
+    ]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=start, tage=5, titel="Doppelslot")
+
+    # Dieselbe Kennung an zwei Einheiten, beide vor beiden Trainingstagen
+    # übertragen — die zweite zuletzt.
+    for tag, gedrueckt in (
+        (start, start),
+        (start + timedelta(days=1), start + timedelta(days=1)),
+    ):
+        _lege_workout_an(
+            client, garmin_auth, tag=tag, workout_id=6901, pushed=gedrueckt
+        )
+    _aus_workout(fake, 3801, 6901)
+    _aus_workout(fake, 3802, 6901)
+
+    _backfill(client, garmin_auth, tage=7)
+
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    erstes = next(lg for lg in logs if lg["garmin_activity_id"] == "3801")
+    zweites = next(lg for lg in logs if lg["garmin_activity_id"] == "3802")
+
+    assert erstes["plan_session_id"] is not None
+    assert zweites["plan_session_id"] is not None
+    # Und keine Einheit trägt beide — das ließe `uq_log_plan_session` ohnehin nicht.
+    assert erstes["plan_session_id"] != zweites["plan_session_id"]
+
+
+def test_training_laesst_sich_von_hand_zuordnen(client, garmin_auth, fake):
+    """Die Gegenprobe: absolviert, aber ohne Kennung hereingekommen.
+
+    Ohne diesen Weg bliebe die Einheit für immer als nicht umgesetzt stehen —
+    genau der Fall, wenn auf der Uhr ein älterer Kalendereintrag gestartet wurde
+    oder Garmin das Aktivitätsdetail schuldig blieb.
+    """
+    tag = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [baue_aktivitaet(3901, tag, typkey="running")]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=tag, tage=1, titel="Handblock")
+    # Ausdrücklich **keine** Workout-Kennung: frei aufgezeichnet.
+    _backfill(client, garmin_auth, tage=5)
+
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    einheit = next(s for s in aktiv["sessions"] if s["date"] == tag.isoformat())
+    assert einheit["logged"] is False
+
+    kandidaten = client.get(
+        f"/api/plans/sessions/{einheit['id']}/zuordenbar", headers=garmin_auth
+    )
+    assert kandidaten.status_code == 200, kandidaten.text
+    log = next(lg for lg in kandidaten.json() if lg["garmin_activity_id"] == "3901")
+
+    antwort = client.post(
+        f"/api/plans/sessions/{einheit['id']}/verknuepfung",
+        json={"log_id": log["id"]},
+        headers=garmin_auth,
+    )
+    assert antwort.status_code == 204, antwort.text
+
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert next(s for s in aktiv["sessions"] if s["id"] == einheit["id"])["logged"] is True
+    stats = client.get("/api/logs/stats", headers=garmin_auth).json()
+    assert stats["compliance"]["logged"] == 1
+
+    # Der nächste Abgleich fasst die Entscheidung nicht wieder an.
+    _backfill(client, garmin_auth, tage=5)
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert next(s for s in aktiv["sessions"] if s["id"] == einheit["id"])["logged"] is True
+
+    # Und sie lässt sich genauso wieder lösen wie eine aus der Kennung.
+    assert (
+        client.delete(
+            f"/api/plans/sessions/{einheit['id']}/verknuepfung", headers=garmin_auth
+        ).status_code
+        == 204
+    )
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert next(s for s in aktiv["sessions"] if s["id"] == einheit["id"])["logged"] is False
+
+
+def test_von_hand_zuordnen_lehnt_belegtes_und_ruhetage_ab(client, garmin_auth, fake):
+    """Drei Absagen, alle mit einem Satz statt eines Datenbankfehlers."""
+    tag = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [
+        baue_aktivitaet(4001, tag, typkey="running"),
+        baue_aktivitaet(4002, tag, typkey="cycling"),
+    ]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=tag, tage=2, titel="Absageblock")
+    _backfill(client, garmin_auth, tage=5)
+
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    einheit = next(s for s in aktiv["sessions"] if s["date"] == tag.isoformat())
+    zweite = next(s for s in aktiv["sessions"] if s["date"] != tag.isoformat())
+
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    erstes = next(lg for lg in logs if lg["garmin_activity_id"] == "4001")
+    zweites = next(lg for lg in logs if lg["garmin_activity_id"] == "4002")
+
+    def ordne_zu(einheit_id, log_id):
+        return client.post(
+            f"/api/plans/sessions/{einheit_id}/verknuepfung",
+            json={"log_id": log_id},
+            headers=garmin_auth,
+        )
+
+    assert ordne_zu(einheit["id"], erstes["id"]).status_code == 204
+
+    # Dieselbe Einheit ein zweites Mal belegen: abgelehnt.
+    doppelt = ordne_zu(einheit["id"], zweites["id"])
+    assert doppelt.status_code == 409
+    assert "bereits ein Training" in doppelt.json()["detail"]
+
+    # Dasselbe Training an eine zweite Einheit hängen: abgelehnt.
+    verteilt = ordne_zu(zweite["id"], erstes["id"])
+    assert verteilt.status_code == 409
+    assert "andere Einheit" in verteilt.json()["detail"]
+
+    # Ein fremdes Training gibt es nicht.
+    assert ordne_zu(einheit["id"], 999_999).status_code == 404
+
+    # Und eine Einheit, die es nicht gibt, ebenso wenig.
+    assert ordne_zu(999_999, zweites["id"]).status_code == 404
+
+
 def _block(client, auth, *, start, tage, titel, sport="run"):
     plan = {
         "schema_version": "2.0",

@@ -1125,6 +1125,66 @@ def test_zweite_uebertragung_kostet_keine_anfrage(client, verbunden, fake):
     assert len(fake._workouts) == 15
 
 
+def test_zweite_uebertragung_ruehrt_den_zeitstempel_nicht_an(client, verbunden, fake):
+    """`garmin_pushed_at` sagt, seit wann *dieser* Inhalt auf der Uhr liegt.
+
+    Rückte er auch bei einem Lauf vor, der nichts zu senden hatte, verlöre eine
+    absolvierte Einheit ihre Zuordnung rückwirkend: `matching.finde_planeinheit`
+    verlangt `garmin_pushed_at <= Trainingstag`, und eine Übertragung am Tag
+    *nach* dem Training schöbe den Zeitstempel darüber hinaus. Die Einheit
+    stünde dann für immer als nicht umgesetzt da.
+    """
+    from app.database import SessionLocal
+    from app.models import PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        vorher = session.garmin_pushed_at
+        kennung = session.garmin_workout_id
+    assert vorher is not None
+    assert kennung is not None
+
+    fertig = _uebertrage(client, verbunden)
+    assert fertig["workouts_pushed"] == 0
+
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        assert session.garmin_pushed_at == vorher
+        # Die Kennung wird trotzdem weiter gesichert — sie muss den Termin
+        # überleben, der beim Aufräumen stirbt.
+        assert session.garmin_workout_id == kennung
+
+
+def test_geaenderte_einheit_setzt_den_zeitstempel_neu(client, verbunden, fake):
+    """Die Gegenrichtung: Was tatsächlich gesendet wurde, liegt seit jetzt dort."""
+    from app.database import SessionLocal
+    from app.models import PlanSession
+
+    plan = _importiere_plan(client, verbunden)
+    _uebertrage(client, verbunden)
+
+    einheit_id = next(s["id"] for s in plan["sessions"] if s["sport"] != "rest")
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        vorher = session.garmin_pushed_at
+        session.duration_min = 95
+        # Zurückdatieren, damit der Fortschritt messbar ist und nicht an der
+        # Auflösung der Uhr scheitert.
+        session.garmin_pushed_at = vorher - timedelta(days=2)
+        zurueckdatiert = session.garmin_pushed_at
+        db.commit()
+
+    _uebertrage(client, verbunden)
+
+    with SessionLocal() as db:
+        session = db.get(PlanSession, einheit_id)
+        assert session.garmin_pushed_at > zurueckdatiert
+
+
 def test_neuer_block_verwendet_dieselben_workout_ids(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)

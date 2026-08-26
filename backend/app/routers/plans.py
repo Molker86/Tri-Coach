@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -28,9 +28,16 @@ from ..schemas import (
     PlanOut,
     PlanSessionOut,
     PlanSummaryOut,
+    SessionLogOut,
+    VerknuepfungIn,
     putze_wunsch,
 )
 from ..zeit import jetzt_utc
+
+# Damit ein Training in der Auswahlliste genauso aussieht wie im Verlauf —
+# samt errechnetem TRIMP. Zwei Wege, dieselbe Zeile zu bauen, liefen früher
+# oder später auseinander.
+from .logs import _to_out as log_zu_ausgabe
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -99,6 +106,19 @@ def anpassbare_einheit(db, plan_session_id: int, user_id: int) -> PlanSession:
             "sich nicht mehr anpassen.",
         )
 
+    return session
+
+
+def _eigene_einheit(db, plan_session_id: int, user_id: int) -> PlanSession:
+    """Eine Planeinheit des Nutzers — oder 404.
+
+    Ohne inhaltliche Grenzen, anders als `anpassbare_einheit()`: Zugeordnet und
+    gelöst wird gerade an vergangenen Einheiten, und dass eine schon ein
+    Training trägt, ist für das Lösen die Voraussetzung.
+    """
+    session = db.get(PlanSession, plan_session_id)
+    if session is None or session.plan.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Einheit nicht gefunden.")
     return session
 
 
@@ -335,9 +355,7 @@ def verknuepfung_loesen(
     (`garmin/matching.py`) und die Uhr sie auch dann setzt, wenn der Athlet die
     Vorlage nur zum Aufzeichnen gestartet und etwas ganz anderes gemacht hat.
     """
-    session = db.get(PlanSession, plan_session_id)
-    if session is None or session.plan.user_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Einheit nicht gefunden.")
+    session = _eigene_einheit(db, plan_session_id, user.id)
 
     log = (
         db.query(SessionLog)
@@ -354,6 +372,117 @@ def verknuepfung_loesen(
         )
 
     log.plan_session_id = None
+    log.zuordnung_manuell = True
+    db.commit()
+
+
+# Wie weit um den Plantag herum nach einem Training gesucht wird. Drei Tage,
+# weil die Zuordnung über die Kennung selbst gar keinen Tagesbezug kennt (siehe
+# `garmin/matching.py`) — die Spanne ist allein eine Bequemlichkeit für die
+# Auswahlliste, keine Regel darüber, was zusammengehört.
+ZUORDNUNG_FENSTER_TAGE = 3
+
+
+@router.get(
+    "/sessions/{plan_session_id}/zuordenbar",
+    response_model=list[SessionLogOut],
+)
+def zuordenbare_trainings(
+    plan_session_id: int,
+    user: CurrentUser,
+    db: DbSession,
+) -> list[SessionLogOut]:
+    """Die Trainings, die für diese Einheit in Frage kommen.
+
+    Alles aus dem Fenster um den Plantag, was noch an keiner Einheit hängt —
+    **ohne** Rücksicht auf die Sportart. Die Zuordnung über die Workout-Kennung
+    fragt auch nicht danach, und die Uhr zeichnet eine Einheit gern einmal unter
+    der falschen Sportart auf. Wer das hier filterte, versteckte genau den Fall,
+    für den die Auswahl gebaut ist.
+    """
+    session = _eigene_einheit(db, plan_session_id, user.id)
+    fenster = timedelta(days=ZUORDNUNG_FENSTER_TAGE)
+
+    logs = (
+        db.query(SessionLog)
+        .filter(
+            SessionLog.user_id == user.id,
+            SessionLog.plan_session_id.is_(None),
+            SessionLog.date >= session.date - fenster,
+            SessionLog.date <= session.date + fenster,
+        )
+        .order_by(SessionLog.date.desc(), SessionLog.id.desc())
+        .all()
+    )
+    return [log_zu_ausgabe(log, user.profile) for log in logs]
+
+
+@router.post(
+    "/sessions/{plan_session_id}/verknuepfung",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def verknuepfung_setzen(
+    plan_session_id: int,
+    data: VerknuepfungIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    """Schreibt einer Planeinheit ein bereits importiertes Training zu.
+
+    Die Gegenprobe zu `verknuepfung_loesen` und aus demselben Grund nötig: Die
+    Zuordnung entsteht allein aus der Workout-Kennung (`garmin/matching.py`),
+    und die fehlt, sobald auf der Uhr ein älterer Kalendereintrag gestartet
+    wurde oder Garmin das Aktivitätsdetail nicht herausrückte. Ohne diesen Weg
+    bliebe eine tatsächlich absolvierte Einheit für immer als nicht umgesetzt
+    stehen.
+
+    Erfunden wird dabei nichts: Es wird ein Training benannt, das der Abgleich
+    schon geholt hat. Garmin bleibt die einzige Quelle — hier wird nur die
+    Behauptung gesetzt, dieses Training habe jene Vorgabe erfüllt.
+
+    `zuordnung_manuell` hält den nächsten Abgleich davon ab, die Entscheidung
+    wieder anzufassen. Es heißt nach wie vor „der Athlet hat entschieden", nur
+    diesmal in die andere Richtung.
+    """
+    session = _eigene_einheit(db, plan_session_id, user.id)
+
+    if session.sport == "rest":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Das ist ein Ruhetag — dazu gibt es nichts zuzuordnen.",
+        )
+
+    log = (
+        db.query(SessionLog)
+        .filter(SessionLog.id == data.log_id, SessionLog.user_id == user.id)
+        .first()
+    )
+    if log is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Training nicht gefunden.")
+
+    if log.plan_session_id == session.id:
+        return  # Schon zugeordnet — kein Grund, das als Fehler zu melden.
+
+    if log.plan_session_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Dieses Training zählt bereits für eine andere Einheit. Löse die "
+            "Zuordnung dort zuerst.",
+        )
+
+    # `uq_log_plan_session` ließe ohnehin nur einen Log je Einheit zu; die
+    # Prüfung steht hier, damit statt eines Datenbankfehlers ein Satz herauskommt.
+    if (
+        db.query(SessionLog.id)
+        .filter(SessionLog.plan_session_id == session.id)
+        .first()
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Zu dieser Einheit ist bereits ein Training erfasst.",
+        )
+
+    log.plan_session_id = session.id
     log.zuordnung_manuell = True
     db.commit()
 

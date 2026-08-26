@@ -322,6 +322,18 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Die Gegenrichtung: Trainings aus den Nachbartagen, die an keiner Einheit
+  // hängen — und der Weg, eines davon dieser Einheit zuzuschreiben. Nötig,
+  // weil die Zuordnung sonst allein an der Workout-Kennung hängt und die
+  // fehlt, sobald auf der Uhr ein älterer Kalendereintrag gestartet wurde.
+  zuordenbareLogs: (planSessionId: number) =>
+    request<SessionLog[]>(`/plans/sessions/${planSessionId}/zuordenbar`),
+  verknuepfungSetzen: (planSessionId: number, logId: number) =>
+    request<void>(`/plans/sessions/${planSessionId}/verknuepfung`, {
+      method: 'POST',
+      body: { log_id: logId },
+    }),
+
   // Ernährung — dieselbe Job-Maschinerie wie beim Block (`kiJob`,
   // `kiAbbrechen` gelten mit), eigene Tabellen dahinter.
   kiErnaehrung: (startDate?: string, days?: number) =>

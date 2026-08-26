@@ -12,15 +12,18 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Planeinheit: Sie lässt sich im Einheiten-Dialog lösen
   (`DELETE /api/plans/sessions/{id}/verknuepfung`), und das ändert nichts an
   der Einheit, sondern nur an der Behauptung, sie habe eine Vorgabe erfüllt.
-- **Ohne gestartetes Workout gibt es keine Umsetzungsquote.** Zugeordnet wird
-  ausschließlich über die Workout-Kennung der Uhr (`garmin/matching.py`); eine
-  frei aufgezeichnete Runde zählt nie als geplante Einheit, auch wenn Tag und
-  Sportart stimmen. Wer die Übertragung auf die Uhr abschaltet
-  (`GarminAccount.auto_push_enabled`), bekommt dauerhaft `rate_pct: 0` —
-  bewusst so, denn die Gegenrichtung färbte jede Feierabendrunde zur
-  Schlüsseleinheit. Die Gegenprobe fehlt ebenfalls: Wer korrekt trainiert, das
-  Workout auf der Uhr aber nicht startet, kann die Einheit von Hand **nicht**
-  als absolviert markieren.
+- **Ohne gestartetes Workout entsteht die Zuordnung nicht von selbst.**
+  Zugeordnet wird ausschließlich über die Workout-Kennung der Uhr
+  (`garmin/matching.py`); eine frei aufgezeichnete Runde zählt nie von allein
+  als geplante Einheit, auch wenn Tag und Sportart stimmen. Wer die Übertragung
+  auf die Uhr abschaltet (`GarminAccount.auto_push_enabled`), bekommt deshalb
+  ohne Zutun dauerhaft `rate_pct: 0` — bewusst so, denn die Gegenrichtung
+  färbte jede Feierabendrunde zur Schlüsseleinheit. Nachholen lässt es sich
+  seither im Einheiten-Dialog: „Von Hand zuordnen" bietet die nicht
+  zugeordneten Trainings aus drei Tagen um den Plantag an
+  (`POST /api/plans/sessions/{id}/verknuepfung`). Das bleibt **Handarbeit je
+  Einheit** — es gibt keine Sammelzuordnung, keinen Vorschlag und keine
+  Prüfung, ob das gewählte Training zur Vorgabe passt.
 - **Zugeordnet wird nur innerhalb von 42 Tagen.** Die Workout-Kennung steht im
   Aktivitätsdetail, und das wird nur für diese Spanne geholt
   (`sync.BEWERTUNGSFENSTER_TAGE`). Bei einem Erstimport über ein Jahr bleibt

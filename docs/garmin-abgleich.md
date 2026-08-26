@@ -389,6 +389,38 @@ sie wieder anzuknüpfen, denn an der Aktivität bleibt sie stehen. Das Training
 selbst bleibt vollständig in Wochenlast, sRPE, ACWR und Export — gelöst wird
 nicht die Einheit, sondern die Behauptung über sie.
 
+**„Belegt" heißt nicht „das gehört dorthin".** Weil die fünfzehn Slots reihum
+gehen, tragen mehrere Einheiten dieselbe Kennung. Die Suche nahm deshalb erst
+die jüngste passende und gab auf, sobald an *dieser* schon ein Training hing —
+die freie Einheit daneben blieb für immer unverknüpft. Sie geht die Reihe jetzt
+weiter abwärts, bis eine freie kommt. Abgeschwächt ist dadurch nichts: Zwei
+Trainings an derselben Einheit ließe `uq_log_plan_session` ohnehin nicht zu, und
+die Reihenfolge „jüngste zuerst" bleibt die Regel.
+
+**Und der Zeitstempel rückt nur mit einer gesendeten Fassung nach.**
+`_merke_uebertragung` setzte ihn bei jedem Lauf auf jetzt, auch im Zweig
+`"unveraendert"` — obwohl sein eigener Docstring beschrieb, seit wann *dieser*
+Inhalt auf der Uhr liegt. Da `planbare_einheiten` ohne `ab` bei `plan.beginn`
+anfängt, also vergangene Tage einschließt, schob eine Übertragung am Tag **nach**
+dem Training den Zeitstempel über den Trainingstag hinaus. `garmin_pushed_at <=
+Trainingstag` war damit dauerhaft verletzt, und eine tatsächlich absolvierte
+Einheit stand für immer als nicht umgesetzt da. Ein Lauf ohne zu Sendendes lässt
+ihn deshalb stehen; die Kennung wird trotzdem weiter gesichert, denn sie muss
+den Termin überleben.
+
+**Die Gegenprobe gibt es in beide Richtungen.** Wo gar keine Kennung ankommt —
+auf der Uhr wurde ein älterer Kalendereintrag gestartet, oder Garmin rückte das
+Aktivitätsdetail nicht heraus —, schreibt der Athlet der Einheit ein Training
+von Hand zu (`GET /api/plans/sessions/{id}/zuordenbar` für die Auswahl,
+`POST …/verknuepfung` für die Entscheidung). Angeboten wird, was in drei Tagen um
+den Plantag herum an keiner Einheit hängt, **ohne** Filter auf die Sportart: Die
+Kennung fragt auch nicht danach, und die Uhr zeichnet eine Einheit gern einmal
+unter der falschen auf — ein Filter versteckte genau den Fall, für den die
+Auswahl gebaut ist. Erfunden wird dabei nichts, es wird ein bereits importiertes
+Training benannt; Garmin bleibt die einzige Quelle. `zuordnung_manuell` heißt
+danach dasselbe wie beim Lösen, nur in die andere Richtung: Der Athlet hat
+entschieden, der Abgleich fasst es nicht wieder an.
+
 **Die Kennung braucht einen Träger, der den Termin überlebt.**
 `GarminWorkoutLink` beschreibt, was *jetzt* in Garmin steht, und stirbt, sobald
 sein Tag vorbei ist (`uebertragung.raeume_vergangene_auf`) — genau bevor das

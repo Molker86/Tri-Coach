@@ -93,7 +93,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 496 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 501 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -164,7 +164,7 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   *Bei `ernaehrung_import.py`, `routers/ernaehrung.py`.*
 - [docs/garmin-abgleich.md](docs/garmin-abgleich.md) — Token statt Passwort,
   Bereichsabfragen, Nachlaufzeit, Abgleich im eigenen Thread, Ausführungsdaten,
-  Bewertung, Zeitzonen, Profilübernahme.
+  Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme.
   *Bei `garmin/sync.py`, `mapping.py`, `client.py`, `runner.py`, `matching.py`,
   `profile_sync.py`, `routers/logs.py`.*
 - [docs/garmin-workouts.md](docs/garmin-workouts.md) — Bauplan statt Prosa,
