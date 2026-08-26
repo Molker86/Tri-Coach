@@ -52,7 +52,8 @@ def uebernimm_vergangenheit(
     denen jeder genau einen Tag trug.
 
     Ihn zu löschen war nie erlaubt — an `PlanSession.id` hängen `_geplant_war`,
-    `_aufbau_je_workout` und die Umsetzungsquote; das ist der Datenverlust vom
+    die Zuordnung der nächsten Aktivität (`PlanSession.garmin_workout_id`) und
+    die Umsetzungsquote; das ist der Datenverlust vom
     16.08.2026. **Umgehängt statt gelöscht** bleibt die Zeile bestehen, mit ihrer
     Kennung, ihrem Log und ihrer Garmin-Zuordnung (`GarminWorkoutLink` zeigt auf
     `plan_session_id`, nicht auf den Plan). Nur ihr Plan ist ein anderer. Danach
@@ -133,8 +134,8 @@ def verfallene_erbschaft_loeschen(db: Session, aktiv: Plan, *, heute: date) -> i
     der nie zu löschen. Ohne Grenze wüchse er damit unbegrenzt: Wer ein Jahr lang
     täglich neu plant, schleppt 365 vergangene Tage mit.
 
-    **Weiter als der Export reicht, liest sie aber niemand.** `_geplant_war` und
-    `_aufbau_je_workout` laufen ausschließlich über `recent`, also über
+    **Weiter als der Export reicht, liest sie aber niemand.** `_geplant_war`
+    läuft ausschließlich über `recent`, also über
     `HISTORY_WEEKS`; `compliance()` zählt ab `beginn`; `anpassbare_einheit`
     lässt nur Tage ab heute zu; `planbare_einheiten()` filtert auf `beginn`. Was
     älter ist, hängt allein noch in der Planansicht — und dort ist die
@@ -215,9 +216,9 @@ def raeume_abgeloeste_plaene(
     **Die Lehre daraus lautet nicht „warte einen Tag", sondern „zerstöre keine
     `PlanSession`, an der noch ein Training landen kann".** Das Warten war das
     Mittel, solange es kein anderes gab; seit die Zeile umzieht statt zu sterben,
-    behält sie ihre Kennung, und `finde_offene_planeinheit` findet sie am Abend
-    genauso wie vorher. Der Schutz ist damit nicht aufgegeben, sondern durch
-    einen stärkeren ersetzt.
+    behält sie ihre Kennung samt Workout-Vermerk, und `finde_planeinheit` findet
+    sie am Abend genauso wie vorher. Der Schutz ist damit nicht aufgegeben,
+    sondern durch einen stärkeren ersetzt.
 
     Gefragt wird deshalb nicht mehr nach `start_date` — der beschreibt nach dem
     Umzug eine Vergangenheit, die der Block gar nicht mehr hält —, sondern nach

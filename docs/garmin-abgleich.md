@@ -239,7 +239,7 @@ Prompt sagt für diesen Fall ausdrücklich, dass die Vorgabe aus Pace und
 `hf_schnitt` vergleichbarer Einheiten der Historie abzuleiten ist.
 
 **Was geplant war, steht an der absolvierten Einheit** (`ai_export._geplant_war`,
-Punkt 12 des Prompts). Die Verknüpfung legt der Abgleich über Tag und Sportart
+Punkt 12 des Prompts). Die Verknüpfung legt der Abgleich über die Workout-Kennung
 an (`garmin/matching.py`), der Aufbau lag also vor — er wurde nur nie
 exportiert. Die KI sah von einem Intervalltraining „29 min, 4,4 km, HF 150" und
 konnte es nicht fortschreiben: Aus 5x1000 m wird so nie 6x1000 m. Für einen
@@ -361,24 +361,45 @@ alle Übungen laufen mit Körpergewicht —, und damit ist die Einheit (Gramm od
 Kilogramm) nicht belegt. Dieselbe Regel wie bei den Kalenderdauern: Eine um
 Faktor 1000 falsche Zahl ist schlechter als eine fehlende.
 
-**Der geplante Aufbau findet auch dann zurück, wenn der Tag nicht stimmt**
-(`ai_export._aufbau_je_workout`). `plan_session_id` entsteht über Tag **und**
-Sportart (`garmin/matching.py`), und diese Strenge bleibt: An ihr hängt die
-Umsetzungsquote, und eine unscharfe Zuordnung würde sie schönfärben. Sie
-verfehlt aber den Alltag — ein Workout liegt auf der Uhr und wird gestartet,
-wenn es passt. Am 17.08.2026 stand die „Grundlagenfahrt Z2" im Plan und wurde
-einen Tag später gefahren; die Zuordnung fiel aus, obwohl der Block danebenlag.
-Das Aktivitätsdetail trägt deshalb `metadataDTO.associatedWorkoutId` bei (am
-echten Konto an allen drei Einheiten belegt, die aus einem Tri-Coach-Workout
-kamen, `None` an jeder frei gestarteten), und über `GarminWorkoutLink` führt das
-**ohne jeden Bezug auf den Tag** zur Planeinheit. Zwei Grenzen halten das davon
-ab, Falsches zu behaupten: Die Vorlage muss **schon auf der Uhr gelegen haben,
-als trainiert wurde** (`pushed_at <= date`) — die fünfzehn Pool-Slots werden
-wiederverwendet, und dieselbe Kennung trägt nach ein paar Wochen einen anderen
-Inhalt. Und der **Plantag kommt mit**, wo er abweicht (`geplant_fuer`): Dass der
-Athlet die Donnerstagseinheit am Montag gemacht hat, ist eine eigene Aussage und
-keine Ungenauigkeit — Punkt 12 sagt ausdrücklich, dass das keine Nichtumsetzung
-ist.
+**Zugeordnet wird über die Workout-Kennung, nicht über den Tag**
+(`garmin/matching.py`). Die Regel hieß einmal „gleicher Tag, gleiche Sportart,
+noch nicht erfasst" und war als das Strenge gedacht — sie war das Gegenteil: Am
+25.08.2026 stand eine Radeinheit im Plan, gefahren wurde eine freie Runde ohne
+die Vorgabe, und die App zeigte die Einheit als absolviert. Tag und Sportart
+stimmen bei jeder Feierabendrunde; was sie nicht sagen, ist, ob die Vorgabe
+überhaupt abgearbeitet wurde. Das sagt `metadataDTO.associatedWorkoutId` aus dem
+Aktivitätsdetail (am echten Konto an allen drei Einheiten belegt, die aus einem
+Tri-Coach-Workout kamen, `None` an jeder frei gestarteten). Maßgeblich ist
+deshalb allein sie — und **der Tag fällt damit ganz weg**: Ein Workout liegt auf
+der Uhr und wird gestartet, wenn es passt. Am 17.08.2026 stand die
+„Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren; das ist keine
+Nichtumsetzung, und Punkt 12 sagt es der KI ausdrücklich. Der **Plantag kommt
+mit**, wo er abweicht (`geplant_fuer` in `ai_export._geplant_war`).
+
+Drei Dinge halten das davon ab, Falsches zu behaupten. Die Vorlage muss **schon
+auf der Uhr gelegen haben, als trainiert wurde** — die fünfzehn Pool-Slots
+werden wiederverwendet, und dieselbe Kennung trägt nach ein paar Wochen einen
+anderen Inhalt; liegen mehrere davor, gewinnt die jüngste. Eine bereits erfasste
+Planeinheit bleibt erfasst (`uq_log_plan_session`). Und wo die Kennung trotzdem
+danebengreift — die Vorlage lief nur zum Aufzeichnen, und daraus wurde etwas
+anderes —, löst der Athlet die Zuordnung im Einheiten-Dialog selbst
+(`DELETE /api/plans/sessions/{id}/verknuepfung`). Sein Wort steht danach über
+der Kennung: `SessionLog.zuordnung_manuell` hält den nächsten Abgleich davon ab,
+sie wieder anzuknüpfen, denn an der Aktivität bleibt sie stehen. Das Training
+selbst bleibt vollständig in Wochenlast, sRPE, ACWR und Export — gelöst wird
+nicht die Einheit, sondern die Behauptung über sie.
+
+**Die Kennung braucht einen Träger, der den Termin überlebt.**
+`GarminWorkoutLink` beschreibt, was *jetzt* in Garmin steht, und stirbt, sobald
+sein Tag vorbei ist (`uebertragung.raeume_vergangene_auf`) — genau bevor das
+Training des Tages hier ankommt. Schlimmer: Eine Übertragung räumt ebenfalls
+auf, und wer morgens neu plant, löst eine aus. Beides zusammen ist derselbe
+Datenverlust wie am 16.08.2026, nur an anderer Stelle. Deshalb steht der Bezug
+ein zweites Mal an der **Planeinheit** selbst (`PlanSession.garmin_workout_id`
+und `garmin_pushed_at`, geschrieben in `uebertragung._merke_uebertragung`): Dort
+lebt er, solange die Einheit lebt, und stirbt mit ihr. Der Preis ist eine
+scheinbar doppelte Angabe — die Alternative wäre, den Link künstlich am Leben zu
+halten, und der belegt einen von fünfzehn Pool-Plätzen.
 
 **Der Prompt sagt, bis wann die Daten reichen** (`_datenstand`, Punkt 2). Der
 Block wird täglich nach dem Abgleich gebaut. Läuft die Reihenfolge einmal

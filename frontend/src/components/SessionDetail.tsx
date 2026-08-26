@@ -135,16 +135,18 @@ export function SessionDetail({
       )}
 
       {/* Kein Weg zum Erfassen mehr: Die Einheit wird als absolviert markiert,
-          sobald der Garmin-Abgleich eine passende Aktivität findet
-          (`garmin/matching.py` über Tag und Sportart). An einem Ruhetag gibt es
-          nichts zu erfassen — der Satz wäre dort eine Zusage ins Leere. */}
+          sobald der Garmin-Abgleich eine Aktivität findet, die aus dem
+          übertragenen Workout gestartet wurde (`garmin/matching.py`). An einem
+          Ruhetag gibt es nichts zu erfassen — der Satz wäre dort eine Zusage
+          ins Leere. */}
       {session.sport !== 'rest' && (
         <div className="row row-end mt-2">
           {session.logged ? (
-            <span className="badge badge-success">Training bereits erfasst</span>
+            <Verknuepfung session={session} onGeloest={onUebernommen} />
           ) : (
             <span className="small muted">
-              Wird als absolviert markiert, sobald die Einheit aus Garmin kommt.
+              Wird als absolviert markiert, sobald die Einheit aus dem Workout auf
+              der Uhr kommt.
             </span>
           )}
         </div>
@@ -160,6 +162,56 @@ export function SessionDetail({
         />
       )}
     </Modal>
+  )
+}
+
+/** Das erfasste Training — und der Weg, es dieser Einheit wieder abzusprechen.
+ *
+ * Die einzige Korrektur an einer importierten Einheit, die es gibt. Nötig, weil
+ * die Uhr die Workout-Kennung auch dann setzt, wenn die Vorlage nur zum
+ * Aufzeichnen lief und etwas ganz anderes daraus wurde.
+ */
+function Verknuepfung({
+  session,
+  onGeloest,
+}: {
+  session: PlanSession
+  onGeloest: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [fehler, setFehler] = useState<string | null>(null)
+
+  async function loese() {
+    if (
+      !confirm(
+        'Dieses Training zählt nicht als „' +
+          session.title +
+          '“?\n\nEs bleibt vollständig im Verlauf und in den Kennzahlen — nur die ' +
+          'Einheit gilt danach wieder als nicht absolviert.',
+      )
+    )
+      return
+
+    setFehler(null)
+    setBusy(true)
+    try {
+      await api.verknuepfungLoesen(session.id)
+      onGeloest()
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : 'Lösen fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="row row-end">
+      {fehler && <Alert kind="error">{fehler}</Alert>}
+      <span className="badge badge-success">Training bereits erfasst</span>
+      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={loese}>
+        {busy ? 'Wird gelöst …' : 'Zählt nicht als diese Einheit'}
+      </button>
+    </div>
   )
 }
 

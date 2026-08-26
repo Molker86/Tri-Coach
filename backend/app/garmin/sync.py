@@ -45,7 +45,7 @@ from .mapping import (
     uebernimm_bewertung,
     uebungen_aus_saetzen,
 )
-from .matching import finde_offene_planeinheit
+from .matching import finde_planeinheit
 from .workouts import UEBUNGSSPORTARTEN
 
 logger = logging.getLogger(__name__)
@@ -338,15 +338,15 @@ def _speichere_aktivitaet(
 
     if vorhanden is None:
         log = SessionLog(user_id=user_id, **felder)
-        planeinheit = finde_offene_planeinheit(db, user_id, log.date, log.sport)
-        if planeinheit is not None:
-            log.plan_session_id = planeinheit.id
+        log.plan_session_id = finde_planeinheit(
+            db, user_id, log.date, log.garmin_workout_id
+        )
         db.add(log)
         try:
             db.flush()
         except IntegrityError:
-            # Zwei Aktivitäten desselben Tages und derselben Sportart treffen
-            # auf dieselbe offene Planeinheit — die trägt aber nur einen Log
+            # Zwei Aktivitäten aus derselben Workout-Vorlage treffen auf
+            # dieselbe offene Planeinheit — die trägt aber nur einen Log
             # (`uq_log_plan_session`). Die Verknüpfung ist verzichtbar, der
             # Trainingseintrag nicht, also ohne sie erneut anlegen. Der Aufrufer
             # schreibt je Training einzeln fest, sodass hier nur dieses eine
@@ -381,12 +381,15 @@ def _speichere_aktivitaet(
             setattr(vorhanden, feld, wert)
             geaendert = True
 
-    if vorhanden.plan_session_id is None:
-        planeinheit = finde_offene_planeinheit(
-            db, user_id, vorhanden.date, vorhanden.sport
+    # `zuordnung_manuell` heißt: Der Athlet hat die Verknüpfung selbst gelöst.
+    # Sein Wort steht über der Kennung — sonst käme sie beim nächsten Abgleich
+    # sofort zurück, denn die Workout-Kennung bleibt an der Aktivität stehen.
+    if vorhanden.plan_session_id is None and not vorhanden.zuordnung_manuell:
+        planeinheit_id = finde_planeinheit(
+            db, user_id, vorhanden.date, vorhanden.garmin_workout_id
         )
-        if planeinheit is not None:
-            vorhanden.plan_session_id = planeinheit.id
+        if planeinheit_id is not None:
+            vorhanden.plan_session_id = planeinheit_id
             geaendert = True
 
     if geaendert:

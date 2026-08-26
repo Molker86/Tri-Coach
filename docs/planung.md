@@ -64,7 +64,8 @@ Vergangenheit umzieht** (`uebernimm_vergangenheit`). Sie war der eigentliche
 Riegel: An einem Block, der auch nur einen Tag lang getragen hat, klebt ein
 `SessionLog` — und wer täglich neu plant, produziert genau das täglich. Gelöscht
 werden durfte er trotzdem nie, denn an `PlanSession.id` hängen `_geplant_war`,
-`_aufbau_je_workout` und die Umsetzungsquote.
+die Zuordnung der nächsten Aktivität (`PlanSession.garmin_workout_id`) und die
+Umsetzungsquote.
 
 Deshalb **zieht die Einheit um, statt zu sterben**: Sie behält ihre Kennung, ihren
 Log und ihre Garmin-Zuordnung (`GarminWorkoutLink` zeigt auf `plan_session_id`,
@@ -81,8 +82,8 @@ Aufbau des Blocks, der sie damals geplant hat.
 **Das Erbe reicht so weit wie der Rückblick und keinen Tag weiter**
 (`verfallene_erbschaft_loeschen`, `HISTORY_WEEKS`). Ohne Grenze schleppte ein
 Block nach einem Jahr täglicher Neuplanung 365 vergangene Tage mit — und jenseits
-des Fensters liest sie **niemand**: `_geplant_war` und `_aufbau_je_workout`
-laufen ausschließlich über `recent`, `compliance()` zählt ab `beginn`,
+des Fensters liest sie **niemand**: `_geplant_war` läuft ausschließlich über
+`recent`, `compliance()` zählt ab `beginn`,
 `anpassbare_einheit` lässt nur Tage ab heute zu, `planbare_einheiten()` filtert
 auf `beginn`. Übrig bliebe allein die Planansicht, und dort ist die Vergangenheit
 eingeklappt. Die Grenze ist deshalb dieselbe Konstante, die auch das Fenster
@@ -133,8 +134,9 @@ bekommen.
 **Die Lehre daraus lautet nicht „warte einen Tag", sondern „zerstöre keine
 `PlanSession`, an der noch ein Training landen kann".** Das Warten war das Mittel,
 solange es kein anderes gab. Seit die Zeile umzieht statt zu sterben, behält sie
-ihre Kennung, und `finde_offene_planeinheit()` findet sie am Abend genauso wie
-vorher — der Schutz ist nicht aufgegeben, sondern durch einen stärkeren ersetzt.
+ihre Kennung samt Workout-Vermerk, und `finde_planeinheit()` findet sie am Abend
+genauso wie vorher — der Schutz ist nicht aufgegeben, sondern durch einen
+stärkeren ersetzt.
 
 Gefragt wird deshalb nicht mehr nach `start_date` (der beschreibt nach dem Umzug
 eine Vergangenheit, die der Block gar nicht mehr hält), sondern danach, was
@@ -143,7 +145,7 @@ Riegel genau dort weiter, wo er soll — löst jemand am Tag nach der Neuplanung
 Übertragung aus, ohne dass ein Abgleich dazwischenlag, hält der abgelöste Block
 noch seinen Tag der Neuplanung, und der verbietet das Löschen
 (`runner._raeume_workouts_auf(…, nach_abgleich=False)`). Erst der Abgleich, der
-die Aktivitäten gerade geholt und über `finde_offene_planeinheit()` verknüpft hat,
+die Aktivitäten gerade geholt und über `finde_planeinheit()` verknüpft hat,
 darf urteilen. **Ohne verbundenes Konto greift die Schonung nicht**: Dann entstehen
 nie Trainings und käme nie ein Garmin-Lauf, der aufräumt — die Blöcke sammelten
 sich für immer.

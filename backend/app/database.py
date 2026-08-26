@@ -76,6 +76,9 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "garmin_uebungen": "JSON",
         "garmin_compliance": "INTEGER",
         "garmin_workout_id": "VARCHAR(32)",
+        # Bestehende Zuordnungen gelten als nicht angefasst — die Marke setzt
+        # erst, wer eine Verknüpfung von Hand löst.
+        "zuordnung_manuell": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
@@ -131,6 +134,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Der Bauplan der KI. Bleibt an bestehenden Einheiten leer — die
         # werden weiter aus ihrem Fließtext zerlegt.
         "steps_json": "JSON",
+        # Als welches Workout die Einheit auf der Uhr lag. Bestehende Einheiten
+        # bleiben leer und bekommen damit keine Zuordnung mehr — ihre Trainings
+        # sind längst importiert und behalten die, die sie schon haben.
+        "garmin_workout_id": "VARCHAR(32)",
+        "garmin_pushed_at": "DATETIME",
     },
     # Dieselbe Anpassung als Lauf: welche Einheit, mit welchem Wunsch.
     "ai_jobs": {

@@ -314,6 +314,50 @@ def _anpassung_antwort(db, user_id: int, ergebnis) -> EinheitAnpassungOut:
     )
 
 
+@router.delete(
+    "/sessions/{plan_session_id}/verknuepfung",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def verknuepfung_loesen(
+    plan_session_id: int,
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    """Nimmt einer Planeinheit das Training, das ihr zugeschrieben wurde.
+
+    Die einzige Korrektur, die es an einer importierten Einheit gibt — und sie
+    ändert nichts an ihr, sondern nur an der Behauptung, sie habe eine Vorgabe
+    erfüllt. Das Training selbst bleibt vollständig in der Historie und zählt
+    weiter in Wochenlast, sRPE, ACWR und Export; allein die Umsetzungsquote
+    lässt es los.
+
+    Nötig, weil die Zuordnung über die Workout-Kennung läuft
+    (`garmin/matching.py`) und die Uhr sie auch dann setzt, wenn der Athlet die
+    Vorlage nur zum Aufzeichnen gestartet und etwas ganz anderes gemacht hat.
+    """
+    session = db.get(PlanSession, plan_session_id)
+    if session is None or session.plan.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Einheit nicht gefunden.")
+
+    log = (
+        db.query(SessionLog)
+        .filter(
+            SessionLog.user_id == user.id,
+            SessionLog.plan_session_id == session.id,
+        )
+        .first()
+    )
+    if log is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Zu dieser Einheit ist kein Training erfasst.",
+        )
+
+    log.plan_session_id = None
+    log.zuordnung_manuell = True
+    db.commit()
+
+
 # --------------------------------------------------------------------------
 # Lesen und Verwalten
 # --------------------------------------------------------------------------

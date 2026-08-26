@@ -315,6 +315,13 @@ export const api = {
       body: { raw, wunsch },
     }),
 
+  // Nimmt der Einheit das Training, das ihr zugeschrieben wurde. Das Training
+  // selbst bleibt in der Historie — nur die Umsetzungsquote lässt es los.
+  verknuepfungLoesen: (planSessionId: number) =>
+    request<void>(`/plans/sessions/${planSessionId}/verknuepfung`, {
+      method: 'DELETE',
+    }),
+
   // Ernährung — dieselbe Job-Maschinerie wie beim Block (`kiJob`,
   // `kiAbbrechen` gelten mit), eigene Tabellen dahinter.
   kiErnaehrung: (startDate?: string, days?: number) =>

@@ -316,95 +316,49 @@ def test_datenstand_eines_konten_ohne_lauf_bleibt_leer():
 
 
 # --------------------------------------------------------------------------
-# Der Aufbau über die Workout-Kennung statt über den Tag
+# Der Aufbau der zugeordneten Einheit
 # --------------------------------------------------------------------------
 
 
-def _log(tag, *, workout_id=None, plan_session=None, kennung=1):
+def _planeinheit(tag, titel="Kraft kompakt"):
     return SimpleNamespace(
-        id=kennung, date=tag, garmin_workout_id=workout_id, plan_session=plan_session
+        date=tag,
+        title=titel,
+        session_type="strength",
+        structure="Hüftbrücke (Glute Bridge) 3x15",
+        duration_min=15,
+        distance_km=None,
     )
 
 
-def _link(workout_id, *, plan_tag, pushed, titel="Kraft kompakt"):
-    from datetime import datetime
-
-    return SimpleNamespace(
-        garmin_workout_id=workout_id,
-        pushed_at=datetime.combine(pushed, datetime.min.time()),
-        plan_session=SimpleNamespace(
-            date=plan_tag,
-            title=titel,
-            session_type="strength",
-            structure="Hüftbrücke (Glute Bridge) 3x15",
-            duration_min=15,
-            distance_km=None,
-        ),
-    )
-
-
-def test_workout_kennung_findet_den_aufbau_auch_an_einem_anderen_tag():
+def test_geplant_war_nennt_den_plantag_wo_er_abweicht():
     """Der Alltag: Ein Workout liegt auf der Uhr und wird gestartet, wenn es passt.
 
-    Die Zuordnung über Tag *und* Sportart verfehlt das — am 17.08.2026 stand
-    die "Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren.
+    Die Zuordnung läuft über die Workout-Kennung und kennt keinen Tagesbezug
+    (`garmin/matching.py`) — dass der Athlet die Einheit vorgezogen hat, ist
+    deshalb eine eigene Aussage und keine Ungenauigkeit.
     """
-    from app.ai_export import _aufbau_je_workout
+    from app.ai_export import _geplant_war
 
     trainiert, geplant = date(2026, 8, 17), date(2026, 8, 20)
-    logs = [_log(trainiert, workout_id="777")]
-    links = [_link("777", plan_tag=geplant, pushed=date(2026, 8, 16))]
-
-    gefunden = _aufbau_je_workout(logs, links)
-    assert gefunden[1]["aufbau"] == "Hüftbrücke (Glute Bridge) 3x15"
-    # Dass er die Einheit vorgezogen hat, ist eine eigene Aussage.
-    assert gefunden[1]["geplant_fuer"] == "2026-08-20"
+    gefunden = _geplant_war(
+        SimpleNamespace(date=trainiert, plan_session=_planeinheit(geplant))
+    )
+    assert gefunden["aufbau"] == "Hüftbrücke (Glute Bridge) 3x15"
+    assert gefunden["geplant_fuer"] == "2026-08-20"
 
 
 def test_am_plantag_absolviert_traegt_kein_geplant_fuer():
-    from app.ai_export import _aufbau_je_workout
+    from app.ai_export import _geplant_war
 
     tag = date(2026, 8, 17)
-    gefunden = _aufbau_je_workout(
-        [_log(tag, workout_id="777")],
-        [_link("777", plan_tag=tag, pushed=date(2026, 8, 16))],
-    )
-    assert "geplant_fuer" not in gefunden[1]
+    gefunden = _geplant_war(SimpleNamespace(date=tag, plan_session=_planeinheit(tag)))
+    assert "geplant_fuer" not in gefunden
 
 
-def test_ein_neu_belegter_pool_slot_zieht_keinen_falschen_aufbau_an():
-    """Tri-Coach führt fünfzehn Vorlagen und belegt sie immer wieder neu.
+def test_ohne_zuordnung_bleibt_geplant_war_leer():
+    """Ein spontanes Training hatte keine Vorgabe — eine leere Hülle sähe aus
+    wie eine verfehlte."""
+    from app.ai_export import _geplant_war
 
-    Dieselbe Kennung trägt nach ein paar Wochen einen anderen Inhalt. Die
-    Vorlage muss schon auf der Uhr gelegen haben, als trainiert wurde.
-    """
-    from app.ai_export import _aufbau_je_workout
-
-    trainiert = date(2026, 8, 17)
-    links = [_link("777", plan_tag=date(2026, 8, 25), pushed=date(2026, 8, 24))]
-    assert _aufbau_je_workout([_log(trainiert, workout_id="777")], links) == {}
-
-
-def test_eine_verknuepfte_einheit_braucht_den_umweg_nicht():
-    """Wo `plan_session` steht, gilt sie — sie ist die strengere Zuordnung."""
-    from app.ai_export import _aufbau_je_workout
-
-    tag = date(2026, 8, 17)
-    logs = [_log(tag, workout_id="777", plan_session=object())]
-    links = [_link("777", plan_tag=tag, pushed=date(2026, 8, 16))]
-    assert _aufbau_je_workout(logs, links) == {}
-
-
-def test_bei_zwei_zuordnungen_auf_derselben_kennung_gewinnt_die_juengste_davor():
-    """Ein Pool-Slot kann alte und neue Zuordnung tragen — die Reihenfolge der
-    Abfrage darf nicht entscheiden, welcher Aufbau im Prompt landet."""
-    from app.ai_export import _aufbau_je_workout
-
-    trainiert = date(2026, 8, 17)
-    alt = _link("777", plan_tag=date(2026, 8, 1), pushed=date(2026, 8, 1), titel="Alt")
-    neu = _link("777", plan_tag=date(2026, 8, 17), pushed=date(2026, 8, 16), titel="Neu")
-    spaeter = _link("777", plan_tag=date(2026, 9, 1), pushed=date(2026, 8, 30), titel="Später")
-
-    for reihenfolge in ([alt, neu, spaeter], [spaeter, neu, alt]):
-        gefunden = _aufbau_je_workout([_log(trainiert, workout_id="777")], reihenfolge)
-        assert gefunden[1]["titel"] == "Neu"
+    assert _geplant_war(SimpleNamespace(date=date(2026, 8, 17), plan_session=None)) is None

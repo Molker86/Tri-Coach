@@ -8,7 +8,24 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   allein aus Fragebogen und Profil. Ebenso fehlt jede Möglichkeit, eine
   importierte Einheit zu korrigieren — was Garmin falsch liefert, wird in
   Connect berichtigt und beim nächsten Abgleich nachgezogen, oder der Eintrag
-  wird im Verlauf gelöscht.
+  wird im Verlauf gelöscht. Die **einzige** Ausnahme ist die Zuordnung zur
+  Planeinheit: Sie lässt sich im Einheiten-Dialog lösen
+  (`DELETE /api/plans/sessions/{id}/verknuepfung`), und das ändert nichts an
+  der Einheit, sondern nur an der Behauptung, sie habe eine Vorgabe erfüllt.
+- **Ohne gestartetes Workout gibt es keine Umsetzungsquote.** Zugeordnet wird
+  ausschließlich über die Workout-Kennung der Uhr (`garmin/matching.py`); eine
+  frei aufgezeichnete Runde zählt nie als geplante Einheit, auch wenn Tag und
+  Sportart stimmen. Wer die Übertragung auf die Uhr abschaltet
+  (`GarminAccount.auto_push_enabled`), bekommt dauerhaft `rate_pct: 0` —
+  bewusst so, denn die Gegenrichtung färbte jede Feierabendrunde zur
+  Schlüsseleinheit. Die Gegenprobe fehlt ebenfalls: Wer korrekt trainiert, das
+  Workout auf der Uhr aber nicht startet, kann die Einheit von Hand **nicht**
+  als absolviert markieren.
+- **Zugeordnet wird nur innerhalb von 42 Tagen.** Die Workout-Kennung steht im
+  Aktivitätsdetail, und das wird nur für diese Spanne geholt
+  (`sync.BEWERTUNGSFENSTER_TAGE`). Bei einem Erstimport über ein Jahr bleibt
+  alles ältere ohne Vorgabe — für die Quote folgenlos, die ohnehin nur den
+  laufenden Block betrachtet.
 - Die **subjektiven Werte** (Muskelkater, Schlafqualität, Morgenpuls,
   Morgen-HRV, Bedingungen, Schlaf je Einheit) haben damit keine Quelle mehr und
   sind ersatzlos aus Modell, Schema, Export und Datenbank entfernt. Wer eines
@@ -203,14 +220,16 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Verlässlich sind Übungsauswahl und Dauer.
 - Ein **Zusatzgewicht** wird nicht gelesen: `weight` stand an jedem geprüften
   Satz auf `null`, damit ist die Einheit (Gramm oder Kilogramm) nicht belegt.
-- **Der Weg über `associatedWorkoutId` funktioniert nur, solange die Zuordnung
-  lebt.** `GarminWorkoutLink` stirbt mit dem Plan; ein gelöschter Block nimmt
-  auch den nachträglichen Weg zum Aufbau mit. Für die Einheiten vor dieser
-  Änderung ist beides verloren — die betroffenen Pläne sind weg.
+- **Der Weg über `associatedWorkoutId` funktioniert nur, solange die Planeinheit
+  lebt.** Ihren Workout-Vermerk trägt sie selbst
+  (`PlanSession.garmin_workout_id`), und ein gelöschter Block nimmt ihn mit —
+  danach ist die Zuordnung für seine Tage nicht mehr herzustellen. Für Einheiten
+  aus der Zeit davor bleibt das Feld leer; sie behalten die Zuordnung, die sie
+  unter der alten Regel bekommen haben.
 - **`geplant_fuer` sagt nur, dass der Tag abwich, nicht warum.** Ob der Athlet
-  die Einheit vorgezogen oder eine andere ausgelassen hat, steht nirgends; die
-  Umsetzungsquote zählt weiterhin streng über Tag und Sportart und sieht eine
-  verschobene Einheit als versäumt.
+  die Einheit vorgezogen oder eine andere ausgelassen hat, steht nirgends. Die
+  Umsetzungsquote wertet die verschobene Einheit aber richtig als umgesetzt —
+  die Zuordnung kennt keinen Tagesbezug mehr.
 - Was Garmin **später als fünf Tage** nachträgt (nachgeladene Aktivität aus
   einem zweiten Gerät, korrigierter Schlaf), holt kein Abgleich mehr von
   allein — dafür gibt es den Rückblick. Ebenso kann ein Lauf, der mitten im

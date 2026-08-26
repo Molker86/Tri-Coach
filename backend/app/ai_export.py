@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session, selectinload
 from .models import (
     AthleteProfile,
     GarminAccount,
-    GarminWorkoutLink,
     KiSettings,
     Plan,
     PlanSession,
@@ -228,37 +227,26 @@ def _ist_einheit(lg: SessionLog) -> bool:
     return bool(lg.duration_min) or bool(lg.distance_km)
 
 
-def _geplant_war(
-    lg: SessionLog, ueber_workout: dict[str, Any] | None = None
-) -> dict[str, Any] | None:
+def _geplant_war(lg: SessionLog) -> dict[str, Any] | None:
     """Der Aufbau, der zu dieser absolvierten Einheit geplant war.
 
     Ohne ihn sieht die KI von einem Intervalltraining nur "29 min, 4,4 km,
     HF 150" und kann es nicht fortschreiben — aus 5x1000 m wird nie 6x1000 m,
     weil die 5x1000 m nirgends stehen.
 
-    **Zwei Wege dorthin, und der zweite ist der verlässlichere.** Der erste ist
-    `plan_session`, die der Abgleich über Tag *und* Sportart anlegt
-    (`garmin/matching.py`). Die Regel ist bewusst streng, weil an ihr die
-    Umsetzungsquote hängt — sie verfehlt aber jede Einheit, die an einem
-    anderen Tag stattfand als geplant. Genau das ist der Alltag: Ein Workout
-    liegt auf der Uhr und wird gestartet, wenn es passt. Am 17.08.2026 stand
-    die "Grundlagenfahrt Z2" im Plan und wurde einen Tag später gefahren; die
-    Zuordnung fiel aus, obwohl der Block danebenlag.
+    Die Zuordnung legt der Abgleich über die Workout-Kennung an
+    (`garmin/matching.py`) — ohne jeden Bezug auf den Tag. **Der Plantag kommt
+    deshalb mit, wo er abweicht** (`geplant_fuer`): Dass der Athlet die
+    Donnerstagseinheit am Montag gemacht hat, ist eine eigene Aussage und keine
+    Ungenauigkeit; Punkt 12 sagt ausdrücklich, dass das keine Nichtumsetzung
+    ist.
 
-    Der zweite Weg geht über `metadataDTO.associatedWorkoutId` aus dem
-    Aktivitätsdetail: Die Uhr merkt sich, aus welchem Workout die Aktivität
-    entstanden ist, und `GarminWorkoutLink` kennt die Planeinheit dazu — **ohne
-    jeden Bezug auf den Tag**. `ueber_workout` ist das fertig aufgelöste
-    Ergebnis (siehe `_aufbau_je_workout`); die Auflösung selbst braucht die
-    Datenbank und gehört deshalb nicht hierher.
-
-    `None`, wo beide Wege nichts finden: Ein spontanes Training hatte keine
-    Vorgabe, und eine leere Hülle sähe aus wie eine verfehlte.
+    `None`, wo nichts hängt: Ein spontanes Training hatte keine Vorgabe, und
+    eine leere Hülle sähe aus wie eine verfehlte.
     """
     ps = lg.plan_session
     if ps is None:
-        return dict(ueber_workout) if ueber_workout else None
+        return None
     geplant = {
         "titel": ps.title,
         "typ": ps.session_type,
@@ -266,61 +254,10 @@ def _geplant_war(
         "dauer_min": ps.duration_min,
         "distanz_km": ps.distance_km,
     }
-    return {k: v for k, v in geplant.items() if v is not None}
-
-
-def _aufbau_je_workout(
-    logs: list[SessionLog], links: list[Any]
-) -> dict[int, dict[str, Any]]:
-    """Löst `garmin_workout_id` über die Zuordnung zur Planeinheit auf.
-
-    Ergebnis je `SessionLog.id`, damit `_history_block` nur noch nachschlägt.
-
-    Zwei Dinge halten das davon ab, Falsches zu behaupten. **Der Pool wird
-    wiederverwendet**: Tri-Coach führt genau fünfzehn dauerhafte Vorlagen, und
-    dieselbe Kennung trägt nach ein paar Wochen einen ganz anderen Inhalt. Der
-    Treffer zählt deshalb nur, wenn die Vorlage **schon auf der Uhr lag, als
-    trainiert wurde** — ein später neu belegter Slot hat ein jüngeres
-    `pushed_at` und fällt heraus. Und **der Plantag kommt mit**, wo er vom
-    Trainingstag abweicht: Dass der Athlet die Donnerstagseinheit am Montag
-    gemacht hat, ist eine eigene Aussage und keine Ungenauigkeit.
-    """
-    je_kennung: dict[str, list[Any]] = {}
-    for link in links:
-        je_kennung.setdefault(link.garmin_workout_id, []).append(link)
-    ergebnis: dict[int, dict[str, Any]] = {}
-
-    for lg in logs:
-        if lg.plan_session is not None or not lg.garmin_workout_id:
-            continue
-        # Die Vorlage muss vor dem Training hochgeladen worden sein. Sollten
-        # trotzdem mehrere Zuordnungen auf derselben Kennung liegen, gewinnt
-        # die **jüngste davor** — sie beschreibt, was an dem Tag auf der Uhr
-        # stand. Ohne die Sortierung entschiede die Reihenfolge der Abfrage.
-        kandidaten = [
-            link
-            for link in je_kennung.get(lg.garmin_workout_id, [])
-            if link.plan_session is not None
-            and (link.pushed_at is None or link.pushed_at.date() <= lg.date)
-        ]
-        if not kandidaten:
-            continue
-        link = max(kandidaten, key=lambda l: l.pushed_at or datetime.min)
-
-        ps = link.plan_session
-        geplant = {
-            "titel": ps.title,
-            "typ": ps.session_type,
-            "aufbau": ps.structure,
-            "dauer_min": ps.duration_min,
-            "distanz_km": ps.distance_km,
-        }
-        geplant = {k: v for k, v in geplant.items() if v is not None}
-        if ps.date != lg.date:
-            geplant["geplant_fuer"] = ps.date.isoformat()
-        ergebnis[lg.id] = geplant
-
-    return ergebnis
+    geplant = {k: v for k, v in geplant.items() if v is not None}
+    if ps.date != lg.date:
+        geplant["geplant_fuer"] = ps.date.isoformat()
+    return geplant
 
 
 def _zonenminuten(sekunden: dict | None) -> dict[str, int] | None:
@@ -368,7 +305,6 @@ def _history_block(
     logs: list[SessionLog],
     profile: AthleteProfile | None,
     plan: Plan | None,
-    workout_links: list[Any] | None = None,
     garmin_konto: Any = None,
 ) -> dict[str, Any]:
     today = date.today()
@@ -383,9 +319,6 @@ def _history_block(
     max_hr = profile.max_hr if profile else None
     resting_hr = profile.resting_hr if profile else None
     sex = profile.sex if profile else None
-
-    # Einmal für alle Einheiten, nicht je Einheit eine Abfrage.
-    ueber_workout = _aufbau_je_workout(recent, workout_links or [])
 
     sessions = []
     for lg in recent:
@@ -459,7 +392,7 @@ def _history_block(
         if lg.rpe is not None:
             eintrag["rpe_quelle"] = lg.rpe_source
 
-        if (geplant := _geplant_war(lg, ueber_workout.get(lg.id))) is not None:
+        if (geplant := _geplant_war(lg)) is not None:
             eintrag["geplant_war"] = geplant
 
         sessions.append(eintrag)
@@ -839,7 +772,6 @@ def build_payload(
     ersetzt_block: bool = True,
     taegliche_neuplanung: bool = False,
     garmin_konto: Any = None,
-    workout_links: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Das Datenpaket zum Athleten — Zustand, Wunsch, Verlauf, Zeitraum.
 
@@ -896,9 +828,7 @@ def build_payload(
         "athlet": _athlete_block(profile),
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request, date.today()),
-        "trainingshistorie": _history_block(
-            logs, profile, plan, workout_links, garmin_konto
-        ),
+        "trainingshistorie": _history_block(logs, profile, plan, garmin_konto),
         "planungszeitraum": zeitraum,
     }
 
@@ -1862,7 +1792,6 @@ class _Kontext:
     plan: Plan | None
     wellness: list[WellnessDay]
     garmin: Any
-    workout_links: list[GarminWorkoutLink]
     # Ob morgen früh von selbst neu geplant wird. Steht hier und nicht in der
     # Signatur des Exports: Beide Auslöser — Knopf wie Zwischenablage — erben
     # ihn damit ohne Zutun, wie die Disziplin auch.
@@ -1917,19 +1846,10 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         .all()
     )
 
-    # Bis wann die Daten reichen, und der Rückbezug vom Workout auf die
-    # Planeinheit. Beides hängt am Garmin-Konto und gehört deshalb hierher —
-    # sonst entschiede die Einzelanpassung auf einer schmaleren Grundlage als
-    # die Planung.
+    # Bis wann die Daten reichen. Hängt am Garmin-Konto und gehört deshalb
+    # hierher — sonst entschiede die Einzelanpassung auf einer schmaleren
+    # Grundlage als die Planung.
     konto = db.query(GarminAccount).filter(GarminAccount.user_id == user.id).first()
-    links = (
-        db.query(GarminWorkoutLink)
-        .options(selectinload(GarminWorkoutLink.plan_session))
-        .filter(GarminWorkoutLink.user_id == user.id)
-        .all()
-        if konto is not None
-        else []
-    )
 
     # Maßgeblich ist der Schalter, nicht der Auslöser dieses Exports: Steht die
     # automatische Planung an, wird auch ein von Hand angestoßener Block morgen
@@ -1942,7 +1862,6 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         plan=plan,
         wellness=wellness,
         garmin=konto,
-        workout_links=links,
         auto_plan=bool(ki is not None and ki.auto_plan_enabled),
     )
 
@@ -1975,7 +1894,6 @@ def erzeuge_export(
         days=days,
         taegliche_neuplanung=kontext.auto_plan,
         garmin_konto=kontext.garmin,
-        workout_links=kontext.workout_links,
     )
     return Export(payload=payload, prompt=build_prompt(payload))
 
@@ -2017,7 +1935,6 @@ def erzeuge_einheit_export(
         # ändert sich. Der Ersatzhinweis behauptete das Gegenteil.
         ersetzt_block=False,
         garmin_konto=kontext.garmin,
-        workout_links=kontext.workout_links,
     )
     payload["einheit_anpassen"] = _anpassung_block(session, plan, wunsch)
 
@@ -2419,7 +2336,6 @@ def erzeuge_ernaehrung_export(
         # wird er nur. Der Ersatzhinweis behauptete das Gegenteil.
         ersetzt_block=False,
         garmin_konto=kontext.garmin,
-        workout_links=kontext.workout_links,
     )
     # Aus dem gemeinsamen Payload wird die Historie hier verschmälert. Gebaut
     # wird sie trotzdem von `build_payload()`: Ein zweiter Weg dorthin liefe mit

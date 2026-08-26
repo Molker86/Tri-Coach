@@ -112,8 +112,15 @@ Kennung, und die Schleife kostet keine Anfrage mehr.
 (`uebertragung.raeume_vergangene_auf`). Die App entfernt den Kalendertermin
 und löst `GarminWorkoutLink`, behält aber die Pool-Vorlage. So wächst die
 Connect-Bibliothek nicht über fünfzehn App-IDs hinaus. Die absolvierte Aktivität
-ist ein eigener Datensatz und bleibt; auch die Umsetzungsquote hängt nicht am
-Link, weil `matching` über Tag und Sportart verknüpft. Die verfügbare
+ist ein eigener Datensatz und bleibt — und die Umsetzungsquote hängt nicht am
+Link, obwohl sie inzwischen über die Workout-Kennung entsteht: Woraus eine
+Einheit geworden ist, steht dauerhaft an der Planeinheit selbst
+(`PlanSession.garmin_workout_id`, `garmin_pushed_at`, geschrieben in
+`_merke_uebertragung`). Das sieht aus wie eine Kopie des Links und ist sein
+Gegenteil — der Link beschreibt den *jetzigen* Zustand in Garmin und stirbt
+genau dann, wenn das Training des Tages noch nicht hier angekommen ist. Ohne
+den zweiten Vermerk fräße eine Neuplanung am Morgen die Zuordnung des Vortags
+(siehe `plan_aufraeumen.uebernimm_vergangenheit`, dieselbe Lehre). Die verfügbare
 Connect-API kennt **keinen Fern-Löschbefehl für bereits auf eine Fenix
 synchronisierte Workouts**. Vor dem ersten Poolbetrieb müssen alte verwaiste
 Tri-Coach-Workouts deshalb einmalig manuell auf der Uhr entfernt werden. Garmin

@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import GarminWorkoutLink, GarminWorkoutPoolSlot, Plan, PlanSession
+from ..zeit import jetzt_utc
 from . import kalender as kalender_modul
 from . import workout_pool
 from . import workouts
@@ -280,6 +281,7 @@ def uebertrage_einheit(
         link = _link(db, session.id)
 
     if link is not None and _ist_aktuell(link, finger, session.date):
+        _merke_uebertragung(db, session, link)
         return "unveraendert"
 
     if link is not None:
@@ -295,6 +297,7 @@ def uebertrage_einheit(
     # verschieben noch zurücknehmen, und ein zweiter Druck auf den Knopf legte
     # einen zweiten daneben. Er wird deshalb an der Einheit vermerkt.
     link.last_error = _terminiere(db, api, link, session.date)
+    _merke_uebertragung(db, session, link)
     db.commit()
     if link.last_error:
         raise GarminFehler(link.last_error)
@@ -398,6 +401,27 @@ def _belege_pool_slot(
     # Abbruch ein Workout in Garmin, das die App nicht mehr kennt.
     db.commit()
     return link
+
+
+def _merke_uebertragung(
+    db: Session, session: PlanSession, link: GarminWorkoutLink
+) -> None:
+    """Hält an der Einheit fest, als welches Workout sie auf der Uhr lag.
+
+    Der Link kann das nicht: Er stirbt, sobald sein Tag vorbei ist
+    (`raeume_vergangene_auf`) oder eine Übertragung dazwischenfährt — und das
+    ist genau der Zeitpunkt, an dem das Training des Tages noch nicht in dieser
+    Datenbank steht. `garmin/matching.py` läse danach nichts mehr und schriebe
+    jede absolvierte Einheit als nicht umgesetzt fort.
+
+    `garmin_pushed_at` rückt mit jeder gesendeten Fassung nach: Es beantwortet
+    die Frage, seit wann *dieser* Inhalt auf der Uhr liegt — nötig, weil die
+    fünfzehn Pool-Vorlagen wiederverwendet werden und dieselbe Kennung nach ein
+    paar Wochen etwas anderes trägt.
+    """
+    session.garmin_workout_id = link.garmin_workout_id
+    session.garmin_pushed_at = jetzt_utc()
+    db.commit()
 
 
 def _terminiere(db: Session, api: Any, link: GarminWorkoutLink, tag: date) -> str | None:
@@ -600,9 +624,10 @@ def raeume_vergangene_auf(
     dort selbst gebaut hat, bleibt unberührt.
 
     Was ebenfalls bleibt: die **absolvierte Aktivität**. Sie ist in Garmin ein
-    eigener Datensatz; entfernt wird nur der Termin, nicht ihre Erfüllung. Auch
-    die Umsetzungsquote leidet nicht — `matching` verknüpft über Tag und
-    Sportart, nie über die Garmin-Kennung.
+    eigener Datensatz; entfernt wird nur der Termin, nicht ihre Erfüllung. Und
+    die Umsetzungsquote leidet auch dann nicht, wenn dieser Lauf einem Abgleich
+    zuvorkommt: Woraus eine Einheit entstanden ist, steht dauerhaft an der
+    Planeinheit (`_merke_uebertragung`) und nicht an dieser Zuordnung.
     """
     heute = heute or date.today()
     alte = db.scalars(

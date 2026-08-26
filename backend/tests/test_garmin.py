@@ -5,7 +5,7 @@ Möglich ist das, weil der gesamte Zugriff durch zwei Funktionen in
 `app.garmin.client` läuft; genau die werden hier ersetzt.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select, text
 
@@ -32,6 +32,39 @@ def _backfill(client, auth, tage: int = 20, **extra):
     )
     assert antwort.status_code == 202, antwort.text
     return antwort.json()
+
+
+def _lege_workout_an(client, auth, *, tag, workout_id, pushed, sport="run"):
+    """Vermerkt an der Planeinheit dieses Tages, als welches Workout sie auf der
+    Uhr lag — wie es `uebertragung._merke_uebertragung` beim Übertragen tut.
+
+    Von Hand statt über den Übertragungslauf: Der läuft im eigenen Faden und
+    überträgt nur ab heute (`automatik.uebertrage_plan`), während der Alltag
+    genau andersherum aussieht — die Vorlage lag vor dem Training auf der Uhr.
+    """
+    from app.models import Plan, PlanSession
+
+    user = client.get("/api/auth/me", headers=auth).json()
+    with SessionLocal() as db:
+        session = db.scalars(
+            select(PlanSession)
+            .join(Plan, Plan.id == PlanSession.plan_id)
+            .where(
+                Plan.user_id == user["id"],
+                PlanSession.date == tag,
+                PlanSession.sport == sport,
+            )
+        ).first()
+        assert session is not None, f"Keine Planeinheit am {tag}"
+        session.garmin_workout_id = str(workout_id)
+        session.garmin_pushed_at = datetime.combine(pushed, datetime.min.time())
+        db.commit()
+
+
+def _aus_workout(fake, aktivitaets_id, workout_id):
+    """Lässt die Aktivität aus einer Workout-Vorlage stammen — wie auf der Uhr."""
+    detail = fake.details.setdefault(str(aktivitaets_id), {})
+    detail["metadataDTO"] = {"associatedWorkoutId": workout_id}
 
 
 # --------------------------------------------------------------------------
@@ -525,6 +558,13 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     )
     assert antwort.status_code == 201, antwort.text
 
+    # Die Vorlage lag vor dem Training auf der Uhr, und die Aktivität ist aus
+    # ihr entstanden — nur so entsteht eine Zuordnung.
+    _lege_workout_an(
+        client, garmin_auth, tag=tag, workout_id=6001, pushed=tag - timedelta(days=1)
+    )
+    _aus_workout(fake, 3001, 6001)
+
     _backfill(client, garmin_auth, tage=5)
 
     logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
@@ -548,6 +588,158 @@ def test_planeinheit_wird_verknuepft(client, garmin_auth, fake, monkeypatch):
     # Und der Wochentag steht dabei, damit die KI Muster wie "samstags lang"
     # erkennt, ohne aus dem Datum rechnen zu müssen.
     assert einheit["wochentag"] == WEEKDAYS[tag.weekday()]
+
+
+def test_eine_freie_aufzeichnung_zaehlt_nicht_als_die_geplante_einheit(
+    client, garmin_auth, fake
+):
+    """Der gemeldete Fehler: Radtraining geplant, nur eine Runde aufgezeichnet.
+
+    Tag und Sportart stimmten überein, und genau darauf baute die alte Regel —
+    die Einheit stand danach als absolviert da. Ohne die Workout-Kennung ist sie
+    das nicht, und die Umsetzungsquote sagt es.
+    """
+    tag = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [baue_aktivitaet(3401, tag, typkey="cycling")]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=tag, tage=1, titel="Radblock", sport="bike")
+    # Die Vorlage lag auf der Uhr — der Athlet hat sie nur nicht gestartet.
+    _lege_workout_an(
+        client,
+        garmin_auth,
+        tag=tag,
+        workout_id=6401,
+        pushed=tag - timedelta(days=1),
+        sport="bike",
+    )
+
+    _backfill(client, garmin_auth, tage=5)
+
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    importiert = next(lg for lg in logs if lg["garmin_activity_id"] == "3401")
+    # Die Fahrt steht vollständig im Verlauf — nur an der Vorgabe hängt sie nicht.
+    assert importiert["duration_min"]
+    assert importiert["plan_session_id"] is None
+
+    stats = client.get("/api/logs/stats", headers=garmin_auth).json()
+    assert stats["compliance"]["logged"] == 0
+
+
+def test_ein_neu_belegter_pool_slot_zieht_keine_falsche_zuordnung_an(
+    client, garmin_auth, fake
+):
+    """Tri-Coach führt fünfzehn Vorlagen und belegt sie immer wieder neu.
+
+    Dieselbe Kennung trägt nach ein paar Wochen einen anderen Inhalt. Die
+    Vorlage muss schon auf der Uhr gelegen haben, als trainiert wurde.
+    """
+    tag = HEUTE - timedelta(days=2)
+    fake._aktivitaeten = [baue_aktivitaet(3501, tag, typkey="running")]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=tag, tage=1, titel="Laufblock")
+    _lege_workout_an(client, garmin_auth, tag=tag, workout_id=6501, pushed=HEUTE)
+    _aus_workout(fake, 3501, 6501)
+
+    _backfill(client, garmin_auth, tage=5)
+
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    importiert = next(lg for lg in logs if lg["garmin_activity_id"] == "3501")
+    assert importiert["plan_session_id"] is None
+
+
+def test_die_zuordnung_laesst_sich_von_hand_loesen(client, garmin_auth, fake):
+    """Die Uhr setzt die Kennung auch, wenn aus der Vorlage etwas anderes wurde.
+
+    Danach darf der Abgleich sie nicht wieder anknüpfen — die Kennung bleibt an
+    der Aktivität stehen und führte sonst sofort auf dieselbe Einheit zurück.
+    """
+    tag = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [baue_aktivitaet(3601, tag, typkey="running")]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=tag, tage=1, titel="Loeseblock")
+    _lege_workout_an(
+        client, garmin_auth, tag=tag, workout_id=6601, pushed=tag - timedelta(days=1)
+    )
+    _aus_workout(fake, 3601, 6601)
+
+    _backfill(client, garmin_auth, tage=5)
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    einheit = next(s for s in aktiv["sessions"] if s["date"] == tag.isoformat())
+    assert einheit["logged"] is True
+
+    antwort = client.delete(
+        f"/api/plans/sessions/{einheit['id']}/verknuepfung", headers=garmin_auth
+    )
+    assert antwort.status_code == 204, antwort.text
+
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert next(s for s in aktiv["sessions"] if s["id"] == einheit["id"])["logged"] is False
+    # Das Training bleibt vollständig im Verlauf.
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    assert any(lg["garmin_activity_id"] == "3601" for lg in logs)
+
+    # Und der nächste Abgleich holt sie nicht zurück.
+    _backfill(client, garmin_auth, tage=5)
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    assert next(s for s in aktiv["sessions"] if s["id"] == einheit["id"])["logged"] is False
+
+
+def test_bei_zwei_einheiten_auf_derselben_kennung_gewinnt_die_juengste_davor(
+    client, garmin_auth, fake
+):
+    """Ein Pool-Slot trägt nacheinander mehrere Einheiten.
+
+    Welche davon gemeint ist, entscheidet der Zeitpunkt der Übertragung — nicht
+    die Reihenfolge der Abfrage.
+    """
+    start = HEUTE - timedelta(days=4)
+    trainiert = HEUTE - timedelta(days=1)
+    fake._aktivitaeten = [baue_aktivitaet(3701, trainiert, typkey="running")]
+
+    client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    _block(client, garmin_auth, start=start, tage=5, titel="Slotblock")
+    # Dieselbe Kennung an drei Einheiten: lange davor, kurz davor, danach.
+    for tag, gedrueckt in (
+        (start, start),
+        (start + timedelta(days=1), trainiert),
+        (start + timedelta(days=4), HEUTE),
+    ):
+        _lege_workout_an(
+            client, garmin_auth, tag=tag, workout_id=6801, pushed=gedrueckt
+        )
+    _aus_workout(fake, 3701, 6801)
+
+    _backfill(client, garmin_auth, tage=6)
+
+    # Gewinnen muss die zuletzt übertragene Fassung, die vor dem Training lag.
+    aktiv = client.get("/api/plans/active", headers=garmin_auth).json()
+    erwartet = next(
+        s
+        for s in aktiv["sessions"]
+        if s["date"] == (start + timedelta(days=1)).isoformat()
+    )
+    logs = client.get("/api/logs?weeks=4", headers=garmin_auth).json()
+    importiert = next(lg for lg in logs if lg["garmin_activity_id"] == "3701")
+    assert importiert["plan_session_id"] == erwartet["id"]
 
 
 def _block(client, auth, *, start, tage, titel, sport="run"):
@@ -604,6 +796,16 @@ def test_der_geplante_aufbau_ueberlebt_die_neuplanung(client, garmin_auth, fake)
     )
 
     _block(client, garmin_auth, start=gestern, tage=3, titel="Alter Block")
+    # Die Vorlage lag auf der Uhr, bevor der Block abgelöst wurde — sie zeigt
+    # weiter auf die umgezogene Einheit.
+    _lege_workout_an(
+        client,
+        garmin_auth,
+        tag=gestern,
+        workout_id=6701,
+        pushed=gestern - timedelta(days=1),
+    )
+    _aus_workout(fake, 4001, 6701)
     # Neu geplant, bevor das Training von gestern importiert wurde.
     _block(client, garmin_auth, start=HEUTE, tage=3, titel="Neuer Block")
 

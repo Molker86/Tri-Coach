@@ -1,6 +1,6 @@
 """Importierte Einheiten an offene Planeinheiten knüpfen."""
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,35 +8,55 @@ from sqlalchemy.orm import Session
 from ..models import Plan, PlanSession, SessionLog
 
 
-def finde_offene_planeinheit(
-    db: Session, user_id: int, tag: date, sport: str
-) -> PlanSession | None:
+def finde_planeinheit(
+    db: Session, user_id: int, tag: date, workout_id: str | None
+) -> int | None:
     """Sucht die Planeinheit, zu der eine importierte Aktivität gehört.
 
-    Die Regel ist bewusst streng: gleicher Tag, gleiche Sportart, noch nicht
-    erfasst. Eine unscharfe Zuordnung (Vortag, verwandte Sportart, ähnliche
-    Dauer) würde die Umsetzungsquote schönfärben — und eine falsche Verknüpfung
-    fällt später viel schwerer auf als eine fehlende, die der Nutzer im
-    Erfassungsformular mit zwei Klicks nachzieht.
+    Maßgeblich ist allein die Workout-Kennung aus dem Aktivitätsdetail
+    (`metadataDTO.associatedWorkoutId`): Die Uhr merkt sich, aus welcher Vorlage
+    die Aktivität entstanden ist, und `PlanSession.garmin_workout_id` sagt,
+    welche Einheit als diese Vorlage dort lag. Die frühere Regel — gleicher Tag,
+    gleiche Sportart — zählte jede Feierabendrunde als erledigte
+    Schlüsseleinheit; die Kennung trennt das sauber, denn wer frei aufzeichnet,
+    hat die Vorgabe nicht abgearbeitet.
 
-    Bei mehreren Einheiten am selben Tag gewinnt die mit der kleinsten
-    `order_in_day`, damit die Zuordnung wiederholbar ist und nicht zwischen zwei
-    Syncs springt.
+    Der Tag spielt dafür **keine** Rolle mehr. Ein Workout liegt auf der Uhr und
+    wird gestartet, wenn es passt; die Donnerstagseinheit am Montag ist keine
+    Nichtumsetzung. Der Preis ist bewusst in Kauf genommen: Ohne übertragenes
+    und gestartetes Workout entsteht keine Zuordnung und damit keine
+    Umsetzungsquote — und ebenso wenig für Einheiten außerhalb von
+    `sync.BEWERTUNGSFENSTER_TAGE`, für die das Detail nicht geholt wird.
+
+    Zwei Grenzen halten das davon ab, Falsches zu behaupten. Der Pool führt nur
+    fünfzehn dauerhafte Vorlagen, und dieselbe Kennung trägt nach ein paar
+    Wochen einen anderen Inhalt — der Treffer zählt deshalb nur, wenn die
+    Vorlage schon auf der Uhr lag, als trainiert wurde (`garmin_pushed_at <=
+    tag`); liegen mehrere davor, gewinnt die jüngste. Und eine bereits erfasste
+    Planeinheit bleibt erfasst: `uq_log_plan_session` lässt nur einen Log je
+    Einheit zu.
     """
-    if sport == "rest":
+    if not workout_id:
         return None
 
-    bereits_erfasst = select(SessionLog.plan_session_id).where(
-        SessionLog.plan_session_id.is_not(None)
-    )
-    return db.scalars(
+    kandidaten = db.scalars(
         select(PlanSession)
         .join(Plan, Plan.id == PlanSession.plan_id)
         .where(
             Plan.user_id == user_id,
-            PlanSession.date == tag,
-            PlanSession.sport == sport,
-            PlanSession.id.not_in(bereits_erfasst),
+            PlanSession.garmin_workout_id == str(workout_id),
         )
-        .order_by(PlanSession.order_in_day, PlanSession.id)
-    ).first()
+    ).all()
+    davor = [
+        einheit
+        for einheit in kandidaten
+        if einheit.garmin_pushed_at is not None
+        and einheit.garmin_pushed_at.date() <= tag
+    ]
+    if not davor:
+        return None
+
+    einheit = max(davor, key=lambda s: s.garmin_pushed_at or datetime.min)
+    if db.scalar(select(SessionLog.id).where(SessionLog.plan_session_id == einheit.id)):
+        return None
+    return einheit.id

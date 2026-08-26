@@ -269,6 +269,16 @@ class PlanSession(Base):
     angepasst_am: Mapped[datetime | None] = mapped_column(DateTime)
     anpassungswunsch: Mapped[str | None] = mapped_column(Text)
 
+    # Als welches Garmin-Workout diese Einheit auf der Uhr lag und seit wann.
+    # Sieht aus wie eine Kopie von `GarminWorkoutLink` und ist das Gegenteil:
+    # Der Link beschreibt den **jetzigen** Zustand in Garmin und stirbt, sobald
+    # der Termin vorbei ist (`uebertragung.raeume_vergangene_auf`) — genau
+    # bevor das Training des Tages hier ankommt. `garmin/matching.py` braucht
+    # die Angabe aber danach, um die Aktivität ihrer Vorgabe zuzuordnen.
+    # Deshalb hier, wo sie mit der Einheit lebt und mit ihr stirbt.
+    garmin_workout_id: Mapped[str | None] = mapped_column(String(32))
+    garmin_pushed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     plan: Mapped[Plan] = relationship(back_populates="sessions")
     log: Mapped["SessionLog | None"] = relationship(
         back_populates="plan_session", uselist=False
@@ -373,12 +383,18 @@ class SessionLog(Base):
     garmin_compliance: Mapped[int | None] = mapped_column(Integer)
 
     # Die Kennung des Workouts, aus dem diese Aktivität gestartet wurde
-    # (`metadataDTO.associatedWorkoutId`). Der **harte** Rückbezug auf die
-    # Planeinheit: `plan_session_id` entsteht nur bei gleichem Tag *und*
-    # gleicher Sportart, und wer ein Workout von der Uhr einen Tag später
-    # startet, verliert die Zuordnung. Über `GarminWorkoutLink` findet
-    # `ai_export._geplant_war()` den Aufbau trotzdem.
+    # (`metadataDTO.associatedWorkoutId`). Der **einzige** Rückbezug auf die
+    # Planeinheit: `garmin/matching.py` löst sie über `GarminWorkoutLink` auf
+    # und führt damit ohne jeden Bezug auf den Tag zur Vorgabe. Leer heißt frei
+    # aufgezeichnet — oder älter als `sync.BEWERTUNGSFENSTER_TAGE`, wo das
+    # Detail gar nicht erst geholt wird.
     garmin_workout_id: Mapped[str | None] = mapped_column(String(32))
+
+    # Der Athlet hat die Zuordnung zur Planeinheit selbst gelöst
+    # (`DELETE /api/plans/sessions/{id}/verknuepfung`). Ohne diese Marke käme
+    # sie beim nächsten Abgleich sofort zurück: Die Workout-Kennung bleibt an
+    # der Aktivität stehen und führt wieder auf dieselbe Einheit.
+    zuordnung_manuell: Mapped[bool] = mapped_column(Boolean, default=False)
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
     # für intensive Einheiten für die meisten Einheiten aus. Die Quelle geht in
     # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann:
@@ -629,9 +645,9 @@ class GarminWorkoutLink(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     last_error: Mapped[str | None] = mapped_column(Text)
 
-    # Nur in diese Richtung und ohne Gegenstück: Der Export löst über die
-    # Workout-Kennung die Planeinheit auf (`ai_export._aufbau_je_workout`), und
-    # eine Rückrichtung an `PlanSession` bräuchte niemand. Gelöscht wird der
+    # Nur in diese Richtung und ohne Gegenstück: Der Abgleich löst über die
+    # Workout-Kennung die Planeinheit auf (`garmin/matching.py`), und eine
+    # Rückrichtung an `PlanSession` bräuchte niemand. Gelöscht wird der
     # Link weiterhin über `ondelete="CASCADE"` an der Fremdschlüsselspalte.
     plan_session: Mapped["PlanSession"] = relationship()
 
