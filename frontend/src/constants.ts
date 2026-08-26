@@ -168,7 +168,7 @@ export const SUPPLEMENTAL_OPTIONS = [
   {
     key: 'mobility',
     label: 'Dehn- und Mobilitätseinheiten',
-    hint: 'Kurze Einheiten für Beweglichkeit und Regeneration.',
+    hint: 'Einheiten für Beweglichkeit und Regeneration.',
   },
 ]
 

@@ -2529,6 +2529,18 @@ und entscheidet darüber, ob auf der Uhr die Bewegungsanimation erscheint
 (`garmin/uebungen.py`). Das Wörterbuch dort fängt den Fall ohne Klammer ab —
 beide Wege führen zum selben Eintrag, der Prompt erhöht nur die Trefferquote.
 
+**Wie lang eine Ergänzungseinheit ist, sagt der Prompt nicht mehr.** Er verlangte
+einmal „kurz“ — eine Zahl, die weder aus der Belastungslage noch aus der
+Beschwerde stammt, sondern aus der Annahme, Kraft und Mobility seien Beiwerk.
+Genau diese Annahme steht der Behandlung im Weg: Eine abgeschwächte Muskelgruppe
+oberhalb des Gelenks braucht Arbeitszeit, und der Prompt räumte sie nicht ein.
+Die Länge leitet die KI deshalb aus Belastungslage, Ziel und Beschwerdebild ab
+und trägt sie in `duration_min` ein — dieselbe Linie wie bei den Punkten 3 und 4:
+Die Rolle ist ein Trainingswissenschaftler, dem die Daten fehlen und nicht das
+Maß. Der Hinweistext im Fragebogen sagt es ebenso wenig
+(`SUPPLEMENTAL_OPTIONS` in `frontend/src/constants.ts`) — er stand vor demselben
+Feld, das die KI jetzt füllt.
+
 **„Regelmäßig" heißt dort ausdrücklich nicht „dasselbe noch einmal".** Punkt 9
 sagte nur „Mobility kurz und regelmäßig" — und genau das hat die KI getan: Am
 18.08.2026 verordnete sie eine Mobility-Einheit für Hüfte und lateralen

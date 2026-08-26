@@ -1436,8 +1436,10 @@ ableitest; nicht danach, was am kürzesten in den Tag passt. Kraft (Rumpf, einbe
 Übungen, Plyometrie nur bei ausreichender Erfahrung) legst du nicht unmittelbar vor \
 eine Schlüsseleinheit — das ist eine Frage des Tages und kein Grund, sie wegzulassen: \
 Passt sie an einem Tag nicht, steht sie an einem anderen des Blocks, statt durch eine \
-Mobility-Einheit ersetzt zu werden. Beide Formen gehören kurz und regelmäßig in den \
-Block, und regelmäßig heißt **nicht dasselbe noch einmal**: Sieh in \
+Mobility-Einheit ersetzt zu werden. Beide Formen gehören regelmäßig in den Block. \
+**Wie lang eine solche Einheit ist, entscheidest du** aus Belastungslage, Ziel und \
+Beschwerdebild und trägst es in `duration_min` ein — es gibt keine Vorgabe, sie kurz \
+zu halten. Regelmäßig heißt dabei **nicht dasselbe noch einmal**: Sieh in \
 `trainingshistorie.einheiten` nach, was die letzte \
 Kraft- oder Mobility-Einheit enthielt — zuerst in `absolvierte_uebungen` (was die Uhr \
 gezählt hat, mit `kategorie` als Bewegungsgruppe), sonst in `geplant_war.aufbau` oder \

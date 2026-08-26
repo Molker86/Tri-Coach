@@ -251,7 +251,10 @@ def test_punkt_9_stellt_kraft_und_mobility_gleich(client, auth):
     assert "eine Frage des Tages und kein Grund, sie wegzulassen" in prompt
     assert "statt durch eine Mobility-Einheit ersetzt zu werden" in prompt
     # „Regelmäßig" gilt jetzt für beide Formen, nicht nur für Mobility.
-    assert "Beide Formen gehören kurz und regelmäßig" in prompt
+    assert "Beide Formen gehören regelmäßig" in prompt
+    # Und „kurz" ist keine Vorgabe mehr: Die Länge leitet die KI selbst ab.
+    assert "**Wie lang eine solche Einheit ist, entscheidest du**" in prompt
+    assert "kurz und regelmäßig" not in prompt
 
 
 def test_der_prompt_sagt_wenn_morgen_neu_geplant_wird(client, auth):
