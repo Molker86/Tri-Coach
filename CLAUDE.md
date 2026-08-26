@@ -884,6 +884,19 @@ Nach einer angepassten Einheit steht eine andere Vorgabe im Plan. `garminZustand
 bleibt dort leer — dafür zusätzlich `api.garminWorkoutStatus()` zu holen wäre
 eine Anfrage für eine Randnotiz.
 
+**In der Kopfzeile steht der Datenstand, nicht das heutige Datum**
+(`Dashboard.datenstand`). Dort stand einmal „Mittwoch, 26. August" — und
+darunter Trainingsreife, HRV, Schlaf und Ruhepuls, die bis zum Abgleich des
+Tages noch von gestern stammen (Vorgabe: 10 Uhr Ortszeit). Das Datum behauptete
+damit eine Frische, die die Zahlen darunter nicht hatten, und beantwortete
+zugleich die einzige Frage nicht, die man an dieser Stelle hat: von wann sie
+sind. Es steht deshalb `konto.last_sync_at` da, mit Uhrzeit — im selben Format
+wie `AbgleichStand` in `PlanExchange.tsx`. **Ohne Abgleich bleibt es beim
+heutigen Datum**: Dann kommt auf der Seite nichts aus der Uhr, und ein Stand
+wäre eine Aussage über Daten, die es nicht gibt. Dafür holt `reload()` jetzt
+zusätzlich `api.garminStatus()` — anders als `api.garminWorkoutStatus()` (siehe
+oben) kostet das nichts gegen Garmin, der Endpunkt liest die eigene Datenbank.
+
 **Ausrichtung und Steuerungshinweise stehen auch auf der Startseite**
 (`plan.summary` / `plan.coaching_notes`, direkt unter der Überschrift der
 „Heute"-Karte und **über** den Einheiten des Tages — die Einordnung wird

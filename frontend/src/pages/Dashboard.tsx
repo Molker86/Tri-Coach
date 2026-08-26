@@ -8,10 +8,33 @@ import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
 import { sportIcon } from '../constants'
 import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
-import type { Plan, PlanSession, Profile, Stats, WellnessDay } from '../types'
+import type { GarminAccount, Plan, PlanSession, Profile, Stats, WellnessDay } from '../types'
 
 function formatDay(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+}
+
+/** Von wann die Zahlen auf dieser Seite sind.
+ *
+ * Hier stand einmal das heutige Datum — über Erholungswerten, die bis zum
+ * Abgleich des Tages noch von gestern stammen. Das Datum behauptete damit eine
+ * Frische, die die Daten darunter nicht hatten; der Zeitpunkt des letzten
+ * Abgleichs sagt stattdessen, worauf man gerade sieht. Ohne Abgleich bleibt es
+ * beim heutigen Datum: Dann kommt auf dieser Seite nichts aus der Uhr.
+ */
+function datenstand(letzterAbgleich: string | null): string {
+  if (!letzterAbgleich) {
+    return new Date().toLocaleDateString('de-DE', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    })
+  }
+  const wann = new Date(letzterAbgleich).toLocaleString('de-DE', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  })
+  return `Garmin-Daten vom ${wann} Uhr`
 }
 
 /** Wie es um den aktiven Trainingsblock steht.
@@ -152,6 +175,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [wellness, setWellness] = useState<WellnessDay[]>([])
+  const [garminKonto, setGarminKonto] = useState<GarminAccount | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<PlanSession | null>(null)
@@ -167,12 +191,16 @@ export default function Dashboard() {
       // Ohne verbundenes Garmin-Konto ist die Liste leer — das ist kein Fehler,
       // und die Übersicht darf daran nicht scheitern.
       api.garminWellness(4).catch(() => [] as WellnessDay[]),
+      // Nur wegen des Datenstands in der Kopfzeile. Die Anfrage kostet nichts
+      // gegen Garmin — sie liest den Stand aus der eigenen Datenbank.
+      api.garminStatus().then((zustand) => zustand.konto).catch(() => null),
     ])
-      .then(([activePlan, loadedStats, loadedProfile, loadedWellness]) => {
+      .then(([activePlan, loadedStats, loadedProfile, loadedWellness, konto]) => {
         setPlan(activePlan)
         setStats(loadedStats)
         setProfile(loadedProfile)
         setWellness(loadedWellness)
+        setGarminKonto(konto)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -234,13 +262,7 @@ export default function Dashboard() {
       <div className="page-header">
         <div>
           <h1>Übersicht</h1>
-          <p>
-            {new Date().toLocaleDateString('de-DE', {
-              weekday: 'long',
-              day: 'numeric',
-              month: 'long',
-            })}
-          </p>
+          <p>{datenstand(garminKonto?.last_sync_at ?? null)}</p>
         </div>
         <div className="row">
           {/* Nur einer von beiden: Läuft der Block noch, ist die Frage „soll
