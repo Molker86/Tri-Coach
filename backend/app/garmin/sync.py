@@ -596,6 +596,20 @@ def _body_battery_werte(zeile: dict[str, Any]) -> list[int]:
     return [w for w in werte if w is not None]
 
 
+def _juengste_bereitschaft(eintraege: list[Any]) -> dict[str, Any] | None:
+    """Der zuletzt gemessene Reife-Eintrag eines Tages.
+
+    Garmin liefert die Liste zwar neuestes zuerst, garantiert das aber
+    nirgends — deshalb über den Zeitstempel gewählt statt über die Position.
+    Der ISO-Text sortiert von sich aus richtig; Einträge ohne Zeitstempel
+    fallen ans Ende.
+    """
+    kandidaten = [e for e in eintraege if isinstance(e, dict)]
+    if not kandidaten:
+        return None
+    return max(kandidaten, key=lambda e: str(e.get("timestamp") or ""))
+
+
 def _juengster_trainingsstatus(daten: dict[str, Any]) -> dict[str, Any] | None:
     """Wählt aus den Geräteeinträgen den maßgeblichen aus.
 
@@ -659,7 +673,7 @@ def importiere_tageswerte(
         # Messungen des Tages sind bereits vom Tagesgeschehen gefärbt.
         eintrag = next(
             (e for e in bereitschaft if e.get("inputContext") == "AFTER_WAKEUP_RESET"),
-            bereitschaft[0] if bereitschaft else None,
+            _juengste_bereitschaft(bereitschaft),
         )
         if isinstance(eintrag, dict):
             _setze(
@@ -667,11 +681,21 @@ def importiere_tageswerte(
                 readiness_score=als_ganzzahl(eintrag.get("score")),
                 readiness_level=eintrag.get("level"),
                 readiness_feedback=eintrag.get("feedbackShort"),
-                # Minuten, nicht Stunden — siehe `WellnessDay.recovery_time_min`.
-                recovery_time_min=als_ganzzahl(eintrag.get("recoveryTime")),
                 readiness_hrv_factor_pct=als_ganzzahl(eintrag.get("hrvFactorPercent")),
                 readiness_acwr_factor_pct=als_ganzzahl(eintrag.get("acwrFactorPercent")),
-                acute_load=als_zahl(eintrag.get("acuteLoad")),
+            )
+        # Erholungszeit und akute Last sind keine Momentaufnahme des Morgens,
+        # sondern laufende Größen: Das Training des Tages setzt sie hoch, und
+        # der Aufwacheintrag weiß davon nichts. Deshalb der jüngste Eintrag —
+        # sonst steht am Abend eines harten Tages "0 Stunden Erholung" im
+        # Export, während die Uhr 29 zeigt.
+        juengste = _juengste_bereitschaft(bereitschaft)
+        if isinstance(juengste, dict):
+            _setze(
+                zeile,
+                # Minuten, nicht Stunden — siehe `WellnessDay.recovery_time_min`.
+                recovery_time_min=als_ganzzahl(juengste.get("recoveryTime")),
+                acute_load=als_zahl(juengste.get("acuteLoad")),
             )
 
         status_roh = _hole_geschuetzt(

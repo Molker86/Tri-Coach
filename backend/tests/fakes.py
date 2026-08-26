@@ -302,10 +302,26 @@ class FakeGarmin:
     def get_training_readiness(self, cdate):
         self.aufrufe.append("get_training_readiness")
         self._tagesabruf()
-        # Liste von Momentaufnahmen; die nach dem Aufwachen ist die gültige.
+        # Liste von Momentaufnahmen, neuestes zuerst — wie am echten Konto.
+        # Die Reife gilt vom Aufwachen, Erholungszeit und akute Last vom
+        # jüngsten Eintrag: Das Training des Tages setzt sie hoch, und der
+        # Aufwacheintrag steht deshalb auf "so gut wie erholt".
         return [
             {
                 "calendarDate": cdate,
+                "timestamp": f"{cdate}T18:24:12.0",
+                "score": 55,
+                "level": "MODERATE",
+                "feedbackShort": "RECOVERY_IN_PROGRESS",
+                "recoveryTime": 1890,
+                "hrvFactorPercent": 85,
+                "acwrFactorPercent": 49,
+                "acuteLoad": 942,
+                "inputContext": "AFTER_POST_EXERCISE_RESET",
+            },
+            {
+                "calendarDate": cdate,
+                "timestamp": f"{cdate}T04:12:00.0",
                 "score": 45,
                 "level": "MODERATE",
                 "feedbackShort": "MODERATE",
@@ -313,10 +329,11 @@ class FakeGarmin:
             },
             {
                 "calendarDate": cdate,
+                "timestamp": f"{cdate}T05:10:25.0",
                 "score": 78,
                 "level": "HIGH",
                 "feedbackShort": "READY",
-                "recoveryTime": 12,
+                "recoveryTime": 1,
                 "hrvFactorPercent": 85,
                 "acwrFactorPercent": 88,
                 "acuteLoad": 745,

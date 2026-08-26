@@ -241,6 +241,19 @@ die Umrechnung bei jedem Start erneut über dieselben Werte. Die Umbenennung
 läuft über `database._UMZUZIEHENDE_SPALTEN`: ergänzen, kopieren, alte Spalte
 löschen, alles idempotent.
 
+**Die Erholungszeit kommt aus dem jüngsten Reife-Eintrag, die Reife selbst vom
+Aufwachen** (`sync._juengste_bereitschaft`). `get_training_readiness()` liefert
+mehrere Momentaufnahmen je Tag, und die Regel „der Wert nach dem Aufwachen ist
+der gültige" stimmt für den Score — spätere Messungen sind vom Tagesgeschehen
+gefärbt. Für `recoveryTime` und `acuteLoad` stimmt sie nicht: Das sind laufende
+Größen, die das Training des Tages erst hochsetzt. Am echten Konto stand im
+Aufwacheintrag `recoveryTime: 1`, im Eintrag nach der Einheit `1890` — die App
+schrieb die 1 und meldete „0,0 Stunden Erholung" in den Export, während die Uhr
+29 Stunden zeigte. Beide Werte kommen deshalb aus dem jüngsten Eintrag des
+Tages, Score, Level, Feedback und die Reifefaktoren weiter vom Aufwachen.
+Gewählt wird über den Zeitstempel, nicht über die Listenposition: Garmin
+liefert zwar neuestes zuerst, sagt das aber nirgends zu.
+
 **Watt- und Tempokorridore kommen mit, nicht nur ihre Schwellenwerte**
 (`sportscience.power_zones` / `pace_zones`). Punkt 4 verlangt zu jeder Einheit
 ein `target_power` bzw. `target_pace`, lieferte der KI aber nur die nackte FTP —

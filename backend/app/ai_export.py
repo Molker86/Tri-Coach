@@ -1077,11 +1077,7 @@ Regeln für die Ausgabe:
 # Falle wie bei `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
 # --------------------------------------------------------------------------
 
-PRINZIP_TRIATHLON = """**Triathlon**: In {tage} Tagen müssen nicht alle drei Disziplinen vorkommen. Nutze \
-`tage_seit_letzter_einheit_je_sportart` und ziehe die Disziplin vor, die am längsten \
-zurückliegt oder laut Fragebogen die Schwäche ist. Schwimmen mit Technikschwerpunkt, \
-Rad als Träger des Grundlagenumfangs. Eine Koppeleinheit (brick) nur, wenn sie in \
-diesen Block sinnvoll passt."""
+PRINZIP_TRIATHLON = """**Triathlon**: Nutze die Bestpractise für ein Triathlon Training."""
 
 PRINZIP_EINDISZIPLIN = """**Eine Disziplin**: Der Athlet hat im Fragebogen ausschließlich {disziplin} gewählt \
 (`trainingswunsch.disziplin`) — dieser Block ist ein reiner {blockname}. Jede \

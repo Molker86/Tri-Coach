@@ -472,6 +472,21 @@ def test_trainingsreife_nimmt_den_wert_nach_dem_aufwachen(client, verbunden):
     assert fitness[0]["readiness_score"] == 78  # nicht die 45 der späteren Messung
 
 
+def test_erholungszeit_nimmt_den_juengsten_wert(client, verbunden):
+    """Erholungszeit ist ein Countdown, keine Momentaufnahme des Morgens.
+
+    Am echten Konto stand der Aufwacheintrag auf `recoveryTime: 1`, während
+    die Uhr nach dem Training des Tages 29 Stunden zeigte — die App las den
+    Aufwachwert mit und meldete "0 Stunden Erholung" in den Export.
+    """
+    _backfill(client, verbunden)
+    fitness = client.get("/api/garmin/wellness?weeks=4", headers=verbunden).json()
+    # 1890 Minuten aus dem Eintrag nach dem Training, nicht die 1 vom Aufwachen.
+    assert fitness[0]["recovery_time_min"] == 1890
+    # Die Reife selbst bleibt der Wert vom Aufwachen.
+    assert fitness[0]["readiness_score"] == 78
+
+
 def test_koerperbatterie_kommt_an(client, verbunden):
     """Die Spalte blieb an 370 echten Tagen leer, weil der Index geraten war.
 
