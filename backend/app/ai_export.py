@@ -1048,7 +1048,7 @@ oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
 Struktur:
 {schema}
 
-Regeln für die Ausgabe:
+ABSOLUT verbindliche Regeln für die Ausgabe (Zwingend)!!:
 - Genau {tage} Tage, lückenlos von {start} bis {ende}, jedes Datum genau einmal.
 - Ruhetage als Tag mit einer Session `"sport": "rest"`, `"type": "rest"`.
 - Mehrere Einheiten pro Tag sind erlaubt (Array `sessions`).
@@ -1077,7 +1077,7 @@ Regeln für die Ausgabe:
 # Falle wie bei `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
 # --------------------------------------------------------------------------
 
-PRINZIP_TRIATHLON = """**Triathlon**: Nutze die Bestpractise für ein Triathlon Training."""
+PRINZIP_TRIATHLON = """**Triathlon**: Nutze die Bestpractise für die Planung eines Training."""
 
 PRINZIP_EINDISZIPLIN = """**Eine Disziplin**: Der Athlet hat im Fragebogen ausschließlich {disziplin} gewählt \
 (`trainingswunsch.disziplin`) — dieser Block ist ein reiner {blockname}. Jede \
