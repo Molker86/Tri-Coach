@@ -265,36 +265,28 @@ export default function ProfilePage() {
 
       <div className="card">
         <h2>Leistungswerte je Sportart</h2>
+        <p className="field-hint mb-1">
+          Diese drei Werte trägst du selbst ein. Garmin fässt sie nicht an — auch
+          nicht, wenn es eigene Werte dazu führt.
+        </p>
         <div className="grid grid-3">
           <NumberField
             label="FTP Rad"
             unit="Watt"
-            hint={
-              garminFuehrtNach
-                ? 'Funktionelle Schwellenleistung — aus Garmin nachgeführt.'
-                : 'Funktionelle Schwellenleistung.'
-            }
+            hint="Funktionelle Schwellenleistung, z. B. aus einem 20-min-Test."
             value={profile.ftp_watts}
             onChange={(v) => patch({ ftp_watts: v })}
           />
           <TextField
             label="Schwellenpace Laufen"
-            hint={
-              garminFuehrtNach
-                ? 'Aus Garmins Laktatschwelle. Format mm:ss pro Kilometer.'
-                : 'Format mm:ss pro Kilometer, z. B. 4:15.'
-            }
+            hint="Format mm:ss pro Kilometer, z. B. 4:15."
             placeholder="4:15"
             value={profile.threshold_pace_run}
             onChange={(v) => patch({ threshold_pace_run: v })}
           />
           <TextField
             label="CSS Schwimmen"
-            hint={
-              garminFuehrtNach
-                ? 'Garmin führt keinen CSS-Wert — bitte selbst eintragen (400-m- und 200-m-Test).'
-                : 'Kritische Schwimmgeschwindigkeit pro 100 m, z. B. 1:45.'
-            }
+            hint="Kritische Schwimmgeschwindigkeit pro 100 m, z. B. 1:45 (400-m- und 200-m-Test)."
             placeholder="1:45"
             value={profile.css_swim}
             onChange={(v) => patch({ css_swim: v })}

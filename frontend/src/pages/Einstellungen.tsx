@@ -222,13 +222,13 @@ function GarminKarte(props: {
               }
             />
             <span>
-              Gewicht, Ruhepuls, HRV, VO2max, Schwellenwerte und Bestzeiten ins
+              Gewicht, Ruhepuls, HRV, VO2max, Schwellenpuls und Bestzeiten ins
               Profil übernehmen
               <span className="field-hint">
-                Schwellenwerte sind FTP, Schwellenpace und Schwellenpuls, Bestzeiten
-                die von Garmin erkannten Laufrekorde. Der Maximalpuls bleibt
-                unangetastet: Garmin schätzt ihn, und er bestimmt alle
-                Herzfrequenzzonen.
+                Bestzeiten sind die von Garmin erkannten Laufrekorde. Unangetastet
+                bleiben der Maximalpuls — Garmin schätzt ihn, und er bestimmt alle
+                Herzfrequenzzonen — sowie FTP, Schwellenpace und CSS: Die trägst du
+                unter „Meine Daten“ selbst ein.
               </span>
             </span>
           </label>

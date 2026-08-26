@@ -624,8 +624,8 @@ class SyncRunner:
     ) -> None:
         """Trägt Fitness- und Schwellenwerte ins Profil nach.
 
-        Aus den Fitnessdaten kommen Gewicht, Ruhepuls, HRV und VO2max; FTP,
-        Schwellenpace und Schwellenpuls hat der Lauf bereits geholt und reicht
+        Aus den Fitnessdaten kommen Gewicht, Ruhepuls, HRV und VO2max;
+        Schwellenpuls und Bestzeiten hat der Lauf bereits geholt und reicht
         sie hier durch — geschrieben wird beides in einem Zug.
         """
         if not konto.profile_sync_enabled:

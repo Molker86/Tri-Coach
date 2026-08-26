@@ -18,13 +18,11 @@ from app.garmin.mapping import (
     bestzeiten,
     bewertung_aus_detail,
     erster_wert,
-    ftp_watt,
     gewicht_kg,
     hole,
     koppel_notiz,
     pace_aus_geschwindigkeit,
     schaetze_rpe,
-    schwellenpace_laufen,
     schwellenpuls,
     sport_aus_typkey,
     uebungen_aus_saetzen,
@@ -328,45 +326,28 @@ def test_eigenstaendige_aktivitaet_mit_parentid_bleibt_erhalten():
 
 
 # --------------------------------------------------------------------------
-# Schwellenwerte
+# Schwellenpuls
 # --------------------------------------------------------------------------
 
 
-def test_ftp_liest_liste_und_einzelantwort():
-    """`get_cycling_ftp` liefert je nach Konto eine Liste oder ein Dict."""
-    assert ftp_watt([{"functionalThresholdPower": 248, "sport": "CYCLING"}]) == 248
-    assert ftp_watt({"functionalThresholdPower": 248}) == 248
-    assert ftp_watt({"ftpValue": 199}) == 199
-    assert ftp_watt(None) is None
-    assert ftp_watt([{"functionalThresholdPower": None}]) is None
-
-
-def test_ftp_ausserhalb_der_profilspanne_wird_verworfen():
-    """Ein Ausreißer würde die Profilseite mit einem Validierungsfehler lahmlegen."""
-    assert ftp_watt([{"functionalThresholdPower": 5}]) is None
-    assert ftp_watt([{"functionalThresholdPower": 4200}]) is None
-
-
-def test_schwellenwerte_aus_der_laktatschwelle():
+def test_schwellenpuls_aus_der_laktatschwelle():
     antwort = {
         "speed_and_heart_rate": {"speed": 3.7037, "heartRate": 168},
         "power": {},
     }
-    assert schwellenpace_laufen(antwort) == "4:30"  # m/s in min/km
     assert schwellenpuls(antwort) == 168
 
     # Garmins historischer Tippfehler im Feldnamen
     assert schwellenpuls({"speed_and_heart_rate": {"hearRate": 171}}) == 171
     # Und die flache Form aus den Profileinstellungen
-    assert schwellenpace_laufen({"lactateThresholdSpeed": 3.7037}) == "4:30"
-
-
-def test_schwellentempo_in_falscher_einheit_wird_verworfen():
-    """13,3 wäre km/h — als m/s gelesen ergäbe das 0:16 min/km."""
-    assert schwellenpace_laufen({"speed_and_heart_rate": {"speed": 13.3}}) is None
-    assert schwellenpace_laufen({"speed_and_heart_rate": {"speed": 0}}) is None
-    assert schwellenpace_laufen(None) is None
+    assert schwellenpuls({"lactateThresholdHeartRate": 165}) == 165
     assert schwellenpuls(None) is None
+
+
+def test_schwellenpuls_ausserhalb_der_profilspanne_wird_verworfen():
+    """Ein Ausreißer würde die Profilseite mit einem Validierungsfehler lahmlegen."""
+    assert schwellenpuls({"heartRate": 40}) is None
+    assert schwellenpuls({"heartRate": 400}) is None
 
 
 # --------------------------------------------------------------------------

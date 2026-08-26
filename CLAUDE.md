@@ -2254,25 +2254,38 @@ Oberfläche und Prompt und stiftete mehr Verwirrung als Nutzen; der Spaltenname
 `hrv_rmssd` ist nur noch ein Altname (Umbenennen wäre eine Migration ohne
 Gewinn).
 
-**Die Schwellenwerte kommen aus eigenen Anfragen, nicht aus den Tageswerten**
-(`sync.hole_leistungswerte`, `mapping.ftp_watt` / `schwellenpace_laufen` /
-`schwellenpuls`). FTP, Laktatschwellentempo und Schwellenpuls fallen bei Garmin
-nicht je Tag an: Es gibt jeweils nur den zuletzt erkannten Stand, hinter je
-einem Endpunkt (`get_cycling_ftp`, `get_lactate_threshold`). Sie landen deshalb
-**nicht** in `WellnessDay`, sondern werden am Ende des Laufs eingesammelt und
-über `SyncErgebnis.leistungswerte` an die Profil-Nachführung durchgereicht — in
+**Der Schwellenpuls kommt aus einer eigenen Anfrage, nicht aus den Tageswerten**
+(`sync.hole_leistungswerte`, `mapping.schwellenpuls`). Er fällt bei Garmin nicht
+je Tag an: Es gibt nur den zuletzt erkannten Stand, hinter einem eigenen
+Endpunkt (`get_lactate_threshold`). Er landet deshalb **nicht** in
+`WellnessDay`, sondern wird am Ende des Laufs eingesammelt und über
+`SyncErgebnis.leistungswerte` an die Profil-Nachführung durchgereicht — in
 *einem* Zug mit Gewicht und Ruhepuls, weil zwei Übernahmen je Abgleich zwei fast
 gleiche `ProfileHistory`-Einträge hinterließen. Am Ende, weil es die billigsten
 Anfragen des Laufs sind; und nur, wenn `profile_sync_enabled` gesetzt ist, sonst
-hätten die Werte keinen Empfänger. Jeder Wert wird gegen die Spanne aus
+hätten die Werte keinen Empfänger. Der Wert wird gegen die Spanne aus
 `schemas.ProfileIn` geprüft: Diese Zahlen gehen am Pydantic-Schema vorbei direkt
 ins Modell, und weil `ProfileOut` dieselben Grenzen validiert, würde ein
 Ausreißer aus der undokumentierten Schnittstelle die Profilseite mit einem
-Fehler statt mit Daten beantworten. Die Tempo-Spanne prüft dabei vor allem die
-*Einheit* (m/s, nicht km/h). **Die kritische Schwimmgeschwindigkeit (CSS) fehlt
-bewusst**: Garmin führt sie nirgends — weder als Endpunkt noch in den
-Profileinstellungen —, und aus den Trainingsdaten wäre sie nur zu raten. Sie
-bleibt Handarbeit, und die Profilseite sagt das bei verbundenem Konto auch.
+Fehler statt mit Daten beantworten.
+
+**FTP, Schwellenpace Laufen und CSS sind dagegen Handarbeit** — und zwar
+ausdrücklich, obwohl Garmin zwei davon liefern würde. Die App holte sie einmal
+(`get_cycling_ftp`, dazu das Schwellentempo aus derselben Laktatschwellen-
+Antwort) und schrieb sie ins Profil. Das ist zurückgenommen: Diese drei Zahlen
+sind die Steuergrößen, aus denen `power_zones()` und `pace_zones()` jeden
+Korridor bauen, der anschließend im Plan steht und auf die Uhr geht — und
+Garmins FTP ist eine *Erkennung* aus gefahrenen Einheiten, keine gemessene
+Schwelle. Wer nach einem Testprotokoll 260 W einträgt, fand am nächsten Morgen
+238 W vor, ohne dass irgendwo etwas fehlgeschlagen wäre. Dieselbe Überlegung wie
+beim Maximalpuls, nur eine Sportart weiter. `get_cycling_ftp` wird deshalb gar
+nicht mehr aufgerufen; `get_lactate_threshold` bleibt, weil der Schwellenpuls
+daran hängt, aber sein Tempo wird nicht mehr gelesen. Die CSS führt Garmin
+ohnehin nirgends. `test_ftp_und_schwellenpace_bleiben_handarbeit` hält beides
+fest — auch, dass der FTP-Endpunkt nicht einmal angefragt wird; der Fake
+antwortet weiterhin darauf, damit der Wächter Zähne hat. Der Preis: Was ein
+früherer Abgleich einmal geschrieben hat, steht weiter im Profil, bis der Athlet
+es selbst ändert.
 
 **Bestzeiten kommen aus Garmin, aber nur fürs Laufen** (`mapping.bestzeiten`,
 `AthleteProfile.garmin_personal_bests`). `get_personal_record()` kostet eine
@@ -3069,21 +3082,26 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   nur im Erfolgsfall vor, der nächste Lauf wiederholt den ganzen Zeitraum.
 - Der Rückblick über ein Jahr wurde bisher nur gegen die Nachbildung geprüft,
   nicht gegen ein echtes Konto.
-- Auch die Antwortform von `get_cycling_ftp()` und `get_lactate_threshold()` ist
-  nicht dokumentiert. Der Mapper liest beide über mehrere Pfade und verwirft,
-  was außerhalb der Profilspannen liegt; **beim ersten echten Abgleich prüfen**,
-  ob FTP, Schwellenpace und Schwellenpuls tatsächlich ankommen — bleiben sie
-  leer, steht der Grund als Hinweis in der Meldung des Laufs.
+- Auch die Antwortform von `get_lactate_threshold()` ist nicht dokumentiert.
+  Der Mapper liest sie über mehrere Pfade und verwirft, was außerhalb der
+  Profilspanne liegt; **beim ersten echten Abgleich prüfen**, ob der
+  Schwellenpuls tatsächlich ankommt — bleibt er leer, steht der Grund als
+  Hinweis in der Meldung des Laufs.
 - Die Kennziffern in `get_personal_record()` sind ebenfalls nirgends
   dokumentiert; die Zuordnung in `BESTZEIT_STRECKEN` ist aus Garmin Connect
   abgelesen und über die Tempo-Spanne abgesichert, nicht bestätigt. **Beim
   ersten echten Abgleich prüfen**, ob die Strecken zu den Zeiten passen. Rad-
   und Schwimmbestzeiten fehlen deshalb ganz — sie bleiben Freitext.
-- Die **kritische Schwimmgeschwindigkeit (CSS)** bleibt das einzige
-  Handarbeitsfeld unter den Leistungswerten: Garmin führt sie nicht. Aus den
-  Trainingsdaten ließe sie sich nur schätzen — die Dauer eines importierten
-  Trainings steht auf ganze Minuten gerundet in `SessionLog`, was für einen
-  200-m-Testabschnitt schon 10 % Fehler bedeutet.
+- **FTP, Schwellenpace Laufen und CSS bleiben Handarbeit** — die App holt sie
+  nicht mehr, auch wenn Garmin die ersten beiden führt. Wer sie nie einträgt,
+  bekommt keine Watt- und keine Tempozonen: `power_zones()` und `pace_zones()`
+  geben ohne Schwellenwert eine leere Liste zurück, und die Uhr steuert dann
+  über den Puls. Und was ein früherer Abgleich einmal geschrieben hat, steht
+  weiter im Profil, bis der Athlet es selbst ändert — zurückgesetzt wird
+  nichts. Die CSS führt Garmin ohnehin nirgends; aus den Trainingsdaten ließe
+  sie sich nur schätzen, denn die Dauer eines importierten Trainings steht auf
+  ganze Minuten gerundet in `SessionLog`, was für einen 200-m-Testabschnitt
+  schon 10 % Fehler bedeutet.
 - Die Anmeldung schützt nichts: Jeder, der die App erreicht, kann jedes Konto
   wählen (bewusst — siehe „Anmeldung"). Der Schutz kommt vom Ingress davor.
 - Kein Löschen von Konten in der Oberfläche; ein Konto bleibt für immer in der
@@ -3113,8 +3131,8 @@ startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
   FTP-Anteile und damit die gröbste der drei Leistungsquellen: Er trifft das
   Ein- und Ausrollen, ersetzt aber keine Wattangabe der KI. Wer im Profil
   **keine FTP** stehen hat, bekommt auf dem Rad weiterhin Pulsziele — dann
-  regelt der Smarttrainer in diesen Schritten nicht. Die FTP kommt aus Garmin
-  (`sync.hole_leistungswerte`) oder von Hand aus der Profilseite.
+  regelt der Smarttrainer in diesen Schritten nicht. Die FTP kommt ausschließlich
+  von Hand aus der Profilseite.
 - **Ob die Radeinheit drinnen oder draußen stattfindet, kann die App nicht
   nachprüfen** — sie glaubt `bike_location` bzw. dem Titel. Plant die KI eine
   Einheit als `indoor`, die der Athlet dann doch auf der Straße fährt, steht

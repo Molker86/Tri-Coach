@@ -37,11 +37,9 @@ from .mapping import (
     bewertung_aus_detail,
     detail_zu_feldern,
     erster_wert,
-    ftp_watt,
     gewicht_kg,
     hole,
     koppel_notiz,
-    schwellenpace_laufen,
     schwellenpuls,
     teile_multisport,
     uebernimm_bewertung,
@@ -139,10 +137,10 @@ class SyncErgebnis:
         self.fitness_tage = 0
         self.hinweise: list[str] = []
         self.letzter_tag: date | None = None
-        # FTP, Schwellenpace, Schwellenpuls und Bestzeiten. Sie werden hier nur
-        # eingesammelt und nicht geschrieben: Ins Profil gehen sie zusammen mit
-        # Gewicht, Ruhepuls, HRV und VO2max in *einem* Zug, sonst entstünden je
-        # Abgleich zwei fast gleiche Einträge im Werteverlauf.
+        # Schwellenpuls und Bestzeiten. Sie werden hier nur eingesammelt und
+        # nicht geschrieben: Ins Profil gehen sie zusammen mit Gewicht,
+        # Ruhepuls, HRV und VO2max in *einem* Zug, sonst entstünden je Abgleich
+        # zwei fast gleiche Einträge im Werteverlauf.
         self.leistungswerte: dict[str, Any] = {}
 
 
@@ -748,25 +746,23 @@ def importiere_tageswerte(
 
 
 def hole_leistungswerte(api: Any, ergebnis: SyncErgebnis) -> dict[str, Any]:
-    """FTP, Schwellenwerte und Bestzeiten — drei Aufrufe, kein Zeitraum.
+    """Schwellenpuls und Bestzeiten — zwei Aufrufe, kein Zeitraum.
 
     Diese Werte gibt es nicht je Tag: Garmin gibt jeweils nur den zuletzt
     erkannten Stand heraus. Sie werden deshalb nicht in `WellnessDay`
     geschrieben, sondern gebündelt zurückgegeben und von der Profil-Nachführung
-    übernommen. Zusammen kosten sie vier Anfragen — `get_lactate_threshold`
-    holt selbst zwei, wovon die App nur Tempo und Herzfrequenz braucht.
+    übernommen. Zusammen kosten sie drei Anfragen — `get_lactate_threshold`
+    holt selbst zwei, wovon die App nur die Herzfrequenz braucht.
 
     Die Aufrufe stehen in Lambdas, damit auch ein *fehlender* Methodenname der
     Bibliothek als Hinweis im Lauf landet statt als Abbruch: `_hole_geschuetzt`
     fängt nur, was innerhalb des Aufrufs passiert.
 
-    Was hier bewusst fehlt, ist die kritische Schwimmgeschwindigkeit: Garmin
-    führt keinen CSS-Wert, weder als Endpunkt noch in den Profileinstellungen.
-    Sie bleibt Handarbeit — siehe Hinweis auf der Profilseite.
+    Bewusst nicht geholt werden FTP, Schwellenpace Laufen und die kritische
+    Schwimmgeschwindigkeit: Sie trägt der Athlet selbst ein, und was er einträgt,
+    bleibt stehen. Garmins Schwellentempo wandert deshalb nicht ins Profil,
+    obwohl derselbe Aufruf es mitliefert.
     """
-    ftp = ftp_watt(
-        _hole_geschuetzt("FTP", ergebnis, lambda: api.get_cycling_ftp())
-    )
     schwelle = _hole_geschuetzt(
         "Laktatschwelle", ergebnis, lambda: api.get_lactate_threshold(latest=True)
     )
@@ -775,8 +771,6 @@ def hole_leistungswerte(api: Any, ergebnis: SyncErgebnis) -> dict[str, Any]:
     )
 
     werte = {
-        "ftp_watts": ftp,
-        "threshold_pace_run": schwellenpace_laufen(schwelle),
         "lthr": schwellenpuls(schwelle),
         # Eine leere Liste ist kein Ergebnis, sondern „nichts Deutbares dabei" —
         # sie darf die bisherigen Bestzeiten nicht löschen.

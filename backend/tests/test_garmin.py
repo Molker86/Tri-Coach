@@ -945,25 +945,28 @@ def test_profil_wird_nachgefuehrt_ausser_maximalpuls(client, verbunden):
     assert any(eintrag["weight_kg"] == 78.5 for eintrag in verlauf)
 
 
-def test_leistungswerte_kommen_aus_garmin(client, verbunden):
-    """FTP und Schwellenwerte stehen hinter eigenen Endpunkten, nicht in den Tageswerten."""
+def test_ftp_und_schwellenpace_bleiben_handarbeit(client, verbunden, fake):
+    """Was der Athlet selbst eingetragen hat, fasst der Abgleich nicht an."""
     client.put(
         "/api/profile",
-        json={"ftp_watts": 200, "css_swim": "1:45"},
+        json={"ftp_watts": 200, "threshold_pace_run": "4:50", "css_swim": "1:45"},
         headers=verbunden,
     )
 
     _backfill(client, verbunden)
 
     profil = client.get("/api/profile", headers=verbunden).json()
-    assert profil["ftp_watts"] == 248
-    assert profil["threshold_pace_run"] == "4:30"  # aus 3,7 m/s
-    assert profil["lthr"] == 168
-    # Garmin führt keine kritische Schwimmgeschwindigkeit — der Wert bleibt stehen.
+    assert profil["ftp_watts"] == 200
+    assert profil["threshold_pace_run"] == "4:50"
     assert profil["css_swim"] == "1:45"
+    # Der Schwellenpuls dagegen kommt weiter aus Garmins Laktatschwelle.
+    assert profil["lthr"] == 168
+
+    # Die FTP wird nicht einmal angefragt — der Endpunkt antwortete sonst mit 248.
+    assert "get_cycling_ftp" not in fake.aufrufe
 
     verlauf = client.get("/api/profile/history", headers=verbunden).json()
-    assert verlauf[-1]["ftp_watts"] == 248
+    assert verlauf[-1]["ftp_watts"] == 200
     # Genau ein Eintrag aus dem Abgleich: Fitness- und Schwellenwerte werden
     # zusammen übernommen, nicht in zwei Zügen.
     assert len(verlauf) == 2

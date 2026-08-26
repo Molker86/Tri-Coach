@@ -234,26 +234,23 @@ def gewicht_kg(gramm: Any) -> float | None:
 
 
 # --------------------------------------------------------------------------
-# Schwellenwerte
+# Schwellenpuls
 #
-# FTP, Schwellentempo und Schwellenpuls fallen nicht tageweise an: Garmin führt
-# sie als Zustand des Athleten und gibt jeweils nur den zuletzt erkannten Stand
-# heraus, jede Größe hinter einem eigenen Endpunkt. Sie wandern deshalb direkt
-# ins Profil und nicht in `WellnessDay`.
+# Der Schwellenpuls fällt nicht tageweise an: Garmin führt ihn als Zustand des
+# Athleten und gibt nur den zuletzt erkannten Stand heraus. Er wandert deshalb
+# direkt ins Profil und nicht in `WellnessDay`.
 #
-# Genau deshalb wird hier jeder Wert gegen die Spanne aus `schemas.ProfileIn`
-# geprüft: Ein Ausreißer aus einer undokumentierten Schnittstelle käme sonst
-# ungefiltert in die Datenbank, und weil `ProfileOut` dieselben Grenzen
-# validiert, bekäme die Profilseite danach einen Fehler statt ihrer Daten.
+# FTP, Schwellenpace Laufen und die kritische Schwimmgeschwindigkeit stehen
+# bewusst **nicht** hier: Sie trägt der Athlet selbst ein und bleiben stehen,
+# auch wenn Garmin eigene Werte dazu führt.
+#
+# Der Wert wird gegen die Spanne aus `schemas.ProfileIn` geprüft: Ein Ausreißer
+# aus einer undokumentierten Schnittstelle käme sonst ungefiltert in die
+# Datenbank, und weil `ProfileOut` dieselben Grenzen validiert, bekäme die
+# Profilseite danach einen Fehler statt ihrer Daten.
 # --------------------------------------------------------------------------
 
-FTP_SPANNE = (50.0, 600.0)  # Watt
 SCHWELLENPULS_SPANNE = (90.0, 220.0)  # bpm
-# Garmins Geschwindigkeiten sind m/s; die Spanne entspricht 15:00 bis 2:00
-# min/km. Sie prüft vor allem die *Einheit*: Käme der Wert eines Tages in km/h,
-# fiele er heraus, statt eine Schwellenpace von 0:16 min/km ins Profil zu
-# schreiben.
-SCHWELLENTEMPO_SPANNE = (1.1, 8.4)  # m/s
 
 
 def _eintraege(antwort: Any) -> list[dict[str, Any]]:
@@ -265,46 +262,6 @@ def _eintraege(antwort: Any) -> list[dict[str, Any]]:
 
 def _in_spanne(wert: float | int | None, spanne: tuple[float, float]) -> bool:
     return wert is not None and spanne[0] <= wert <= spanne[1]
-
-
-def ftp_watt(antwort: Any) -> int | None:
-    """Die zuletzt erkannte Schwellenleistung aus `get_cycling_ftp()`."""
-    for eintrag in _eintraege(antwort):
-        wert = als_ganzzahl(
-            erster_wert(
-                eintrag,
-                ("functionalThresholdPower",),
-                ("ftpValue",),
-                ("value",),
-            )
-        )
-        if _in_spanne(wert, FTP_SPANNE):
-            return wert
-    return None
-
-
-def schwellentempo_ms(antwort: Any) -> float | None:
-    """Laufgeschwindigkeit an der Laktatschwelle in m/s.
-
-    Die Pfade decken beide Formen von `get_lactate_threshold()` ab — die
-    Bibliothek fasst den jüngsten Stand unter `speed_and_heart_rate` zusammen,
-    die Profileinstellungen führen denselben Wert flach.
-    """
-    for pfad in (
-        ("speed_and_heart_rate", "speed"),
-        ("lactateThresholdSpeed",),
-        ("speed",),
-    ):
-        wert = als_zahl(hole(antwort, *pfad))
-        if _in_spanne(wert, SCHWELLENTEMPO_SPANNE):
-            return wert
-    return None
-
-
-def schwellenpace_laufen(antwort: Any) -> str | None:
-    """Garmins Laktatschwelle als Pace dieser App — mm:ss pro Kilometer."""
-    tempo = schwellentempo_ms(antwort)
-    return None if tempo is None else pace_aus_geschwindigkeit("run", tempo)
 
 
 def schwellenpuls(antwort: Any) -> int | None:

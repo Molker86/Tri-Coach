@@ -54,7 +54,6 @@ _MINDESTABWEICHUNG: dict[str, float] = {
     "resting_hr": 1,
     "hrv_rmssd": 1,
     "vo2max": 0.1,
-    "ftp_watts": 1,
     "lthr": 1,
 }
 
@@ -73,18 +72,19 @@ def uebernehme_aus_garmin(
     heute: date | None = None,
     leistungswerte: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Trägt die Werte aus Garmin ins Profil: Fitnessdaten und Schwellenwerte.
+    """Trägt die Werte aus Garmin ins Profil: Fitnessdaten und Schwellenpuls.
 
     Aus den Fitnessdaten kommen Gewicht, Körperfett, Ruhepuls, HRV und VO2max;
-    `leistungswerte` bringt mit, was nur hinter eigenen Endpunkten steht (FTP,
-    Schwellenpace, Schwellenpuls und die Bestzeiten — geholt in
+    `leistungswerte` bringt mit, was nur hinter eigenen Endpunkten steht
+    (Schwellenpuls und Bestzeiten — geholt in
     `garmin.sync.hole_leistungswerte`). Beides geht bewusst durch **eine**
     Übernahme: Zwei Aufrufe hinterließen je Abgleich zwei fast gleiche Einträge
     im Werteverlauf.
 
     Bewusst **nicht** übernommen wird der Maximalpuls: Garmin schätzt ihn, liegt
     dabei oft daneben, und er steuert sämtliche Herzfrequenzzonen dieser App.
-    Er bleibt Handarbeit.
+    Er bleibt Handarbeit — ebenso FTP, Schwellenpace Laufen und die kritische
+    Schwimmgeschwindigkeit.
 
     Gibt die geänderten Felder zurück.
     """

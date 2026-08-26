@@ -222,6 +222,10 @@ class FakeGarmin:
     # Kein Zeitraum, kein Tag: Garmin gibt nur den zuletzt erkannten Stand
     # heraus. Die Formen sind die des Originals — die FTP kommt als Liste, die
     # Laktatschwelle als Bündel aus Tempo (m/s) und Herzfrequenz.
+    #
+    # `get_cycling_ftp` steht hier, obwohl die App es nicht mehr aufruft: Nur
+    # so hat der Wächter in `test_ftp_und_schwellenpace_bleiben_handarbeit`
+    # Zähne — ein zurückkehrender Aufruf bekäme sonst gar keine Antwort.
 
     def get_cycling_ftp(self):
         self.aufrufe.append("get_cycling_ftp")
