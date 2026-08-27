@@ -579,6 +579,24 @@ def test_ein_neuer_plan_erbt_die_frueheren_tage_und_loest_den_alten_ab(client, a
     assert len(daten) == len(set(daten))
 
 
+def test_geerbt_wird_hoechstens_eine_woche(client, auth):
+    """Sonst wächst der Plan mit jeder Neuplanung um seine eigene Vergangenheit."""
+    lege_block_an(client, auth, tage=7)
+    uebernimm(
+        client, auth, json.dumps(ernaehrungsantwort(ab=HEUTE - timedelta(days=10), tage=12))
+    )
+
+    antwort = uebernimm(client, auth, json.dumps(ernaehrungsantwort(ab=HEUTE, tage=2)))
+    assert antwort.status_code == 201
+
+    plan = client.get("/api/ernaehrung/aktiv", headers=auth).json()
+    daten = [tag["date"] for tag in plan["tage"]]
+    assert daten == [
+        (HEUTE + timedelta(days=i)).isoformat() for i in range(-7, 2)
+    ]
+    assert plan["start_date"] == (HEUTE - timedelta(days=7)).isoformat()
+
+
 def test_loeschen_nimmt_tage_und_mahlzeiten_mit(client, auth):
     lege_block_an(client, auth)
     uebernimm(client, auth, json.dumps(ernaehrungsantwort()))

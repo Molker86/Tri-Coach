@@ -247,6 +247,14 @@ export default function PlanView() {
   const nochOffen = plan?.sessions.some((s) => s.date >= heute) ?? false
   const zeigtAlles = zeigeVergangenes || !nochOffen
 
+  // Dieselbe Frage in der Kopfzeile: Sie nennt, was noch bevorsteht, nicht die
+  // Summe aller je geerbten Tage. Bewusst **nicht** an `zeigtAlles` gehängt —
+  // eine Zahl, die sich mit einem Anzeigeschalter ändert, wäre keine Bilanz.
+  const offeneEinheiten =
+    plan?.sessions.filter(
+      (s) => s.sport !== 'rest' && (!nochOffen || s.date >= heute),
+    ).length ?? 0
+
   // Einheiten nach Woche und Tag gruppieren. Ein Block über wenige Tage liegt
   // komplett in Woche 1 — die Wochenebene zeigen wir dann gar nicht erst an, sie
   // bleibt nur für ältere Mehrwochenpläne im Verlauf erhalten.
@@ -368,7 +376,7 @@ export default function PlanView() {
           <p>
             {new Date(plan.start_date).toLocaleDateString('de-DE')} –{' '}
             {new Date(plan.end_date).toLocaleDateString('de-DE')} ·{' '}
-            {plan.sessions.filter((s) => s.sport !== 'rest').length} Einheiten
+            {offeneEinheiten} Einheiten
             {plan.is_active && <> · <span className="badge badge-success">Aktiv</span></>}
           </p>
         </div>

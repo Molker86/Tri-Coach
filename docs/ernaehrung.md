@@ -104,6 +104,13 @@ An `alt.tage` hängt `cascade="all, delete-orphan"`, und die Sammlung im Speiche
 weiß von einer direkt gesetzten Spalte nichts — das anschließende `db.delete()`
 nähme die gerade geerbten Zeilen sonst wieder mit, folgenlos und unbemerkt.
 
+**Geerbt wird höchstens eine Woche** (`ERBE_TAGE`). Anders als der
+Trainingsblock trägt die Ernährung nichts nach: keine Umsetzungsquote, kein
+Abgleich, der einen alten Tag noch einmal liest. Ohne Grenze wächst ein oft neu
+geplanter Plan um seine eigene Vergangenheit, und die Ansicht beginnt Wochen vor
+dem, was gefragt ist. Die Oberfläche zieht dieselbe Linie und zeigt vergangene
+Tage nur hinter „Vergangene Tage anzeigen" — genau wie der Trainingsplan.
+
 **Die Formerkennung fragt nach `datum` oder `mahlzeiten`, nicht nach einer
 Tagesliste** (`ernaehrung_import._ist_ernaehrungsform`). „Trägt eine Liste unter
 `tage` oder `days`" klingt richtig und lässt einen **Trainingsblock** durch: Der

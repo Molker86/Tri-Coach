@@ -57,6 +57,10 @@ _HUELLEN = (
 # erzeugen und eine Warnung an jedem Tag niemandem hilft.
 MAKRO_TOLERANZ_PCT = 15
 
+# Wie weit ein neuer Plan in die Vergangenheit erbt. Ohne Grenze schleppt ein
+# oft neu geplanter Ernährungsplan jeden je geplanten Tag mit sich.
+ERBE_TAGE = 7
+
 
 # Woran ein Ernährungstag zu erkennen ist. Positiv formuliert und nicht über
 # die Abwesenheit von `sessions`: Ein Trainingsblock trägt dieselbe Liste unter
@@ -343,12 +347,19 @@ def _erbe_frueheres(
     statt zu sterben, damit weder eine zweite Liste noch ein zweiter aktiver
     Plan nötig wird.
 
+    Geerbt wird aber nur die letzte Woche (`ERBE_TAGE`). Anders als der
+    Trainingsblock trägt die Ernährung nichts nach: Es gibt keine
+    Umsetzungsquote und keinen Abgleich, der einen alten Tag noch einmal liest —
+    er wäre reiner Ballast, der sich mit jeder Neuplanung um ein paar Tage
+    verlängert.
+
     `grenze` kommt von außen und ist der **ursprüngliche** Beginn des neuen
     Plans. Ihn hier aus `neu.start_date` zu lesen wäre falsch, sobald ein
     zweiter Vorgänger folgt: Der erste hat den Beginn dann schon nach hinten
     gezogen, und die zweite Runde erbte zu wenig.
     """
-    umzug = [tag for tag in alt.tage if tag.date < grenze]
+    fruehestens = grenze - timedelta(days=ERBE_TAGE)
+    umzug = [tag for tag in alt.tage if fruehestens <= tag.date < grenze]
     if not umzug:
         return
     # Über die **Beziehung** umhängen, nicht über die Fremdschlüsselspalte: An

@@ -573,7 +573,16 @@ function EinkaufslistenDialog(props: {
    -------------------------------------------------------------------------- */
 
 function PlanAnsicht({ plan, heute }: { plan: Ernaehrungsplan; heute: string }) {
-  const tage = plan.tage
+  const [zeigeVergangenes, setZeigeVergangenes] = useState(false)
+
+  // Ein Plan schleppt die vergangene Woche mit (`ERBE_TAGE`), gefragt ist aber,
+  // was heute und danach auf den Tisch kommt. Die Ausnahme ist ein Plan, der
+  // ganz vorbei ist: Dort stünde die Seite sonst leer.
+  const vergangene = plan.tage.filter((t) => t.date < heute).length
+  const nochOffen = plan.tage.some((t) => t.date >= heute)
+  const zeigtAlles = zeigeVergangenes || !nochOffen
+  const tage = zeigtAlles ? plan.tage : plan.tage.filter((t) => t.date >= heute)
+
   if (tage.length === 0) return null
   const fuehrend = montagsIndex(tage[0].date)
 
@@ -586,6 +595,17 @@ function PlanAnsicht({ plan, heute }: { plan: Ernaehrungsplan; heute: string }) 
           <p className="small muted mb-0">{plan.begruendung}</p>
         )}
       </div>
+
+      {vergangene > 0 && nochOffen && (
+        <button
+          className="btn btn-ghost btn-sm mb-1"
+          onClick={() => setZeigeVergangenes((an) => !an)}
+        >
+          {zeigeVergangenes
+            ? 'Vergangene Tage ausblenden'
+            : `Vergangene Tage anzeigen (${vergangene})`}
+        </button>
+      )}
 
       <div className="ern-kopf" aria-hidden="true">
         {WOCHENTAGE.map((t) => (
