@@ -1345,8 +1345,34 @@ def test_ftp_und_schwellenpace_bleiben_handarbeit(client, verbunden, fake):
     verlauf = client.get("/api/profile/history", headers=verbunden).json()
     assert verlauf[-1]["ftp_watts"] == 200
     # Genau ein Eintrag aus dem Abgleich: Fitness- und Schwellenwerte werden
-    # zusammen übernommen, nicht in zwei Zügen.
+    # zusammen übernommen, nicht in zwei Zügen. Garmins gemessene
+    # Schwellenpace legt keinen weiteren an — im Verlauf stehen nur die Werte,
+    # die tatsächlich steuern.
     assert len(verlauf) == 2
+
+
+def test_garmins_schwellenpace_steht_neben_der_handeingabe(client, verbunden):
+    """Sie kommt in derselben Antwort mit wie der Schwellenpuls.
+
+    Bis hierher wurde sie verworfen — und damit war eine veraltete Handeingabe
+    im Paket durch nichts zu erkennen. Überschrieben wird trotzdem nichts: Die
+    Tempozonen rechnen weiter mit dem, was der Athlet eingetragen hat.
+    """
+    client.put(
+        "/api/profile",
+        json={"threshold_pace_run": "4:50"},
+        headers=verbunden,
+    )
+
+    _backfill(client, verbunden)
+
+    athlet = client.get("/api/plans/export", headers=verbunden).json()["payload"]["athlet"]
+    assert athlet["schwellenpace_laufen_min_pro_km"] == "4:50"
+    assert athlet["schwellenpace_gemessen_garmin"] == "4:30"
+
+    # Und die Zonen folgen weiterhin der Handeingabe, nicht der Messung.
+    zonen = client.get("/api/plans/export", headers=verbunden).json()["payload"]
+    assert zonen["tempozonen_laufen"], "ohne Handeingabe gäbe es gar keine Zonen"
 
 
 def test_bestzeiten_kommen_aus_garmin_und_landen_im_export(client, verbunden):

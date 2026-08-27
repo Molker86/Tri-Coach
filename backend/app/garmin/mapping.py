@@ -280,6 +280,32 @@ def schwellenpuls(antwort: Any) -> int | None:
     return None
 
 
+# Die Schwellengeschwindigkeit aus derselben Antwort, in m/s. Die Spanne
+# entspricht rund 2:00 bis 10:00 min/km — alles darüber hinaus ist kein
+# Schwellentempo, sondern ein Messfehler.
+SCHWELLENTEMPO_SPANNE = (1.67, 8.33)
+
+
+def schwellenpace_gemessen(antwort: Any) -> str | None:
+    """Garmins gemessene Schwellenpace, in der Schreibweise des Profils.
+
+    Sie kommt in **derselben** Antwort mit wie der Schwellenpuls und wurde bis
+    hierher verworfen. Maßgeblich für `pace_zones()` bleibt die Handeingabe des
+    Athleten; dieser Wert steht getrennt daneben, damit im Paket zu sehen ist,
+    ob die Handeingabe noch stimmt.
+
+    Ein Gegenstück für die FTP gibt es nicht: Der `power`-Block derselben
+    Antwort trägt Garmins **Lauf**leistung (`powerToWeight`, `sport="Running"`),
+    nicht die Rad-FTP.
+    """
+    tempo = als_zahl(
+        erster_wert(antwort, ("speed_and_heart_rate", "speed"), ("speed",))
+    )
+    if not _in_spanne(tempo, SCHWELLENTEMPO_SPANNE):
+        return None
+    return pace_aus_geschwindigkeit("run", tempo)
+
+
 # --------------------------------------------------------------------------
 # Bestzeiten
 #
@@ -712,7 +738,7 @@ def uebungen_aus_saetzen(saetze: Any) -> list[dict[str, Any]] | None:
     return uebungen or None
 
 
-def detail_zu_feldern(detail: Any) -> dict[str, Any]:
+def detail_zu_feldern(detail: Any, sport: str | None = None) -> dict[str, Any]:
     """Alles, was außer der Selbstauskunft noch im Aktivitätsdetail steht.
 
     Das Detail wird für jede Einheit der letzten 42 Tage ohnehin geholt
@@ -754,6 +780,27 @@ def detail_zu_feldern(detail: Any) -> dict[str, Any]:
     if workout:
         felder["garmin_workout_id"] = str(workout)
 
+    # Die normalisierte Leistung — die Wattzahl, die dieselbe Belastung bei
+    # gleichmäßiger Fahrt ergeben hätte. Bei welligem Profil und im Windschatten
+    # die einzige belastbare Radgröße; der Schnitt unterschätzt beides.
+    #
+    # Nur beim Rad, aus demselben Grund, aus dem `avg_power` dort bleibt:
+    # Laufleistung ist in derselben Spalte eine andere Größe. Garmin schreibt
+    # den Wert in zwei Schreibweisen — die Bibliothek führt `normPower` als
+    # Alias, an echten Antworten stand auch `normalizedPower`.
+    if sport == "bike":
+        norm = als_ganzzahl(
+            erster_wert(
+                detail,
+                ("summaryDTO", "normPower"),
+                ("summaryDTO", "normalizedPower"),
+                ("normPower",),
+                ("normalizedPower",),
+            )
+        )
+        if _in_spanne(norm, _NORMLEISTUNG_SPANNE):
+            felder["normalisierte_leistung"] = norm
+
     return felder
 
 
@@ -780,6 +827,69 @@ def trittfrequenz(sport: str, aktivitaet: dict[str, Any]) -> int | None:
     }
     feld = felder.get(sport)
     return als_ganzzahl(aktivitaet.get(feld)) if feld else None
+
+
+# Spannen für die Messgrößen, die aus derselben Antwort mitkommen. Dieselbe
+# Vorsicht wie beim Schwellenpuls: Die Schnittstelle ist undokumentiert, und ein
+# Ausreißer stünde ungefiltert im Prompt.
+_TEMPERATUR_SPANNE = (-30.0, 60.0)     # Grad Celsius
+_NORMLEISTUNG_SPANNE = (30.0, 2000.0)  # Watt
+_SWOLF_SPANNE = (10.0, 200.0)
+_ZUEGE_SPANNE = (1.0, 200.0)           # Züge je Bahn
+
+
+def netto_dauer_minuten(aktivitaet: dict[str, Any]) -> int | None:
+    """Reine Bewegungszeit (`movingDuration`) in Minuten.
+
+    Garmin führt sie neben der Gesamtdauer in derselben Listenantwort. Ein Lauf
+    mit langen Ampelphasen steht sonst mit seiner Bruttozeit im Paket, und der
+    nächste Umfang wird auf eine Zahl aufgebaut, die so nie gelaufen wurde.
+    """
+    sekunden = als_zahl(aktivitaet.get("movingDuration"))
+    if sekunden is None or sekunden <= 0:
+        return None
+    return max(0, int(round(sekunden / 60)))
+
+
+def hoehenkorrigierte_pace(sport: str, aktivitaet: dict[str, Any]) -> str | None:
+    """`avgGradeAdjustedSpeed` in derselben Schreibweise wie `avg_pace`.
+
+    Nur beim Laufen: Garmin rechnet die Größe für Rad und Schwimmen nicht, und
+    dieselbe Spalte trüge dort eine andere Bedeutung.
+    """
+    if sport != "run":
+        return None
+    return pace_aus_geschwindigkeit(sport, aktivitaet.get("avgGradeAdjustedSpeed"))
+
+
+def schwimmtechnik(sport: str, aktivitaet: dict[str, Any]) -> dict[str, int]:
+    """SWOLF und Züge je Bahn — nur belegte Schlüssel.
+
+    Beim Schwimmen sagt das Tempo allein wenig: Dieselbe Zeit entsteht mit ganz
+    verschiedenem Aufwand, und ob eine Einheit die Technik verbessert hat, ist
+    ohne diese beiden Zahlen nicht zu sehen.
+    """
+    if sport != "swim":
+        return {}
+    felder: dict[str, int] = {}
+    swolf = als_ganzzahl(erster_wert(aktivitaet, ("averageSwolf",), ("avgSwolf",)))
+    if _in_spanne(swolf, _SWOLF_SPANNE):
+        felder["swolf"] = swolf
+    zuege = als_ganzzahl(aktivitaet.get("avgStrokes"))
+    if _in_spanne(zuege, _ZUEGE_SPANNE):
+        felder["zuege"] = zuege
+    return felder
+
+
+def temperatur(aktivitaet: dict[str, Any]) -> float | None:
+    """Die höchste gemessene Temperatur der Einheit.
+
+    Das Maximum und nicht der Schnitt: Die Frage, die diese Zahl beantworten
+    soll, ist "war es zu heiß für dieses Tempo", und die entscheidet sich an
+    der Spitze. Steht nur, wo das Gerät einen Fühler hat.
+    """
+    wert = als_zahl(aktivitaet.get("maxTemperature"))
+    return wert if _in_spanne(wert, _TEMPERATUR_SPANNE) else None
 
 
 def aktivitaet_zu_log(
@@ -842,6 +952,12 @@ def aktivitaet_zu_log(
         # alles Übrige kommt. Ohne sie sagt eine Schwelleneinheit nur „37 min,
         # HF-Schnitt 148" — und ob die Intervalle standen, weiß niemand.
         "hr_zone_seconds": zonensekunden(aktivitaet),
+        # Vier weitere Messgrößen aus **derselben** Antwort, die bis hierher
+        # gelesen und verworfen wurde. Keine kostet eine zusätzliche Anfrage.
+        "netto_dauer_min": netto_dauer_minuten(aktivitaet),
+        "gap_pace": hoehenkorrigierte_pace(sport, aktivitaet),
+        "temperatur_c": temperatur(aktivitaet),
+        **schwimmtechnik(sport, aktivitaet),
         "notes": aktivitaet.get("activityName") or None,
     }
 

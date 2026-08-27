@@ -40,6 +40,7 @@ from .mapping import (
     gewicht_kg,
     hole,
     koppel_notiz,
+    schwellenpace_gemessen,
     schwellenpuls,
     teile_multisport,
     uebernimm_bewertung,
@@ -248,7 +249,7 @@ def importiere_aktivitaeten(
             detail = _hole_detail(api, felder["garmin_activity_id"], ergebnis)
             if detail is not None:
                 uebernimm_bewertung(felder, bewertung_aus_detail(detail))
-                felder.update(detail_zu_feldern(detail))
+                felder.update(detail_zu_feldern(detail, felder["sport"]))
             # Die gezählten Übungen kosten eine **zweite** Anfrage und gibt es
             # nur, wo die Uhr Sätze zählt. Deshalb erst hier und nur für diese
             # beiden Sportarten — bei einem Lauf wäre der Endpunkt leer.
@@ -808,10 +809,17 @@ def hole_leistungswerte(api: Any, ergebnis: SyncErgebnis) -> dict[str, Any]:
     Bibliothek als Hinweis im Lauf landet statt als Abbruch: `_hole_geschuetzt`
     fängt nur, was innerhalb des Aufrufs passiert.
 
-    Bewusst nicht geholt werden FTP, Schwellenpace Laufen und die kritische
-    Schwimmgeschwindigkeit: Sie trägt der Athlet selbst ein, und was er einträgt,
-    bleibt stehen. Garmins Schwellentempo wandert deshalb nicht ins Profil,
-    obwohl derselbe Aufruf es mitliefert.
+    Was der Athlet einträgt, bleibt maßgeblich: FTP, Schwellenpace Laufen und
+    die kritische Schwimmgeschwindigkeit steuern die Zonen dieser App und
+    werden von hier aus **nie** überschrieben. Garmins gemessenes
+    Schwellentempo geht seit dieser Änderung trotzdem mit — in ein eigenes
+    Feld (`garmin_threshold_pace_run`) neben der Handeingabe. Es kostet keine
+    zusätzliche Anfrage und ist das Einzige, woran eine veraltete Handeingabe
+    im Paket zu erkennen ist.
+
+    Ein Gegenstück für die FTP gibt es nicht: Der `power`-Block derselben
+    Antwort trägt Garmins Laufleistung (`powerToWeight`, `sport="Running"`),
+    nicht die Rad-FTP — die stünde hinter einem eigenen Aufruf.
     """
     schwelle = _hole_geschuetzt(
         "Laktatschwelle", ergebnis, lambda: api.get_lactate_threshold(latest=True)
@@ -822,6 +830,7 @@ def hole_leistungswerte(api: Any, ergebnis: SyncErgebnis) -> dict[str, Any]:
 
     werte = {
         "lthr": schwellenpuls(schwelle),
+        "garmin_threshold_pace_run": schwellenpace_gemessen(schwelle),
         # Eine leere Liste ist kein Ergebnis, sondern „nichts Deutbares dabei" —
         # sie darf die bisherigen Bestzeiten nicht löschen.
         "garmin_personal_bests": bestzeiten(rekorde) or None,

@@ -23,6 +23,7 @@ from app.garmin.mapping import (
     koppel_notiz,
     pace_aus_geschwindigkeit,
     schaetze_rpe,
+    schwellenpace_gemessen,
     schwellenpuls,
     sport_aus_typkey,
     uebungen_aus_saetzen,
@@ -664,3 +665,144 @@ def test_ohne_saetze_gibt_es_keine_leere_liste():
     assert uebungen_aus_saetzen({}) is None
     assert uebungen_aus_saetzen(None) is None
     assert uebungen_aus_saetzen({"exerciseSets": ["Unfug", 7]}) is None
+
+
+# --------------------------------------------------------------------------
+# Fünf Messgrößen, die in derselben Antwort mitkommen
+#
+# Bis hierher gelesen und verworfen. Keine kostet eine zusätzliche Anfrage —
+# sie standen in Antworten, die der Abgleich ohnehin holt.
+# --------------------------------------------------------------------------
+
+
+def _lauf(**extra):
+    return {
+        "activityId": 7,
+        "activityType": {"typeKey": "running"},
+        "startTimeLocal": "2026-08-19 07:00:00",
+        "duration": 3600.0,
+        "distance": 10000.0,
+        "averageSpeed": 2.78,
+        **extra,
+    }
+
+
+def test_nettozeit_kommt_aus_der_bewegungsdauer():
+    """Ein Lauf mit vielen Ampeln steht sonst mit seiner Bruttozeit im Paket."""
+    felder = aktivitaet_zu_log(_lauf(movingDuration=3300.0))
+
+    assert felder["duration_min"] == 60
+    assert felder["netto_dauer_min"] == 55
+
+
+def test_ohne_bewegungsdauer_bleibt_die_nettozeit_leer():
+    assert aktivitaet_zu_log(_lauf())["netto_dauer_min"] is None
+    assert aktivitaet_zu_log(_lauf(movingDuration=0))["netto_dauer_min"] is None
+
+
+def test_hoehenkorrigierte_pace_nur_beim_laufen():
+    """Garmin rechnet die Größe für Rad und Schwimmen nicht."""
+    lauf = aktivitaet_zu_log(_lauf(avgGradeAdjustedSpeed=2.95))
+    assert lauf["gap_pace"] == "5:39"
+    assert lauf["avg_pace"] == "6:00"
+
+    rad = aktivitaet_zu_log(
+        {
+            "activityId": 8,
+            "activityType": {"typeKey": "road_biking"},
+            "startTimeLocal": "2026-08-19 07:00:00",
+            "duration": 3600.0,
+            "averageSpeed": 8.0,
+            "avgGradeAdjustedSpeed": 8.5,
+        }
+    )
+    assert rad["gap_pace"] is None
+
+
+def test_swolf_und_zuege_nur_beim_schwimmen():
+    """Beim Schwimmen das einzige Maß für Technik — sonst eine fremde Größe."""
+    schwimmen = aktivitaet_zu_log(
+        {
+            "activityId": 9,
+            "activityType": {"typeKey": "lap_swimming"},
+            "startTimeLocal": "2026-08-19 07:00:00",
+            "duration": 1800.0,
+            "distance": 1500.0,
+            "averageSpeed": 0.83,
+            "averageSwolf": 38,
+            "avgStrokes": 17,
+        }
+    )
+    assert schwimmen["swolf"] == 38
+    assert schwimmen["zuege"] == 17
+
+    # An einem Lauf tauchen die Schlüssel gar nicht erst auf.
+    lauf = aktivitaet_zu_log(_lauf(averageSwolf=38, avgStrokes=17))
+    assert "swolf" not in lauf
+    assert "zuege" not in lauf
+
+
+def test_unsinnige_schwimmwerte_fallen_heraus():
+    """Dieselbe Vorsicht wie beim Schwellenpuls: undokumentierte Schnittstelle."""
+    felder = aktivitaet_zu_log(
+        {
+            "activityId": 9,
+            "activityType": {"typeKey": "lap_swimming"},
+            "startTimeLocal": "2026-08-19 07:00:00",
+            "duration": 1800.0,
+            "averageSwolf": 9999,
+            "avgStrokes": 0,
+        }
+    )
+    assert "swolf" not in felder
+    assert "zuege" not in felder
+
+
+def test_temperatur_wird_uebernommen_und_geprueft():
+    """Ein langsamer Lauf bei 32 Grad ist kein Formverlust."""
+    assert aktivitaet_zu_log(_lauf(maxTemperature=31.5))["temperatur_c"] == 31.5
+    assert aktivitaet_zu_log(_lauf(maxTemperature=999))["temperatur_c"] is None
+    assert aktivitaet_zu_log(_lauf())["temperatur_c"] is None
+
+
+def test_normalisierte_leistung_in_beiden_schreibweisen():
+    """Die Bibliothek führt `normPower`, an echten Antworten stand `normalizedPower`."""
+    assert detail_zu_feldern({"summaryDTO": {"normPower": 250.0}}, "bike") == {
+        "normalisierte_leistung": 250
+    }
+    assert detail_zu_feldern({"summaryDTO": {"normalizedPower": 359.0}}, "bike") == {
+        "normalisierte_leistung": 359
+    }
+
+
+def test_normalisierte_leistung_nur_beim_rad():
+    """Dieselbe Regel wie bei `avg_power`: Laufleistung ist eine andere Größe."""
+    assert detail_zu_feldern({"summaryDTO": {"normPower": 250.0}}, "run") == {}
+    # Und ohne Sportart gar nicht — der Aufrufer muss sie nennen.
+    assert detail_zu_feldern({"summaryDTO": {"normPower": 250.0}}) == {}
+
+
+def test_unsinnige_normleistung_faellt_heraus():
+    assert detail_zu_feldern({"summaryDTO": {"normPower": 9000}}, "bike") == {}
+    assert detail_zu_feldern({"summaryDTO": {}}, "bike") == {}
+
+
+# --------------------------------------------------------------------------
+# Garmins gemessene Schwellenpace
+# --------------------------------------------------------------------------
+
+
+def test_schwellenpace_kommt_aus_derselben_antwort_wie_der_puls():
+    """Sie lag immer mit dabei und wurde verworfen."""
+    antwort = {"speed_and_heart_rate": {"speed": 4.15, "heartRate": 168}}
+
+    assert schwellenpace_gemessen(antwort) == "4:01"
+    assert schwellenpuls(antwort) == 168
+
+
+def test_schwellenpace_prueft_auf_ein_menschenmoegliches_tempo():
+    """Ein Ausreißer aus einer undokumentierten Schnittstelle stünde sonst im Prompt."""
+    assert schwellenpace_gemessen({"speed_and_heart_rate": {"speed": 99.0}}) is None
+    assert schwellenpace_gemessen({"speed_and_heart_rate": {"speed": 0.2}}) is None
+    assert schwellenpace_gemessen({"speed_and_heart_rate": {}}) is None
+    assert schwellenpace_gemessen({}) is None

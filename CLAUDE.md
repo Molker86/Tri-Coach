@@ -108,7 +108,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 560 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 604 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -232,6 +232,8 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   dorthin *und* in `mapping.aktivitaet_zu_log()` — sonst bleibt die Spalte leer.
   Was nur der Export liest, gehört umgekehrt **nicht** in `SessionLogOut`: Die
   Ausführungsspalten (`hr_zone_seconds`, `garmin_abschnitte`, `garmin_uebungen`)
+  und die sechs Messgrößen aus derselben Antwort (`netto_dauer_min`,
+  `gap_pace`, `normalisierte_leistung`, `swolf`, `zuege`, `temperatur_c`)
   stehen dort bewusst nicht, sonst zöge jedes neue Feld
   `frontend/src/types.ts` mit. `garmin_compliance` wird weiter befüllt, aber von
   niemandem mehr gelesen — es ist Garmins Bewertung *gegen die Vorgabe* und

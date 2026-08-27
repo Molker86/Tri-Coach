@@ -131,6 +131,58 @@ Wochen. Für einen Block über wenige Tage entscheidet die jüngste Entwicklung,
 und die Vierwochensicht steht als `mittelwerte.28_tage` daneben. Über den vollen
 Rückblick waren die Tageswerte ein Fünftel des gesamten Prompts.
 
+**Kapazität und Richtung stehen neben der Erholungslage.** Das Paket beschrieb
+sehr genau, wie *erholt* der Athlet ist — HRV samt gemessenem Normalbereich,
+Schlafphasen, Readiness, Trainingsstatus mit Lastfenster — und sehr wenig
+darüber, was er *kann* und wohin es geht. Vier Fragen, die ein Trainer als
+erstes stellt, waren aus dem Paket nicht zu beantworten, obwohl ihre Rohdaten
+längst in der Datenbank lagen:
+
+| Frage | Rohdaten | Fehlte, weil |
+|---|---|---|
+| Wie verteilt sich die Intensität? | `SessionLog.hr_zone_seconds` | je Einheit exportiert, nie zur Woche summiert |
+| Wie lang war die längste Einheit? | `duration_min` | `weekly_summary()` kannte nur Summe und Schnitt |
+| Wohin geht die Form über Monate? | `ProfileHistory` | wurde **nie** exportiert |
+| Kostet dasselbe Tempo mehr Puls? | Tempo und `avg_hr` | wurde nie ins Verhältnis gesetzt |
+
+Dazu `monotonie` und `strain` nach Foster: Zwei Wochen mit identischer Summe
+können sich in ihrer Gleichförmigkeit vollständig unterscheiden, und die Summe
+allein zeigt das nicht.
+
+**Aggregiert und nicht roh** — das ist der Punkt. Die Zonenzeiten standen schon
+je Einheit im Paket; was fehlte, war die Addition, und genau die ist es, an der
+ein Sprachmodell scheitert. Dieselbe Überlegung beim Verlauf: `ProfileHistory`
+bekommt bei *jeder* Wertänderung eine Zeile, der tägliche Abgleich erzeugt also
+fast täglich eine. Ungefiltert stünde ein Jahr mit dreihundert Zeilen im Prompt
+und verdrängte die Historie, um die es geht — `verlauf_stuetzpunkte()` dünnt auf
+einen Stützpunkt je Monat aus.
+
+**Genannt wird, wo die Größe steht — nicht, was sie bedeuten soll.** Der
+Anweisungsteil zählt die neuen Felder auf, weil die KI ein ungenanntes Feld
+übersieht (dieselbe Lektion wie beim HRV-Normalbereich). Was dort ausdrücklich
+**nicht** steht, ist eine Zielverteilung, eine Monotoniegrenze oder eine
+Richtung für die Effizienz: Das wären wieder Zahlen aus diesem Dokument, und
+genau die sind mit den dreizehn Prinzipien geflogen. Der Absatz kostet rund 500
+Zeichen; `test_der_anweisungstext_bleibt_kurz` hat danach noch gut 600 Zeichen
+Luft, die Grenze blieb unangetastet.
+
+**Die Effizienz ist bewusst unbewertet.** Tempo bzw. Leistung je Herzschlag
+trennt „langsamer geworden" von „müder geworden" — beide senken das Tempo, aber
+nur die Ermüdung hebt dabei den Puls. Vergleichbar ist der Wert allerdings
+**nur zwischen ähnlichen Einheiten**: Ein Intervalltraining und ein langer
+Dauerlauf ergeben verschiedene Zahlen, ohne dass sich an der Form etwas
+geändert hätte. Er steht deshalb je Einheit neben Dauer, Zonen und Puls, und
+der Prompt sagt die Einschränkung ausdrücklich dazu.
+
+**Garmins gemessene Schwellenpace steht neben der Handeingabe, nicht in ihr**
+(`athlet.schwellenpace_gemessen_garmin`). Maßgeblich für `pace_zones()` bleibt,
+was der Athlet einträgt — das war eine Entscheidung und bleibt eine. Verworfen
+wurde Garmins Wert bis hierher trotzdem zu Unrecht: Er kommt in **derselben**
+Antwort mit, aus der schon der Schwellenpuls gelesen wird, kostet also keine
+Anfrage, und eine veraltete Handeingabe ist im Paket durch nichts anderes zu
+erkennen. Ein Gegenstück für die FTP gibt es nicht — siehe „Die FTP kommt aus
+keiner dieser Antworten" in `docs/garmin-abgleich.md`.
+
 Punkt 3 verlangt bei `strength` und `mobility` eine **Übungsliste** in
 `structure` und hinter jeder deutschen Bezeichnung den geläufigen englischen
 Namen in Klammern („Seitstütz (Side Plank) 3x40 s je Seite"). Das ist kein

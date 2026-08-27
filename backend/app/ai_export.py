@@ -25,6 +25,7 @@ from .models import (
     KiSettings,
     Plan,
     PlanSession,
+    ProfileHistory,
     SessionLog,
     TrainingRequest,
     User,
@@ -42,6 +43,7 @@ from .sportscience import (
     PACE_ZONEN_ANTEIL_SCHWIMM,
     acute_chronic_ratio,
     banister_trimp,
+    effizienz_je_einheit,
     calc_age,
     calc_bmi,
     erholung_stunden,
@@ -52,10 +54,11 @@ from .sportscience import (
     power_zones,
     weekly_summary,
     wellness_auffaelligkeiten,
+    verlauf_stuetzpunkte,
     wellness_mittelwerte,
 )
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"
 
 # Planungshorizont in Tagen. Kurz gehalten — siehe Modul-Docstring.
 PLAN_DAYS_DEFAULT = 7
@@ -71,6 +74,13 @@ HISTORY_WEEKS = 4
 # `mittelwerte.28_tage` daneben. Über vier Wochen waren die Tageswerte ein
 # Fünftel des gesamten Prompts.
 WELLNESS_TAGE = 14
+
+# Wie weit der Profilverlauf zurückreicht. Deutlich länger als der Rückblick
+# auf die Einheiten, und das ist der Punkt: Vier Wochen zeigen die Belastung,
+# nicht die Richtung. Ob VO2max, Gewicht und Ruhepuls sich über die Saison
+# verbessert oder verschlechtert haben, ist aus dem Rückblickfenster
+# grundsätzlich nicht abzulesen — und ein Monatsstützpunkt kostet eine Zeile.
+VERLAUF_MONATE = 12
 
 # Ab diesem RPE gilt eine Einheit als intensiv — die Schwelle hinter
 # `tage_seit_letzter_intensiver_einheit` im Datenpaket.
@@ -107,14 +117,16 @@ def default_start() -> date:
 # --------------------------------------------------------------------------
 
 
-def _athlete_block(profile: AthleteProfile | None) -> dict[str, Any]:
+def _athlete_block(
+    profile: AthleteProfile | None, verlauf: list[Any] | None = None
+) -> dict[str, Any]:
     if profile is None:
         return {"hinweis": "Kein Profil hinterlegt — bitte konservativ planen."}
 
     age = calc_age(profile.birth_date)
     max_hr = profile.max_hr or estimate_max_hr(age)
 
-    return {
+    block = {
         "alter": age,
         "geschlecht": profile.sex,
         "groesse_cm": profile.height_cm,
@@ -129,6 +141,11 @@ def _athlete_block(profile: AthleteProfile | None) -> dict[str, Any]:
         "hrv_ms": profile.hrv_rmssd,
         "ftp_watt": profile.ftp_watts,
         "schwellenpace_laufen_min_pro_km": profile.threshold_pace_run,
+        # Garmins gemessene Schwellenpace **neben** der Angabe darüber, nicht
+        # statt ihrer: Für `tempozonen_laufen` gilt weiterhin, was der Athlet
+        # einträgt. Die zweite Zahl ist das Einzige im Paket, woran eine
+        # veraltete Handeingabe zu erkennen ist.
+        "schwellenpace_gemessen_garmin": profile.garmin_threshold_pace_run,
         "css_schwimmen_min_pro_100m": profile.css_swim,
         "aktuelles_wochenvolumen_h": profile.current_weekly_hours,
         "alltagsbelastung_1_5": profile.stress_level,
@@ -139,6 +156,15 @@ def _athlete_block(profile: AthleteProfile | None) -> dict[str, Any]:
         "bestzeiten_aus_garmin": profile.garmin_personal_bests or None,
         "sonstiges": profile.notes,
     }
+
+    # Die Richtung neben der Momentaufnahme. Alles darüber ist der Stand von
+    # heute — ob er das Ende eines Aufbaus oder eines Einbruchs ist, sagt keine
+    # dieser Zahlen. Ein Stützpunkt je Monat, sonst verdrängte der tägliche
+    # Abgleich mit dreihundert Zeilen die Historie.
+    if stuetzpunkte := verlauf_stuetzpunkte(verlauf or [], monate=VERLAUF_MONATE):
+        block["verlauf"] = stuetzpunkte
+
+    return block
 
 
 def _request_block(req: TrainingRequest | None, heute: date) -> dict[str, Any]:
@@ -352,6 +378,32 @@ def _history_block(
         # wie der `fitnessdaten`-Block ohne verbundenes Konto.
         if lg.garmin_feel is not None:
             eintrag["befinden_0_10"] = lg.garmin_feel
+
+        # Fünf Messgrößen, die in Antworten stehen, die der Abgleich ohnehin
+        # holt. Wie die Nachbarn darüber fehlt der Schlüssel, wo nichts belegt
+        # ist — über dreißig Einheiten kostet ein `null` spürbar Platz, und es
+        # wäre keine leere Angabe, sondern eine Behauptung.
+        #
+        # Die Nettozeit nur, wo sie sich von der Gesamtdauer unterscheidet:
+        # Sonst stünde an jeder Einheit zweimal dieselbe Zahl.
+        if lg.netto_dauer_min and lg.duration_min and lg.netto_dauer_min < lg.duration_min:
+            eintrag["netto_dauer_min"] = lg.netto_dauer_min
+        # Ebenso die höhenkorrigierte Pace: In der Ebene ist sie die Pace.
+        if lg.gap_pace and lg.gap_pace != lg.avg_pace:
+            eintrag["pace_hoehenkorrigiert"] = _pace_with_unit(lg.sport, lg.gap_pace)
+        if lg.normalisierte_leistung:
+            eintrag["normalisierte_leistung"] = lg.normalisierte_leistung
+        if lg.swolf:
+            eintrag["swolf"] = lg.swolf
+        if lg.zuege:
+            eintrag["zuege_je_bahn"] = lg.zuege
+        if lg.temperatur_c is not None:
+            eintrag["temperatur_c"] = lg.temperatur_c
+        # Tempo bzw. Watt je Herzschlag. Die einzige Größe im Paket, die
+        # "langsamer geworden" von "müder geworden" trennt — beide senken das
+        # Tempo, aber nur die Ermüdung hebt dabei den Puls.
+        if (ef := effizienz_je_einheit(lg)) is not None:
+            eintrag["effizienz"] = ef
 
         # Die Quelle nur, wo es auch einen Wert gibt. Ohne RPE stand dort der
         # Spaltenvorgabewert "manual" — an einer Einheit aus Garmin, für die
@@ -584,6 +636,11 @@ def _fitness_block(
         "schlaf_rem_h": _stunden(wert("sleep_rem_seconds")),
         "schlafscore_0_100": wert("sleep_score"),
         "hrv_ms": wert("hrv_last_night_ms"),
+        # Garmins eigenes Wochenmittel neben dem Nachtwert. Es steht seit jeher
+        # in der Datenbank und ging nie hinaus — dabei entscheidet genau der
+        # Vergleich der beiden, ob eine niedrige HRV eine Nacht war oder eine
+        # Entwicklung.
+        "hrv_wochenmittel_ms": wert("hrv_weekly_avg_ms"),
         "hrv_status": wert("hrv_status"),
         "hrv_normalbereich_ms": {
             "unten": wert("hrv_baseline_low"),
@@ -609,6 +666,10 @@ def _fitness_block(
         },
         "training_status": {
             "status": wert("training_status_feedback"),
+            # Garmins Einstufung als Schlüsselwort (PRODUCTIVE, MAINTAINING,
+            # OVERREACHING …). Bis hierher ging nur der Feedbacksatz hinaus,
+            # und der ist eine Formulierung — die Einstufung ist der Messwert.
+            "einstufung": wert("training_status"),
             "wochenlast": wert("weekly_training_load"),
             "acwr_garmin": wert("garmin_acwr"),
             "acwr_bewertung": wert("garmin_acwr_status"),
@@ -658,6 +719,10 @@ def _fitness_block(
             {
                 "datum": tag.date.isoformat(),
                 "schlaf_h": _stunden(tag.sleep_seconds),
+                # Der Tiefschlaf dazu: Acht Stunden mit einer halben Stunde
+                # Tiefschlaf sind keine acht erholten Stunden, und die
+                # Gesamtdauer allein verbirgt genau das.
+                "tiefschlaf_h": _stunden(tag.sleep_deep_seconds),
                 "schlafscore": tag.sleep_score,
                 "hrv_ms": tag.hrv_last_night_ms,
                 "hrv_status": tag.hrv_status,
@@ -698,6 +763,7 @@ def build_payload(
     request: TrainingRequest | None,
     logs: list[SessionLog],
     wellness: list[WellnessDay] | None = None,
+    verlauf: list[Any] | None = None,
     start_date: date | None = None,
     days: int = PLAN_DAYS_DEFAULT,
     naechste_neuplanung: str | None = None,
@@ -759,7 +825,7 @@ def build_payload(
         # `frontend/src/planung.ts`: UTC liefert hierzulande abends bereits den
         # Folgetag.
         "erzeugt_am": datetime.now().isoformat(timespec="minutes"),
-        "athlet": _athlete_block(profile),
+        "athlet": _athlete_block(profile, verlauf),
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request, date.today()),
         "trainingshistorie": _history_block(logs, profile, garmin_konto),
@@ -1011,6 +1077,14 @@ Gesundheitsdaten in `fitnessdaten`. Dieses Dokument gibt dir dafür weder Quoten
 Steigerungsgrenzen vor. Frühere Blöcke dieser App stehen nicht im Paket — es zählt, was \
 stattgefunden hat, nicht was vorgesehen war. Begründe in `summary`, woran du deine \
 Entscheidung abgelesen hast.{wettkampfhinweis}
+
+Leicht zu übersehen, weil sie nicht die Tagesform beschreiben, sondern **Kapazität und \
+Richtung**: in `wochenuebersicht` je Woche `zeit_in_hf_zonen_min`, \
+`intensitaetsverteilung_pct`, `laengste_einheit_min` sowie `monotonie` und `strain` nach \
+Foster; an den Einheiten `effizienz` (Tempo bzw. Leistung je Herzschlag, vergleichbar nur \
+zwischen ähnlichen Einheiten); in `athlet.verlauf` ein Stützpunkt je Monat. Weicht \
+`schwellenpace_gemessen_garmin` von `schwellenpace_laufen_min_pro_km` ab, ist die Eingabe \
+vermutlich veraltet; die Zonen rechnen weiter mit ihr.
 
 {fitnessregeln}
 
@@ -1554,6 +1628,9 @@ class _Kontext:
     logs: list[SessionLog]
     plan: Plan | None
     wellness: list[WellnessDay]
+    # Der Profilverlauf über Monate. Reicht bewusst weiter zurück als
+    # `wellness` — siehe `VERLAUF_MONATE`.
+    verlauf: list[ProfileHistory]
     garmin: Any
     # An welchem Wochentag von selbst neu geplant wird, `None` bei
     # abgeschalteter Automatik. Steht hier und nicht in der Signatur des
@@ -1611,6 +1688,19 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         .all()
     )
 
+    # Der Langzeitverlauf der Profilwerte. Anders als die Fitnessdaten über ein
+    # Jahr statt über das Rückblickfenster: Ausgedünnt wird erst im Payload
+    # (`verlauf_stuetzpunkte`), damit die Ausdünnung an einer Stelle steht.
+    verlauf = (
+        db.query(ProfileHistory)
+        .filter(
+            ProfileHistory.user_id == user.id,
+            ProfileHistory.recorded_at
+            >= datetime.now() - timedelta(days=VERLAUF_MONATE * 31),
+        )
+        .all()
+    )
+
     # Bis wann die Daten reichen. Hängt am Garmin-Konto und gehört deshalb
     # hierher — sonst entschiede die Einzelanpassung auf einer schmaleren
     # Grundlage als die Planung.
@@ -1626,6 +1716,7 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         logs=logs,
         plan=plan,
         wellness=wellness,
+        verlauf=verlauf,
         garmin=konto,
         naechste_planung=(
             # `auto_plan_weekday` zählt wie `date.weekday()`; über `WEEKDAYS`
@@ -1662,6 +1753,7 @@ def erzeuge_export(
         request=kontext.request,
         logs=kontext.logs,
         wellness=kontext.wellness,
+        verlauf=kontext.verlauf,
         start_date=start_date,
         days=days,
         naechste_neuplanung=kontext.naechste_planung,
@@ -1696,6 +1788,7 @@ def erzeuge_einheit_export(
         request=kontext.request,
         logs=kontext.logs,
         wellness=kontext.wellness,
+        verlauf=kontext.verlauf,
         start_date=session.date,
         days=1,
         garmin_konto=kontext.garmin,
@@ -2111,6 +2204,7 @@ def erzeuge_ernaehrung_export(
         request=kontext.request,
         logs=kontext.logs,
         wellness=kontext.wellness,
+        verlauf=kontext.verlauf,
         start_date=start,
         days=tage,
         garmin_konto=kontext.garmin,

@@ -637,12 +637,54 @@ Schwelle. Wer nach einem Testprotokoll 260 W einträgt, fand am nächsten Morgen
 238 W vor, ohne dass irgendwo etwas fehlgeschlagen wäre. Dieselbe Überlegung wie
 beim Maximalpuls, nur eine Sportart weiter. `get_cycling_ftp` wird deshalb gar
 nicht mehr aufgerufen; `get_lactate_threshold` bleibt, weil der Schwellenpuls
-daran hängt, aber sein Tempo wird nicht mehr gelesen. Die CSS führt Garmin
-ohnehin nirgends. `test_ftp_und_schwellenpace_bleiben_handarbeit` hält beides
-fest — auch, dass der FTP-Endpunkt nicht einmal angefragt wird; der Fake
-antwortet weiterhin darauf, damit der Wächter Zähne hat. Der Preis: Was ein
-früherer Abgleich einmal geschrieben hat, steht weiter im Profil, bis der Athlet
-es selbst ändert.
+daran hängt. Die CSS führt Garmin ohnehin nirgends.
+`test_ftp_und_schwellenpace_bleiben_handarbeit` hält beides fest — auch, dass
+der FTP-Endpunkt nicht einmal angefragt wird; der Fake antwortet weiterhin
+darauf, damit der Wächter Zähne hat. Der Preis: Was ein früherer Abgleich
+einmal geschrieben hat, steht weiter im Profil, bis der Athlet es selbst ändert.
+
+**Garmins Schwellentempo wird seither doch gelesen — aber in ein eigenes Feld**
+(`mapping.schwellenpace_gemessen`, `AthleteProfile.garmin_threshold_pace_run`).
+Der Absatz darüber gilt unverändert: `pace_zones()` rechnet weiterhin
+ausschließlich mit `threshold_pace_run`, also mit der Handeingabe, und die wird
+nie überschrieben. Was sich geändert hat, ist nur, dass der mitgelieferte Wert
+nicht mehr weggeworfen wird. Zwei Gründe: Er kostet **keine** Anfrage — er steht
+in derselben Antwort wie der Schwellenpuls —, und eine veraltete Handeingabe war
+im KI-Paket bis dahin durch nichts zu erkennen. Jetzt stehen beide Zahlen
+nebeneinander in `athlet` (`schwellenpace_laufen_min_pro_km` gegen
+`schwellenpace_gemessen_garmin`), und der Prompt sagt ausdrücklich, welche die
+Zonen trägt. Ein `ProfileHistory`-Eintrag entsteht daraus **nicht**: Dort stehen
+die Werte, die tatsächlich steuern, und ein Schattenwert verfälschte den Trend.
+
+**Die FTP kommt aus keiner dieser Antworten.** Naheliegend wäre, das Gegenstück
+für das Rad genauso mitzunehmen — geht aber nicht: Der `power`-Block von
+`get_lactate_threshold()` trägt Garmins **Lauf**leistung (`powerToWeight`, fest
+mit `sport="Running"` angefragt, siehe die Bibliothek), nicht die Rad-FTP. Die
+stünde hinter `get_cycling_ftp` und damit hinter einer zusätzlichen Anfrage —
+und hinter genau der Entscheidung, die der Absatz darüber begründet. Es gibt
+deshalb bewusst keine Spalte `garmin_ftp_watts`: Eine Laufleistung unter einem
+Rad-Etikett wäre schlechter als kein Wert.
+
+**Sechs Messgrößen kommen in Antworten mit, die ohnehin geholt werden.** Der
+Kommentar an `mapping.py` sagt seit jeher, dass eine Aktivität rund 111 Felder
+trägt und die App etwa zwanzig davon liest. Fünf weitere stehen in der
+**Listen**antwort, aus der die Einheit ohnehin entsteht — `movingDuration` als
+`netto_dauer_min`, `avgGradeAdjustedSpeed` als `gap_pace` (nur Laufen),
+`averageSwolf` und `avgStrokes` als `swolf`/`zuege` (nur Schwimmen) und
+`maxTemperature` als `temperatur_c`. Die sechste, die normalisierte Leistung,
+steht im **Detail**, das für 42 Tage ohnehin geholt wird
+(`BEWERTUNGSFENSTER_TAGE`), und wird in `detail_zu_feldern()` gelesen. Keine
+kostet eine zusätzliche Anfrage.
+
+Zwei Vorsichtsmaßnahmen: Garmin schreibt die normalisierte Leistung in **zwei**
+Schreibweisen — die Bibliothek führt den Alias `normPower`, an echten Antworten
+stand auch `normalizedPower` —, deshalb liest `erster_wert()` beide. Und jeder
+Wert läuft gegen eine Plausibilitätsspanne, wie beim Schwellenpuls: Die
+Schnittstelle ist undokumentiert, und ein Ausreißer stünde sonst ungefiltert im
+Prompt. Die normalisierte Leistung wird außerdem **nur beim Rad** übernommen,
+aus demselben Grund wie `avg_power`: Laufleistung wäre in derselben Spalte eine
+andere Größe. `detail_zu_feldern()` bekommt die Sportart dafür als zweites
+Argument; ohne sie liest es die Leistung gar nicht.
 
 **Bestzeiten kommen aus Garmin, aber nur fürs Laufen** (`mapping.bestzeiten`,
 `AthleteProfile.garmin_personal_bests`). `get_personal_record()` kostet eine

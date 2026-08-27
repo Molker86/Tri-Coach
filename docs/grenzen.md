@@ -193,6 +193,42 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Ernährungstabellen brauchen dort **nichts**: `create_all()` legt neue
   Tabellen vollständig an, der Helfer ist nur für neue *Spalten* an
   bestehenden.
+- **Die Effizienz ist nur zwischen ähnlichen Einheiten vergleichbar.** Tempo
+  bzw. Leistung je Herzschlag (`sportscience.effizienz_je_einheit`) trennt
+  Formverlust von Ermüdung — aber ein Intervalltraining und ein langer
+  Dauerlauf ergeben verschiedene Zahlen, ohne dass sich an der Form etwas
+  geändert hat. Die App prüft nichts davon nach: Sie weiß nicht, ob zwei
+  Einheiten vergleichbar sind, und rechnet den Wert an jeder Einheit mit
+  Herzfrequenz und Bezugsgröße aus. Der Prompt sagt die Einschränkung, die
+  Einordnung bleibt bei der KI. Wärme, Untergrund und Höhenmeter verschieben
+  ihn ebenfalls — die Temperatur steht seither wenigstens daneben, Untergrund
+  nirgends.
+- **Es gibt kein aerobes Decoupling und keine Powerkurve.** Beides bräuchte die
+  Sekunden-Zeitreihe der Aktivität (`get_activity_details`), und die kostet
+  **eine Anfrage je Einheit** — bei dreißig Einheiten im Rückblickfenster eine
+  ganz andere Größenordnung als alles, was der Abgleich sonst tut. Die
+  Ableitung wäre wertvoll (sie sagt, ob der Athlet in der zweiten Hälfte
+  wegbricht); der Preis ist es bisher nicht.
+- **Monotonie und Strain gibt es nur an ganzen Wochen** und nur, wo es
+  überhaupt eine Streuung gibt. Sieben identische Tage haben keine, und die
+  Division wäre dort nicht groß, sondern undefiniert — dort fehlen die
+  Schlüssel. Die Grundlage wechselt außerdem: sRPE, wo RPE-Werte vorliegen,
+  sonst Garmins Trainingslast. Beide sind unterschiedlich skaliert, deshalb
+  steht die verwendete in `monotonie_basis` — Werte aus zwei Wochen mit
+  verschiedener Basis sind **nicht** vergleichbar.
+- **Der Profilverlauf zeigt, was `ProfileHistory` mitbekommen hat.** Er wird auf
+  einen Stützpunkt je Monat ausgedünnt (`verlauf_stuetzpunkte`), und geschrieben
+  wird die Tabelle nur bei einer Änderung über `_MINDESTABWEICHUNG`. Wer die App
+  drei Monate nicht benutzt und kein Garmin verbunden hat, hat dort eine Lücke,
+  die wie Stillstand aussieht. Rückwirkend füllen lässt sie sich nicht.
+- **Die sechs neuen Messgrößen bleiben an bestehenden Einheiten leer**, aus
+  demselben Grund wie die fünf Ausführungsspalten darunter: Für zurückliegende
+  Tage wird nichts noch einmal geholt (`AKTUALISIERUNGSFENSTER_TAGE` = 5). Die
+  normalisierte Leistung erreicht auch ein Rückblick nur für Einheiten
+  innerhalb von `BEWERTUNGSFENSTER_TAGE` = 42, weil davor kein Detail geholt
+  wird. Und ob die Feldnamen im `summaryDTO` überhaupt so heißen, ist bisher
+  nur aus Fixture und Probeskript belegt, **nicht an einem echten Konto**
+  geprüft — bleibt der Wert leer, ist das der erste Ort, an dem zu suchen ist.
 - **Die fünf Ausführungsspalten bleiben an bestehenden Einheiten leer.** Die
   Zonenzeiten stehen zwar in der Listenantwort, drei weitere im
   Aktivitätsdetail und die Übungen hinter einer eigenen Anfrage — nichts davon

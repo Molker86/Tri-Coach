@@ -79,9 +79,24 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Bestehende Zuordnungen gelten als nicht angefasst — die Marke setzt
         # erst, wer eine Verknüpfung von Hand löst.
         "zuordnung_manuell": "BOOLEAN NOT NULL DEFAULT 0",
+        # Sechs Messgrößen aus Antworten, die der Abgleich ohnehin holt. Sie
+        # bleiben an bestehenden Einheiten leer, aus demselben Grund wie die
+        # fünf Ausführungsspalten darüber: Für zurückliegende Tage wird nichts
+        # noch einmal geholt (`sync.AKTUALISIERUNGSFENSTER_TAGE` = 5). Wer sie
+        # für die Historie will, stößt einen Rückblick an.
+        "netto_dauer_min": "INTEGER",
+        "gap_pace": "VARCHAR(16)",
+        "normalisierte_leistung": "INTEGER",
+        "swolf": "INTEGER",
+        "zuege": "INTEGER",
+        "temperatur_c": "FLOAT",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
+        # Garmins gemessene Schwellenpace neben der Handeingabe. Bleibt leer,
+        # bis der nächste Abgleich `get_lactate_threshold` liest — die
+        # Handeingabe rührt sie nie an.
+        "garmin_threshold_pace_run": "VARCHAR(16)",
     },
     # Bleibt an bestehenden Blöcken leer; `Plan.beginn` fällt dort auf
     # `start_date` zurück — was vor der Übernahme der Vergangenheit dasselbe war.

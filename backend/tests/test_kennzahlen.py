@@ -7,17 +7,21 @@ Umsetzungsquote als Auftrag, kleiner zu planen.
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 from app.sportscience import (
     PACE_ZONEN_ANTEIL_LAUF,
     acute_chronic_ratio,
     compliance,
+    effizienz_je_einheit,
     erholung_stunden,
+    intensitaetsverteilung,
     letzte_volle_woche,
+    monotonie_und_strain,
     pace_zones,
     power_zones,
+    verlauf_stuetzpunkte,
     weekly_summary,
 )
 
@@ -32,6 +36,9 @@ class Einheit:
     status: str = "completed"
     garmin_training_load: float | None = None
     plan_session_id: int | None = None
+    avg_hr: int | None = None
+    avg_power: int | None = None
+    hr_zone_seconds: dict | None = None
 
 
 @dataclass
@@ -343,3 +350,270 @@ def test_die_historie_nennt_keine_frueheren_vorgaben():
     from app import ai_export
 
     assert not hasattr(ai_export, "_geplant_war")
+
+# --------------------------------------------------------------------------
+# Kapazität und Richtung
+#
+# Vier Größen, die ein Trainer als erstes erfragt und die bis hierher fehlten,
+# obwohl ihre Rohdaten längst in der Datenbank lagen: die Intensitätsverteilung
+# (`hr_zone_seconds` stand je Einheit da, wurde aber nie zur Woche summiert),
+# die längste Einheit, die Gleichförmigkeit einer Woche und die Richtung über
+# Monate. Vier Wochen zeigen die Belastung — nicht, was der Athlet kann.
+# --------------------------------------------------------------------------
+
+
+def _volle_woche(heute: date) -> date:
+    """Der Montag der letzten *abgeschlossenen* Woche.
+
+    Monotonie und Strain gibt es nur an ganzen Wochen; an der laufenden zählten
+    die noch nicht gelaufenen Tage als Ruhetage mit.
+    """
+    return heute - timedelta(days=heute.weekday()) - timedelta(days=7)
+
+
+def _woche(uebersicht: list[dict], start: date) -> dict:
+    return next(w for w in uebersicht if w["week_start"] == start.isoformat())
+
+
+def test_zonenzeiten_werden_ueber_die_woche_summiert():
+    """Je Einheit standen sie längst im Paket — die Woche musste die KI addieren."""
+    heute = date.today()
+    montag = _volle_woche(heute)
+    logs = [
+        Einheit(date=montag, hr_zone_seconds={"1": 600, "2": 1800}),
+        Einheit(date=montag + timedelta(days=2), hr_zone_seconds={"2": 1200, "4": 900}),
+    ]
+
+    woche = _woche(weekly_summary(logs), montag)
+
+    assert woche["zeit_in_hf_zonen_min"] == {"z1": 10, "z2": 50, "z4": 15}
+
+
+def test_eine_woche_ohne_zonenzeiten_traegt_den_schluessel_nicht():
+    """Ein Objekt aus Nullen behauptete eine Messung, die es nicht gab."""
+    heute = date.today()
+    montag = _volle_woche(heute)
+
+    woche = _woche(weekly_summary([Einheit(date=montag)]), montag)
+
+    assert "zeit_in_hf_zonen_min" not in woche
+    assert "intensitaetsverteilung_pct" not in woche
+
+
+def test_intensitaetsverteilung_fasst_die_fuenf_zonen_zu_dreien():
+    # 80 min niedrig (Z1+Z2), 10 mittel (Z3), 10 hoch (Z4+Z5)
+    verteilung = intensitaetsverteilung({"z1": 30, "z2": 50, "z3": 10, "z5": 10})
+
+    assert verteilung == {"niedrig": 80, "mittel": 10, "hoch": 10}
+
+
+def test_intensitaetsverteilung_ohne_zonen_ist_none():
+    assert intensitaetsverteilung(None) is None
+    assert intensitaetsverteilung({}) is None
+
+
+def test_die_laengste_einheit_steht_neben_der_summe():
+    """Fünf kurze Einheiten und eine lange ergeben denselben Umfang.
+
+    Für die Grundlagenentwicklung ist das ein Unterschied ums Ganze, und aus
+    Summe und Anzahl ist er nicht zu rekonstruieren.
+    """
+    heute = date.today()
+    montag = _volle_woche(heute)
+    logs = [
+        Einheit(date=montag, duration_min=40),
+        Einheit(date=montag + timedelta(days=2), duration_min=150),
+        Einheit(date=montag + timedelta(days=4), sport="bike", duration_min=90),
+    ]
+
+    woche = _woche(weekly_summary(logs), montag)
+
+    assert woche["total_minutes"] == 280
+    assert woche["laengste_einheit_min"] == 150
+    # Und je Sportart, denn die lange Radeinheit sagt nichts über den Lauf.
+    assert woche["by_sport"]["run"]["laengste_einheit_min"] == 150
+    assert woche["by_sport"]["bike"]["laengste_einheit_min"] == 90
+
+
+def test_monotonie_zaehlt_ruhetage_als_null():
+    """Ohne die Nullen misst die Monotonie nur die Streuung der Trainingstage.
+
+    Sie fiele dann umso niedriger aus, je mehr Ruhetage die Woche hat — das
+    Gegenteil dessen, was sie beschreiben soll.
+    """
+    heute = date.today()
+    montag = _volle_woche(heute)
+
+    # Zwei identische Einheiten, fünf Ruhetage: sehr ungleichförmig.
+    gestreut = _woche(
+        weekly_summary(
+            [
+                Einheit(date=montag, duration_min=60, rpe=5),
+                Einheit(date=montag + timedelta(days=3), duration_min=60, rpe=5),
+            ]
+        ),
+        montag,
+    )
+    # Sieben Trainingstage mit kaum abweichender Last: sehr gleichförmig.
+    # Nicht exakt identisch — ohne jede Streuung ist die Monotonie nicht
+    # definiert, siehe `test_ohne_streuung_gibt_es_keine_monotonie`.
+    gleich = _woche(
+        weekly_summary(
+            [
+                Einheit(date=montag + timedelta(days=n), duration_min=60 - n, rpe=5)
+                for n in range(7)
+            ]
+        ),
+        montag,
+    )
+
+    assert gestreut["monotonie"] < gleich["monotonie"]
+    assert gestreut["monotonie_basis"] == "srpe"
+
+
+def test_monotonie_faellt_auf_garmins_last_zurueck():
+    """Ohne RPE gäbe es keine sRPE-Last — und ohne Rückfall keine Monotonie."""
+    heute = date.today()
+    montag = _volle_woche(heute)
+    logs = [
+        Einheit(date=montag, rpe=None, garmin_training_load=90),
+        Einheit(date=montag + timedelta(days=2), rpe=None, garmin_training_load=140),
+    ]
+
+    woche = _woche(weekly_summary(logs), montag)
+
+    assert woche["monotonie_basis"] == "garmin"
+    assert woche["monotonie"] is not None
+
+
+def test_ohne_streuung_gibt_es_keine_monotonie():
+    """Die Division wäre dort nicht gross, sondern undefiniert."""
+    assert monotonie_und_strain([0.0] * 7) == (None, None)
+    assert monotonie_und_strain([50.0] * 7) == (None, None)
+
+
+def test_monotonie_fehlt_an_der_angebrochenen_woche():
+    """An der laufenden Woche zaehlten die kommenden Tage als Ruhetage mit."""
+    heute = date.today()
+    montag_dieser_woche = heute - timedelta(days=heute.weekday())
+
+    uebersicht = weekly_summary([Einheit(date=montag_dieser_woche, rpe=5)])
+    laufende = _woche(uebersicht, montag_dieser_woche)
+
+    assert laufende["ist_vollstaendig"] is False
+    assert "monotonie" not in laufende
+
+
+# --------------------------------------------------------------------------
+# Effizienz
+# --------------------------------------------------------------------------
+
+
+def test_effizienz_rechnet_auf_dem_rad_ueber_watt():
+    einheit = Einheit(date=date.today(), sport="bike", avg_power=180, avg_hr=120)
+
+    assert effizienz_je_einheit(einheit) == 1.5
+
+
+def test_effizienz_rechnet_beim_laufen_ueber_das_tempo():
+    # 12 km in 60 min = 200 m/min, bei HF 100 also 2.0
+    einheit = Einheit(date=date.today(), duration_min=60, distance_km=12.0, avg_hr=100)
+
+    assert effizienz_je_einheit(einheit) == 2.0
+
+
+def test_effizienz_ohne_herzfrequenz_ist_none():
+    """Ohne Puls ist es kein Effizienzfaktor, sondern nur ein Tempo."""
+    einheit = Einheit(date=date.today(), duration_min=60, distance_km=12.0, avg_hr=None)
+
+    assert effizienz_je_einheit(einheit) is None
+
+
+def test_effizienz_steigt_wenn_dasselbe_tempo_weniger_puls_kostet():
+    """Der eigentliche Zweck der Größe: Form von Ermüdung trennen."""
+    frueher = Einheit(date=date.today(), duration_min=60, distance_km=12.0, avg_hr=150)
+    spaeter = Einheit(date=date.today(), duration_min=60, distance_km=12.0, avg_hr=140)
+
+    assert effizienz_je_einheit(spaeter) > effizienz_je_einheit(frueher)
+
+
+# --------------------------------------------------------------------------
+# Der Langzeitverlauf
+# --------------------------------------------------------------------------
+
+
+def test_der_verlauf_wird_auf_einen_punkt_je_monat_ausgeduennt():
+    """Der tägliche Abgleich schreibt fast jeden Tag eine Zeile.
+
+    Ungefiltert stünde ein Jahr mit dreihundert Zeilen im Prompt und
+    verdrängte die Historie, um die es eigentlich geht.
+    """
+    jetzt = datetime.now()
+    history = [
+        SimpleNamespace(
+            recorded_at=jetzt - timedelta(days=n),
+            weight_kg=70.0 + n * 0.01,
+            resting_hr=None,
+            hrv_rmssd=None,
+            vo2max=None,
+            max_hr=None,
+            ftp_watts=None,
+        )
+        for n in range(300)
+    ]
+
+    stuetzpunkte = verlauf_stuetzpunkte(history)
+
+    assert len(stuetzpunkte) <= 12
+    # Aufsteigend, damit die Richtung ablesbar ist.
+    monate = [p["monat"] for p in stuetzpunkte]
+    assert monate == sorted(monate)
+
+
+def test_der_verlauf_uebernimmt_felder_einzeln():
+    """Eine Zeile, die nur das Gewicht trug, verschwieg sonst den VO2max-Wert.
+
+    Der Abgleich schreibt je geänderten Wert — nicht jede Zeile trägt alles.
+    """
+    jetzt = datetime.now()
+    history = [
+        SimpleNamespace(
+            recorded_at=jetzt - timedelta(days=3),
+            weight_kg=None,
+            resting_hr=None,
+            hrv_rmssd=None,
+            vo2max=56.0,
+            max_hr=None,
+            ftp_watts=None,
+        ),
+        SimpleNamespace(
+            recorded_at=jetzt - timedelta(days=1),
+            weight_kg=71.5,
+            resting_hr=None,
+            hrv_rmssd=None,
+            vo2max=None,
+            max_hr=None,
+            ftp_watts=None,
+        ),
+    ]
+
+    (punkt,) = verlauf_stuetzpunkte(history)
+
+    assert punkt["vo2max"] == 56.0
+    assert punkt["gewicht_kg"] == 71.5
+
+
+def test_der_verlauf_endet_am_fenster():
+    """Ein zwei Jahre alter Wert beschreibt keine Richtung mehr."""
+    jetzt = datetime.now()
+    alt = SimpleNamespace(
+        recorded_at=jetzt - timedelta(days=800),
+        weight_kg=95.0,
+        resting_hr=None,
+        hrv_rmssd=None,
+        vo2max=None,
+        max_hr=None,
+        ftp_watts=None,
+    )
+
+    assert verlauf_stuetzpunkte([alt]) == []

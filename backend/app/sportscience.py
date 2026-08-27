@@ -7,6 +7,7 @@ gehen als Kontext in den Export, damit die KI nicht raten muss.
 
 import math
 import re
+import statistics
 from datetime import date, timedelta
 from typing import Any
 
@@ -229,6 +230,139 @@ def session_rpe_load(duration_min: int | None, rpe: int | None) -> float | None:
     return round(duration_min * rpe, 1)
 
 
+# Die drei Intensitätsstufen, in denen ein Trainer über eine Woche spricht.
+# Bewusst hier und nicht im Prompt: Welche Zone zu welcher Stufe gehört, ist
+# eine Eigenschaft des Fünf-Zonen-Modells oben, keine Trainingsentscheidung.
+_INTENSITAETSSTUFEN: dict[str, tuple[str, ...]] = {
+    "niedrig": ("z1", "z2"),
+    "mittel": ("z3",),
+    "hoch": ("z4", "z5"),
+}
+
+
+def _zonensumme_minuten(logs: list[Any]) -> dict[str, int] | None:
+    """Die Zonenzeiten mehrerer Einheiten als Minuten je Zone.
+
+    Dieselbe Regel wie bei einer einzelnen Einheit (`ai_export._zonenminuten`):
+    Minuten statt Sekunden, weil Athlet und KI in Minuten denken, und Zonen
+    unter einer Minute fallen heraus. `None`, wo keine Einheit der Woche
+    Zonenzeiten trägt — ein Objekt aus Nullen behauptete eine Messung.
+    """
+    sekunden: dict[str, float] = {}
+    for lg in logs:
+        zonen = getattr(lg, "hr_zone_seconds", None)
+        if not zonen:
+            continue
+        for nummer, wert in zonen.items():
+            if wert:
+                sekunden[f"z{nummer}"] = sekunden.get(f"z{nummer}", 0.0) + wert
+    minuten = {
+        zone: int(round(wert / 60))
+        for zone, wert in sorted(sekunden.items())
+        if round(wert / 60) >= 1
+    }
+    return minuten or None
+
+
+def intensitaetsverteilung(zonenminuten: dict[str, int] | None) -> dict[str, int] | None:
+    """Die Zonenminuten als Anteil in drei Stufen.
+
+    Die Frage, die ein Trainer als erstes stellt, und die einzige, die aus den
+    Zonenzeiten nicht abzulesen ist, ohne dreißig Einheiten mal fünf Zonen zu
+    addieren — genau die Sorte Arithmetik, an der ein Sprachmodell scheitert.
+
+    Bewertet wird hier nichts: Welche Verteilung richtig ist, hängt an Ziel,
+    Saisonzeitpunkt und Disziplin und bleibt Sache der KI.
+    """
+    if not zonenminuten:
+        return None
+    gesamt = sum(zonenminuten.values())
+    if gesamt <= 0:
+        return None
+    return {
+        stufe: int(round(sum(zonenminuten.get(z, 0) for z in zonen) / gesamt * 100))
+        for stufe, zonen in _INTENSITAETSSTUFEN.items()
+    }
+
+
+def _tageslasten(logs: list[Any], start: date) -> tuple[list[float], str] | None:
+    """Die sieben Tageslasten einer Woche — Ruhetage ausdrücklich als 0.
+
+    Ohne die Nullen misst die Monotonie nur die Streuung der Trainingstage und
+    fiele umso niedriger aus, je mehr Ruhetage die Woche hat — das Gegenteil
+    dessen, was sie beschreiben soll.
+
+    Zwei mögliche Grundlagen, und sie sind **unterschiedlich skaliert**: die
+    sRPE-Last nach Foster und Garmins gemessene Trainingslast. Gemischt ergäben
+    sie eine Zahl ohne Bedeutung, deshalb gilt eine für die ganze Woche und der
+    Rückgabewert sagt, welche.
+    """
+    srpe = {}
+    garmin = {}
+    for lg in logs:
+        last = session_rpe_load(getattr(lg, "duration_min", None), getattr(lg, "rpe", None))
+        if last:
+            srpe[lg.date] = srpe.get(lg.date, 0.0) + last
+        gl = getattr(lg, "garmin_training_load", None)
+        if gl:
+            garmin[lg.date] = garmin.get(lg.date, 0.0) + gl
+
+    quelle, werte = ("srpe", srpe) if srpe else ("garmin", garmin)
+    if not werte:
+        return None
+    return [werte.get(start + timedelta(days=i), 0.0) for i in range(7)], quelle
+
+
+def monotonie_und_strain(
+    tageslasten: list[float],
+) -> tuple[float | None, float | None]:
+    """Foster: Monotonie = Mittel der Tageslasten / ihre Streuung, Strain = Summe x Monotonie.
+
+    Die Größe beschreibt, wie *gleichförmig* eine Woche war — zwei Wochen mit
+    identischer Summe können sich darin vollständig unterscheiden, und die
+    Wochensumme allein sieht das nicht. Streuung als Standardabweichung der
+    Grundgesamtheit: Gemessen werden genau diese sieben Tage, nicht eine
+    Stichprobe daraus.
+
+    Ohne Streuung (jeder Tag gleich, auch: jeder Tag null) gibt es keine
+    Monotonie — die Division wäre dort keine große Zahl, sondern undefiniert.
+    """
+    if len(tageslasten) < 2:
+        return None, None
+    streuung = statistics.pstdev(tageslasten)
+    if not streuung:
+        return None, None
+    monotonie = statistics.fmean(tageslasten) / streuung
+    return round(monotonie, 2), round(sum(tageslasten) * monotonie, 0)
+
+
+def effizienz_je_einheit(log: Any) -> float | None:
+    """Tempo bzw. Leistung je Herzschlag — der Effizienzfaktor.
+
+    Die einzige Größe im Paket, die "langsamer geworden" von "müder geworden"
+    trennt: Beide senken das Tempo, aber nur die Ermüdung hebt dabei den Puls.
+    Auf dem Rad über die gemessene Leistung, sonst über die Geschwindigkeit.
+
+    Vergleichbar ist der Wert **nur zwischen ähnlichen Einheiten** — ein
+    Intervalltraining und ein langer Dauerlauf ergeben verschiedene Zahlen,
+    ohne dass sich etwas an der Form geändert hätte. Er steht deshalb im Export
+    neben Dauer, Zonen und Herzfrequenz und wird nirgends bewertet.
+    """
+    hf = getattr(log, "avg_hr", None)
+    if not hf:
+        return None
+
+    watt = getattr(log, "avg_power", None)
+    if getattr(log, "sport", None) == "bike" and watt:
+        return round(watt / hf, 3)
+
+    dauer = getattr(log, "duration_min", None)
+    strecke = getattr(log, "distance_km", None)
+    if not dauer or not strecke:
+        return None
+    return round((strecke * 1000 / dauer) / hf, 3)
+
+
 def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
     """Aggregiert die Logs kalenderwochenweise über das ganze Rückblickfenster.
 
@@ -258,12 +392,22 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
         end = start + timedelta(days=6)
         in_week = [lg for lg in logs if start <= lg.date <= end]
 
-        by_sport: dict[str, dict[str, float]] = {}
+        by_sport: dict[str, dict[str, Any]] = {}
         for lg in in_week:
-            entry = by_sport.setdefault(lg.sport, {"sessions": 0, "minutes": 0, "km": 0.0})
+            entry = by_sport.setdefault(
+                lg.sport,
+                {"sessions": 0, "minutes": 0, "km": 0.0, "laengste": 0, "last": 0.0, "ef": []},
+            )
             entry["sessions"] += 1
             entry["minutes"] += lg.duration_min or 0
             entry["km"] += lg.distance_km or 0
+            # Das Maximum, nicht die Summe: Der Umfang der langen Einheit
+            # entscheidet über die Grundlagenentwicklung, und aus Summe und
+            # Anzahl ist er nicht zu rekonstruieren.
+            entry["laengste"] = max(entry["laengste"], lg.duration_min or 0)
+            entry["last"] += getattr(lg, "garmin_training_load", None) or 0.0
+            if (ef := effizienz_je_einheit(lg)) is not None:
+                entry["ef"].append(ef)
 
         rpe_values = [lg.rpe for lg in in_week if lg.rpe]
         loads = [
@@ -282,15 +426,23 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
             if getattr(lg, "garmin_training_load", None)
         ]
 
-        buckets.append({
+        vollstaendig = start >= fenster_start and end < today
+
+        eintrag: dict[str, Any] = {
             "week_start": start.isoformat(),
             "week_end": end.isoformat(),
             # Nur eine Woche, die ganz im Fenster liegt und vorbei ist, taugt
             # zum Vergleich. Die beiden Randwochen tun das nicht.
-            "ist_vollstaendig": start >= fenster_start and end < today,
+            "ist_vollstaendig": vollstaendig,
             "sessions": len(in_week),
             "total_minutes": sum(lg.duration_min or 0 for lg in in_week),
             "total_km": round(sum(lg.distance_km or 0 for lg in in_week), 1),
+            # Das Maximum neben der Summe: Zwei Wochen mit gleichem Umfang
+            # unterscheiden sich vollständig, je nachdem ob er auf eine lange
+            # Einheit fiel oder auf fünf kurze.
+            "laengste_einheit_min": max(
+                (lg.duration_min or 0 for lg in in_week), default=0
+            ),
             "avg_rpe": round(sum(rpe_values) / len(rpe_values), 1) if rpe_values else None,
             "total_srpe_load": round(sum(loads), 0) if loads else None,
             "total_garmin_load": round(sum(garmin_loads), 0) if garmin_loads else None,
@@ -300,10 +452,38 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
                     "sessions": v["sessions"],
                     "minutes": v["minutes"],
                     "km": round(v["km"], 1),
+                    "laengste_einheit_min": v["laengste"],
+                    **({"garmin_load": round(v["last"], 0)} if v["last"] else {}),
+                    **(
+                        {"effizienz": round(statistics.fmean(v["ef"]), 3)}
+                        if v["ef"]
+                        else {}
+                    ),
                 }
                 for k, v in by_sport.items()
             },
-        })
+        }
+
+        # Die Zonenzeiten der ganzen Woche. Sie stehen je Einheit schon im
+        # Export — hier summiert, weil die Verteilung über die Woche eine
+        # Planungsgröße ist und dreißig mal fünf Zahlen zu addieren nicht.
+        if (zonen := _zonensumme_minuten(in_week)) is not None:
+            eintrag["zeit_in_hf_zonen_min"] = zonen
+            if (verteilung := intensitaetsverteilung(zonen)) is not None:
+                eintrag["intensitaetsverteilung_pct"] = verteilung
+
+        # Monotonie und Strain nur an ganzen Wochen: Beide beschreiben die
+        # Verteilung über sieben Tage, und an einer angebrochenen Woche zählten
+        # die noch nicht gelaufenen Tage als Ruhetage mit.
+        if vollstaendig and (tageslast := _tageslasten(in_week, start)) is not None:
+            werte, quelle = tageslast
+            monotonie, strain = monotonie_und_strain(werte)
+            if monotonie is not None:
+                eintrag["monotonie"] = monotonie
+                eintrag["strain"] = strain
+                eintrag["monotonie_basis"] = quelle
+
+        buckets.append(eintrag)
         start += timedelta(days=7)
     return buckets
 
@@ -350,6 +530,67 @@ def acute_chronic_ratio(
     if not chronisch:
         return None
     return round(akut / chronisch, 2)
+
+
+# --------------------------------------------------------------------------
+# Der Langzeitverlauf
+#
+# `ProfileHistory` führt Gewicht, Ruhepuls, HRV, VO2max, Maximalpuls und FTP
+# über Monate — und ging bis hierher nie in den Export. Vier Wochen zeigen die
+# Belastung, nicht die Richtung: Ob die VO2max seit dem Frühjahr steigt oder
+# fällt, ist aus dem Rückblickfenster grundsätzlich nicht abzulesen, und ein
+# einzelner Tageswert im `athlet`-Block sagt es erst recht nicht.
+# --------------------------------------------------------------------------
+
+_VERLAUFSFELDER = ("weight_kg", "resting_hr", "hrv_rmssd", "vo2max", "max_hr", "ftp_watts")
+
+_VERLAUF_BENENNUNG = {
+    "weight_kg": "gewicht_kg",
+    "resting_hr": "ruhepuls",
+    "hrv_rmssd": "hrv_ms",
+    "vo2max": "vo2max",
+    "max_hr": "maximalpuls",
+    "ftp_watts": "ftp_watt",
+}
+
+
+def verlauf_stuetzpunkte(
+    history: list[Any], heute: date | None = None, monate: int = 12
+) -> list[dict[str, Any]]:
+    """Den Profilverlauf auf einen Stützpunkt je Kalendermonat ausdünnen.
+
+    Ungefiltert wäre das kein Verlauf, sondern eine Flut: `profile_sync`
+    schreibt bei **jeder** Wertänderung eine Zeile, und der tägliche Abgleich
+    ändert Gewicht, Ruhepuls oder HRV fast jeden Tag. Ein Jahr stünde mit
+    dreihundert Zeilen im Prompt und verdrängte die Historie.
+
+    Je Monat und Feld gilt der jüngste belegte Wert. Felder werden **einzeln**
+    übernommen, nicht zeilenweise: Eine Zeile, die nur das Gewicht trug, würde
+    sonst den VO2max-Wert desselben Monats verschweigen.
+    """
+    heute = heute or date.today()
+    # Monatsgenau zurückrechnen, ohne dateutil: 12 Monate zurück heißt
+    # derselbe Monat im Vorjahr, nicht 365 Tage.
+    versatz = heute.year * 12 + heute.month - monate
+    grenze = (versatz // 12, versatz % 12 + 1)
+
+    monatlich: dict[tuple[int, int], dict[str, Any]] = {}
+    for eintrag in sorted(history, key=lambda e: e.recorded_at):
+        stand = eintrag.recorded_at.date()
+        schluessel = (stand.year, stand.month)
+        if schluessel < grenze:
+            continue
+        ziel = monatlich.setdefault(schluessel, {})
+        for feld in _VERLAUFSFELDER:
+            wert = getattr(eintrag, feld, None)
+            if wert is not None:
+                ziel[_VERLAUF_BENENNUNG[feld]] = wert
+
+    return [
+        {"monat": f"{jahr:04d}-{monat:02d}", **werte}
+        for (jahr, monat), werte in sorted(monatlich.items())
+        if werte
+    ]
 
 
 # --------------------------------------------------------------------------

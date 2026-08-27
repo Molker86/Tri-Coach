@@ -92,6 +92,20 @@ class AthleteProfile(Base):
     threshold_pace_run: Mapped[str | None] = mapped_column(String(16))  # "4:15" min/km
     css_swim: Mapped[str | None] = mapped_column(String(16))  # "1:45" min/100m
 
+    # Die Schwellenpace, wie Garmin sie **gemessen** hat. Sie steht bewusst
+    # neben `threshold_pace_run` und nicht darin: Maßgeblich für `pace_zones()`
+    # bleibt, was der Athlet einträgt — das war eine Entscheidung und bleibt
+    # eine. Verworfen wurde Garmins Wert bis hierher trotzdem zu Unrecht: Er
+    # kommt in derselben Antwort mit, aus der schon der Schwellenpuls gelesen
+    # wird (`get_lactate_threshold`), und eine veraltete Handeingabe ist nur zu
+    # erkennen, wenn beide nebeneinander im Paket stehen.
+    #
+    # Ein Gegenstück für die FTP gibt es **nicht**: Derselbe Aufruf liefert im
+    # `power`-Block Garmins Laufleistung (`powerToWeight`, `sport="Running"`),
+    # nicht die Rad-FTP. Die stünde hinter `get_cycling_ftp` und damit hinter
+    # einer zusätzlichen Anfrage.
+    garmin_threshold_pace_run: Mapped[str | None] = mapped_column(String(16))
+
     # Trainingskontext
     current_weekly_hours: Mapped[float | None] = mapped_column(Float)
     stress_level: Mapped[int | None] = mapped_column(Integer)  # 1-5 (Beruf/Alltag)
@@ -398,6 +412,43 @@ class SessionLog(Base):
     # sie beim nächsten Abgleich sofort zurück: Die Workout-Kennung bleibt an
     # der Aktivität stehen und führt wieder auf dieselbe Einheit.
     zuordnung_manuell: Mapped[bool] = mapped_column(Boolean, default=False)
+    # --- Fünf Messgrößen, die in Antworten stehen, die der Abgleich ohnehin
+    # holt, und bis hierher verworfen wurden. Keine kostet eine zusätzliche
+    # Anfrage. Wie die fünf Ausführungsspalten darüber bleiben sie an
+    # bestehenden Einheiten leer (`sync.AKTUALISIERUNGSFENSTER_TAGE` = 5); für
+    # die Historie füllt sie erst ein Rückblick.
+    #
+    # Alle stehen im **Export**, nicht in `SessionLogOut`: Sie steuern die
+    # Planung, nicht die Liste in der Oberfläche — dieselbe Trennung wie bei
+    # `hr_zone_seconds` und `garmin_abschnitte`.
+
+    # Reine Bewegungszeit (`movingDuration`) gegen die Gesamtdauer. Ein Lauf
+    # mit vierzig Minuten Ampeln steht sonst als Stunde da, und die KI plant
+    # den nächsten Umfang auf einer Zahl auf, die so nie gelaufen wurde.
+    netto_dauer_min: Mapped[int | None] = mapped_column(Integer)
+
+    # Höhenkorrigiertes Tempo (`avgGradeAdjustedSpeed`): das Tempo, das
+    # dieselbe Anstrengung in der Ebene ergeben hätte. Ohne den Wert ist ein
+    # Bergdauerlauf nicht von einem schlechten Tag zu unterscheiden.
+    gap_pace: Mapped[str | None] = mapped_column(String(16))
+
+    # Normalisierte Leistung (`summaryDTO.normPower`): die Wattzahl, die
+    # dieselbe physiologische Belastung bei gleichmäßiger Fahrt ergeben hätte.
+    # Bei welligem Profil und im Windschatten die einzige belastbare
+    # Radgröße — der Schnitt unterschätzt beides.
+    normalisierte_leistung: Mapped[int | None] = mapped_column(Integer)
+
+    # Schwimmen: SWOLF (Zeit + Züge je Bahn) und die Zugzahl. Das einzige Maß
+    # für Technik im ganzen Paket — Tempo allein sagt beim Schwimmen wenig,
+    # weil dieselbe Zeit mit ganz verschiedenem Aufwand entstehen kann.
+    swolf: Mapped[int | None] = mapped_column(Integer)
+    zuege: Mapped[int | None] = mapped_column(Integer)
+
+    # Temperatur während der Einheit. Ein langsamer Lauf bei 32 Grad ist kein
+    # Formverlust, und ohne diese Zahl steht im Paket nichts, was den
+    # Unterschied hergäbe.
+    temperatur_c: Mapped[float | None] = mapped_column(Float)
+
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
     # für intensive Einheiten für die meisten Einheiten aus. Die Quelle geht in
     # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann:
