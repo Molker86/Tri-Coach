@@ -267,13 +267,16 @@ fast immer möglich"; und das Antwortformat bot `swim`, `bike`, `brick`,
 `swim_location` und `bike_location` gleich mit an. Das ist keine Auslassung,
 sondern eine Einladung: Wer Schwimmen im Schema anbietet, bekommt Schwimmen.
 
-**Für Triathlon bleibt der Prompt Wort für Wort derselbe.** Er passt dort gut,
-die Tests prüfen seinen Wortlaut, und die Prinzipien tragen die Disziplinenwahl
-über `tage_seit_letzter_einheit_je_sportart` bereits sauber. Geändert wird nur,
-was *daneben* gilt: Bei einer Einzeldisziplin nennt Punkt 1 sie beim Namen und
-schließt die anderen beiden samt `brick` ausdrücklich aus — auch als Ausgleich
-oder schonendere Alternative —, und die Abwechslung entsteht innerhalb der
-Disziplin statt zwischen Disziplinen. Punkt 5 verliert dort seinen Ausweichsatz:
+**Punkt 1 sagt in beiden Fassungen dasselbe: welche Sportschlüssel dieser Block
+tragen darf.** Bei einer Einzeldisziplin nennt er sie beim Namen und schließt
+die anderen beiden samt `brick` ausdrücklich aus — auch als Ausgleich oder
+schonendere Alternative —, und die Abwechslung entsteht innerhalb der Disziplin
+statt zwischen Disziplinen. Beim Triathlon stellt er umgekehrt alle offen, sagt,
+dass in wenigen Tagen nicht alle vorkommen müssen, und verweist auf
+`tage_seit_letzter_einheit_je_sportart`. Trainingslehre steht in keiner der
+beiden: Die Triathlonfassung nannte einmal Technikschwerpunkt beim Schwimmen und
+das Rad als Träger des Grundlagenumfangs und verlor das mit den dreizehn
+Prinzipien. Punkt 5 verliert bei einer Einzeldisziplin seinen Ausweichsatz:
 Der Weg über eine andere Sportart, den Punkt 1 gerade verboten hat, wäre ein
 Widerspruch im selben Dokument. Umso mehr hängt am Ergänzungsauftrag, der
 zweiten Richtung desselben Punktes.

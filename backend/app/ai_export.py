@@ -1010,7 +1010,7 @@ in `trainingswunsch.ziel`, die absolvierten Einheiten in `trainingshistorie` und
 Gesundheitsdaten in `fitnessdaten`. Dieses Dokument gibt dir dafür weder Quoten noch \
 Steigerungsgrenzen vor. Frühere Blöcke dieser App stehen nicht im Paket — es zählt, was \
 stattgefunden hat, nicht was vorgesehen war. Begründe in `summary`, woran du deine \
-Entscheidung abgelesen hast.
+Entscheidung abgelesen hast.{wettkampfhinweis}
 
 {fitnessregeln}
 
@@ -1068,8 +1068,11 @@ ABSOLUT verbindliche Regeln für die Ausgabe (Zwingend)!!:
 # Der Fragebogen kennt vier: Laufen, Schwimmen, Radfahren und Triathlon.
 # Er stand einmal fest auf „Triathlon" und erklärte einem reinen Läufer,
 # wie er zwischen drei Disziplinen wählt; das Schema bot ihm `swim`, `bike` und
-# `brick` gleich mit an. Für Triathlon bleibt der Text deshalb **wörtlich**
-# stehen — er passt dort gut, und die Tests prüfen seinen Wortlaut.
+# `brick` gleich mit an. Beide Fassungen sagen deshalb dasselbe in zwei
+# Richtungen: welche Sportschlüssel dieser Block tragen darf. Trainingslehre
+# steht in keiner — die Triathlonfassung trug einmal welche („Schwimmen mit
+# Technikschwerpunkt, Rad als Träger des Grundlagenumfangs") und verlor sie mit
+# den dreizehn Prinzipien.
 #
 # Achtung beim Ändern: `.format()` setzt Werte ein, ohne sie erneut zu
 # formatieren. `{tage}` in `PRINZIP_TRIATHLON` füllt deshalb
@@ -1077,7 +1080,11 @@ ABSOLUT verbindliche Regeln für die Ausgabe (Zwingend)!!:
 # Falle wie bei `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
 # --------------------------------------------------------------------------
 
-PRINZIP_TRIATHLON = """**Triathlon**: Nutze die Bestpractise für die Planung eines Training."""
+PRINZIP_TRIATHLON = """**Drei Disziplinen**: Der Athlet hat Triathlon gewählt \
+(`trainingswunsch.disziplin`) — Laufen, Radfahren, Schwimmen und Koppeleinheiten \
+(`brick`) stehen alle offen. In {tage} Tagen müssen nicht alle vorkommen; welche \
+drankommt, entscheidest du. `tage_seit_letzter_einheit_je_sportart` sagt dir, wie lange \
+jede zurückliegt und du kennst die Belastungen aus den vorherigen Einheiten."""
 
 PRINZIP_EINDISZIPLIN = """**Eine Disziplin**: Der Athlet hat im Fragebogen ausschließlich {disziplin} gewählt \
 (`trainingswunsch.disziplin`) — dieser Block ist ein reiner {blockname}. Jede \
@@ -1401,6 +1408,37 @@ Daten ersetzt. Plane die {tage} Tage trotzdem stimmig; entscheide aber bei allem
 früher genauso gut möglich ist, im Zweifel für den früheren Tag."""
 
 
+# Steht nur im Prompt, wenn ein Wettkampf eingetragen ist und noch bevorsteht.
+# Die drei Felder liegen im Paket, aber ohne Nennung im Anweisungsteil übersah
+# die KI sie dort — dieselbe Erfahrung wie beim HRV-Normalbereich. Was aus dem
+# Abstand folgt, steht bewusst nicht hier: „ab Woche X wird getapert" wäre
+# wieder eine Zahl aus diesem Dokument statt eine Entscheidung des Modells.
+WETTKAMPFHINWEIS = """
+
+**Auf diesen Block folgt ein Wettkampf.** `trainingswunsch.wettkampfdatum`, \
+`wochen_bis_wettkampf` und `wettkampfdistanz` sagen dir, worauf hin geplant wird; der \
+Abstand ist bereits ausgerechnet. Der Block ist ein Schritt auf dieses Datum zu — wie \
+wettkampfspezifisch Intensität, Streckenlänge und Bedingungen dabei ausfallen und was der \
+verbleibende Abstand für diesen Block bedeutet, entscheidest du. Nenne in `summary`, wie \
+er eingeflossen ist."""
+
+
+def _wettkampfhinweis(payload: dict[str, Any]) -> str:
+    """Der Absatz zum Wettkampf — nur, wenn einer bevorsteht.
+
+    Ein Fragebogen überdauert seinen Wettkampf: `wochen_bis_wettkampf` wird
+    dann negativ, und ein Absatz, der auf das Datum hin planen lässt, zeigte
+    in die Vergangenheit. Die Felder bleiben im Paket, der Auftrag entfällt.
+    """
+    wunsch = payload.get("trainingswunsch") or {}
+    if not wunsch.get("wettkampfdatum"):
+        return ""
+    wochen = wunsch.get("wochen_bis_wettkampf")
+    if wochen is not None and wochen < 0:
+        return ""
+    return WETTKAMPFHINWEIS
+
+
 def _fitnessregeln(payload: dict[str, Any], begruendungsfeld: str) -> str:
     """Der Absatz zur Erholungslage, in der Fassung, die zu den Daten passt.
 
@@ -1450,6 +1488,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
             else ""
         ),
         fitnessregeln=_fitnessregeln(payload, "summary"),
+        wettkampfhinweis=_wettkampfhinweis(payload),
         # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
         # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
         prinzip_disziplin=_prinzip_disziplin(disziplin, tage),

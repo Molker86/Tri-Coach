@@ -48,6 +48,20 @@ Warnsätze aus genau den Schwellen, die gerade gestrichen wurden, wären derselb
 Eingriff durch die Hintertür. Der Ernährungsprompt behält sie: Er bekommt eine
 stark gekürzte Historie und braucht die Verdichtung.
 
+**Der Wettkampf wird wieder benannt** (`WETTKAMPFHINWEIS`,
+`_wettkampfhinweis()`). Mit den dreizehn Prinzipien fiel auch Punkt 5
+„Spezifität", und danach kam das Wettkampfdatum im Anweisungsteil überhaupt
+nicht mehr vor — obwohl der Fragebogen es abfragt und `_request_block()` es
+samt `wochen_bis_wettkampf` und `wettkampfdistanz` ins Paket legt. Das ist
+dieselbe Lage wie beim HRV-Normalbereich und derselbe Ausweg: Die Felder werden
+genannt, der Schluss bleibt beim Modell. Was der Abstand für diesen Block
+bedeutet, steht bewusst nicht dort — „ab Woche X wird getapert" wäre wieder eine
+Zahl aus diesem Dokument. Der Absatz erscheint nur, wenn ein Wettkampf
+eingetragen ist **und noch bevorsteht**: Ein Fragebogen überdauert seinen
+Wettkampf, `wochen_bis_wettkampf` wird dann negativ, und ein Auftrag, auf das
+Datum hin zu planen, zeigte in die Vergangenheit. Die Felder bleiben in beiden
+Fällen im Paket.
+
 **Frühere Blöcke dieser App stehen nicht mehr im Paket.** Es gab dafür vier
 Stellen — `geplant_war` an jeder absolvierten Einheit, `aktueller_plan` mit dem
 `summary` des letzten Laufs, `umsetzung_aktueller_plan` mit der Quote und
@@ -78,9 +92,16 @@ Kommentare wie Tests wurden mitgezogen:
 | 4 | Steuerungsgrößen (`_prinzip_steuergroessen()`) | Zonen, Schwimm-/Radort, Bauplan — daraus baut die App das Workout |
 | 5 | Beschwerden | Der einzige Freitext, den kein Gerät gemessen hat |
 
-**Punkt 1 existiert in zwei Fassungen**, je nach gewählter Disziplin — für
-Triathlon wörtlich der alte Text, sonst eine Fassung, die die anderen
-Disziplinen und `brick` ausschließt. Punkt 5 verliert dabei seinen
+**Punkt 1 existiert in zwei Fassungen**, je nach gewählter Disziplin — beide
+sagen dasselbe in zwei Richtungen: welche Sportschlüssel dieser Block tragen
+darf. Die Einzeldisziplin schließt die anderen und `brick` aus, die
+Triathlonfassung stellt alle offen und verweist auf
+`tage_seit_letzter_einheit_je_sportart`. Trainingslehre steht in keiner: Die
+Triathlonfassung trug einmal welche („Schwimmen mit Technikschwerpunkt, Rad als
+Träger des Grundlagenumfangs") und verlor sie mit den dreizehn Prinzipien; was
+danach eine Weile dort stand — „Nutze die Bestpractise" — delegierte an eine
+Stelle, die der Prompt zwei Absätze weiter oben schon vollständig delegiert,
+und ließ den Listenpunkt ohne Aussage zurück. Punkt 5 verliert dabei seinen
 Ausweichsatz, und `_session_schema()` nimmt die Sportarten aus dem
 Antwortformat. Siehe „Die gewählte Disziplin entscheidet, was im Block vorkommen
 darf".

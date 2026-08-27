@@ -2,9 +2,9 @@
 
 Der Fragebogen kennt vier Disziplinen, aber der Prompt kannte lange nur eine:
 Punkt 1 hieß „Triathlon", und das Antwortformat bot einem reinen Läufer
-`swim`, `bike` und `brick` gleich mit an. Diese Datei hält beides fest — die
-schmale Fassung für eine Einzeldisziplin **und** dass die Triathlonfassung
-dabei unangetastet geblieben ist.
+`swim`, `bike` und `brick` gleich mit an. Diese Datei hält beide Fassungen
+fest — sie sagen dasselbe in zwei Richtungen: welche Sportschlüssel dieser
+Block tragen darf.
 """
 
 import json
@@ -95,7 +95,7 @@ def test_ein_laufblock_kennt_nur_das_laufen(client, auth):
     prompt = prompt_fuer(client, auth, "run")
 
     assert "1. **Eine Disziplin**" in prompt
-    assert "**Triathlon**: In" not in prompt
+    assert "**Drei Disziplinen**" not in prompt
     # Das Antwortformat bietet die anderen Disziplinen gar nicht erst an.
     assert '"sport":"run | strength | mobility | rest"' in prompt
     assert "swim_location" not in prompt
@@ -105,10 +105,11 @@ def test_ein_laufblock_kennt_nur_das_laufen(client, auth):
     assert "Koppeleinheiten (`brick`) kommen **nicht** vor" in prompt
 
 
-def test_beim_triathlon_bleibt_der_prompt_wie_er_war(client, auth):
+def test_beim_triathlon_stehen_alle_disziplinen_offen(client, auth):
     prompt = prompt_fuer(client, auth, "triathlon")
 
-    assert "1. **Triathlon**: In 7 Tagen müssen nicht alle drei Disziplinen" in prompt
+    assert "1. **Drei Disziplinen**: Der Athlet hat Triathlon gewählt" in prompt
+    assert "In 7 Tagen müssen nicht alle vorkommen" in prompt
     assert "bei drei Disziplinen ist das fast immer möglich" in prompt
     assert '"sport":"run | bike | swim | strength | mobility | brick | rest"' in prompt
     assert "swim_location" in prompt and "bike_location" in prompt
@@ -131,7 +132,7 @@ def test_ohne_fragebogen_bleibt_alles_erlaubt(client, auth):
     """Wer nichts gewählt hat, soll nicht zusätzlich festgelegt werden."""
     prompt = prompt_fuer(client, auth, None)
 
-    assert "1. **Triathlon**" in prompt
+    assert "1. **Drei Disziplinen**" in prompt
     assert "swim_location" in prompt
 
 
@@ -144,6 +145,7 @@ def test_kein_platzhalter_bleibt_stehen(client, auth):
             "{prinzip_disziplin}",
             "{ausweichhinweis}",
             "{prinzip_steuergroessen}",
+            "{wettkampfhinweis}",
             "{disziplin}",
             "{blockname}",
         ):

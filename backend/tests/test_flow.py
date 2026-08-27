@@ -193,6 +193,49 @@ def test_ai_export_contains_context(client, auth):
     assert "Olympische Distanz" in data["prompt"]
 
 
+def test_der_wettkampf_steht_nur_im_prompt_wenn_er_bevorsteht(client, registriere):
+    """Datum, Abstand und Distanz lagen im Paket, aber kein Satz zeigte darauf.
+
+    Mit den dreizehn Prinzipien fiel auch Punkt 5 „Spezifität", und danach kam
+    das Wettkampfdatum im Anweisungsteil nicht mehr vor — dieselbe Lage wie
+    beim HRV-Normalbereich, den die KI ohne Nennung übersah.
+
+    Der Gegenfall ist der wichtigere: Ein Fragebogen überdauert seinen
+    Wettkampf, und ein Auftrag, auf das Datum hin zu planen, zeigte dann in
+    die Vergangenheit.
+    """
+    kopf = registriere("wettkampf@example.com", "wettkampfathlet")
+
+    def prompt_mit(race_date: str | None) -> str:
+        frage = {
+            "discipline": "run",
+            "goal_type": "Wettkampfvorbereitung",
+            "available_days": ["monday", "wednesday", "friday", "sunday"],
+        }
+        if race_date:
+            frage["race_date"] = race_date
+            frage["race_distance"] = "Halbmarathon"
+        angelegt = client.post("/api/requests", headers=kopf, json=frage)
+        assert angelegt.status_code == 201, angelegt.text
+        antwort = client.get(
+            "/api/plans/export",
+            headers=kopf,
+            params={"request_id": angelegt.json()["id"]},
+        )
+        assert antwort.status_code == 200, antwort.text
+        return antwort.json()["prompt"]
+
+    kommend = prompt_mit((date.today() + timedelta(days=70)).isoformat())
+    assert "**Auf diesen Block folgt ein Wettkampf.**" in kommend
+    # Mit Backticks: ohne sie stünde der Feldname auch im Datenpaket.
+    assert "`wochen_bis_wettkampf`" in kommend
+
+    assert "**Auf diesen Block folgt ein Wettkampf.**" not in prompt_mit(None)
+    assert "**Auf diesen Block folgt ein Wettkampf.**" not in prompt_mit(
+        (date.today() - timedelta(days=7)).isoformat()
+    )
+
+
 def test_der_prompt_verlangt_arbeit_an_der_beschwerde(client, auth):
     """`verletzungen_einschraenkungen` reiste mit, aber kein Prinzip zeigte darauf.
 
