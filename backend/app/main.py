@@ -16,6 +16,7 @@ from .garmin.runner import markiere_unterbrochene_jobs
 from .ki.runner import runner as ki_runner
 from .routers import (
     auth,
+    bring,
     ernaehrung,
     garmin,
     ki,
@@ -77,6 +78,7 @@ app.include_router(logs.router)
 app.include_router(garmin.router)
 app.include_router(ki.router)
 app.include_router(ernaehrung.router)
+app.include_router(bring.router)
 
 
 @app.get("/api/health")

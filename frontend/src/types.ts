@@ -552,6 +552,15 @@ export interface EinheitAnpassung {
 /** Bezug einer Mahlzeit zur Einheit des Tages. */
 export type ErnaehrungsBezug = 'vor' | 'waehrend' | 'nach'
 
+/** Ein Lebensmittel mit Menge — die Vorlage für die Einkaufsliste. */
+export interface ErnaehrungsZutat {
+  id: number
+  name: string
+  /** Fehlt, wo sich nichts sinnvoll beziffern ließ („eine Handvoll Nüsse"). */
+  menge: number | null
+  einheit: string | null
+}
+
 export interface ErnaehrungsMahlzeit {
   id: number
   order_in_day: number
@@ -564,6 +573,8 @@ export interface ErnaehrungsMahlzeit {
   kohlenhydrate_g: number | null
   protein_g: number | null
   fett_g: number | null
+  /** Leer bei Plänen aus der Zeit vor der Einkaufsliste. */
+  zutaten: ErnaehrungsZutat[]
 }
 
 export interface ErnaehrungsTag {
@@ -625,4 +636,60 @@ export interface ErnaehrungsSpielraum {
 export interface ErnaehrungsProfil {
   hinweise: string | null
   updated_at: string | null
+}
+
+/* --------------------------------------------------------------------------
+   Bring — die Einkaufsliste zum Ernährungsplan
+   -------------------------------------------------------------------------- */
+
+export interface BringListe {
+  uuid: string
+  name: string
+}
+
+export interface BringAccount {
+  email: string
+  list_uuid: string | null
+  list_name: string | null
+  status: 'connected' | 'error'
+  status_message: string | null
+  connected_at: string
+  last_push_at: string | null
+  /** Nie das Passwort selbst — nur seine Lage. */
+  passwort_status: 'fehlt' | 'hinterlegt' | 'unlesbar'
+}
+
+export interface BringStatus {
+  konto: BringAccount | null
+  /** Leer, solange die Anmeldung nicht durchgeht. */
+  listen: BringListe[]
+}
+
+export interface BringSettingsIn {
+  email: string
+  /** Klartext hinein, verschlüsselt abgelegt. Leer löscht ausdrücklich. */
+  passwort: string
+  list_uuid: string
+}
+
+export interface Einkaufsposten {
+  name: string
+  /** Fertig formatiert („1,2 kg") — genau dieser Text landet in Bring. */
+  menge_text: string
+}
+
+export interface EinkaufslistenVorschau {
+  von: string | null
+  bis: string | null
+  posten: Einkaufsposten[]
+  tage_offen: number
+  tage_bereits_uebertragen: number
+  /** Warum nichts (mehr) zu übertragen ist. */
+  hinweis: string | null
+}
+
+export interface BringUebertragung {
+  hinzugefuegt: number
+  ergaenzt: number
+  liste: string
 }

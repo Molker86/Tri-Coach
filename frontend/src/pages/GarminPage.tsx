@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, api, jobLaeuft, pollJob } from '../api/client'
-import { Alert, Loading, Stat, TextField } from '../components/ui'
+import { Alert, Loading, Stat } from '../components/ui'
 import type { GarminDublette, GarminJob, GarminStatus } from '../types'
 
 /** Wie weit der einmalige Rückblick reicht, in Tagen. */
@@ -46,13 +46,6 @@ export default function GarminPage() {
   const [fehler, setFehler] = useState<string | null>(null)
   const [erfolg, setErfolg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  // Anmeldung
-  const [email, setEmail] = useState<string | null>(null)
-  const [passwort, setPasswort] = useState<string | null>(null)
-  const [pendingId, setPendingId] = useState<string | null>(null)
-  const [mfaHinweis, setMfaHinweis] = useState<string | null>(null)
-  const [code, setCode] = useState<string | null>(null)
 
   const [rueckblickTage, setRueckblickTage] = useState(365)
   const [job, setJob] = useState<GarminJob | null>(null)
@@ -115,60 +108,6 @@ export default function GarminPage() {
     }
   }
 
-  function verbinde() {
-    if (!email || !passwort) {
-      setFehler('Bitte E-Mail-Adresse und Passwort eingeben.')
-      return
-    }
-    void handle(
-      () => api.garminConnect(email, passwort),
-      (ergebnis) => {
-        // Das Passwort verlässt den Zustand sofort wieder — es wird weder
-        // gespeichert noch für einen zweiten Schritt gebraucht.
-        setPasswort(null)
-        if (ergebnis.status === 'mfa_erforderlich') {
-          setPendingId(ergebnis.pending_id ?? null)
-          setMfaHinweis(ergebnis.hinweis ?? null)
-        } else {
-          setErfolg('Garmin-Konto verbunden.')
-          void ladeZustand()
-        }
-      },
-    )
-  }
-
-  function sendeCode() {
-    if (!pendingId || !code) return
-    void handle(
-      () => api.garminMfa(pendingId, code),
-      () => {
-        setPendingId(null)
-        setCode(null)
-        setMfaHinweis(null)
-        setErfolg('Garmin-Konto verbunden.')
-        void ladeZustand()
-      },
-    )
-  }
-
-  function trenne() {
-    if (
-      !confirm(
-        'Verbindung zu Garmin trennen?\n\n' +
-          'Deine bereits importierten Trainings und Fitnessdaten bleiben erhalten.',
-      )
-    )
-      return
-    void handle(
-      () => api.garminDisconnect(),
-      () => {
-        setErfolg('Verbindung getrennt.')
-        setJob(null)
-        void ladeZustand()
-      },
-    )
-  }
-
   const konto = zustand?.konto ?? null
   const laeuft = jobLaeuft(job)
 
@@ -198,27 +137,24 @@ export default function GarminPage() {
       {erfolg && <Alert kind="success">{erfolg}</Alert>}
 
       {konto === null ? (
-        <AnmeldeKarte
-          email={email}
-          setEmail={setEmail}
-          passwort={passwort}
-          setPasswort={setPasswort}
-          pendingId={pendingId}
-          mfaHinweis={mfaHinweis}
-          code={code}
-          setCode={setCode}
-          busy={busy}
-          onVerbinden={verbinde}
-          onCode={sendeCode}
-        />
+        <div className="card">
+          <div className="card-title">
+            <h2>Kein Konto verbunden</h2>
+          </div>
+          <p className="muted">
+            Ohne verbundenes Konto gibt es weder Trainingsdaten noch einen Weg
+            zurück auf die Uhr. Verbinden lässt es sich in den Einstellungen —
+            dort steht alles, was die App ohne Zutun tut.
+          </p>
+          <div className="row row-end">
+            <Link className="btn btn-primary" to="/einstellungen">
+              Zu den Einstellungen
+            </Link>
+          </div>
+        </div>
       ) : (
         <>
-          <VerbindungsKarte
-            zustand={zustand!}
-            busy={busy}
-            laeuft={laeuft}
-            onTrennen={trenne}
-          />
+          <VerbindungsKarte zustand={zustand!} />
 
           {laeuft && job ? (
             <FortschrittsKarte
@@ -261,96 +197,7 @@ export default function GarminPage() {
   )
 }
 
-function AnmeldeKarte(props: {
-  email: string | null
-  setEmail: (v: string | null) => void
-  passwort: string | null
-  setPasswort: (v: string | null) => void
-  pendingId: string | null
-  mfaHinweis: string | null
-  code: string | null
-  setCode: (v: string | null) => void
-  busy: boolean
-  onVerbinden: () => void
-  onCode: () => void
-}) {
-  if (props.pendingId) {
-    return (
-      <div className="card">
-        <div className="card-title">
-          <h2>Bestätigungscode</h2>
-        </div>
-        <Alert kind="info">
-          {props.mfaHinweis ??
-            'Garmin hat dir einen Bestätigungscode geschickt. Bitte gib ihn ein.'}
-        </Alert>
-        <TextField
-          label="Code"
-          value={props.code}
-          onChange={props.setCode}
-          placeholder="123456"
-          autoComplete="one-time-code"
-        />
-        <div className="row row-end">
-          <button
-            className="btn btn-primary"
-            onClick={props.onCode}
-            disabled={props.busy || !props.code}
-          >
-            {props.busy ? 'Wird geprüft …' : 'Bestätigen'}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="card">
-      <div className="card-title">
-        <h2>Konto verbinden</h2>
-      </div>
-      <p className="muted">
-        Melde dich einmalig mit deinen Garmin-Zugangsdaten an. Das Passwort wird
-        <strong> nicht gespeichert</strong> — die App merkt sich nur den
-        Zugangsschlüssel, den Garmin dafür ausstellt, und legt ihn verschlüsselt ab.
-      </p>
-      <TextField
-        label="Garmin-E-Mail"
-        type="email"
-        value={props.email}
-        onChange={props.setEmail}
-        autoComplete="username"
-      />
-      <TextField
-        label="Passwort"
-        type="password"
-        value={props.passwort}
-        onChange={props.setPasswort}
-        autoComplete="current-password"
-      />
-      <Alert kind="warning">
-        Garmin sperrt ein Konto nach wenigen fehlgeschlagenen Anmeldungen für bis
-        zu 48 Stunden. Bitte prüfe die Eingabe, bevor du es erneut versuchst.
-      </Alert>
-      <div className="row row-end">
-        <button
-          className="btn btn-primary"
-          onClick={props.onVerbinden}
-          disabled={props.busy}
-        >
-          {props.busy ? 'Verbindet …' : 'Verbinden'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function VerbindungsKarte(props: {
-  zustand: GarminStatus
-  busy: boolean
-  laeuft: boolean
-  onTrennen: () => void
-}) {
+function VerbindungsKarte(props: { zustand: GarminStatus }) {
   const konto = props.zustand.konto!
   const problem = konto.status !== 'connected'
 
@@ -358,13 +205,6 @@ function VerbindungsKarte(props: {
     <div className="card">
       <div className="card-title">
         <h2>Verbindung</h2>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={props.onTrennen}
-          disabled={props.busy || props.laeuft}
-        >
-          Trennen
-        </button>
       </div>
 
       {problem && <Alert kind="warning">{konto.status_message ?? 'Die Verbindung hat ein Problem.'}</Alert>}
@@ -382,12 +222,12 @@ function VerbindungsKarte(props: {
         />
       </div>
 
-      {/* Die Schalter dazu stehen unter „Einstellungen": Sie beschreiben, was
-          die App ohne Zutun tut, und das gehört an einen Ort statt verteilt auf
-          die Seite, auf der man ein Konto verbindet. */}
+      {/* Verbinden, Trennen und die Schalter dazu stehen unter „Einstellungen":
+          Sie beschreiben, was die App ohne Zutun tut, und das gehört an einen
+          Ort statt verteilt auf die Seite, auf der man abgleicht. */}
       <p className="small muted mt-2 mb-0">
-        Automatischer Abgleich, Abgleichzeit, Übertragung auf die Uhr und
-        Profilübernahme stehen in den{' '}
+        Konto trennen, automatischer Abgleich, Abgleichzeit, Übertragung auf die
+        Uhr und Profilübernahme stehen in den{' '}
         <Link to="/einstellungen">Einstellungen</Link>.
       </p>
     </div>

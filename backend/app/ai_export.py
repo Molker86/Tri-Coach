@@ -1741,6 +1741,13 @@ MAHLZEIT_SCHEMA: dict[str, Any] = {
     "kohlenhydrate_g": "int, optional",
     "protein_g": "int, optional",
     "fett_g": "int, optional",
+    "zutaten": [
+        {
+            "name": "Einkaufsname des Lebensmittels, z. B. „Haferflocken\"",
+            "menge": "Zahl, optional — weglassen, wenn keine sinnvolle Menge angebbar ist",
+            "einheit": "g | ml | Stück | EL | TL | Bund | Scheibe | Packung",
+        }
+    ],
 }
 
 
@@ -1849,7 +1856,19 @@ Bindegewebskomponente — sag in `begruendung`, wenn du daraufhin etwas anders p
 6. **Konkret statt allgemein.** Jede Mahlzeit nennt Lebensmittel und Mengen, nicht \
 Nährstoffklassen: „120 g Haferflocken mit 300 ml Milch, 1 Banane, 30 g Walnüsse" \
 statt „kohlenhydratreiches Frühstück". Ein Plan, den man nicht einkaufen kann, ist \
-keiner.
+keiner. Genau deshalb gibst du dieselben Lebensmittel zusätzlich unter `zutaten` \
+einzeln aus: Die App summiert sie über alle Tage zu einer Einkaufsliste. Dabei gilt:
+   - `name` ist der **Einkaufsname**, so wie die Ware im Laden heißt — \
+„Haferflocken", nicht „gekochte Haferflocken"; „Hackfleisch", nicht „angebratenes \
+Hack". Schreibe dasselbe Lebensmittel über alle Tage **gleich**, sonst steht es \
+zweimal auf der Liste.
+   - `menge` ist eine Zahl, `einheit` eine aus `g`, `ml`, `Stück`, `EL`, `TL`, \
+`Bund`, `Scheibe`, `Packung`. Rechne auf diese Einheiten um; kg und Liter gehören \
+nicht hierher.
+   - Was du nicht sinnvoll beziffern kannst, bekommt **keine** `menge` — eine \
+geschrätzte Zahl ginge in die Summe ein.
+   - **Weglassen**, was niemand einkauft: Leitungswasser, Salz, Pfeffer, Gewürze.
+   - Supplemente gehören **nicht** unter `zutaten`, sondern nur unter `supplemente`.
 7. **Supplemente nur, wo sie etwas tragen.** Nenne unter `supplemente`, was für \
 **diesen** Athleten und **diesen** Block einen belegten Nutzen hat — mit Dosierung, \
 Zeitpunkt und einem Satz wofür. Eine Liste aus Gewohnheit ist schlechter als eine \

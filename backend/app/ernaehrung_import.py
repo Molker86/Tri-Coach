@@ -20,12 +20,14 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from .einkaufsliste import normalisiere
 from .models import (
     Ernaehrungsplan,
     ErnaehrungsProfil,
     ErnaehrungsMahlzeit,
     ErnaehrungsSupplement,
     ErnaehrungsTag,
+    ErnaehrungsZutat,
     Plan,
 )
 from .plan_import import (
@@ -240,6 +242,14 @@ def pruefe_ernaehrungsplan(
             f"{_gekuerzt(ohne_summe)}."
         )
 
+    # Ohne Zutaten bleibt die Einkaufsliste leer. Kein Grund abzulehnen — der
+    # Plan ist deshalb nicht schlechter —, aber einer, es zu sagen.
+    if not any(m.zutaten for t in tage for m in t.mahlzeiten):
+        warnings.append(
+            "Keine Mahlzeit nennt einzelne Zutaten. Der Plan lässt sich lesen, "
+            "aber nicht auf die Einkaufsliste übertragen."
+        )
+
     if schief := [m for t in tage if (m := _makros_passen_nicht(t))]:
         warnings.append(
             "Kalorien und Makronährstoffe passen nicht zusammen: "
@@ -278,19 +288,28 @@ def baue_ernaehrungsplan(
             notiz=eintrag.notiz,
         )
         for i, mahlzeit in enumerate(eintrag.mahlzeiten):
-            tag.mahlzeiten.append(
-                ErnaehrungsMahlzeit(
-                    order_in_day=i,
-                    zeitpunkt=(mahlzeit.zeitpunkt or "").strip()[:48],
-                    name=(mahlzeit.name or "").strip()[:120],
-                    beschreibung=mahlzeit.beschreibung,
-                    bezug=mahlzeit.bezug,
-                    kalorien_kcal=mahlzeit.kalorien_kcal,
-                    kohlenhydrate_g=mahlzeit.kohlenhydrate_g,
-                    protein_g=mahlzeit.protein_g,
-                    fett_g=mahlzeit.fett_g,
-                )
+            eintragung = ErnaehrungsMahlzeit(
+                order_in_day=i,
+                zeitpunkt=(mahlzeit.zeitpunkt or "").strip()[:48],
+                name=(mahlzeit.name or "").strip()[:120],
+                beschreibung=mahlzeit.beschreibung,
+                bezug=mahlzeit.bezug,
+                kalorien_kcal=mahlzeit.kalorien_kcal,
+                kohlenhydrate_g=mahlzeit.kohlenhydrate_g,
+                protein_g=mahlzeit.protein_g,
+                fett_g=mahlzeit.fett_g,
             )
+            for j, zutat in enumerate(mahlzeit.zutaten):
+                menge, einheit = normalisiere(zutat.menge, zutat.einheit)
+                eintragung.zutaten.append(
+                    ErnaehrungsZutat(
+                        order_index=j,
+                        name=zutat.name[:120],
+                        menge=menge,
+                        einheit=einheit,
+                    )
+                )
+            tag.mahlzeiten.append(eintragung)
         plan.tage.append(tag)
 
     for i, supplement in enumerate(body.supplemente):

@@ -169,6 +169,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "auto_plan_hour": "INTEGER NOT NULL DEFAULT 9",
         "auto_plan_minute": "INTEGER NOT NULL DEFAULT 0",
     },
+    # Wann die Zutaten eines Tages auf die Bring-Liste gingen. Bestehende Tage
+    # bleiben leer und gelten damit als nicht übertragen — richtig so: Sie
+    # haben ohnehin keine Zutaten, die Tabelle dafür ist neu.
+    "ernaehrungs_tage": {
+        "bring_uebertragen_am": "DATETIME",
+    },
 }
 
 # Das Gegenstück: Spalten, die aus dem Modell verschwunden sind. Sie einfach

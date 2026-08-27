@@ -60,16 +60,28 @@ Fragebogen und die Körperdaten, und antwortet als Fachmann für die gewählte
 Disziplin — „Experte für Laufernährung", „für Triathlonernährung". Ein Freitext
 im Profil sagt ihr einmal und dauerhaft, was einschränkt: Unverträglichkeiten,
 Kantine, Schichtdienst. Siehe „Ernährung wird geplant wie Training".
-
-**Was die App ohne Zutun tut, steht unter „Einstellungen".** Abgleich an/aus
-samt Uhrzeit **auf die Minute**, Übertragung auf die Uhr, Profilübernahme, der
-Claude-Zugang (verschlüsselt in der Datenbank statt im Klartext in den
-Add-on-Optionen), automatische Planung samt Wochentag und Uhrzeit, Modell und
-Denktiefe — dazu Hell/Dunkel. Beide Automatiken laufen **unabhängig
-voneinander**: Der Abgleich täglich, die Planung einmal die Woche (Vorgabe
-Sonntag 09:00). Wer sie nach dem Abgleich haben will, legt sie später. Und auf der
-Startseite öffnet jede Einheit denselben Dialog wie im Trainingsplan: ansehen,
-per Freitext anpassen lassen.
+**Und der Einkauf dazu geht auf die Bring-Liste.** Jede Mahlzeit nennt ihre
+Zutaten einzeln — Einkaufsname, Menge, Einheit —, und ein Knopf auf der
+Ernährungsseite zählt sie über alle Tage ab heute zusammen und schreibt sie in
+die gewählte Bring-Liste. **Was dort schon steht, wird aufgestockt statt doppelt
+angelegt**: Bring kennt keine Mengenfelder, also liest die App die vorhandene
+Angabe, rechnet und schreibt sie zurück — und hängt an, wo sich nichts rechnen
+lässt. Ein Vorschaudialog zeigt vorher, was übertragen wird. Ein Riegel je Tag
+verhindert, dass ein zweiter Knopfdruck die Mengen verdoppelt. Erst ab dem
+nächsten geplanten Block: Ältere Ernährungspläne haben keine Zutaten. Siehe
+„Die Zutaten kommen von der KI, nicht aus der Prosa".
+**Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
+Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
+der Garmin-Seite, die Schalter dazu schon hier; jetzt liegt beides beieinander,
+und `/garmin` behält den Abgleich. Abgleich an/aus samt Uhrzeit **auf die
+Minute**, Übertragung auf die Uhr, Profilübernahme, der Claude-Zugang
+(verschlüsselt in der Datenbank statt im Klartext in den Add-on-Optionen),
+automatische Planung samt Wochentag und Uhrzeit, Modell und Denktiefe — dazu das
+Bring-Konto mit der Wahl, in welche Einkaufsliste geschrieben wird, und
+Hell/Dunkel. Beide Automatiken laufen **unabhängig voneinander**: Der Abgleich
+täglich, die Planung einmal die Woche (Vorgabe Sonntag 09:00). Wer sie nach dem
+Abgleich haben will, legt sie später. Und auf der Startseite öffnet jede Einheit
+denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ## Ursprüngliche Anforderungen
 
@@ -96,7 +108,7 @@ per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 501 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 560 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -165,8 +177,14 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Unterprozess, Jobs und Schloss, wöchentliche Planung, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
-  (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`.
+  (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten
+  neben der Beschreibung.
   *Bei `ernaehrung_import.py`, `routers/ernaehrung.py`.*
+- [docs/einkaufsliste.md](docs/einkaufsliste.md) — Zutaten von der KI statt aus
+  der Prosa, Einheiten beim Import normalisieren, Brings Freitext statt
+  Mengenfeld, Aufaddieren gegen Anhängen, der Riegel je Tag, warum synchron
+  statt Job, warum das Bring-Passwort gespeichert wird.
+  *Bei `einkaufsliste.py`, `bring/`, `routers/bring.py`.*
 - [docs/garmin-abgleich.md](docs/garmin-abgleich.md) — Token statt Passwort,
   Bereichsabfragen, Nachlaufzeit, Abgleich im eigenen Thread, Ausführungsdaten,
   Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme.
@@ -182,8 +200,8 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   *Bei `garmin/uebertragung.py`, `workout_pool.py`, `kalender.py`,
   `automatik.py`.*
 - [docs/frontend.md](docs/frontend.md) — kein UI-Framework, Themenumschaltung,
-  Einstellungsseite, Navigation am Telefon, „Heute" zur Laufzeit, Tabellen als
-  Karten, Fortschritt per Abfrage.
+  Einstellungsseite samt Garmin-Anmeldung, Navigation am Telefon, „Heute" zur
+  Laufzeit, Tabellen als Karten, Fortschritt per Abfrage.
   *Bei allem unter `frontend/src/`.*
 - [docs/backend.md](docs/backend.md) — passwortlose Anmeldung, FastAPI statt
   Django, toleranter Import, Warnungen statt Ablehnung, Migrationshelfer,

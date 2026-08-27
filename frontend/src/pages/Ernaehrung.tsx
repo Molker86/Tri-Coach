@@ -5,6 +5,8 @@ import { Alert, EmptyState, Loading, Modal, TextArea } from '../components/ui'
 import { useHeute } from '../components/useHeute'
 import { heuteIso, planErzeugenPfad } from '../planung'
 import type {
+  BringStatus,
+  EinkaufslistenVorschau,
   Ernaehrungsplan,
   ErnaehrungsProfil,
   ErnaehrungsSpielraum,
@@ -48,6 +50,8 @@ export default function Ernaehrung() {
   const [hinweise, setHinweise] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [dialogOffen, setDialogOffen] = useState(false)
+  const [bring, setBring] = useState<BringStatus | null>(null)
+  const [einkaufOffen, setEinkaufOffen] = useState(false)
 
   const laedt = useCallback(async () => {
     const [aktiv, raum, prof] = await Promise.all([
@@ -112,6 +116,10 @@ export default function Ernaehrung() {
       .catch(() => setKiStatus(null))
     return () => abbrechenRef.current?.()
   }, [beobachte])
+
+  useEffect(() => {
+    api.bringStatus().then(setBring).catch(() => setBring(null))
+  }, [])
 
   const laeuft = jobLaeuft(job)
   const kiVerfuegbar = kiStatus?.verfuegbar === true
@@ -244,6 +252,16 @@ export default function Ernaehrung() {
 
             {plan && (
               <button
+                className="btn btn-secondary"
+                onClick={() => setEinkaufOffen(true)}
+                disabled={busy || laeuft}
+              >
+                Auf Bring übertragen
+              </button>
+            )}
+
+            {plan && (
+              <button
                 className="btn btn-danger"
                 onClick={loesche}
                 disabled={busy || laeuft}
@@ -300,8 +318,35 @@ export default function Ernaehrung() {
           onFehler={setFehler}
         />
       )}
+
+      {einkaufOffen && (
+        <EinkaufslistenDialog
+          bring={bring}
+          onClose={() => setEinkaufOffen(false)}
+          onFertig={(meldung) => {
+            setEinkaufOffen(false)
+            setHinweise([meldung])
+            void laedt()
+          }}
+        />
+      )}
     </div>
   )
+}
+
+/** Menge und Einheit, wie der Server sie auch schreiben würde. */
+function mengeText(menge: number, einheit: string | null): string {
+  let wert = menge
+  let anzeige = einheit ?? ''
+  if (einheit === 'g' && wert >= 1000) {
+    wert /= 1000
+    anzeige = 'kg'
+  } else if (einheit === 'ml' && wert >= 1000) {
+    wert /= 1000
+    anzeige = 'l'
+  }
+  const zahl = Math.round(wert * 100) / 100
+  return `${String(zahl).replace('.', ',')} ${anzeige}`.trim()
 }
 
 /* --------------------------------------------------------------------------
@@ -389,6 +434,130 @@ function IndividualisierenDialog(props: {
           disabled={busy}
         >
           {busy ? 'Speichert …' : 'Speichern'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+/* --------------------------------------------------------------------------
+   Die Einkaufsliste
+
+   Zwei Schritte, weil Bring keine Mengenfelder kennt: Was übertragen wird,
+   wird zuerst gezeigt. Ein Knopfdruck rechnet die Mengen auf das auf, was dort
+   schon steht — und lässt sich nicht ohne Weiteres zurücknehmen.
+   -------------------------------------------------------------------------- */
+
+function EinkaufslistenDialog(props: {
+  bring: BringStatus | null
+  onClose: () => void
+  onFertig: (meldung: string) => void
+}) {
+  const [vorschau, setVorschau] = useState<EinkaufslistenVorschau | null>(null)
+  const [alles, setAlles] = useState(false)
+  const [fehler, setFehler] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const konto = props.bring?.konto ?? null
+  const bereit = konto !== null && konto.list_uuid !== null
+
+  useEffect(() => {
+    setVorschau(null)
+    api
+      .einkaufslisteVorschau(alles)
+      .then(setVorschau)
+      .catch((err) =>
+        setFehler(err instanceof Error ? err.message : 'Laden fehlgeschlagen.'),
+      )
+  }, [alles])
+
+  async function uebertrage() {
+    setBusy(true)
+    setFehler(null)
+    try {
+      const ergebnis = await api.einkaufslisteUebertragen(alles)
+      props.onFertig(
+        `${ergebnis.hinzugefuegt} neu, ${ergebnis.ergaenzt} ergänzt ` +
+          `in „${ergebnis.liste}".`,
+      )
+    } catch (err) {
+      setFehler(
+        err instanceof Error ? err.message : 'Übertragen fehlgeschlagen.',
+      )
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Auf die Einkaufsliste" onClose={props.onClose}>
+      {fehler && <Alert kind="error">{fehler}</Alert>}
+
+      {!bereit && (
+        <Alert kind="info">
+          {konto === null
+            ? 'Es ist kein Bring-Konto hinterlegt.'
+            : 'Es ist noch keine Einkaufsliste ausgewählt.'}{' '}
+          Beides trägst du unter <Link to="/einstellungen">Einstellungen</Link>{' '}
+          ein.
+        </Alert>
+      )}
+
+      {vorschau === null ? (
+        <Loading />
+      ) : (
+        <>
+          {vorschau.hinweis && <Alert kind="info">{vorschau.hinweis}</Alert>}
+
+          {vorschau.posten.length > 0 && (
+            <>
+              <p className="muted">
+                {vorschau.tage_offen} Tag(e) ab {kurzdatum(vorschau.von ?? '')} bis{' '}
+                {kurzdatum(vorschau.bis ?? '')}
+                {konto?.list_name ? ` → „${konto.list_name}"` : ''}. Was dort
+                schon steht, wird aufgestockt statt doppelt angelegt.
+              </p>
+              <ul className="ern-einkauf">
+                {vorschau.posten.map((p) => (
+                  <li key={`${p.name}-${p.menge_text}`}>
+                    <span className="ern-zutat-menge">{p.menge_text}</span>{' '}
+                    {p.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {vorschau.tage_bereits_uebertragen > 0 && (
+            <label className="check-row mt-1">
+              <input
+                type="checkbox"
+                checked={alles}
+                disabled={busy}
+                onChange={(e) => setAlles(e.target.checked)}
+              />
+              <span>
+                Auch bereits übertragene Tage
+                <span className="field-hint">
+                  {vorschau.tage_bereits_uebertragen} Tag(e) stehen schon auf der
+                  Liste. Sie erneut zu übertragen rechnet ihre Mengen ein zweites
+                  Mal drauf.
+                </span>
+              </span>
+            </label>
+          )}
+        </>
+      )}
+
+      <div className="row row-end mt-1">
+        <button className="btn btn-ghost" onClick={props.onClose} disabled={busy}>
+          Abbrechen
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={() => void uebertrage()}
+          disabled={busy || !bereit || !vorschau?.posten.length}
+        >
+          {busy ? 'Überträgt …' : 'Übertragen'}
         </button>
       </div>
     </Modal>
@@ -492,6 +661,20 @@ function TagesZelle({ tag, istHeute }: { tag: ErnaehrungsTag; istHeute: boolean 
           </div>
           {m.beschreibung && (
             <div className="ern-mahlzeit-text">{m.beschreibung}</div>
+          )}
+          {m.zutaten.length > 0 && (
+            <ul className="ern-zutaten">
+              {m.zutaten.map((z) => (
+                <li key={z.id}>
+                  {z.menge != null && (
+                    <span className="ern-zutat-menge">
+                      {mengeText(z.menge, z.einheit)}
+                    </span>
+                  )}{' '}
+                  {z.name}
+                </li>
+              ))}
+            </ul>
           )}
           {m.kalorien_kcal != null && (
             <div className="ern-mahlzeit-makros">{m.kalorien_kcal} kcal</div>

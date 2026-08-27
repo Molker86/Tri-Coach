@@ -59,6 +59,9 @@ class User(Base):
     ki_settings: Mapped["KiSettings | None"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
+    bring_account: Mapped["BringAccount | None"] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class AthleteProfile(Base):
@@ -855,6 +858,11 @@ class ErnaehrungsTag(Base):
 
     notiz: Mapped[str | None] = mapped_column(Text)
 
+    # Wann die Zutaten dieses Tages zuletzt auf die Bring-Liste gingen. Der
+    # Riegel gegen doppeltes Addieren: Bring kennt keine Mengenfelder, ein
+    # zweiter Knopfdruck würde sonst jede Menge ein zweites Mal draufrechnen.
+    bring_uebertragen_am: Mapped[datetime | None] = mapped_column(DateTime)
+
     plan: Mapped[Ernaehrungsplan] = relationship(back_populates="tage")
     mahlzeiten: Mapped[list["ErnaehrungsMahlzeit"]] = relationship(
         back_populates="tag",
@@ -889,6 +897,41 @@ class ErnaehrungsMahlzeit(Base):
     fett_g: Mapped[int | None] = mapped_column(Integer)
 
     tag: Mapped[ErnaehrungsTag] = relationship(back_populates="mahlzeiten")
+    zutaten: Mapped[list["ErnaehrungsZutat"]] = relationship(
+        back_populates="mahlzeit",
+        cascade="all, delete-orphan",
+        order_by="ErnaehrungsZutat.order_index",
+    )
+
+
+class ErnaehrungsZutat(Base):
+    """Ein Lebensmittel mit Menge — die Vorlage für die Einkaufsliste.
+
+    Steht neben `ErnaehrungsMahlzeit.beschreibung` und ersetzt sie nicht: Die
+    Beschreibung sagt, wie daraus eine Mahlzeit wird, die Zutat sagt, was dafür
+    im Einkaufswagen liegen muss. Aus der Prosa zu parsen wäre geraten — die KI
+    weiß beim Schreiben, was eine Zutat und was eine Zubereitung ist.
+
+    `name` ist deshalb der **Einkaufsname** („Haferflocken"), nicht der
+    Zustand auf dem Teller („gekochte Haferflocken").
+    """
+
+    __tablename__ = "ernaehrungs_zutaten"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mahlzeit_id: Mapped[int] = mapped_column(
+        ForeignKey("ernaehrungs_mahlzeiten.id"), index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    name: Mapped[str] = mapped_column(String(120))
+    # Beide dürfen fehlen: „eine Handvoll Nüsse" ist eine brauchbare Angabe für
+    # den Teller und eine unbrauchbare für die Summe. Was keine Menge hat, geht
+    # ohne Menge auf die Liste, statt eine zu erfinden.
+    menge: Mapped[float | None] = mapped_column(Float)
+    einheit: Mapped[str | None] = mapped_column(String(24))
+
+    mahlzeit: Mapped[ErnaehrungsMahlzeit] = relationship(back_populates="zutaten")
 
 
 class ErnaehrungsSupplement(Base):
@@ -933,3 +976,38 @@ class ErnaehrungsProfil(Base):
 
     hinweise: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class BringAccount(Base):
+    """Zugang zur Bring-Einkaufsliste — eine Zeile je Nutzer.
+
+    Anders als `GarminAccount` **mit** Passwortspalte, und das ist keine
+    Nachlässigkeit: Bring gibt beim Anmelden ein kurzlebiges Zugriffstoken
+    heraus, das die Bibliothek im Arbeitsspeicher hält und nicht zum Ablegen
+    herausreicht. Ohne Passwort müsste sich der Nutzer vor jeder Übertragung
+    neu anmelden. Verschlüsselt wird es mit demselben Schlüssel wie das
+    Garmin-Token (`crypto.py`).
+    """
+
+    __tablename__ = "bring_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    email: Mapped[str] = mapped_column(String(255), default="")
+    password_encrypted: Mapped[str] = mapped_column(Text, default="")
+
+    # In welche der Listen des Kontos geschrieben wird. Bring erlaubt mehrere
+    # („Einkaufen", "Baumarkt"), und in die falsche zu schreiben wäre ärgerlicher
+    # als gar nicht zu schreiben. Der Name steht daneben, damit die Oberfläche
+    # ihn nennen kann, ohne Bring dafür zu fragen.
+    list_uuid: Mapped[str | None] = mapped_column(String(64))
+    list_name: Mapped[str | None] = mapped_column(String(120))
+
+    status: Mapped[str] = mapped_column(String(24), default="connected")
+    # connected | error
+    status_message: Mapped[str | None] = mapped_column(Text)
+
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_push_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    user: Mapped[User] = relationship(back_populates="bring_account")

@@ -989,6 +989,33 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   font-variant-numeric: tabular-nums;
 }
 
+/* Die Zutaten stehen unter der Beschreibung: Sie sagt, wie daraus eine
+   Mahlzeit wird, die Zutaten nur, was dafür einzukaufen ist. */
+.ern-zutaten,
+.ern-einkauf {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+
+.ern-zutaten li {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.ern-einkauf li {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ern-einkauf li:last-child { border-bottom: none; }
+
+.ern-zutat-menge {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--text);
+}
+
 .ern-notiz {
   font-size: 0.7rem;
   color: var(--text-muted);

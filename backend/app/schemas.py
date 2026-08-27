@@ -1236,6 +1236,26 @@ def normalize_bezug(wert: str | None) -> str | None:
     return BEZUG_ALIASES.get(str(wert).strip().lower().replace(" ", "_"))
 
 
+class AIZutatIn(BaseModel):
+    """Ein Lebensmittel mit Menge, wie es die KI je Mahlzeit liefert.
+
+    `menge` und `einheit` dürfen fehlen — „eine Handvoll Nüsse" landet dann
+    ohne Menge auf der Einkaufsliste. Eine erfundene Zahl wäre schlechter als
+    keine, weil sie in die Summe einginge.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    menge: float | None = Field(None, ge=0, le=100000)
+    einheit: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trimme(cls, v: Any) -> str:
+        return str(v or "").strip()
+
+
 class AIMahlzeitIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -1249,10 +1269,17 @@ class AIMahlzeitIn(BaseModel):
     protein_g: int | None = Field(None, ge=0, le=1000)
     fett_g: int | None = Field(None, ge=0, le=1000)
 
+    zutaten: list[AIZutatIn] = []
+
     @field_validator("bezug", mode="before")
     @classmethod
     def _norm_bezug(cls, v: Any) -> str | None:
         return normalize_bezug(v if isinstance(v, str) else None)
+
+    @field_validator("zutaten", mode="after")
+    @classmethod
+    def _ohne_namenlose(cls, v: list[AIZutatIn]) -> list[AIZutatIn]:
+        return [z for z in v if z.name]
 
 
 class AIErnaehrungsTagIn(BaseModel):
@@ -1308,6 +1335,15 @@ class ErnaehrungImportIn(BaseModel):
     days: int | None = Field(None, ge=1, le=31)
 
 
+class ErnaehrungsZutatOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    menge: float | None = None
+    einheit: str | None = None
+
+
 class ErnaehrungsMahlzeitOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1321,6 +1357,7 @@ class ErnaehrungsMahlzeitOut(BaseModel):
     kohlenhydrate_g: int | None = None
     protein_g: int | None = None
     fett_g: int | None = None
+    zutaten: list[ErnaehrungsZutatOut] = []
 
 
 class ErnaehrungsTagOut(BaseModel):
@@ -1401,3 +1438,73 @@ class ErnaehrungsProfilIn(BaseModel):
     """Der Freitext aus „individualisieren". Leer heißt: löschen."""
 
     hinweise: str = Field("", max_length=4000)
+
+
+# --------------------------------------------------------------------------
+# Bring — die Einkaufsliste zum Ernährungsplan
+# --------------------------------------------------------------------------
+
+
+class BringListeOut(BaseModel):
+    """Eine der Einkaufslisten des Kontos, zur Auswahl in den Einstellungen."""
+
+    uuid: str
+    name: str
+
+
+class BringAccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    email: str
+    list_uuid: str | None = None
+    list_name: str | None = None
+    status: str
+    status_message: str | None = None
+    connected_at: UtcDatetime
+    last_push_at: UtcDatetime | None = None
+    # **Nie das Passwort selbst**, nur seine Lage — wie `KiSettingsOut.token_status`.
+    passwort_status: Literal["fehlt", "hinterlegt", "unlesbar"] = "fehlt"
+
+
+class BringSettingsIn(BaseModel):
+    """Teil-Update wie bei den KI-Einstellungen."""
+
+    email: str | None = Field(None, max_length=255)
+    # Klartext hinein, verschlüsselt abgelegt, nie wieder heraus. Ein leerer
+    # String löscht ausdrücklich, deshalb im Router eigens behandelt.
+    passwort: str | None = Field(None, max_length=512)
+    list_uuid: str | None = Field(None, max_length=64)
+
+
+class BringStatusOut(BaseModel):
+    konto: BringAccountOut | None = None
+    # Nur gefüllt, wenn die Anmeldung eben durchging. Bleibt sonst leer, statt
+    # den Aufruf scheitern zu lassen — die Seite soll auch bei falschem
+    # Passwort noch das Formular zeigen können.
+    listen: list[BringListeOut] = []
+
+
+class EinkaufspostenOut(BaseModel):
+    name: str
+    # Fertig formatiert („1,2 kg"), weil genau dieser Text in Bring landet und
+    # die Vorschau zeigen soll, was wirklich übertragen wird.
+    menge_text: str
+
+
+class EinkaufslistenVorschauOut(BaseModel):
+    """Was auf die Liste ginge — gerechnet, ohne Bring zu fragen."""
+
+    von: date | None = None
+    bis: date | None = None
+    posten: list[EinkaufspostenOut] = []
+    tage_offen: int = 0
+    tage_bereits_uebertragen: int = 0
+    # Warum nichts (mehr) zu übertragen ist — sonst stünde der Dialog leer da.
+    hinweis: str | None = None
+
+
+class BringUebertragungOut(BaseModel):
+    hinzugefuegt: int = 0
+    ergaenzt: int = 0
+    liste: str = ""
+

@@ -67,6 +67,15 @@ diesmal ohne Markierung" wäre genau die Doppelung, gegen die `_lade_kontext()`
 steht. Der Prompt sagt ausdrücklich, dass das Training feststeht und nicht Teil
 der Aufgabe ist — sonst plant ein Sprachmodell es gleich mit.
 
+**Jede Mahlzeit nennt ihre Zutaten zusätzlich einzeln** (`ErnaehrungsZutat`,
+`MAHLZEIT_SCHEMA`). Die `beschreibung` gab es immer schon und sie bleibt: Sie
+sagt, wie aus den Zutaten eine Mahlzeit wird. `zutaten` sagt, was dafür im
+Einkaufswagen liegen muss — Einkaufsname, Menge, Einheit. Das eine aus dem
+anderen zu parsen wäre geraten; warum, steht in
+[einkaufsliste.md](einkaufsliste.md). Eine Antwort ohne `zutaten` wird
+weiterhin übernommen und nur **gemeldet** — dieselbe Linie wie beim ganzen
+Import: warnen, nicht ablehnen.
+
 **Der Zeitraum ist auf den Trainingsblock gedeckelt**
 (`routers.ernaehrung.ernaehrungsrahmen`, `pruefe_zeitraum`). Weiter zu planen,
 als der Block reicht, hieße für Tage zu decken, deren Belastung niemand kennt.

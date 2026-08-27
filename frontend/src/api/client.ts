@@ -1,7 +1,11 @@
 import type {
   AiExport,
   AuthResponse,
+  BringSettingsIn,
+  BringStatus,
+  BringUebertragung,
   EinheitAnpassung,
+  EinkaufslistenVorschau,
   Ernaehrungsplan,
   ErnaehrungsImportResult,
   ErnaehrungsProfil,
@@ -377,6 +381,24 @@ export const api = {
       method: 'PUT',
       body: { hinweise },
     }),
+
+  // Bring — die Einkaufsliste zum Ernährungsplan. Ohne Job: Ein Lauf ist eine
+  // Anmeldung, ein Lesen und ein Schreiben, also Sekunden.
+  bringStatus: () => request<BringStatus>('/bring/status'),
+  /** Teil-Update. Ein leeres Passwort löscht es ausdrücklich. */
+  bringSettings: (data: Partial<BringSettingsIn>) =>
+    request<BringStatus>('/bring/settings', { method: 'PUT', body: data }),
+  bringTrennen: () => request<void>('/bring/connection', { method: 'DELETE' }),
+  /** Rechnet nur — Bring wird dafür nicht gefragt. */
+  einkaufslisteVorschau: (alles = false) =>
+    request<EinkaufslistenVorschau>(
+      `/bring/einkaufsliste${alles ? '?alles=true' : ''}`,
+    ),
+  einkaufslisteUebertragen: (alles = false) =>
+    request<BringUebertragung>(
+      `/bring/einkaufsliste${alles ? '?alles=true' : ''}`,
+      { method: 'POST' },
+    ),
 }
 
 /** Zustände, in denen ein Abgleich beendet ist. */

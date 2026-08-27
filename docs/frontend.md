@@ -69,6 +69,28 @@ Dabei überspringt `PUT /api/garmin/settings` neuerdings `None` wie der
 KI-Router: Ein ausdrücklich geschicktes `null` löschte sonst die Abgleichstunde,
 und das Konto fiele lautlos auf die Vorgabe zurück.
 
+**Und inzwischen auch das Anmelden selbst.** Das Formular für Garmin-E-Mail,
+Passwort und Bestätigungscode stand auf `/garmin`, die Schalter dazu schon in
+den Einstellungen — wer ein Konto einrichtete, musste zwischen zwei Seiten hin
+und her. Es liegt jetzt als `components/GarminAnmeldung.tsx` in der
+Garmin-Karte der Einstellungen, samt *Trennen*; `/garmin` behält Abgleich,
+Rückblick, Fortschritt und Doppeleinträge und zeigt ohne Konto nur einen
+Verweis. Der Zustand (Passwort, angefangene Bestätigung) liegt **in** der
+Komponente: Er geht niemanden außerhalb etwas an, und die Einstellungsseite
+soll ihn nicht mitschleppen. Daneben steht die Bring-Karte, nach demselben
+Muster wie der Claude-Zugang — mit dem einen Unterschied, dass das Passwort
+wirklich gespeichert wird (siehe [einkaufsliste.md](einkaufsliste.md)).
+
+**Die Einkaufsliste geht über einen Vorschaudialog** (`Ernaehrung.tsx`,
+`EinkaufslistenDialog`). Zwei Schritte statt einem, weil sich das Ergebnis nicht
+ohne Weiteres zurücknehmen lässt: Der Dialog zeigt erst die summierten Posten
+mit genau dem Text, der in Bring landen wird. Er kommt fertig formatiert aus dem
+Server (`menge_text`) und wird hier nicht noch einmal gerechnet — zwei
+Rundungsregeln für dieselbe Zahl liefen auseinander. Nur die Zutatenanzeige in
+der Planansicht formatiert selbst (`mengeText`), weil dort Rohwerte stehen.
+Sind Tage schon übertragen, erscheint ein Kasten dafür statt eines stillen
+Überspringens.
+
 **Die Trainingsvorschau auf der Startseite ist anklickbar** — und teilt sich
 dafür die Bauteile mit dem Trainingsplan (`components/SessionCard.tsx`,
 `SessionDetail.tsx`, `AnpassungsKarte.tsx`, `useEinheitAnpassung.ts`). Die

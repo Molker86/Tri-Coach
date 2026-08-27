@@ -14,10 +14,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
+import GarminAnmeldung from '../components/GarminAnmeldung'
 import { Alert, Field, Loading, TextField } from '../components/ui'
 import { type Farbwahl, leseFarbwahl, setzeFarbwahl } from '../theme'
 import { WEEKDAYS } from '../constants'
-import type { GarminStatus, KiSettings, KiSettingsIn, KiStatus } from '../types'
+import type {
+  BringStatus,
+  GarminStatus,
+  KiSettings,
+  KiSettingsIn,
+  KiStatus,
+} from '../types'
 
 const STUNDEN = Array.from({ length: 24 }, (_, i) => i)
 // Fünferschritte: Die Schleife wacht zwar minütlich auf, aber eine Liste mit
@@ -50,6 +57,7 @@ const FARBWAHLEN: { wert: Farbwahl; text: string }[] = [
 export default function Einstellungen() {
   const [garmin, setGarmin] = useState<GarminStatus | null>(null)
   const [ki, setKi] = useState<KiStatus | null>(null)
+  const [bring, setBring] = useState<BringStatus | null>(null)
   const [fehler, setFehler] = useState<string | null>(null)
   const [erfolg, setErfolg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -57,9 +65,14 @@ export default function Einstellungen() {
 
   const lade = useCallback(async () => {
     try {
-      const [g, k] = await Promise.all([api.garminStatus(), api.kiStatus()])
+      const [g, k, b] = await Promise.all([
+        api.garminStatus(),
+        api.kiStatus(),
+        api.bringStatus(),
+      ])
       setGarmin(g)
       setKi(k)
+      setBring(b)
     } catch (err) {
       setFehler(err instanceof Error ? err.message : 'Etwas ist schiefgelaufen.')
     } finally {
@@ -110,6 +123,26 @@ export default function Einstellungen() {
         zustand={garmin}
         busy={busy}
         onAendern={(daten) => void handle(() => api.garminSettings(daten))}
+        onVerbunden={() => {
+          setFehler(null)
+          setErfolg('Garmin-Konto verbunden.')
+          void lade()
+        }}
+        onFehler={setFehler}
+        onTrennen={() =>
+          void handle(api.garminDisconnect, 'Verbindung zu Garmin getrennt.')
+        }
+      />
+
+      <BringKarte
+        zustand={bring}
+        busy={busy}
+        onAendern={(daten, meldung) =>
+          void handle(() => api.bringSettings(daten), meldung)
+        }
+        onTrennen={() =>
+          void handle(api.bringTrennen, 'Bring-Konto entfernt.')
+        }
       />
 
       <KiKarte
@@ -149,21 +182,48 @@ function GarminKarte(props: {
     profile_sync_enabled?: boolean
     auto_push_enabled?: boolean
   }) => void
+  onVerbunden: () => void
+  onFehler: (meldung: string) => void
+  onTrennen: () => void
 }) {
   const konto = props.zustand?.konto ?? null
 
   return (
     <div className="card">
-      <h2>Garmin</h2>
+      <div className="card-title">
+        <h2>Garmin</h2>
+        {konto !== null && (
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={props.busy}
+            onClick={() => {
+              if (
+                confirm(
+                  'Verbindung zu Garmin trennen?\n\n' +
+                    'Deine bereits importierten Trainings und Fitnessdaten ' +
+                    'bleiben erhalten.',
+                )
+              )
+                props.onTrennen()
+            }}
+          >
+            Trennen
+          </button>
+        )}
+      </div>
 
       {konto === null ? (
-        <p className="muted mb-0">
-          Noch kein Konto verbunden — ohne eines gibt es weder Trainingsdaten
-          noch einen Weg zurück auf die Uhr.{' '}
-          <Link to="/garmin">Jetzt verbinden</Link>
-        </p>
+        <GarminAnmeldung
+          onVerbunden={props.onVerbunden}
+          onFehler={props.onFehler}
+        />
       ) : (
         <div className="stack">
+          <p className="muted small mb-0">
+            Verbunden als {konto.email}. Abgleich, Rückblick und Kalender stehen
+            unter <Link to="/garmin">Garmin</Link>.
+          </p>
+
           <label className="check-row">
             <input
               type="checkbox"
@@ -254,6 +314,153 @@ function GarminKarte(props: {
           </label>
         </div>
       )}
+    </div>
+  )
+}
+
+// --------------------------------------------------------------------------
+// Bring
+// --------------------------------------------------------------------------
+
+function BringKarte(props: {
+  zustand: BringStatus | null
+  busy: boolean
+  onAendern: (
+    daten: { email?: string; passwort?: string; list_uuid?: string },
+    meldung?: string,
+  ) => void
+  onTrennen: () => void
+}) {
+  const konto = props.zustand?.konto ?? null
+  const listen = props.zustand?.listen ?? []
+
+  const [email, setEmail] = useState<string | null>(null)
+  const [passwort, setPasswort] = useState<string | null>(null)
+  // Wie beim Claude-Zugang: Solange ein Passwort liegt, bleibt das Feld zu —
+  // zurücklesen lässt es sich nicht, ein leeres Feld sähe nach „keines" aus.
+  const [tippt, setTippt] = useState(false)
+
+  const feldOffen = tippt || konto === null || konto.passwort_status !== 'hinterlegt'
+
+  return (
+    <div className="card">
+      <div className="card-title">
+        <h2>Bring</h2>
+        {konto !== null && (
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={props.busy}
+            onClick={() => {
+              if (confirm('Bring-Konto entfernen?')) props.onTrennen()
+            }}
+          >
+            Entfernen
+          </button>
+        )}
+      </div>
+      <p className="muted small">
+        Mit hinterlegtem Konto wandern die Zutaten deines Ernährungsplans auf
+        Knopfdruck auf die Einkaufsliste — zusammengezählt über alle Tage. Steht
+        dort schon etwas davon, wird die Menge dazugerechnet statt ein zweites
+        Mal angelegt.
+      </p>
+
+      {konto?.passwort_status === 'unlesbar' && (
+        <Alert kind="warning">
+          Das hinterlegte Passwort lässt sich nicht mehr entschlüsseln — das
+          passiert, wenn sich der Schlüssel des Add-ons geändert hat. Trage es
+          bitte neu ein.
+        </Alert>
+      )}
+      {konto?.status === 'error' && konto.status_message && (
+        <Alert kind="warning">{konto.status_message}</Alert>
+      )}
+
+      <div className="stack">
+        <TextField
+          label="Bring-E-Mail"
+          type="email"
+          value={email ?? konto?.email ?? ''}
+          onChange={setEmail}
+          autoComplete="username"
+        />
+
+        {feldOffen ? (
+          <>
+            <TextField
+              label="Passwort"
+              type="password"
+              value={passwort}
+              onChange={setPasswort}
+              autoComplete="current-password"
+            />
+            <p className="small muted">
+              Anders als bei Garmin wird das Passwort gespeichert —
+              verschlüsselt. Bring stellt keinen dauerhaften Zugangsschlüssel
+              aus, den die App stattdessen behalten könnte.
+            </p>
+          </>
+        ) : (
+          <Field label="Passwort" hint="Verschlüsselt hinterlegt.">
+            <div className="row">
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={props.busy}
+                onClick={() => setTippt(true)}
+              >
+                Ersetzen
+              </button>
+            </div>
+          </Field>
+        )}
+
+        <div className="row row-end">
+          <button
+            className="btn btn-primary"
+            disabled={props.busy || (feldOffen && !passwort && !email)}
+            onClick={() => {
+              const daten: { email?: string; passwort?: string } = {}
+              const neueMail = (email ?? '').trim()
+              if (neueMail) daten.email = neueMail
+              if (passwort) daten.passwort = passwort
+              setPasswort(null)
+              setTippt(false)
+              props.onAendern(daten, 'Bring-Zugang gespeichert.')
+            }}
+          >
+            {props.busy ? 'Wird geprüft …' : 'Speichern und prüfen'}
+          </button>
+        </div>
+
+        {listen.length > 0 && (
+          <Field
+            label="Einkaufsliste"
+            hint="Wohin die Zutaten aus dem Ernährungsplan geschrieben werden."
+          >
+            <select
+              value={konto?.list_uuid ?? ''}
+              disabled={props.busy}
+              onChange={(e) => props.onAendern({ list_uuid: e.target.value })}
+            >
+              <option value="" disabled>
+                Bitte wählen …
+              </option>
+              {listen.map((liste) => (
+                <option key={liste.uuid} value={liste.uuid}>
+                  {liste.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {konto !== null && konto.status === 'connected' && listen.length === 0 && (
+          <p className="small muted mb-0">
+            Zu diesem Konto ist keine Einkaufsliste zu sehen. Lege in der
+            Bring-App eine an.
+          </p>
+        )}
+      </div>
     </div>
   )
 }

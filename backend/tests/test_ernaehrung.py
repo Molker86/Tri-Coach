@@ -115,6 +115,11 @@ def ernaehrungsantwort(*, ab: date = HEUTE, tage: int = 4, **abweichend) -> dict
                         "beschreibung": "120 g Haferflocken, 300 ml Milch, 1 Banane",
                         "bezug": "vor",
                         "kalorien_kcal": 700,
+                        "zutaten": [
+                            {"name": "Haferflocken", "menge": 120, "einheit": "g"},
+                            {"name": "Milch", "menge": 300, "einheit": "ml"},
+                            {"name": "Banane", "menge": 1, "einheit": "Stück"},
+                        ],
                     },
                     {
                         "zeitpunkt": "90 min nach der Einheit",
@@ -188,6 +193,69 @@ def test_ohne_trainingsblock_gibt_es_keinen_ernaehrungsplan(client, auth):
     antwort = client.post("/api/ki/ernaehrung", json={}, headers=auth)
     assert antwort.status_code == 409
     assert "kein aktiver Trainingsplan" in antwort.json()["detail"]
+
+
+def test_die_zutaten_kommen_mit_durch(client, auth, monkeypatch):
+    """Die Vorlage der Einkaufsliste — einzeln, neben der Beschreibung."""
+    lege_block_an(client, auth)
+    stelle_antwort(monkeypatch, ernaehrungsantwort())
+
+    client.post("/api/ki/ernaehrung", json={}, headers=auth)
+    plan = client.get("/api/ernaehrung/aktiv", headers=auth).json()
+
+    mahlzeit = plan["tage"][0]["mahlzeiten"][0]
+    assert [(z["name"], z["menge"], z["einheit"]) for z in mahlzeit["zutaten"]] == [
+        ("Haferflocken", 120.0, "g"),
+        ("Milch", 300.0, "ml"),
+        ("Banane", 1.0, "Stück"),
+    ]
+    # Die Beschreibung bleibt daneben stehen — sie sagt, wie daraus eine
+    # Mahlzeit wird, die Zutat nur, was dafür eingekauft gehört.
+    assert mahlzeit["beschreibung"].startswith("120 g Haferflocken")
+    # Eine Mahlzeit ohne Zutaten kippt nichts.
+    assert plan["tage"][0]["mahlzeiten"][1]["zutaten"] == []
+
+
+def test_kilo_und_liter_werden_schon_beim_import_umgerechnet(
+    client, auth, monkeypatch
+):
+    """Sonst müsste jede Summe raten, ob „1 l" und „500 ml" dasselbe Regal meinen."""
+    antwort = ernaehrungsantwort(tage=1)
+    antwort["ernaehrungsplan"]["tage"][0]["mahlzeiten"][0]["zutaten"] = [
+        {"name": "Mehl", "menge": 1.5, "einheit": "kg"},
+        {"name": "Milch", "menge": 1, "einheit": "Liter"},
+    ]
+    lege_block_an(client, auth)
+    stelle_antwort(monkeypatch, antwort)
+
+    client.post("/api/ki/ernaehrung", json={"days": 1}, headers=auth)
+    plan = client.get("/api/ernaehrung/aktiv", headers=auth).json()
+
+    zutaten = plan["tage"][0]["mahlzeiten"][0]["zutaten"]
+    assert [(z["menge"], z["einheit"]) for z in zutaten] == [
+        (1500.0, "g"),
+        (1000.0, "ml"),
+    ]
+
+
+def test_eine_antwort_ganz_ohne_zutaten_wird_uebernommen_und_gemeldet(
+    client, auth, monkeypatch
+):
+    """Warnen, nicht ablehnen — der Plan ist ohne Zutaten nicht schlechter."""
+    antwort = ernaehrungsantwort(tage=1)
+    for mahlzeit in antwort["ernaehrungsplan"]["tage"][0]["mahlzeiten"]:
+        mahlzeit.pop("zutaten", None)
+    lege_block_an(client, auth)
+
+    ergebnis = client.post(
+        "/api/ernaehrung/import",
+        json={"raw": json.dumps(antwort), "days": 1},
+        headers=auth,
+    )
+    assert ergebnis.status_code == 201, ergebnis.text
+    assert any(
+        "einzelne Zutaten" in warnung for warnung in ergebnis.json()["warnings"]
+    )
 
 
 def test_mehr_tage_als_der_trainingsplan_werden_abgelehnt(client, auth):
