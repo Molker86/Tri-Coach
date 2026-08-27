@@ -252,7 +252,10 @@ schrieb die 1 und meldete „0,0 Stunden Erholung" in den Export, während die U
 29 Stunden zeigte. Beide Werte kommen deshalb aus dem jüngsten Eintrag des
 Tages, Score, Level, Feedback und die Reifefaktoren weiter vom Aufwachen.
 Gewählt wird über den Zeitstempel, nicht über die Listenposition: Garmin
-liefert zwar neuestes zuerst, sagt das aber nirgends zu.
+liefert zwar neuestes zuerst, sagt das aber nirgends zu. Für vergangene Tage
+heißt der Wert damit „was am Ende des Tages noch ausstand" statt „am Morgen" —
+dieselbe Lesart wie beim heutigen Tag, und die einzige, die die Wirkung des
+Tagestrainings enthält.
 
 **Watt- und Tempokorridore kommen mit, nicht nur ihre Schwellenwerte**
 (`sportscience.power_zones` / `pace_zones`). Punkt 4 verlangt zu jeder Einheit
