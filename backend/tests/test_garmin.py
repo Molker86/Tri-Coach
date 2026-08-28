@@ -93,6 +93,37 @@ def test_verbinden_speichert_kein_klartext_token(client, verbunden):
     assert not {"password", "hashed_password"} & spalten
 
 
+def test_anmeldung_ohne_mfa_holt_das_profil_nach(client, garmin_auth, fake):
+    """Ohne MFA kehrt `login()` der Bibliothek zurück, bevor sie das Profil holt.
+
+    Das war der Fehler: Der Anzeigename blieb leer, die Prüfung schlug an, und
+    jede fehlerfreie Erstanmeldung endete mit dem Rat, bei Garmin einen
+    Anzeigenamen zu setzen — der längst gesetzt war.
+    """
+    antwort = client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["status"] == "verbunden"
+    assert fake.display_name == "test-athlet"
+
+
+def test_konto_ohne_anzeigenamen_sagt_was_bei_garmin_zu_tun_ist(
+    client, garmin_auth, fake
+):
+    """Der Fall, für den die Meldung gedacht ist — und nur der."""
+    fake.profil_anzeigename = None
+    antwort = client.post(
+        "/api/garmin/connect",
+        json={"email": "athlet@example.com", "password": "geheim"},
+        headers=garmin_auth,
+    )
+    assert antwort.status_code != 200
+    assert "Anzeigenamen" in antwort.json()["detail"]
+
+
 def test_falsches_passwort_meldet_400_und_nicht_401(
     client, garmin_auth, fake, monkeypatch
 ):

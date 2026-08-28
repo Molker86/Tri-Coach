@@ -93,6 +93,27 @@ def _pruefe_sitzung(api: Garmin, erstanmeldung: bool = False) -> None:
         )
 
 
+def _lade_profil(api: Garmin) -> None:
+    """Holt Anzeigename und Einstellungen nach, falls sie noch fehlen.
+
+    Mit `return_on_mfa=True` — und so wird für die Erstanmeldung gebaut —
+    kehrt `login()` der Bibliothek sofort zurück, *auch wenn gar kein Code
+    verlangt wird*. Profil und Einstellungen bleiben in diesem Zweig
+    ungeladen, `display_name` also leer. Ohne das Nachholen sähe jede
+    gelungene Anmeldung ohne MFA aus wie ein Konto ohne Anzeigenamen — und
+    der Nutzer bekäme den Rat, bei Garmin etwas zu setzen, das längst da ist.
+
+    Der Aufruf ist bibliotheksintern; deshalb tolerant: Lädt eine Fassung das
+    Profil von sich aus, ist hier nichts zu tun.
+    """
+    if getattr(api, "display_name", None):
+        return
+    lade = getattr(api, "_load_profile_and_settings", None)
+    if lade is None:
+        return
+    lade()
+
+
 def erzeuge_client(email: str, password: str) -> Garmin:
     """Baut einen noch nicht angemeldeten Client für die Erstanmeldung."""
     return Garmin(email=email, password=password, return_on_mfa=True)
@@ -108,6 +129,7 @@ def melde_an(api: Garmin) -> tuple[bool, str | None]:
         status, _ = api.login()
         if status == "needs_mfa":
             return True, None
+        _lade_profil(api)
         _pruefe_sitzung(api, erstanmeldung=True)
         return False, _token_json(api)
 
@@ -116,6 +138,7 @@ def loese_mfa_ein(api: Garmin, code: str) -> str:
     """Zweiter Anmeldeschritt. Gibt das Token-JSON zurück."""
     with uebersetze_fehler():
         api.resume_login({}, code)
+        _lade_profil(api)
         _pruefe_sitzung(api, erstanmeldung=True)
         return _token_json(api)
 

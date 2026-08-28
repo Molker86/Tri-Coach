@@ -25,7 +25,11 @@ class FakeGarmin:
         tage: list[date] | None = None,
         rate_limit_ab_tag: int | None = None,
     ) -> None:
-        self.display_name = "test-athlet"
+        # Bewusst leer: Das Original setzt den Anzeigenamen erst, wenn es
+        # Profil und Einstellungen geholt hat — und im Zweig `return_on_mfa`
+        # kehrt `login()` zurück, *bevor* das geschieht. Ein hier vorbelegter
+        # Name verstecke genau den Fehler, der die Erstanmeldung zerlegte.
+        self.display_name: str | None = None
         self.username = "athlet@example.com"
         self.password = "geheim"
         self._aktivitaeten = aktivitaeten if aktivitaeten is not None else []
@@ -48,6 +52,9 @@ class FakeGarmin:
         self.aufrufe: list[str] = []
         self.client = _FakeClient()
         self.mfa_noetig = False
+        # Was das Profil beim Laden hergibt. `None` bildet das Konto ohne
+        # Anzeigenamen nach, für das es die eigene Fehlermeldung gibt.
+        self.profil_anzeigename: str | None = "test-athlet"
         self._workouts: dict[int, dict[str, Any]] = {}
         self._termine: dict[int, tuple[int, str]] = {}
         self._workout_id = 5000
@@ -56,8 +63,17 @@ class FakeGarmin:
     # -- Anmeldung ----------------------------------------------------------
 
     def login(self, tokenstore=None):
-        """Gibt `("needs_mfa", None)` oder `(None, None)` zurück — wie das Original."""
+        """Gibt `("needs_mfa", None)` oder `(None, None)` zurück — wie das Original.
+
+        Und lädt das Profil genauso selektiv: Beim Anmelden mit gespeichertem
+        Token holt das Original es selbst, im Zweig `return_on_mfa` (Passwort,
+        Erstanmeldung) dagegen nicht — dort kehrt es früh zurück, egal ob ein
+        Code verlangt wird oder nicht.
+        """
         self.aufrufe.append("login")
+        if tokenstore is not None:
+            self._load_profile_and_settings()
+            return (None, None)
         return ("needs_mfa", None) if self.mfa_noetig else (None, None)
 
     def resume_login(self, client_state, mfa_code):
@@ -67,7 +83,13 @@ class FakeGarmin:
 
             raise GarminConnectAuthenticationError("Falscher Code")
         self.mfa_noetig = False
+        self._load_profile_and_settings()
         return (None, None)
+
+    def _load_profile_and_settings(self):
+        """Bibliotheksintern, aber von der App gerufen — siehe `client._lade_profil`."""
+        self.aufrufe.append("_load_profile_and_settings")
+        self.display_name = self.profil_anzeigename
 
     # -- Trainings ----------------------------------------------------------
 
