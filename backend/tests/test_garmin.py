@@ -93,7 +93,12 @@ def test_verbinden_speichert_kein_klartext_token(client, verbunden):
     assert not {"password", "hashed_password"} & spalten
 
 
-def test_falsches_passwort_meldet_401(client, garmin_auth, fake, monkeypatch):
+def test_falsches_passwort_meldet_400_und_nicht_401(
+    client, garmin_auth, fake, monkeypatch
+):
+    """Ein abgelehntes Garmin-Passwort darf nicht wie eine abgelaufene Sitzung
+    aussehen: Der Browser-Client meldet den Nutzer bei 401 ab und verschluckte
+    dabei genau die Begründung, die er hätte lesen müssen."""
     import app.routers.garmin as garmin_router
 
     def scheitert(email, password):
@@ -105,8 +110,63 @@ def test_falsches_passwort_meldet_401(client, garmin_auth, fake, monkeypatch):
         json={"email": "athlet@example.com", "password": "falsch"},
         headers=garmin_auth,
     )
-    assert antwort.status_code == 401
+    assert antwort.status_code == 400
     assert "stimmen nicht" in antwort.json()["detail"]
+    # Der Kopf gehört allein der echten Sitzungsprüfung — der Client
+    # unterscheidet daran, wann er abmelden muss.
+    assert "WWW-Authenticate" not in antwort.headers
+
+
+def test_mfa_abfrage_verbraucht_kein_anmeldekontingent(
+    client, garmin_auth, fake, monkeypatch
+):
+    """Wer bis zur Codeabfrage kommt, hat das Passwort richtig eingegeben.
+
+    Zählte das als Fehlversuch, sperrte die eigene Bremse nach drei
+    angefangenen Bestätigungen für eine Stunde — ohne dass je etwas falsch war.
+    """
+    import app.routers.garmin as garmin_router
+
+    monkeypatch.setattr(garmin_router, "melde_an", lambda api: (True, None))
+
+    for _ in range(5):
+        antwort = client.post(
+            "/api/garmin/connect",
+            json={"email": "athlet@example.com", "password": "geheim"},
+            headers=garmin_auth,
+        )
+        assert antwort.status_code == 200, antwort.text
+        assert antwort.json()["status"] == "mfa_erforderlich"
+
+
+def test_anmeldebremse_nennt_sich_und_die_wartezeit(
+    client, garmin_auth, fake, monkeypatch
+):
+    """Nach drei Ablehnungen bremst die App selbst — und sagt das auch."""
+    import app.routers.garmin as garmin_router
+
+    def scheitert(email, password):
+        raise GarminAnmeldungFehlgeschlagen()
+
+    monkeypatch.setattr(garmin_router, "erzeuge_client", scheitert)
+
+    def versuch():
+        return client.post(
+            "/api/garmin/connect",
+            json={"email": "gebremst@example.com", "password": "falsch"},
+            headers=garmin_auth,
+        )
+
+    for _ in range(3):
+        assert versuch().status_code == 400
+
+    gebremst = versuch()
+    assert gebremst.status_code == 429
+    meldung = gebremst.json()["detail"]
+    # Beides muss darinstehen: wer bremst, und wie lange noch. Sonst liest es
+    # sich wie eine Sperre von Garmin, die man aussitzen muss.
+    assert "Tri-Coach" in meldung
+    assert "Minuten" in meldung
 
 
 def test_mfa_ablauf(client, garmin_auth, fake, monkeypatch):
@@ -1188,6 +1248,67 @@ def test_automatischer_abgleich_schneidet_genauso_zu(client, verbunden):
 
     # Zweimal am selben Tag gibt es nichts mehr zu tun.
     assert starte_faellige_syncs(jetzt) == 0
+
+
+def test_automatik_holt_ein_konto_nach_einem_fehler_wieder(client, verbunden):
+    """Ein einzelner Netzfehler darf die Automatik nicht dauerhaft stilllegen.
+
+    Hier wählte die Schleife einmal `status == "connected"`. Weil ein Fehler den
+    Status auf `"error"` setzt und nur ein *erfolgreicher* Lauf ihn zurücknimmt,
+    fiel das Konto danach für immer aus dem täglichen Abgleich — still, und bei
+    zwei Nutzern nur für einen von beiden.
+    """
+    from datetime import datetime
+
+    from app.config import GARMIN_SYNC_HOUR
+    from app.garmin.automatik import starte_faellige_syncs
+
+    with SessionLocal() as db:
+        eigenes = db.scalar(select(GarminAccount).order_by(GarminAccount.id.desc()))
+        for konto in db.scalars(select(GarminAccount)).all():
+            konto.auto_sync_enabled = konto.id == eigenes.id
+        eigenes.last_sync_at = None
+        eigenes.status = "token_expired"
+        db.commit()
+        konto_id = eigenes.id
+
+    jetzt = datetime.now().replace(hour=GARMIN_SYNC_HOUR, minute=0)
+    # Ein abgelaufenes Token verlangt wirklich eine Hand — das bleibt liegen.
+    assert starte_faellige_syncs(jetzt) == 0
+
+    with SessionLocal() as db:
+        db.get(GarminAccount, konto_id).status = "error"
+        db.commit()
+
+    assert starte_faellige_syncs(jetzt) == 1
+    with SessionLocal() as db:
+        assert db.get(GarminAccount, konto_id).status == "connected"
+
+
+def test_fremder_lauf_meldet_sich_als_fremder(client, verbunden, monkeypatch):
+    """Der Riegel ist global, die Auskunft darüber darf es nicht sein.
+
+    Nutzer B las „Es läuft bereits ein Abgleich", während seine eigene
+    Fortschrittsanzeige daneben nichts zeigte — und hielt das für einen Fehler.
+    """
+    from app.garmin.runner import runner
+
+    with SessionLocal() as db:
+        eigene_id = db.scalar(
+            select(GarminAccount).order_by(GarminAccount.id.desc())
+        ).user_id
+
+    monkeypatch.setattr(runner, "laeuft_gerade", lambda: 4711)
+
+    monkeypatch.setattr(runner, "besitzer", lambda: eigene_id)
+    eigen = client.post("/api/garmin/sync", headers=verbunden)
+    assert eigen.status_code == 409
+    assert "bereits ein Abgleich" in eigen.json()["detail"]
+
+    monkeypatch.setattr(runner, "besitzer", lambda: eigene_id + 1000)
+    fremd = client.post("/api/garmin/sync", headers=verbunden)
+    assert fremd.status_code == 409
+    assert "anderen Kontos" in fremd.json()["detail"]
 
 
 def test_teilweise_gedeckt_holt_das_fehlende_jahr(client):

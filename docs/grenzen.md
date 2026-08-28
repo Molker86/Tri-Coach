@@ -507,3 +507,32 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   holt** (`curl … | bash`). Ein Build ohne Netz schlägt fehl, und zwei Builds zu
   verschiedenen Zeiten können verschiedene Versionen enthalten — dasselbe gilt
   aber schon für `npm ci` im Frontend.
+- **Zwischen den Konten trennt nichts.** Die Anmeldung ist eine Kontoauswahl
+  ohne Nachweis: `GET /api/auth/users` listet unauthentifiziert alle Konten,
+  `POST /api/auth/login` gibt zu jeder Kennung ein Token aus
+  (`routers/auth.py`). Das ist eine Entscheidung — davor steht der
+  Home-Assistant-Ingress, der authentifiziert. Es heißt aber: Innerhalb des
+  Haushalts kann sich jeder als jeder anmelden und dessen Garmin-Verbindung
+  bedienen, Abgleiche starten, den Kalender leeren, die Verbindung trennen. Die
+  Datenisolation dahinter ist vollständig — jeder Endpunkt hängt an
+  `CurrentUser`, jede Abfrage filtert `user_id` —, aber sie ist nur so stark wie
+  der Netzzugang. Wer die App je aus dem Ingress herauslöst, muss hier zuerst
+  etwas bauen.
+- **Konten lassen sich nicht löschen.** Es gibt keinen Endpunkt dafür, und das
+  ist gut so, solange die ORM-Kaskade an `User` unvollständig ist
+  (`models.py`): `ProfileHistory`, `WellnessDay`, `GarminSyncJob`, die beiden
+  Workout-Tabellen, `KiJob`, `Ernaehrungsplan` und `ErnaehrungsProfil` hängen
+  nicht daran. Ein Löschweg ohne vorheriges Nachziehen der Kaskade ließe Zeilen
+  mit einer `user_id` zurück, die es nicht mehr gibt.
+- **Ohne eigenes Claude-Token plant man auf fremde Rechnung.** Wer in den
+  Einstellungen keinen Zugang hinterlegt, fällt auf `CLAUDE_CODE_OAUTH_TOKEN`
+  aus der Umgebung zurück (`config.py`, `ki/client.py`) — also auf das Abo
+  dessen, der das Add-on betreibt. Als Rückfall ist das gewollt; bei mehreren
+  Nutzern ist es eine Rechnung, die keiner von ihnen sieht.
+- **Zwei Nutzer teilen sich ein Schloss.** Garmin-Abgleich und KI-Planung lassen
+  je einen Lauf im ganzen Prozess zu. Beim Abgleich ist das begründet — Garmins
+  Anfragegrenze hängt an der Herkunftsadresse —, bei der KI ist es schlicht so.
+  Die Meldungen sagen inzwischen, wessen Lauf im Weg steht, aber eine
+  Warteschlange gibt es nicht: Wer selbst drückt, muss es später noch einmal
+  tun. Die automatische Planung holt einen ausgefallenen Lauf **nicht** nach.
+

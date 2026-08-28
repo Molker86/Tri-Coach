@@ -88,6 +88,14 @@ export default function Layout({ children }: { children: ReactNode }) {
     navigate('/')
   }
 
+  // Eigener Weg neben dem Abmelden: Die Anmeldung ist ohnehin nur eine
+  // Kontoauswahl, und wer zwischen zwei Konten wechselt, will nicht jedes Mal
+  // über die Landingpage zurückfinden.
+  function wechsleKonto() {
+    logout()
+    navigate('/login')
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar topbar-app">
@@ -110,6 +118,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="topbar-user">
           <span className="nowrap">{user?.username}</span>
+          <button className="btn btn-ghost btn-sm" onClick={wechsleKonto}>
+            Konto wechseln
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={signOut}>
             Abmelden
           </button>
@@ -163,7 +174,10 @@ export default function Layout({ children }: { children: ReactNode }) {
 
             <div className="sheet-foot">
               <span className="small muted">Angemeldet als {user?.username}</span>
-              <button className="btn btn-secondary btn-block" onClick={signOut}>
+              <button className="btn btn-secondary btn-block" onClick={wechsleKonto}>
+                Konto wechseln
+              </button>
+              <button className="btn btn-ghost btn-block" onClick={signOut}>
                 Abmelden
               </button>
             </div>

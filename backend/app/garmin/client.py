@@ -67,14 +67,26 @@ class _Fehleruebersetzung:
 uebersetze_fehler = _Fehleruebersetzung
 
 
-def _pruefe_sitzung(api: Garmin) -> None:
+def _pruefe_sitzung(api: Garmin, erstanmeldung: bool = False) -> None:
     """Stellt sicher, dass die Anmeldung wirklich Daten liefert.
 
     Ohne `display_name` antworten die Endpunkte still mit leeren Ergebnissen
     statt mit einem Fehler — ein Backfill importierte dann 365 leere Tage, ohne
     dass jemand etwas merkt.
+
+    `erstanmeldung` wählt den Text. Beim Verbinden ist „verbinde erneut" ein
+    Kreisverkehr: Ein frisch angelegtes Garmin-Konto hat oft noch gar keinen
+    Anzeigenamen, und dann führt jeder weitere Versuch an dieselbe Stelle. Dort
+    muss stehen, was zu tun ist — nämlich etwas bei Garmin, nicht hier.
     """
     if not getattr(api, "display_name", None):
+        if erstanmeldung:
+            raise GarminTokenUngueltig(
+                "Garmin hat kein Konto-Profil zurückgegeben. Das passiert bei "
+                "neuen Konten ohne Anzeigenamen: Bitte einmal bei "
+                "connect.garmin.com anmelden, im Profil einen Anzeigenamen "
+                "setzen und es hier erneut versuchen."
+            )
         raise GarminTokenUngueltig(
             "Die Anmeldung bei Garmin war unvollständig. "
             "Bitte verbinde dein Garmin-Konto erneut."
@@ -96,7 +108,7 @@ def melde_an(api: Garmin) -> tuple[bool, str | None]:
         status, _ = api.login()
         if status == "needs_mfa":
             return True, None
-        _pruefe_sitzung(api)
+        _pruefe_sitzung(api, erstanmeldung=True)
         return False, _token_json(api)
 
 
@@ -104,7 +116,7 @@ def loese_mfa_ein(api: Garmin, code: str) -> str:
     """Zweiter Anmeldeschritt. Gibt das Token-JSON zurück."""
     with uebersetze_fehler():
         api.resume_login({}, code)
-        _pruefe_sitzung(api)
+        _pruefe_sitzung(api, erstanmeldung=True)
         return _token_json(api)
 
 
@@ -202,14 +214,34 @@ def _raeume_auf() -> None:
 def pruefe_anmeldeversuche(email: str) -> None:
     """Bremst wiederholte Anmeldeversuche, bevor Garmin es tut."""
     jetzt = time.time()
+    _stutze_anmeldeversuche(jetzt)
     versuche = [t for t in _ANMELDEVERSUCHE.get(email, []) if t > jetzt - ANMELDEFENSTER_S]
     if len(versuche) >= MAX_ANMELDEVERSUCHE:
+        # Die verbleibende Zeit gehört in die Meldung, und es muss darin stehen,
+        # dass *diese App* bremst: Ohne beides liest sich der Satz wie eine
+        # Sperre von Garmin — also wie etwas, das man aussitzen muss, statt wie
+        # ein Riegel, der sich in wenigen Minuten von selbst löst.
+        rest_s = versuche[0] + ANMELDEFENSTER_S - jetzt
+        minuten = max(1, int(rest_s // 60) + 1)
         raise GarminRateLimit(
-            "Zu viele Anmeldeversuche in kurzer Zeit. Bitte warte eine Stunde — "
-            "sonst sperrt Garmin das Konto von sich aus für bis zu 48 Stunden."
+            f"Tri-Coach bremst: {MAX_ANMELDEVERSUCHE} Anmeldeversuche in einer "
+            f"Stunde sind erreicht. Bitte warte noch etwa {minuten} Minuten. "
+            "Die Bremse schützt davor, dass Garmin das Konto von sich aus für "
+            "bis zu 48 Stunden sperrt."
         )
     versuche.append(jetzt)
     _ANMELDEVERSUCHE[email] = versuche
+
+
+def _stutze_anmeldeversuche(jetzt: float) -> None:
+    """Wirft Adressen weg, deren Fenster abgelaufen ist.
+
+    Ohne das wächst die Ablage mit jeder je versuchten Adresse weiter — ein
+    kleines, aber unbegrenztes Leck in einem Prozess, der monatelang läuft.
+    """
+    for adresse, versuche in list(_ANMELDEVERSUCHE.items()):
+        if not [t for t in versuche if t > jetzt - ANMELDEFENSTER_S]:
+            del _ANMELDEVERSUCHE[adresse]
 
 
 def vergiss_anmeldeversuche(email: str) -> None:

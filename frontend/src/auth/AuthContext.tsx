@@ -7,7 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, getToken, onUnauthorized, setLastUserId, setToken } from '../api/client'
+import {
+  TOKEN_KEY,
+  api,
+  getToken,
+  onUnauthorized,
+  setLastUserId,
+  setToken,
+} from '../api/client'
 import type { User } from '../types'
 
 interface AuthState {
@@ -35,6 +42,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       onUnauthorized.handler = null
     }
+  }, [logout])
+
+  // Ein Kontowechsel in einem Tab muss in den anderen ankommen. Ohne das zeigte
+  // der zweite Tab weiter den alten Nutzer, schickte seine Anfragen aber schon
+  // mit dem neuen Token — ein „Speichern" im Profil schrieb dann die
+  // angezeigten Werte des einen Kontos in das andere.
+  useEffect(() => {
+    function beiFremdaenderung(ereignis: StorageEvent) {
+      // `key === null` heißt: der ganze Speicher wurde geleert.
+      if (ereignis.key !== null && ereignis.key !== TOKEN_KEY) return
+      if (!getToken()) {
+        logout()
+        return
+      }
+      api
+        .me()
+        .then(setUser)
+        .catch(() => logout())
+    }
+    window.addEventListener('storage', beiFremdaenderung)
+    return () => window.removeEventListener('storage', beiFremdaenderung)
   }, [logout])
 
   // Bestehende Sitzung beim Laden wiederherstellen.

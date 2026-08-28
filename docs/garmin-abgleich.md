@@ -85,6 +85,37 @@ einer Stelle in eigene Fehler mit deutschen Meldungen übersetzt (`errors.py`);
 `sync._hole_geschuetzt()` fängt jeden Endpunkt einzeln ab — **außer** der
 Anfragesperre, die den ganzen Lauf beenden muss.
 
+**Ein abgelehnter Garmin-Login ist 400, nicht 401** (`routers/garmin.py`). Das
+war der Fehler, an dem ein zweiter Benutzer sein Konto nicht verbinden konnte —
+und er war von außen unsichtbar. `POST /connect` antwortete auf jeden
+`GarminFehler` mit 401, und der Browser-Client wertet 401 als „die eigene
+Sitzung ist abgelaufen": Er verwarf den App-Token, meldete den Nutzer ab und
+ersetzte Garmins Begründung durch „Sitzung abgelaufen". Der Anmeldedialog
+verschwand mitsamt der Meldung, die zu lesen gewesen wäre; zurück blieben zwei
+leere Felder und der Eindruck, es sei nichts passiert. Ein falsches
+Garmin-Passwort sagt nichts über die Anmeldung *bei dieser App* aus — 401 ist
+allein `deps.get_current_user` vorbehalten, erkennbar am Kopf
+`WWW-Authenticate`, an dem der Client seither unterscheidet (siehe
+`docs/frontend.md`).
+
+**Die eigene Anmeldebremse muss sich als solche zu erkennen geben**
+(`client.py`, `pruefe_anmeldeversuche`). Drei Versuche je Stunde und Adresse
+bleiben — sie sind die Absicherung gegen Garmins 48-Stunden-Sperre. Die Meldung
+sagt jetzt aber, dass *Tri-Coach* bremst und wie viele Minuten noch bleiben:
+Vorher las sie sich wie eine Sperre von außen, also wie etwas, das man
+aussitzen muss, statt wie ein Riegel, der sich von selbst löst. Und ein Versuch,
+der bis zur **MFA-Abfrage** kommt, zählt nicht mehr: Das Passwort war richtig,
+sonst gäbe es keinen Code. Drei angefangene Bestätigungen verbrauchten sonst das
+Stundenkontingent, ohne dass je etwas falsch war.
+
+**Fehlt der Anzeigename, hilft „verbinde erneut" nicht** (`_pruefe_sitzung`).
+Die Sitzungsprüfung besteht darauf, dass Garmin ein Profil zurückgibt — ohne
+`display_name` antworten die Endpunkte still mit leeren Ergebnissen. Beim
+*Verbinden* ist die alte Meldung aber ein Kreisverkehr: Ein frisch angelegtes
+Garmin-Konto hat oft noch keinen Anzeigenamen, und jeder weitere Versuch führt
+an dieselbe Stelle. Deshalb `erstanmeldung=True` und ein eigener Text, der sagt,
+was zu tun ist — nämlich etwas bei Garmin, nicht hier.
+
 **Bereichsabfragen statt Tagesschleife** (`sync.py`). Trainings, Schlaf, HRV,
 Ruhepuls, VO2max, Gewicht und Körperbatterie gibt es je Zeitraum in einer
 Anfrage — ein Jahr kostet damit rund fünfzig statt dreitausend Anfragen. Nur
@@ -188,6 +219,19 @@ Mitternacht Ortszeit als „gestern" in die Datenbank, und die Sperre griff nich
 — bei einer Abgleichstunde am Vormittag folgenlos, bei einer nachts nicht.
 `_als_datum()` geht deshalb über `zeit.als_utc()` und `astimezone()`.
 
+**Die Automatik wählt `status != "token_expired"`, nicht `== "connected"`.**
+Das ist der stillste Defekt, den die Mehrbenutzer-Durchsicht zutage gefördert
+hat. `_notiere_fehler` setzt den Status bei **jedem** Netzfehler auf `"error"`,
+zurückgenommen wird er nur von einem erfolgreichen Lauf oder beim Neuverbinden.
+Wählte die Schleife nur `"connected"`, nahm ein einziger vorübergehender Fehler
+das Konto **dauerhaft** aus dem täglichen Abgleich — bis jemand von Hand „Jetzt
+abgleichen" drückte, und ohne dass irgendwo stand, warum. Bei einem Nutzer fällt
+das auf; bei zweien trifft es still nur einen. Ausgeschlossen wird deshalb nur,
+was wirklich eine Hand verlangt: ein abgelaufenes Token. Eine Anfragesperre
+deckt `rate_limited_until` weiterhin gesondert ab, und der Tagesriegel über
+`last_sync_at` verhindert, dass ein dauerhaft kaputtes Konto minütlich
+weiterprobiert.
+
 **Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
 `BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach
 einem Neustart erkennbar unterbrochen sein — nichts davon leistet ein
@@ -200,6 +244,18 @@ hängt auch an der Herkunftsadresse. Beim Start markiert
 unterbrochen — ihr Thread ist mit dem Prozess gestorben. Weil zwei Schreiber auf
 derselben SQLite-Datei arbeiten, steht `journal_mode=WAL` und ein `timeout` von
 30 s in `database.py`.
+
+**Das Schloss bleibt global, die Auskunft darüber nicht** (`runner.besitzer()`,
+`routers/garmin._pruefe_startbar`). Der Riegel ist richtig — zwei gleichzeitige
+Läufe erzeugen genau die Anfragedichte, gegen die sich Garmins Grenze richtet,
+auch bei zwei Konten im selben Haushalt. Falsch war, was der zweite Nutzer davon
+zu sehen bekam: „Es läuft bereits ein Abgleich", während seine eigene
+Fortschrittsanzeige daneben nichts zeigte — die ist nach `user_id` gefiltert und
+sagte zu Recht, dass nichts läuft. Wer das liest, sucht den Fehler in der App.
+Der Runner führt deshalb neben dem aktiven Job dessen Besitzer mit, und die
+Meldung unterscheidet den eigenen Lauf vom fremden. Aus demselben Grund wartet
+`exklusiver_direktaufruf()` fünf Sekunden auf das Schloss, statt sofort
+abzuweisen: Der häufigste Fall ist, dass zwei Nutzer im selben Moment drücken.
 
 **Die Kennzahlen der Historie werden rollierend gerechnet, nicht in
 Kalenderwochen** (`sportscience.acute_chronic_ratio`). Die ACWR nahm ihre

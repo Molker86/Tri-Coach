@@ -68,6 +68,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Ohne das Freigeben liest der Browser den Kopf bei getrennten Ursprüngen
+    # (Entwicklung: 5173 gegen 8000) nicht — er steht nicht auf der
+    # CORS-Positivliste. Der Client unterscheidet daran „Sitzung abgelaufen“
+    # von einem 401, das ein Fachendpunkt aus eigenem Anlass schickt.
+    expose_headers=["WWW-Authenticate"],
 )
 
 app.include_router(auth.router)

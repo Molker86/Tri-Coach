@@ -63,21 +63,28 @@ export default function Einstellungen() {
   const [busy, setBusy] = useState(false)
   const [geladen, setGeladen] = useState(false)
 
+  // `allSettled` statt `all`: `GET /api/bring/status` fragt bei hinterlegtem
+  // Konto synchron das Netz. Fiel dieser eine Aufruf aus, blieben alle drei
+  // Zustände `null` — und die Seite zeigte einem längst verbundenen Garmin-Konto
+  // wieder das Anmeldeformular, als wäre die Verbindung verschwunden.
   const lade = useCallback(async () => {
-    try {
-      const [g, k, b] = await Promise.all([
-        api.garminStatus(),
-        api.kiStatus(),
-        api.bringStatus(),
-      ])
-      setGarmin(g)
-      setKi(k)
-      setBring(b)
-    } catch (err) {
-      setFehler(err instanceof Error ? err.message : 'Etwas ist schiefgelaufen.')
-    } finally {
-      setGeladen(true)
-    }
+    const ergebnisse = await Promise.allSettled([
+      api.garminStatus(),
+      api.kiStatus(),
+      api.bringStatus(),
+    ])
+    const [g, k, b] = ergebnisse
+    if (g.status === 'fulfilled') setGarmin(g.value)
+    if (k.status === 'fulfilled') setKi(k.value)
+    if (b.status === 'fulfilled') setBring(b.value)
+
+    const meldungen = ergebnisse
+      .filter((e) => e.status === 'rejected')
+      .map((e) =>
+        e.reason instanceof Error ? e.reason.message : 'Etwas ist schiefgelaufen.',
+      )
+    setFehler(meldungen.length === 0 ? null : [...new Set(meldungen)].join('\n'))
+    setGeladen(true)
   }, [])
 
   useEffect(() => {

@@ -99,9 +99,20 @@ def _pruefe_startbar(db, konto: GarminAccount) -> None:
         )
 
     if runner.laeuft_gerade() is not None:
+        # Zwei Meldungen, weil es zwei verschiedene Lagen sind: Der eigene Lauf
+        # steht in der Fortschrittsanzeige daneben, der fremde nicht — und wer
+        # nur „es läuft bereits ein Abgleich" liest, während seine eigene Seite
+        # nichts anzeigt, hält es für einen Fehler der App.
+        if runner.besitzer() == konto.user_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Es läuft bereits ein Abgleich. Bitte warte, bis er fertig ist.",
+            )
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Es läuft bereits ein Abgleich. Bitte warte, bis er fertig ist.",
+            "Gerade läuft der Abgleich eines anderen Kontos. Garmin begrenzt "
+            "die Anfragen je Anschluss, deshalb wartet deiner. Bitte in ein "
+            "paar Minuten erneut versuchen.",
         )
 
 
@@ -120,9 +131,19 @@ def verbinde(data: GarminConnectIn, user: CurrentUser, db: DbSession) -> dict:
     except GarminRateLimit as exc:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, exc.meldung) from exc
     except GarminFehler as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, exc.meldung) from exc
+        # Bewusst 400 und nicht 401: Ein abgelehntes Garmin-Passwort ist kein
+        # Problem mit der *eigenen* Sitzung. Der Browser-Client wertet 401 als
+        # „Token abgelaufen“ und meldet den Nutzer ab — der Anmeldedialog wurde
+        # dann samt Garmins Begründung abgeräumt, und auf dem Bildschirm blieben
+        # nur zwei leere Felder zurück.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, exc.meldung) from exc
 
     if mfa_noetig:
+        # Wer bis zur Codeabfrage kommt, hat sein Passwort richtig eingegeben —
+        # das ist kein Fehlversuch. Ohne dieses Vergessen verbrauchten drei
+        # angefangene Bestätigungen das Stundenkontingent, und der Nutzer stand
+        # vor einer Bremse, obwohl nie etwas falsch war.
+        vergiss_anmeldeversuche(data.email)
         pending_id = uuid.uuid4().hex
         merke_anmeldung(pending_id, api, user.id)
         return {

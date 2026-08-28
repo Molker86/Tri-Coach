@@ -91,10 +91,19 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
     gestartet = 0
 
     with SessionLocal() as db:
+        # Ausgeschlossen wird, was ein Zutun verlangt — nicht, was einmal
+        # gestolpert ist. Hier stand `status == "connected"`, und weil
+        # `_notiere_fehler` bei jedem Netzfehler auf `"error"` setzt und den
+        # Status nur ein *erfolgreicher* Lauf zurücknimmt, nahm ein einziger
+        # vorübergehender Fehler das Konto dauerhaft aus der Automatik: Der
+        # Nutzer hätte von Hand abgleichen müssen, um sie wieder anzuwerfen —
+        # und hätte nie erfahren, warum. Nur ein abgelaufenes Token braucht
+        # wirklich eine Hand; eine Sperre deckt `rate_limited_until` weiter
+        # unten ab, und der Tagesriegel verhindert Dauerversuche.
         konten = db.scalars(
             select(GarminAccount).where(
                 GarminAccount.auto_sync_enabled.is_(True),
-                GarminAccount.status == "connected",
+                GarminAccount.status != "token_expired",
             )
         ).all()
 

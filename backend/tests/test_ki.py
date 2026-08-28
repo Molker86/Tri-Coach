@@ -106,6 +106,28 @@ def lege_fragebogen_an(client, auth) -> int:
 # --------------------------------------------------------------------------
 
 
+def test_fremder_lauf_meldet_sich_als_fremder(client, auth, monkeypatch):
+    """Ein zweiter Nutzer soll erfahren, dass der laufende Job nicht seiner ist.
+
+    Der Riegel selbst bleibt — es läuft ein Unterprozess zur Zeit. Falsch war
+    nur die Meldung: Sie behauptete einen eigenen Lauf, den es nicht gab.
+    """
+    lege_fragebogen_an(client, auth)
+    eigene_id = client.get("/api/auth/me", headers=auth).json()["id"]
+
+    monkeypatch.setattr(ki_runner.runner, "laeuft_gerade", lambda: 4711)
+
+    monkeypatch.setattr(ki_runner.runner, "besitzer", lambda: eigene_id)
+    eigen = client.post("/api/ki/planen", headers=auth, json={"days": 7})
+    assert eigen.status_code == 409
+    assert "bereits ein Lauf" in eigen.json()["detail"]
+
+    monkeypatch.setattr(ki_runner.runner, "besitzer", lambda: eigene_id + 1000)
+    fremd = client.post("/api/ki/planen", headers=auth, json={"days": 7})
+    assert fremd.status_code == 409
+    assert "anderen Kontos" in fremd.json()["detail"]
+
+
 def test_lauf_uebernimmt_den_block(client, auth, monkeypatch):
     lege_fragebogen_an(client, auth)
     ki_antwortet(monkeypatch, antwort_json(HEUTE))

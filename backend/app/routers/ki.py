@@ -187,10 +187,19 @@ def _pruefe_startbar(einstellungen: KiSettings) -> None:
         )
 
     if runner.laeuft_gerade() is not None:
+        if runner.besitzer() == einstellungen.user_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Es läuft bereits ein Lauf gegen die KI. Bitte warte, bis er "
+                "fertig ist.",
+            )
+        # Anders als bei Garmin steckt hier keine Anfragegrenze dahinter,
+        # sondern nur, dass ein Unterprozess zur Zeit läuft. Das darf die
+        # Meldung sagen, sonst sucht der Nutzer den Fehler bei sich.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Es läuft bereits ein Lauf gegen die KI. Bitte warte, bis er "
-            "fertig ist.",
+            "Gerade läuft der Planungslauf eines anderen Kontos. Es kann nur "
+            "einer zur Zeit laufen — bitte gleich noch einmal versuchen.",
         )
 
 

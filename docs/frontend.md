@@ -282,3 +282,37 @@ Sekunden einen Schritt, und häufigeres Fragen erzeugt nur Last auf einem
 Raspberry Pi. Bei `visibilitychange` wird sofort einmal nachgefragt, weil
 Telefone Zeitgeber im Hintergrund drosseln und der Balken sonst eingefroren
 wirkte. Netzfehler beenden die Schleife nicht: Der Lauf geht im Server weiter.
+
+**Abgemeldet wird nur bei einem 401 der eigenen Sitzungsprüfung**
+(`api/client.ts`). Der Client wertete jedes 401 als „Token abgelaufen", räumte
+die Anmeldung ab und ersetzte die Meldung des Endpunkts durch „Sitzung
+abgelaufen". Das traf genau einen Fachendpunkt — `POST /api/garmin/connect` —
+und machte dessen Fehlschlag unsichtbar: Der Anmeldedialog verschwand samt der
+Begründung, zurück blieben zwei leere Felder. Der Server sagt seither 400
+(siehe `docs/garmin-abgleich.md`), und der Client prüft zusätzlich den Kopf
+`WWW-Authenticate`, den allein `deps.get_current_user` setzt. Er ist im
+Backend ausdrücklich über `expose_headers` freigegeben, sonst läse ihn der
+Browser bei getrennten Ursprüngen — in der Entwicklung 5173 gegen 8000 — gar
+nicht.
+
+**Der Kontowechsel muss in allen Tabs ankommen** (`auth/AuthContext.tsx`). Der
+Anmeldezustand steht in React, das Token in `localStorage`. Waren zwei Tabs als
+Nutzer A offen und wechselte einer auf B, zeigte der andere weiter A's Namen und
+A's geladene Daten, schickte seine Anfragen aber schon mit B's Token: Ein
+„Speichern" im Profil schrieb dann die angezeigten Werte des einen Kontos in das
+andere. Ein `storage`-Ereignis auf `TOKEN_KEY` baut den Zustand deshalb neu auf
+— ohne Token abmelden, sonst `api.me()`. Der Schlüssel wird aus `client.ts`
+exportiert statt wiederholt; zwei Zeichenketten, die dasselbe meinen müssen,
+laufen sonst auseinander.
+
+**Die Einstellungsseite lädt ihre drei Karten unabhängig** (`Promise.allSettled`
+statt `Promise.all`). `GET /api/bring/status` fragt bei hinterlegtem Konto
+synchron das Netz. Fiel dieser eine Aufruf aus, blieben alle drei Zustände
+`null` — und weil die Garmin-Karte bei `konto === null` das Anmeldeformular
+zeigt, sah ein längst verbundenes Konto so aus, als wäre die Verbindung weg. Ein
+Timeout bei Bring darf nicht wie ein verlorenes Garmin-Konto aussehen.
+
+**„Konto wechseln" führt direkt zur Kontoauswahl** (`Layout.tsx`). Bis dahin gab
+es nur „Abmelden" → Landingpage → „Anmelden". Da die Anmeldung ohnehin nur eine
+Auswahl ist, ist der Umweg reine Reibung — der zweite Knopf ruft dasselbe
+`logout()` und landet auf `/login`.

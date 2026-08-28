@@ -35,6 +35,11 @@ ENDZUSTAENDE = frozenset(
     {"done", "failed", "cancelled", "rate_limited", "interrupted"}
 )
 
+# Wie lange ein direkter Schreibaufruf auf ein belegtes Schloss wartet, bevor er
+# aufgibt. Lang genug für ein zeitgleiches Drücken zweier Nutzer, kurz genug, um
+# eine HTTP-Anfrage nicht spürbar hängen zu lassen.
+DIREKTAUFRUF_WARTEZEIT_S = 5.0
+
 # Ob Läufe in einen eigenen Thread abgegeben werden. Die Tests stellen das ab
 # und lassen synchron laufen — sonst müsste jeder Test den Fortschritt abfragen
 # und wäre von der Zeit abhängig.
@@ -84,11 +89,22 @@ class SyncRunner:
         self._schloss = threading.Lock()
         self._abbruch: dict[int, threading.Event] = {}
         self._aktiver_job: int | None = None
+        self._aktiver_nutzer: int | None = None
 
     # -- Steuerung ----------------------------------------------------------
 
     def laeuft_gerade(self) -> int | None:
         return self._aktiver_job
+
+    def besitzer(self) -> int | None:
+        """Wem der laufende Job gehört — für die Meldung, nicht für den Riegel.
+
+        Der Riegel bleibt global (siehe Modulkopf), aber ein zweiter Nutzer
+        bekam bisher „Es läuft bereits ein Abgleich" zu lesen, während seine
+        eigene Statusanzeige daneben „nichts läuft" zeigte. Der Riegel war
+        richtig, die Auskunft darüber falsch.
+        """
+        return self._aktiver_nutzer
 
     def brich_ab(self, job_id: int) -> bool:
         ereignis = self._abbruch.get(job_id)
@@ -99,8 +115,14 @@ class SyncRunner:
 
     @contextmanager
     def exklusiver_direktaufruf(self) -> Iterator[None]:
-        """Schützt direkte Schreibaufrufe vor laufenden Garmin-Jobs."""
-        if not self._schloss.acquire(blocking=False):
+        """Schützt direkte Schreibaufrufe vor laufenden Garmin-Jobs.
+
+        Kurz gewartet statt sofort abgewiesen: Der häufigste Fall ist, dass zwei
+        Nutzer im selben Moment drücken — der zweite wartete bisher nicht ein
+        paar Sekunden, sondern bekam einen Fehler. Ein langer Abgleich läuft
+        weit über diese Frist hinaus und wird weiterhin sauber abgewiesen.
+        """
+        if not self._schloss.acquire(timeout=DIREKTAUFRUF_WARTEZEIT_S):
             raise GarminBeschaeftigt()
         try:
             yield
@@ -168,10 +190,12 @@ class SyncRunner:
         # und stürbe mit der Anfrage.
         with self._schloss, SessionLocal() as db:
             self._aktiver_job = job_id
+            self._aktiver_nutzer = user_id
             try:
                 self._lauf(db, job_id, user_id, von, bis, tagesschleife_von, pause_s)
             finally:
                 self._aktiver_job = None
+                self._aktiver_nutzer = None
                 self._abbruch.pop(job_id, None)
 
         # Hier stand einmal der Anstoß der automatischen Planung. Sie hängt

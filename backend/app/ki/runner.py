@@ -59,6 +59,7 @@ class KiRunner:
     def __init__(self) -> None:
         self._schloss = threading.Lock()
         self._aktiver_job: int | None = None
+        self._aktiver_nutzer: int | None = None
         self._prozesse: dict[int, subprocess.Popen] = {}
         self._abgebrochen: set[int] = set()
 
@@ -66,6 +67,10 @@ class KiRunner:
 
     def laeuft_gerade(self) -> int | None:
         return self._aktiver_job
+
+    def besitzer(self) -> int | None:
+        """Wem der laufende Lauf gehört — für die Meldung, nicht für den Riegel."""
+        return self._aktiver_nutzer
 
     def brich_ab(self, job_id: int) -> bool:
         """Beendet den Unterprozess des Laufs. Gibt zurück, ob es einen gab."""
@@ -131,10 +136,12 @@ class KiRunner:
         # mit der Anfrage.
         with self._schloss, SessionLocal() as db:
             self._aktiver_job = job_id
+            self._aktiver_nutzer = user_id
             try:
                 self._lauf(db, job_id, user_id)
             finally:
                 self._aktiver_job = None
+                self._aktiver_nutzer = None
                 self._prozesse.pop(job_id, None)
                 self._abgebrochen.discard(job_id)
 

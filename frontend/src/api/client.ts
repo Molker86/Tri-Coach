@@ -38,7 +38,7 @@ import type {
 } from '../types'
 import { BASE_PATH } from '../basePath'
 
-const TOKEN_KEY = 'tricoach.token'
+export const TOKEN_KEY = 'tricoach.token'
 const LAST_USER_KEY = 'tricoach.lastUser'
 
 export function getToken(): string | null {
@@ -90,7 +90,11 @@ async function request<T>(
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
 
-  if (response.status === 401) {
+  // Abgemeldet wird nur bei einem 401 der *eigenen* Sitzungsprüfung. Die setzt
+  // als einzige `WWW-Authenticate` (siehe `deps.get_current_user`). Ohne diese
+  // Unterscheidung räumte ein 401, das ein Fachendpunkt aus eigenem Anlass
+  // schickte, die Anmeldung ab und verschluckte dabei seine Begründung.
+  if (response.status === 401 && response.headers.has('WWW-Authenticate')) {
     onUnauthorized.handler?.()
     throw new ApiError('Sitzung abgelaufen. Bitte erneut anmelden.', 401)
   }
