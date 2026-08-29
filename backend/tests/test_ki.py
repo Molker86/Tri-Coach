@@ -206,6 +206,139 @@ def test_unlesbare_antwort_hinterlaesst_keinen_plan(client, auth, monkeypatch):
     assert client.get("/api/plans/active", headers=auth).json() is None
 
 
+def test_die_rohantwort_ueberlebt_einen_gescheiterten_import(client, auth, monkeypatch):
+    """Ein Lauf dauert Minuten — seine Antwort darf nicht mit ihm sterben.
+
+    Bis hierher war eine Antwort, die nicht durch den Import kam, ersatzlos
+    weg. Genau darauf beruft sich der Import an mehreren Stellen als Grund,
+    lieber zu warnen als abzulehnen.
+    """
+    lege_fragebogen_an(client, auth)
+    kaputt = '{"plan": {"title": "Block", "days": []}}'
+    ki_antwortet(monkeypatch, kaputt)
+    # Auch der Reparaturlauf bringt nichts Besseres zustande.
+
+    job_id = client.post("/api/ki/planen", headers=auth, json={}).json()["id"]
+    job = client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()
+
+    assert job["state"] == "failed"
+    assert job["roh_antwort_vorhanden"] is True
+
+    # Und sie lässt sich holen, um sie von Hand einzufügen.
+    roh = client.get(f"/api/ki/jobs/{job_id}/rohantwort", headers=auth)
+    assert roh.status_code == 200
+    assert roh.json()["raw"] == kaputt
+
+
+def test_ohne_gespeicherte_antwort_gibt_es_nichts_zu_holen(client, auth, monkeypatch):
+    lege_fragebogen_an(client, auth)
+    ki_scheitert(monkeypatch, KiKontingentErschoepft())
+
+    job_id = client.post("/api/ki/planen", headers=auth, json={}).json()["id"]
+    assert client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()[
+        "roh_antwort_vorhanden"
+    ] is False
+    assert client.get(
+        f"/api/ki/jobs/{job_id}/rohantwort", headers=auth
+    ).status_code == 404
+
+
+def test_ein_zweiter_kurzer_lauf_rettet_den_block(client, auth, monkeypatch):
+    """Fehlt eine Formalie, wird nachgebessert statt neu geplant.
+
+    Ein zweiter voller Planungslauf wäre die teuerste Antwort auf ein fehlendes
+    Feld: Er dauert Minuten, kostet Kontingent und plant dabei einen *anderen*
+    Block.
+    """
+    lege_fragebogen_an(client, auth)
+    laeufe = []
+
+    def _ruf(prompt, **kwargs):
+        laeufe.append((prompt, kwargs))
+        if len(laeufe) == 1:
+            return ki_client.Antwort(text='{"plan": {"title": "x", "days": []}}')
+        return ki_client.Antwort(text=antwort_json(HEUTE), modell="claude-opus-5")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    job_id = client.post("/api/ki/planen", headers=auth, json={}).json()["id"]
+    job = client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()
+
+    assert job["state"] == "done"
+    assert job["plan_id"]
+    assert len(laeufe) == 2
+
+    # Der Reparaturlauf bekommt nur die Fehlerliste und das kaputte JSON —
+    # kein Datenpaket, keine Trainingslehre, sonst plante er neu.
+    zweiter, kwargs = laeufe[1]
+    assert "Bessere sie aus" in zweiter
+    assert "trainingshistorie" not in zweiter
+    assert kwargs["effort"] == ki_runner.REPARATUR_EFFORT
+    # Dasselbe Schema wie beim ersten Lauf.
+    assert kwargs["json_schema"] == laeufe[0][1]["json_schema"]
+
+    # Gespeichert ist die Fassung, die es geschafft hat.
+    roh = client.get(f"/api/ki/jobs/{job_id}/rohantwort", headers=auth).json()["raw"]
+    assert json.loads(roh)["plan"]["title"] == "Blockplan"
+
+
+def test_es_bleibt_bei_genau_einem_reparaturlauf(client, auth, monkeypatch):
+    """Sonst liefe die App im Kreis und verbrauchte das Kontingent."""
+    lege_fragebogen_an(client, auth)
+    laeufe = []
+
+    def _ruf(prompt, **kwargs):
+        laeufe.append(prompt)
+        return ki_client.Antwort(text='{"plan": {"title": "x", "days": []}}')
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    job_id = client.post("/api/ki/planen", headers=auth, json={}).json()["id"]
+    assert client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()["state"] == "failed"
+    assert len(laeufe) == 2
+
+
+def test_die_geparste_antwort_wird_dem_text_vorgezogen(client, auth, monkeypatch):
+    """Kam die Antwort über ein erzwungenes Schema, ist sie schon geparst.
+
+    Den Text noch einmal nach Klammern abzusuchen wäre ein Umweg über genau die
+    Fehlerquelle, die das Schema gerade beseitigt hat.
+    """
+    lege_fragebogen_an(client, auth)
+
+    def _ruf(prompt, **kwargs):
+        return ki_client.Antwort(
+            # Der Text ist unbrauchbar — gälte er, scheiterte der Lauf.
+            text="Begleittext ohne JSON",
+            struktur=json.loads(antwort_json(HEUTE, titel="Aus der Struktur")),
+            modell="claude-opus-5",
+        )
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    job_id = client.post("/api/ki/planen", headers=auth, json={}).json()["id"]
+    assert client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()["state"] == "done"
+    aktiv = client.get("/api/plans/active", headers=auth).json()
+    assert aktiv["title"] == "Aus der Struktur"
+
+
+def test_der_lauf_gibt_das_schema_mit(client, auth, monkeypatch):
+    """Sonst bleibt die Struktur eine Bitte statt einer Bedingung."""
+    lege_fragebogen_an(client, auth)
+    notiz = {}
+
+    def _ruf(prompt, **kwargs):
+        notiz.update(kwargs)
+        return ki_client.Antwort(text=antwort_json(HEUTE), modell="claude-opus-5")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+    client.post("/api/ki/planen", headers=auth, json={})
+
+    schema = notiz["json_schema"]
+    assert schema["required"] == ["plan"]
+    assert "summary" in schema["properties"]["plan"]["required"]
+
+
 def test_abbruch_ist_kein_fehler(client, auth, monkeypatch):
     """Wer abbricht, tötet den Unterprozess — der meldet sich als Fehlschlag.
 

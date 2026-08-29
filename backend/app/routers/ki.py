@@ -135,6 +135,24 @@ def job(job_id: int, user: CurrentUser, db: DbSession) -> KiJob:
     return _job_oder_fehler(db, job_id, user.id)
 
 
+@router.get("/jobs/{job_id}/rohantwort")
+def rohantwort(job_id: int, user: CurrentUser, db: DbSession) -> dict[str, str]:
+    """Die Antwort der KI im Original — der Rettungsweg für einen Fehlschlag.
+
+    Ein Lauf dauert Minuten und kostet Kontingent. Kam die Antwort zurück, ließ
+    sich aber nicht übernehmen, wäre sie ohne diese Route verloren: Der Athlet
+    kann sie hier holen, von Hand ausbessern und über den bestehenden
+    Einfügeweg übernehmen.
+    """
+    eintrag = _job_oder_fehler(db, job_id, user.id)
+    if not eintrag.roh_antwort:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Zu diesem Lauf ist keine Antwort gespeichert.",
+        )
+    return {"raw": eintrag.roh_antwort}
+
+
 @router.post("/jobs/{job_id}/abbrechen", response_model=KiJobOut)
 def brich_ab(job_id: int, user: CurrentUser, db: DbSession) -> KiJob:
     eintrag = _job_oder_fehler(db, job_id, user.id)

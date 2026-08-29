@@ -108,7 +108,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 604 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 644 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -238,6 +238,18 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   `frontend/src/types.ts` mit. `garmin_compliance` wird weiter befüllt, aber von
   niemandem mehr gelesen — es ist Garmins Bewertung *gegen die Vorgabe* und
   damit ein Planvergleich.
+- **Die KI entscheidet, die Pipeline rechnet.** Was sich aus `steps` ableiten
+  lässt, wird abgeleitet und überschreibt die Angabe des Modells
+  (`plan_import._gerechnete_dauer`) — aber nur, wo es exakt geht. Was zu einer
+  Sportart nicht gehört, streicht der Code
+  (`schemas.AISessionIn._raeume_fremde_felder`), statt es im Prompt zu
+  verbieten. Und die Struktur wird über `--json-schema` erzwungen, nicht
+  erbeten. Wer eine neue bedingte Regel in den Prompt schreiben will, prüft
+  erst, ob sie nicht in den Code gehört.
+- Ein neues Feld im Antwortformat gehört in `SESSION_SCHEMA` (die Lehrfassung im
+  Prompt) **und** ins Datenmodell in `schemas.py`. Das Strukturschema für
+  `--json-schema` leitet seine Feldliste daraus ab; `test_antwortschema.py`
+  meldet, was auseinanderläuft.
 - Jeder Zugriff auf Garmin-JSON läuft über `mapping.hole()` / `erster_wert()` /
   `als_liste()`, nie über `d["a"]["b"]`: Die API ist undokumentiert, ändert
   Feldnamen ohne Vorwarnung, und ihre Typangaben stimmen nicht (`get_activities`

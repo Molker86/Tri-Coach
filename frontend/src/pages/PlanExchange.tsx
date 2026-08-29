@@ -116,6 +116,26 @@ export default function PlanExchange() {
     }
   }
 
+  /**
+   * Holt die Antwort eines gescheiterten Laufs ins Einfügefeld.
+   *
+   * Ein Lauf dauert Minuten und kostet Kontingent. Kam die Antwort zurück,
+   * ließ sich aber nicht übernehmen, wäre sie sonst verloren — hier landet sie
+   * im Feld darunter, wo sie sich ausbessern und doch noch übernehmen lässt.
+   */
+  async function holeRohantwort(jobId: number) {
+    setError(null)
+    try {
+      const { raw: gespeichert } = await api.kiRohantwort(jobId)
+      setRaw(gespeichert)
+      setPreview(null)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Die Antwort ließ sich nicht laden.',
+      )
+    }
+  }
+
   async function copyPrompt() {
     if (!exported) return
     try {
@@ -273,7 +293,7 @@ export default function PlanExchange() {
                 </span>
               </div>
               {kiStatus?.letzter_job && !laeuft && (
-                <LetzterLauf job={kiStatus.letzter_job} />
+                <LetzterLauf job={kiStatus.letzter_job} onAntwort={holeRohantwort} />
               )}
             </>
           )}
@@ -289,8 +309,12 @@ export default function PlanExchange() {
         </Alert>
       )}
 
+      {/* `aufgeklappt` auch bei gefülltem Feld: Steht dort Text, ist der Weg
+          offensichtlich gemeint — etwa weil die Antwort eines gescheiterten
+          Laufs hineingeladen wurde. Zugeklappt versteckte er genau das, was
+          der Nutzer als Nächstes braucht. */}
       <ManuellerWeg
-        aufgeklappt={!kiVerfuegbar}
+        aufgeklappt={!kiVerfuegbar || raw.trim() !== ''}
         zeitraum={kiVerfuegbar ? null : zeitraum}
         exported={exported}
         copied={copied}
@@ -389,7 +413,13 @@ function AbgleichStand({ konto }: { konto: GarminAccount | null }) {
   )
 }
 
-function LetzterLauf({ job }: { job: KiJob }) {
+function LetzterLauf({
+  job,
+  onAntwort,
+}: {
+  job: KiJob
+  onAntwort: (id: number) => void
+}) {
   const wann = new Date(job.started_at).toLocaleString('de-DE', {
     dateStyle: 'short',
     timeStyle: 'short',
@@ -405,6 +435,21 @@ function LetzterLauf({ job }: { job: KiJob }) {
     <p className="small faint mb-0">
       Letzter Lauf: {teile.join(' · ')}
       {job.message ? ` — ${job.message}` : ''}
+      {/* Der Lauf ist gescheitert, seine Antwort aber da: Sie hat Minuten
+          gedauert und Kontingent gekostet, und mit ein paar Handgriffen im Feld
+          darunter wird meistens doch noch ein Block daraus. */}
+      {job.state === 'failed' && job.roh_antwort_vorhanden && (
+        <>
+          {' '}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onAntwort(job.id)}
+          >
+            Antwort zum Nachbessern einfügen
+          </button>
+        </>
+      )}
     </p>
   )
 }

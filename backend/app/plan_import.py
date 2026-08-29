@@ -240,8 +240,27 @@ def _ohne_tagesliste(objekte: list[dict[str, Any]]) -> str:
 
 
 def parse_ai_response(raw: str) -> AIPlanBody:
-    objekte = _gelesene_objekte(raw)
+    """Der Texteinstieg: Aus einer Antwort im Klartext den Block lesen.
 
+    Der Weg über die Zwischenablage hat nur diesen, und er bleibt der Rückfall,
+    wenn ein Lauf ohne `--json-schema` gelaufen ist.
+    """
+    return plan_aus_objekten(_gelesene_objekte(raw))
+
+
+def plan_aus_objekt(daten: dict[str, Any]) -> AIPlanBody:
+    """Der Objekteinstieg: Die Antwort liegt schon geparst vor.
+
+    Gibt es, seit `ki/client.py` ein `--json-schema` mitgibt — die CLI legt das
+    Ergebnis dann als `structured_output` daneben, und den Text noch einmal nach
+    Klammern abzusuchen wäre ein Umweg über eine Fehlerquelle, die hier gerade
+    beseitigt wurde. Geprüft wird trotzdem dasselbe: Ein erzwungenes Schema
+    sichert die Struktur, nicht die Datumsfolge oder die Disziplin.
+    """
+    return plan_aus_objekten([daten])
+
+
+def plan_aus_objekten(objekte: list[dict[str, Any]]) -> AIPlanBody:
     plan = next(
         (gefunden for daten in objekte if (gefunden := _plan_darin(daten))), None
     )
@@ -345,7 +364,13 @@ def build_plan(
                     description=session.description,
                     structure=session.structure,
                     purpose=session.purpose,
-                    duration_min=session.duration_min,
+                    # Gerechnet statt übernommen, wo es exakt geht — siehe
+                    # `_gerechnete_dauer`. Nicht im Pydantic-Modell: In
+                    # `Plan.raw_json` gehört die KI-Antwort im Original, nicht
+                    # unsere Korrektur daran.
+                    duration_min=(
+                        _gerechnete_dauer(session) or session.duration_min
+                    ),
                     distance_km=session.distance_km,
                     intensity_zone=session.intensity_zone,
                     target_hr_low=session.target_hr_low,
@@ -391,24 +416,90 @@ def _schrittzeit(schritte: list[AIStepIn]) -> float | None:
     return gesamt
 
 
-def _dauer_weicht_ab(einheit: AISessionIn) -> str | None:
-    """„Krafteinheit" (20 min geplant, 14 min im Bauplan) — oder nichts.
+def _gerechnete_dauer(einheit: AISessionIn) -> int | None:
+    """Die Dauer aus dem Bauplan — oder `None`, wenn sie sich nicht rechnen lässt.
 
-    Der Prompt verlangt, dass `duration_min` die Summe der Schritte ist. Läuft
-    beides auseinander, beschreiben Aufbautext und Bauplan zwei verschiedene
-    Einheiten — meistens, weil die Satzpausen fehlen.
+    Addieren ist eine Rechenoperation über `steps`, keine Trainingsentscheidung,
+    und Sprachmodelle addieren vierzig Schritte mit Pausen und Durchgängen
+    unzuverlässig. Gerechnet wird deshalb hier — aber **nur, wo es exakt geht**:
+    `_schrittzeit` gibt auf, sobald ein Streckenschritt oder eine
+    Wiederholungszahl darunterliegt. Deren Dauer hinge an Pace und Ausführung,
+    und eine geschätzte Zahl wäre keine Korrektur, sondern eine Erfindung der
+    App an einer Stelle, an der bisher wenigstens ein Fachmann geraten hat.
+
+    `distance_km` bekommt bewusst **kein** Gegenstück: Ein Lauf mit
+    zeitbasiertem Ein- und Auslaufen und Streckenintervallen ergäbe als Summe
+    der `distance_m` systematisch zu wenig. Wer das hier ergänzt, macht die
+    Angabe schlechter, nicht besser.
     """
-    if not einheit.duration_min or not einheit.steps:
+    if not einheit.steps:
         return None
     summe = _schrittzeit(einheit.steps)
     if not summe:
         return None
+    return round(summe / 60)
+
+
+def _dauer_korrigiert(einheit: AISessionIn) -> str | None:
+    """„Krafteinheit" (20 min angegeben, gerechnet wurden 14) — oder nichts.
+
+    Gemeldet wird nur, was mehr als die Toleranz auseinanderliegt: Ein Bauplan
+    trifft die runde Minute selten, und ein Hinweis bei jeder Einheit wäre
+    keiner mehr. Übernommen wird der gerechnete Wert in jedem Fall.
+    """
+    gerechnet = _gerechnete_dauer(einheit)
+    if gerechnet is None or not einheit.duration_min:
+        return None
     geplant = einheit.duration_min * 60
-    if abs(summe - geplant) <= _DAUER_TOLERANZ * geplant:
+    if abs(gerechnet * 60 - geplant) <= _DAUER_TOLERANZ * geplant:
         return None
     return (
-        f"„{einheit.title}“ ({einheit.duration_min} min geplant, "
-        f"{round(summe / 60)} min im Bauplan)"
+        f"„{einheit.title}“ ({einheit.duration_min} min angegeben, "
+        f"gerechnet wurden {gerechnet} min)"
+    )
+
+
+def _zeitteil(schritte: list[AIStepIn]) -> float:
+    """Die Sekunden der zeittragenden Schritte, Strecke und Reps als 0.
+
+    Anders als `_schrittzeit` gibt das nie auf: Was herauskommt, ist eine
+    **untere Schranke** für die Dauer der Einheit — die Strecken- und
+    Übungsschritte kommen ja noch obendrauf. Damit lässt sich auch dort etwas
+    prüfen, wo sich nichts exakt rechnen lässt.
+    """
+    gesamt = 0.0
+    for schritt in schritte:
+        if schritt.repeat and schritt.steps:
+            gesamt += schritt.repeat * _zeitteil(schritt.steps)
+        elif schritt.duration_s:
+            gesamt += schritt.duration_s
+    return gesamt
+
+
+def _dauer_zu_knapp(einheit: AISessionIn) -> str | None:
+    """Wenn schon die Pausen allein länger dauern als die ganze Einheit.
+
+    Der Fall, für den sich nichts exakt rechnen lässt — Kraft mit gezählten
+    Wiederholungen, Intervalle nach Strecke —, ist nicht ganz unprüfbar:
+    Übersteigt die Zeit der zeittragenden Schritte bereits `duration_min`, ist
+    die Angabe sicher falsch, egal wie lange die übrigen Schritte dauern.
+    """
+    if not einheit.duration_min or not einheit.steps:
+        return None
+    # Wo exakt gerechnet wurde, ist die Zahl schon berichtigt.
+    if _gerechnete_dauer(einheit) is not None:
+        return None
+    # Mit derselben Toleranz wie die Korrektur: Ein Bauplan trifft die runde
+    # Minute selten, und ein paar Sekunden über der Angabe sind der Normalfall,
+    # nicht der Fehler. Gemeint ist der Fall, in dem die Pausen allein die
+    # Einheit sprengen — der liegt deutlich darüber.
+    untergrenze = _zeitteil(einheit.steps)
+    geplant = einheit.duration_min * 60
+    if untergrenze <= geplant * (1 + _DAUER_TOLERANZ):
+        return None
+    return (
+        f"„{einheit.title}“ ({einheit.duration_min} min angegeben, allein die "
+        f"Zeitschritte dauern {round(untergrenze / 60)} min)"
     )
 
 
@@ -598,17 +689,21 @@ def validate_coverage(
             "der Uhr ausgeschrieben."
         )
 
-    abweichend = [
-        hinweis
-        for tag in body.days
-        for einheit in tag.sessions
-        if (hinweis := _dauer_weicht_ab(einheit))
-    ]
-    if abweichend:
+    einheiten = [einheit for tag in body.days for einheit in tag.sessions]
+
+    korrigiert = [h for e in einheiten if (h := _dauer_korrigiert(e))]
+    if korrigiert:
         warnings.append(
-            f"Dauer und Bauplan passen nicht zusammen: "
-            f"{_gekuerzt(abweichend, '; ')}. Auf der Uhr gilt der Bauplan; "
-            "fehlt dort Zeit, fehlen meist die Pausen zwischen den Sätzen."
+            f"Dauer aus dem Bauplan neu gerechnet: {_gekuerzt(korrigiert, '; ')}. "
+            "Übernommen wurde der gerechnete Wert — auf der Uhr gilt ohnehin "
+            "der Bauplan."
+        )
+
+    knapp = [h for e in einheiten if (h := _dauer_zu_knapp(e))]
+    if knapp:
+        warnings.append(
+            f"Dauer und Bauplan passen nicht zusammen: {_gekuerzt(knapp, '; ')}. "
+            "Hier ließ sich nichts nachrechnen, die Angabe der KI bleibt stehen."
         )
 
     return warnings
@@ -676,6 +771,7 @@ def uebernimm_plan(
     *,
     request_id: int | None = None,
     days: int | None = None,
+    struktur: dict[str, Any] | None = None,
 ) -> Uebernahme:
     """Macht aus einer KI-Antwort den aktiven Block — samt allem, was daran hängt.
 
@@ -684,10 +780,14 @@ def uebernimm_plan(
     Wiederholung, was am Übernehmen hängt — der abgelöste Block wird
     weggeräumt, und der neue geht von selbst auf die Uhr.
 
+    `struktur` ist dieselbe Antwort, schon geparst — die CLI legt sie neben den
+    Text, wenn ein `--json-schema` mitging. Liegt sie vor, gilt sie: `raw` ist
+    dann nur noch das, was im Fehlerfall gespeichert wird.
+
     Wirft `PlanImportError`, wenn die Antwort nicht zu lesen ist; dann bleibt
     die Datenbank unberührt.
     """
-    body = parse_ai_response(raw)
+    body = plan_aus_objekt(struktur) if struktur is not None else parse_ai_response(raw)
     # Einmal auflösen: Plan und Prüfung müssen denselben Fragebogen sehen,
     # sonst prüfte die Warnung gegen eine andere Disziplin als die, an der
     # der Plan später hängt.
@@ -757,7 +857,15 @@ def parse_einheit_antwort(raw: str) -> AIEinheitBody:
     die Antwort auf eine andere Frage, und die erste Einheit daraus zu nehmen
     hieße raten, welche gemeint ist.
     """
-    objekte = _gelesene_objekte(raw)
+    return _einheit_aus_objekten(_gelesene_objekte(raw))
+
+
+def einheit_aus_objekt(daten: dict[str, Any]) -> AIEinheitBody:
+    """Der Objekteinstieg für die Einzelanpassung — siehe `plan_aus_objekt`."""
+    return _einheit_aus_objekten([daten])
+
+
+def _einheit_aus_objekten(objekte: list[dict[str, Any]]) -> AIEinheitBody:
     # Dieselbe Wahl nach der Form wie beim Block: Trägt der Text mehrere
     # Objekte, gilt das mit der Einheit darin und nicht das erste.
     data: Any = next(
@@ -838,11 +946,16 @@ def pruefe_einheit(body: AIEinheitBody) -> list[str]:
             "ausgeschrieben."
         )
 
-    if (abweichung := _dauer_weicht_ab(einheit)) is not None:
+    if (korrektur := _dauer_korrigiert(einheit)) is not None:
         warnings.append(
-            f"Dauer und Bauplan passen nicht zusammen: {abweichung}. Auf der "
-            "Uhr gilt der Bauplan; fehlt dort Zeit, fehlen meist die Pausen "
-            "zwischen den Sätzen."
+            f"Dauer aus dem Bauplan neu gerechnet: {korrektur}. Übernommen "
+            "wurde der gerechnete Wert — auf der Uhr gilt ohnehin der Bauplan."
+        )
+
+    if (knapp := _dauer_zu_knapp(einheit)) is not None:
+        warnings.append(
+            f"Dauer und Bauplan passen nicht zusammen: {knapp}. Hier ließ sich "
+            "nichts nachrechnen, die Angabe der KI bleibt stehen."
         )
 
     # Ohne Dauer hat das Workout auf der Uhr keinen Anhaltspunkt für seine
@@ -867,7 +980,11 @@ class EinheitUebernahme:
 
 
 def uebernimm_einheit(
-    db: Session, session: PlanSession, raw: str, wunsch: str
+    db: Session,
+    session: PlanSession,
+    raw: str,
+    wunsch: str,
+    struktur: dict[str, Any] | None = None,
 ) -> EinheitUebernahme:
     """Schreibt die angepasste Fassung in die bestehende Planeinheit.
 
@@ -884,7 +1001,11 @@ def uebernimm_einheit(
     Wirft `PlanImportError`, wenn die Antwort nicht zu lesen ist; dann bleibt
     die Datenbank unberührt.
     """
-    body = parse_einheit_antwort(raw)
+    body = (
+        einheit_aus_objekt(struktur)
+        if struktur is not None
+        else parse_einheit_antwort(raw)
+    )
     warnings = pruefe_einheit(body)
     neu = body.einheit
 
@@ -894,7 +1015,8 @@ def uebernimm_einheit(
     session.description = neu.description
     session.structure = neu.structure
     session.purpose = neu.purpose
-    session.duration_min = neu.duration_min
+    # Dieselbe Rechnung wie beim Block (siehe `_gerechnete_dauer`).
+    session.duration_min = _gerechnete_dauer(neu) or neu.duration_min
     session.distance_km = neu.distance_km
     session.intensity_zone = neu.intensity_zone
     session.target_hr_low = neu.target_hr_low

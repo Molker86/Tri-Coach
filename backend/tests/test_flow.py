@@ -653,8 +653,19 @@ def test_import_verwirft_unbrauchbaren_zielpuls_statt_abzulehnen(client, auth):
     einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
     kraft = einheiten[(start.isoformat(), "Rumpfkraft")]
     assert kraft["target_hr_low"] is None
-    # Nur der unbrauchbare Wert fällt weg, der brauchbare bleibt stehen.
-    assert kraft["target_hr_high"] == 130
+    # Die 130 an der Krafteinheit war gültig und fällt trotzdem — nicht hier,
+    # sondern eine Regel später (`_raeume_fremde_felder`): An Kraft steuert kein
+    # Puls. Gemeldet wird sie deshalb nicht.
+    assert kraft["target_hr_high"] is None
+
+    # Dass der Aufräumer nur das Unbrauchbare nimmt, zeigt die Ausdauereinheit
+    # am dritten Tag: Ihr „Z2" fällt weg, die gültige Untergrenze bleibt.
+    ausdauer = next(
+        s for s in body["plan"]["sessions"]
+        if s["date"] == (start + timedelta(days=2)).isoformat()
+    )
+    assert ausdauer["target_hr_low"] == 130
+    assert ausdauer["target_hr_high"] is None
 
     warnungen = " ".join(body["warnings"])
     assert "Unbrauchbare Steuerungsgröße verworfen" in warnungen
@@ -694,6 +705,84 @@ def test_import_verwirft_unbrauchbares_rpe_statt_abzulehnen(client, auth):
     warnungen = " ".join(body["warnings"])
     assert "rpe_target=0" in warnungen
     assert "rpe_target=15" in warnungen
+
+
+def test_import_raeumt_die_fremden_steuergroessen_weg(client, auth):
+    """Steuerungsgrößen an der falschen Sportart fallen still weg.
+
+    Der Prompt sagte das einmal selbst („nur bei sport=bike"). Bedingte Regeln
+    werden mal befolgt und mal nicht, und was durchrutscht, ist plausibel genug,
+    um jede Wertprüfung zu überleben: Ein Zielpuls von 130 an einer
+    Krafteinheit ist keine 0 und liegt in der Spanne.
+    """
+    start = date.today() + timedelta(days=30)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"].append({
+        "sport": "mobility",
+        "type": "mobility",
+        "title": "Hüftmobility",
+        "structure": "3x40 s Seitstütz (Side Plank)",
+        "duration_min": 20,
+        # Alles plausibel, alles an der falschen Sportart.
+        "target_hr_low": 110,
+        "target_hr_high": 130,
+        "bike_location": "indoor",
+        "swim_location": "pool",
+    })
+    plan["plan"]["days"][1]["sessions"] = [{
+        "sport": "rest",
+        "type": "rest",
+        "title": "Ruhetag",
+        "duration_min": 0,
+        "rpe_target": 2,
+        "intensity_zone": "Z1",
+        "target_pace": "6:30 min/km",
+    }]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+
+    einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
+    mobility = einheiten[(start.isoformat(), "Hüftmobility")]
+    assert mobility["target_hr_low"] is None
+    assert mobility["target_hr_high"] is None
+    assert mobility["bike_location"] is None
+    assert mobility["swim_location"] is None
+
+    ruhe = einheiten[((start + timedelta(days=1)).isoformat(), "Ruhetag")]
+    assert ruhe["rpe_target"] is None
+    assert ruhe["intensity_zone"] is None
+    assert ruhe["target_pace"] is None
+
+    # Still: Seit der Prompt die Felder nicht mehr ausschließt, ist ein
+    # überflüssiger Wert kein Fehler des Modells mehr.
+    warnungen = " ".join(body["warnings"])
+    assert "Steuerungsgröße" not in warnungen
+
+
+def test_import_laesst_den_radort_am_koppeltraining_stehen(client, auth):
+    """`brick` hat einen Radteil und braucht den Ort deshalb genauso."""
+    start = date.today() + timedelta(days=30)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"] = [{
+        "sport": "brick",
+        "type": "brick",
+        "title": "Koppeltraining",
+        "structure": "60 min Rad / 20 min Lauf",
+        "duration_min": 80,
+        "bike_location": "outdoor",
+    }]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    einheiten = response.json()["plan"]["sessions"]
+    koppel = next(s for s in einheiten if s["title"] == "Koppeltraining")
+    assert koppel["bike_location"] == "outdoor"
 
 
 def test_import_laesst_je_schritt_ein_mass_stehen(client, auth):
@@ -740,12 +829,13 @@ def test_import_laesst_je_schritt_ein_mass_stehen(client, auth):
     assert (satz.reps, satz.duration_s) == (12, None)
 
 
-def test_import_meldet_wenn_dauer_und_bauplan_auseinanderlaufen(client, auth):
-    """Fehlt im Bauplan die Zeit, fehlen meist die Pausen zwischen den Sätzen.
+def test_import_rechnet_die_dauer_aus_dem_bauplan(client, auth):
+    """Addieren ist eine Rechenoperation, keine Trainingsentscheidung.
 
-    Der Prompt verlangt, dass `duration_min` die Summe der Schritte ist. Läuft
-    beides auseinander, beschreiben Aufbautext und Bauplan zwei verschiedene
-    Einheiten — und auf der Uhr gilt der Bauplan.
+    Vier Durchgänge à 45 s sind drei Minuten, nicht zwanzig. Die Zahl steht
+    vollständig in `steps` — sie vom Modell zu erbitten und dann zu glauben,
+    war der Umweg. Übernommen wird der gerechnete Wert, und der Nutzer erfährt
+    es.
     """
     start = date.today() + timedelta(days=120)
     plan = make_ai_plan(start, days=4)
@@ -760,21 +850,71 @@ def test_import_meldet_wenn_dauer_und_bauplan_auseinanderlaufen(client, auth):
             "steps": [{"kind": "interval", "duration_s": 45, "text": "halten"}],
         }],
     }]
-    # Eine Streckeneinheit hat keine Summe und darf deshalb nichts melden.
+    # Eine Streckeneinheit lässt sich nicht exakt rechnen: Ihre Dauer hängt an
+    # Pace und Ausführung. Dort bleibt der Wert der KI stehen.
     plan["plan"]["days"][1]["sessions"][0]["steps"] = [
         {"kind": "interval", "distance_m": 10000, "text": "Dauerlauf"}
     ]
+    lauf_dauer = plan["plan"]["days"][1]["sessions"][0]["duration_min"]
 
     response = client.post(
         "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
     )
     assert response.status_code == 201, response.text
+    body = response.json()
 
-    warnungen = [w for w in response.json()["warnings"] if "Bauplan" in w]
-    passend = [w for w in warnungen if "Dauer und Bauplan" in w]
+    einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
+    assert einheiten[(start.isoformat(), "Mobility kurz")]["duration_min"] == 3
+
+    lauf = next(
+        s for s in body["plan"]["sessions"]
+        if s["date"] == (start + timedelta(days=1)).isoformat()
+    )
+    assert lauf["duration_min"] == lauf_dauer
+
+    gerechnet = [w for w in body["warnings"] if "neu gerechnet" in w]
+    assert len(gerechnet) == 1
+    assert "Mobility kurz" in gerechnet[0]
+    assert "20 min angegeben, gerechnet wurden 3 min" in gerechnet[0]
+
+
+def test_import_meldet_wenn_schon_die_zeitschritte_zu_lang_sind(client, auth):
+    """Die untere Schranke greift, wo sich nichts exakt rechnen lässt.
+
+    Kraft mit gezählten Wiederholungen hat keine Gesamtzeit — aber wenn allein
+    die Satzpausen länger dauern als die angegebene Einheit, ist die Angabe
+    sicher falsch, egal wie lange die Sätze selbst brauchen.
+    """
+    start = date.today() + timedelta(days=200)
+    plan = make_ai_plan(start, days=4)
+    plan["plan"]["days"][0]["sessions"] = [{
+        "sport": "strength",
+        "type": "strength",
+        "title": "Ganzkörper",
+        "structure": "5x12 Kniebeugen (Squat)",
+        "duration_min": 10,
+        "steps": [{
+            "repeat": 5,
+            "steps": [
+                {"kind": "interval", "reps": 12, "text": "Kniebeugen"},
+                {"kind": "rest", "duration_s": 180, "text": "Satzpause"},
+            ],
+        }],
+    }]
+
+    response = client.post(
+        "/api/plans/import", headers=auth, json={"raw": json.dumps(plan), "days": 4}
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+
+    # Nichts gerechnet, nichts überschrieben: Die Wiederholungen tragen keine Zeit.
+    einheiten = {(s["date"], s["title"]): s for s in body["plan"]["sessions"]}
+    assert einheiten[(start.isoformat(), "Ganzkörper")]["duration_min"] == 10
+
+    passend = [w for w in body["warnings"] if "Dauer und Bauplan" in w]
     assert len(passend) == 1
-    assert "Mobility kurz" in passend[0]
-    assert "20 min geplant, 3 min im Bauplan" in passend[0]
+    assert "10 min angegeben, allein die Zeitschritte dauern 15 min" in passend[0]
 
 
 def test_import_meldet_die_serie_in_der_serie(client, auth):

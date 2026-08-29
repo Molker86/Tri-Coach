@@ -14,6 +14,7 @@ seinerseits eine Garmin-Übertragung an, die dann auf ein Schloss liefe, das der
 Planungslauf selbst noch hält.
 """
 
+import json
 import logging
 import subprocess
 import threading
@@ -43,6 +44,30 @@ _STARTMELDUNG = {
 }
 _STARTMELDUNG_VORGABE = "Der Planungslauf wird vorbereitet …"
 
+# Der Reparaturlauf denkt nicht nach, er räumt auf: Die Trainingsentscheidung
+# ist längst gefallen und steht im kaputten JSON. `max` wäre dafür Denkzeit ohne
+# Gegenwert, und der Nutzer wartet ohnehin schon.
+REPARATUR_EFFORT = "low"
+REPARATUR_TIMEOUT_S = 180
+
+# Wie viel von der Antwort aufgehoben wird. Ein Block liegt bei gut 20 kB; die
+# Grenze fängt nur den Fall ab, dass eine entgleiste Antwort die Datenbank
+# aufbläht.
+_ROHANTWORT_MAX = 200_000
+
+
+def _gekuerzte_antwort(antwort) -> str | None:
+    """Die Antwort so, wie sie gespeichert wird — Text oder geparste Struktur.
+
+    Kam die Antwort über ein erzwungenes Schema, steht im Text dasselbe wie in
+    `struktur`; kam sie ohne, gibt es nur den Text. Gespeichert wird, was sich
+    wieder einfügen lässt.
+    """
+    text = (antwort.text or "").strip()
+    if not text and antwort.struktur is not None:
+        text = json.dumps(antwort.struktur, ensure_ascii=False)
+    return text[:_ROHANTWORT_MAX] or None
+
 # Ob Läufe in einen eigenen Thread abgegeben werden. Die Tests stellen das ab
 # und lassen synchron laufen — sonst müsste jeder Test den Fortschritt abfragen
 # und wäre von der Zeit abhängig.
@@ -62,6 +87,9 @@ class KiRunner:
         self._aktiver_nutzer: int | None = None
         self._prozesse: dict[int, subprocess.Popen] = {}
         self._abgebrochen: set[int] = set()
+        # Das Schema des laufenden Aufrufs, damit der Reparaturlauf dasselbe
+        # mitgeben kann. Es läuft immer nur ein Job — dafür sorgt das Schloss.
+        self._letztes_schema: dict | None = None
 
     # -- Steuerung ----------------------------------------------------------
 
@@ -201,6 +229,51 @@ class KiRunner:
                 _notiere_fehler(job, einstellungen, exc)
                 db.commit()
 
+    def _mit_reparatur(self, db, job, einstellungen, antwort, uebernehmen):
+        """Übernimmt die Antwort — und lässt sie einmal nachbessern, wenn nicht.
+
+        Ein zweiter voller Planungslauf wäre die teuerste Antwort auf ein
+        fehlendes Feld: Er dauert Minuten, kostet Kontingent und plant dabei
+        einen *anderen* Block. Der Reparaturlauf bekommt stattdessen nur die
+        Fehlerliste und das kaputte JSON, keinen Datenpaket und keine
+        Trainingslehre — er soll nichts entscheiden, sondern ausbessern.
+
+        Genau ein Versuch. Scheitert auch der, endet der Lauf wie bisher als
+        gescheitert, aber mit erhaltener Rohantwort in `job.roh_antwort`.
+        """
+        from .. import plan_import
+
+        try:
+            return uebernehmen(antwort)
+        except plan_import.PlanImportError as exc:
+            # Festhalten, bevor der Block endet: Python löscht den Namen hinter
+            # `as` beim Verlassen des `except`.
+            fehler = str(exc)
+            logger.info("Antwort unbrauchbar, ein Reparaturlauf: %s", fehler)
+
+        job.progress_pct = 85
+        job.message = "Die Antwort war unvollständig und wird nachgebessert …"
+        db.commit()
+
+        if job.id in self._abgebrochen:
+            raise _Abgebrochen()
+
+        from . import client
+        from ..ai_export import baue_reparatur_prompt
+
+        nachbesserung = client.rufe_claude(
+            baue_reparatur_prompt(antwort.text or "", fehler),
+            modell=einstellungen.model or None,
+            effort=REPARATUR_EFFORT,
+            timeout_s=REPARATUR_TIMEOUT_S,
+            token=client.token_aus(einstellungen.token_encrypted),
+            json_schema=self._letztes_schema,
+            bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
+        )
+        job.roh_antwort = _gekuerzte_antwort(nachbesserung)
+        db.commit()
+        return uebernehmen(nachbesserung)
+
     def _block_lauf(self, db, job: KiJob, user: User, einstellungen: KiSettings) -> None:
         """Der ganze nächste Block — der Regelfall."""
         from .. import ai_export, plan_import
@@ -219,17 +292,25 @@ class KiRunner:
             einstellungen,
             export.prompt,
             "Claude plant den Block — das dauert einige Minuten …",
+            json_schema=export.schema,
         )
 
         job.message = "Die Antwort wird geprüft und übernommen …"
         db.commit()
 
-        ergebnis = plan_import.uebernimm_plan(
+        ergebnis = self._mit_reparatur(
             db,
-            user.id,
-            antwort.text,
-            request_id=job.request_id,
-            days=job.days,
+            job,
+            einstellungen,
+            antwort,
+            lambda a: plan_import.uebernimm_plan(
+                db,
+                user.id,
+                a.text,
+                request_id=job.request_id,
+                days=job.days,
+                struktur=a.struktur,
+            ),
         )
 
         job.plan_id = ergebnis.plan.id
@@ -268,12 +349,21 @@ class KiRunner:
             einstellungen,
             export.prompt,
             "Claude passt die Einheit an …",
+            json_schema=export.schema,
         )
 
         job.message = "Die Antwort wird geprüft und übernommen …"
         db.commit()
 
-        ergebnis = plan_import.uebernimm_einheit(db, session, antwort.text, wunsch)
+        ergebnis = self._mit_reparatur(
+            db,
+            job,
+            einstellungen,
+            antwort,
+            lambda a: plan_import.uebernimm_einheit(
+                db, session, a.text, wunsch, struktur=a.struktur
+            ),
+        )
         job.plan_id = session.plan_id
 
         garmin, hinweis = automatik.uebertrage_geaenderte_einheit(db, user.id, session)
@@ -350,6 +440,7 @@ class KiRunner:
         einstellungen: KiSettings,
         prompt: str,
         meldung: str,
+        json_schema: dict | None = None,
     ):
         """Der Aufruf selbst — für beide Aufgaben derselbe.
 
@@ -362,6 +453,10 @@ class KiRunner:
 
         job.progress_pct = 20
         job.message = meldung
+        # Der Reparaturlauf braucht dasselbe Schema. Am Runner und nicht als
+        # Parameter durchgereicht: Es hängt am laufenden Job, und es läuft immer
+        # nur einer — das Schloss steht darüber.
+        self._letztes_schema = json_schema
         db.commit()
 
         # Wer abbricht, während der Lauf noch am Schloss wartet, hat noch
@@ -374,6 +469,7 @@ class KiRunner:
             modell=einstellungen.model or None,
             effort=einstellungen.effort or None,
             token=client.token_aus(einstellungen.token_encrypted),
+            json_schema=json_schema,
             bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
         )
 
@@ -381,6 +477,10 @@ class KiRunner:
         job.model_used = antwort.modell
         job.cost_usd = antwort.kosten_usd
         job.duration_ms = antwort.dauer_ms
+        # **Vor** dem Import und mit eigenem Commit: Scheitert das Übernehmen,
+        # rollt `_lauf` die Sitzung zurück, und alles, was danach geschrieben
+        # würde, wäre wieder weg. Genau dann wird die Antwort aber gebraucht.
+        job.roh_antwort = _gekuerzte_antwort(antwort)
         db.commit()
         return antwort
 

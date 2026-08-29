@@ -168,6 +168,9 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "ai_jobs": {
         "plan_session_id": "INTEGER",
         "wunsch": "TEXT",
+        # Die Antwort der KI im Original. Bleibt an bestehenden Läufen leer —
+        # die sind längst abgeschlossen, und ihre Antwort gibt es nicht mehr.
+        "roh_antwort": "TEXT",
         # Der Ernährungsplan, den ein Lauf erzeugt hat. Eigene Spalte statt
         # `plan_id`, weil das Frontend darauf einen Trainingsblock erwartet.
         "ernaehrungsplan_id": "INTEGER",

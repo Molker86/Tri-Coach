@@ -822,6 +822,14 @@ class KiJob(Base):
     # Rückfall eingebaut ist: Ein Block, den ein schwächeres Modell geschrieben
     # hat, sähe sonst aus wie einer von Opus.
     model_used: Mapped[str | None] = mapped_column(String(64))
+
+    # Die Antwort der KI im Original, geschrieben **bevor** sie geprüft wird.
+    # Bis hierher war ein Lauf, dessen Antwort nicht durch den Import kam,
+    # ersatzlos verloren — mitsamt der anderthalb bis dreieinhalb Minuten, die
+    # er gedauert hat. Genau darauf beruft sich der Import an mehreren Stellen
+    # als Grund, lieber zu warnen als abzulehnen. Mit der Spalte bleibt der
+    # Fehlschlag nachvollziehbar und die Antwort von Hand zu retten.
+    roh_antwort: Mapped[str | None] = mapped_column(Text)
     # Listenpreis-Äquivalent des Laufs. Auf dem Abo wird nichts berechnet, aber
     # es ist der einzige greifbare Anhaltspunkt für den Kontingentverbrauch.
     cost_usd: Mapped[float | None] = mapped_column(Float)

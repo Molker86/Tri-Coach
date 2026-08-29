@@ -98,6 +98,10 @@ class Antwort:
     modell: str | None = None
     kosten_usd: float | None = None
     dauer_ms: int | None = None
+    # Die Antwort schon geparst — die CLI legt sie unter `structured_output`
+    # daneben, wenn ein `--json-schema` mitging. Dann muss niemand mehr im Text
+    # nach Klammern suchen, und ein Syntaxfehler kann es gar nicht erst geben.
+    struktur: dict | None = None
 
 
 def token_aus(geheimtext: str | None) -> str | None:
@@ -242,12 +246,22 @@ def rufe_claude(
     effort: str | None = None,
     timeout_s: int | None = None,
     token: str | None = None,
+    json_schema: dict | None = None,
     bei_start: Callable[[subprocess.Popen], None] | None = None,
 ) -> Antwort:
     """Schickt den Prompt an Claude Code und gibt den Antworttext zurück.
 
     Der Prompt geht über **stdin**, nicht über die Kommandozeile: Das Datenpaket
-    ist gut fünfzig Kilobyte groß.
+    ist gut fünfzig Kilobyte groß. Das `json_schema` geht umgekehrt über die
+    Kommandozeile — stdin ist belegt, und die paar Kilobyte liegen weit unter
+    jeder Argumentgrenze.
+
+    `json_schema` erzwingt die Struktur der Antwort. Die CLI setzt das intern
+    als Tool-Use um; Pflichtfelder sind dann wirklich Pflicht, und ein Komma zu
+    viel entsteht gar nicht erst. Scheitert der Lauf aus einem Grund, der nicht
+    am Zugang liegt, wird er **einmal ohne** das Schema wiederholt: Der Textweg
+    ist getestet und funktioniert seit jeher, und ein Block ist zu teuer, um ihn
+    an einem abgelehnten Schema zu verlieren.
 
     `token` ist der Zugang aus den Einstellungen des Nutzers; ohne ihn gilt der
     aus der Umgebung, sonst die Anmeldung der CLI selbst.
@@ -256,6 +270,68 @@ def rufe_claude(
     ihn abbrechen — anders käme er nicht an ihn heran, und ein Lauf, der
     Minuten dauert, muss abbrechbar sein.
     """
+    if json_schema is None:
+        return _ein_lauf(
+            prompt,
+            modell=modell,
+            effort=effort,
+            timeout_s=timeout_s,
+            token=token,
+            json_schema=None,
+            bei_start=bei_start,
+        )
+
+    try:
+        return _ein_lauf(
+            prompt,
+            modell=modell,
+            effort=effort,
+            timeout_s=timeout_s,
+            token=token,
+            json_schema=json_schema,
+            bei_start=bei_start,
+        )
+    except _OHNE_ZWEITEN_VERSUCH:
+        # Am Zugang, am Kontingent, an der Zeit oder an einer Ablehnung ändert
+        # ein zweiter Lauf nichts — er kostete nur noch einmal so lange.
+        raise
+    except KiFehler:
+        logger.warning(
+            "Lauf mit --json-schema fehlgeschlagen, Wiederholung ohne Schema",
+            exc_info=True,
+        )
+        return _ein_lauf(
+            prompt,
+            modell=modell,
+            effort=effort,
+            timeout_s=timeout_s,
+            token=token,
+            json_schema=None,
+            bei_start=bei_start,
+        )
+
+
+# Fehler, bei denen ein zweiter Lauf sinnlos wäre: Sie liegen nicht am Schema.
+_OHNE_ZWEITEN_VERSUCH = (
+    KiTokenUngueltig,
+    KiKontingentErschoepft,
+    KiZeitueberschreitung,
+    KiAbgelehnt,
+    KiCliFehlt,
+)
+
+
+def _ein_lauf(
+    prompt: str,
+    *,
+    modell: str | None,
+    effort: str | None,
+    timeout_s: int | None,
+    token: str | None,
+    json_schema: dict | None,
+    bei_start: Callable[[subprocess.Popen], None] | None,
+) -> Antwort:
+    """Ein einzelner Unterprozess — der eigentliche Aufruf."""
     argv = [
         KI_CLI,
         "-p",
@@ -270,6 +346,8 @@ def rufe_claude(
         "--system-prompt", SYSTEMPROMPT,
         "--output-format", "json",
     ]
+    if json_schema is not None:
+        argv += ["--json-schema", json.dumps(json_schema, separators=(",", ":"))]
 
     # Ein leeres Arbeitsverzeichnis: Claude Code sammelt sonst auf, was es dort
     # findet. `--safe-mode` allein deckt das nicht ab.
@@ -323,7 +401,10 @@ def rufe_claude(
         raise KiAbgelehnt()
 
     text = (huelle.get("result") or "").strip()
-    if not text:
+    struktur = huelle.get("structured_output")
+    if not isinstance(struktur, dict):
+        struktur = None
+    if not text and struktur is None:
         raise KiAntwortUnbrauchbar("Die KI hat eine leere Antwort geliefert.")
 
     return Antwort(
@@ -331,4 +412,5 @@ def rufe_claude(
         modell=_hauptmodell(huelle.get("modelUsage") or {}),
         kosten_usd=huelle.get("total_cost_usd"),
         dauer_ms=huelle.get("duration_ms"),
+        struktur=struktur,
     )

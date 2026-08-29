@@ -352,6 +352,15 @@ STEP_KIND_ALIASES = {
 # `garminconnect` mitziehen müsste, nur um zwei Wörter zu kennen.
 _UEBUNGSSPORTARTEN = frozenset({"strength", "mobility"})
 
+# Wo ein Pulskorridor nichts steuert: Kraft und Mobility laufen über gezählte
+# Wiederholungen, ein Ruhetag über gar nichts. `workouts._pulskorridor()` nähme
+# einen trotzdem und legte ihn auf die Uhr.
+_OHNE_PULSKORRIDOR = frozenset({"strength", "mobility", "rest"})
+
+# Die Sportarten mit einem Radteil — `brick` gehört dazu, seine Radhälfte
+# braucht den Ort genauso wie eine reine Radeinheit.
+_MIT_RADTEIL = frozenset({"bike", "brick"})
+
 
 class AIStepIn(BaseModel):
     """Ein Schritt der Einheit, so wie die KI ihn liefert.
@@ -539,6 +548,39 @@ class AISessionIn(BaseModel):
             self.verworfene_masse = [*self.verworfene_masse, *verworfen]
         if verschachtelt:
             self.verschachtelte_gruppen = verschachtelt
+        return self
+
+    @model_validator(mode="after")
+    def _raeume_fremde_felder(self) -> "AISessionIn":
+        """Nimmt die Steuerungsgrößen weg, die zu dieser Sportart nicht gehören.
+
+        Der Prompt sagte das einmal selbst — „bei strength weglassen", „nur bei
+        sport=bike". Bedingte Regeln sind für ein Sprachmodell die teuerste Art
+        von Vorgabe: Sie werden mal befolgt und mal nicht, und was durchrutscht,
+        ist plausibel genug, um jede Wertprüfung zu überleben. Ein
+        `target_hr_low: 120` an einer Krafteinheit ist keine 0 und liegt in der
+        Spanne — `_raeume_zielwerte` lässt es stehen, und
+        `workouts._pulskorridor()` macht daraus einen Korridor auf der Uhr.
+
+        Deshalb hier: Das Modell darf alles ausgeben, die Zuordnung macht der
+        Code. Ohne Notiz und ohne Warnung, anders als bei `verworfene_zielwerte`
+        — dort steht ein *ungültiger* Wert, hier nur ein überflüssiger, und seit
+        der Prompt ihn nicht mehr verlangt, ist er kein Fehler des Modells mehr.
+        """
+        if self.sport in _OHNE_PULSKORRIDOR:
+            self.target_hr_low = None
+            self.target_hr_high = None
+        if self.sport == "rest":
+            # Ein Ruhetag hat keine Anstrengung, kein Tempo und keine Zone.
+            self.rpe_target = None
+            self.target_pace = None
+            self.target_power = None
+            self.intensity_zone = None
+        if self.sport != "swim":
+            self.swim_location = None
+        # Der Radteil einer Koppeleinheit braucht den Ort genauso.
+        if self.sport not in _MIT_RADTEIL:
+            self.bike_location = None
         return self
 
 
@@ -1080,6 +1122,28 @@ class KiJobOut(BaseModel):
     duration_ms: int | None = None
     message: str | None = None
     error: str | None = None
+    # Nur ob es sie gibt, nicht sie selbst: Eine Antwort ist zwanzig Kilobyte
+    # und gehört nicht in jede Fortschrittsabfrage, die im Sekundentakt läuft.
+    # Wer sie braucht, holt sie über `GET /api/ki/jobs/{id}/rohantwort`.
+    roh_antwort_vorhanden: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _rohantwort_nur_als_kennzeichen(cls, data: Any) -> Any:
+        """Aus dem Text wird ein Ja/Nein, bevor Pydantic ihn zu sehen bekommt.
+
+        Geprüft wird am Attribut und nicht mit `isinstance(data, KiJob)`:
+        `schemas` kennt `models` nicht und soll es nicht kennen — die Abhängigkeit
+        läuft andersherum.
+        """
+        if isinstance(data, dict) or not hasattr(data, "roh_antwort"):
+            return data
+        werte = {
+            feld: getattr(data, feld, None)
+            for feld in cls.model_fields
+            if feld != "roh_antwort_vorhanden"
+        }
+        return {**werte, "roh_antwort_vorhanden": bool(data.roh_antwort)}
 
 
 class KiSettingsOut(BaseModel):

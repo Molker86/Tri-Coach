@@ -114,6 +114,99 @@ def test_der_aufruf_haelt_den_agenten_kurz(prozess):
     assert notiz["kwargs"]["cwd"] != ""
 
 
+SCHEMA = {
+    "type": "object",
+    "$defs": {"schritt": {"type": "object", "properties": {"kind": {"type": "string"}}}},
+    "properties": {"plan": {"type": "object"}},
+    "required": ["plan"],
+}
+
+
+def test_das_schema_geht_als_flag_mit(prozess):
+    """Die Struktur wird erzwungen, nicht erbeten.
+
+    Die CLI setzt `--json-schema` intern als Tool-Use um: Pflichtfelder sind
+    dann wirklich Pflicht, und ein Komma zu viel entsteht gar nicht erst.
+    """
+    notiz = prozess(FakeProzess(stdout=huelle()))
+    ki_client.rufe_claude("Plane bitte.", json_schema=SCHEMA)
+
+    argv = notiz["argv"]
+    assert json.loads(argv[argv.index("--json-schema") + 1]) == SCHEMA
+
+
+def test_ohne_schema_kein_flag(prozess):
+    """Der Weg ohne Schema bleibt Wort für Wort der alte."""
+    notiz = prozess(FakeProzess(stdout=huelle()))
+    ki_client.rufe_claude("Plane bitte.")
+    assert "--json-schema" not in notiz["argv"]
+
+
+def test_die_geparste_antwort_wird_mitgeliefert(prozess):
+    """`structured_output` erspart das Suchen nach Klammern im Text."""
+    prozess(FakeProzess(stdout=huelle(
+        stop_reason="tool_use",
+        structured_output={"plan": {"title": "Block"}},
+    )))
+    antwort = ki_client.rufe_claude("Plane bitte.", json_schema=SCHEMA)
+
+    assert antwort.struktur == {"plan": {"title": "Block"}}
+    # `stop_reason` ist mit erzwungenem Schema immer „tool_use" — nur ein
+    # `refusal` ist ein Fehler, und der bleibt einer.
+    assert antwort.text == '{"plan": {}}'
+
+
+def test_ohne_schema_bleibt_die_struktur_leer(prozess):
+    prozess(FakeProzess(stdout=huelle()))
+    assert ki_client.rufe_claude("x").struktur is None
+
+
+def test_ein_abgelehntes_schema_kostet_nicht_den_ganzen_lauf(monkeypatch):
+    """Scheitert der Lauf am Schema, wird er einmal ohne wiederholt.
+
+    Der Textweg ist getestet und funktioniert seit jeher. Ein Block ist zu
+    teuer, um ihn an einer Gegenstelle zu verlieren, die das Schema aus einem
+    Grund nicht mag, den hier niemand kennt.
+    """
+    laeufe = []
+
+    def _popen(argv, **kwargs):
+        laeufe.append(argv)
+        if "--json-schema" in argv:
+            return FakeProzess(stderr="unsupported schema", returncode=1)
+        return FakeProzess(stdout=huelle())
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+    antwort = ki_client.rufe_claude("Plane bitte.", json_schema=SCHEMA)
+
+    assert antwort.text == '{"plan": {}}'
+    assert len(laeufe) == 2
+    assert "--json-schema" not in laeufe[1]
+
+
+@pytest.mark.parametrize(
+    "fehlerausgabe",
+    ["invalid api key", "usage limit reached"],
+)
+def test_am_zugang_scheitert_auch_der_zweite_lauf(monkeypatch, fehlerausgabe):
+    """Kein zweiter Versuch, wo er nichts ändern kann.
+
+    Token und Kontingent haben mit dem Schema nichts zu tun — ein
+    Wiederholungslauf verdoppelte nur die Wartezeit vor derselben Meldung.
+    """
+    laeufe = []
+
+    def _popen(argv, **kwargs):
+        laeufe.append(argv)
+        return FakeProzess(stderr=fehlerausgabe, returncode=1)
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+    with pytest.raises((KiTokenUngueltig, KiKontingentErschoepft)):
+        ki_client.rufe_claude("Plane bitte.", json_schema=SCHEMA)
+
+    assert len(laeufe) == 1
+
+
 def test_die_sitzung_des_aufrufers_wird_nicht_vererbt(prozess, monkeypatch):
     """Sonst hängt sich der Unterprozess an die Sitzung, aus der er gestartet wurde.
 

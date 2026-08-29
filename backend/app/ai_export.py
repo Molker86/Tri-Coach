@@ -36,6 +36,11 @@ from .schemas import (
     DISZIPLIN_BLOCKNAME,
     DISZIPLIN_FALLBACK,
     DISZIPLIN_SPORTARTEN,
+    HF_MAX,
+    HF_MIN,
+    RPE_MAX,
+    RPE_MIN,
+    STEP_KIND_ALIASES,
     WEEKDAYS,
 )
 from .sportscience import (
@@ -903,26 +908,15 @@ SESSION_SCHEMA = {
     "duration_min": 60,
     "distance_km": 10.0,
     "intensity_zone": "Z1 | Z2 | Z3 | Z4 | Z5 | gemischt",
-    "target_hr_low": (
-        "Zahl 40-230 – untere Grenze in bpm, z.B. 130. "
-        "Bei strength, mobility und rest weglassen — "
-        "0 ist kein gültiger Wert"
-    ),
-    "target_hr_high": (
-        "Zahl 40-230 – obere Grenze in bpm, z.B. 145. "
-        "Bei strength, mobility und rest weglassen — "
-        "0 ist kein gültiger Wert"
-    ),
+    "target_hr_low": "Zahl 40-230 – untere Grenze in bpm, z.B. 130",
+    "target_hr_high": "Zahl 40-230 – obere Grenze in bpm, z.B. 145",
     "target_pace": (
         "string – Laufen in min/km ('5:30-5:50 min/km'), "
         "Schwimmen in min/100m ('1:50 min/100m'), "
         "Radfahren in km/h ('30-33 km/h')"
     ),
     "target_power": "string – z.B. '210-230 W'",
-    "rpe_target": (
-        "Zahl 1-10 – geplante Anstrengung, z.B. 4. "
-        "Bei rest weglassen — 0 ist kein gültiger Wert"
-    ),
+    "rpe_target": "Zahl 1-10 – geplante Anstrengung, z.B. 4",
     "steps": (
         "Liste – der Bauplan der Einheit für die Uhr, und die verbindliche "
         "Fassung: Die App baut das Workout WÖRTLICH daraus. Sie rechnet nichts "
@@ -973,15 +967,15 @@ SESSION_SCHEMA = {
         "Leistung'}]}]"
     ),
     "swim_location": (
-        "pool | open_water – nur bei sport=swim, dort aber immer angeben. "
+        "pool | open_water – bei Schwimmeinheiten immer angeben. "
         "Entscheidet, wie die Einheit auf der Uhr aufgezeichnet wird; "
         "eine Freiwassereinheit als Beckentraining zählt Bahnen statt Strecke"
     ),
     "bike_location": (
-        "indoor | outdoor – nur bei sport=bike (und am Radteil von brick), "
-        "dort aber immer angeben. indoor heißt: auf der Rolle. Entscheidet, "
-        "womit die Uhr steuert — draußen ohne Wattmessung am Rad kann sie "
-        "keine Leistung messen, dort steuert die Herzfrequenz"
+        "indoor | outdoor – bei Radeinheiten immer angeben, indoor heißt: auf "
+        "der Rolle. Entscheidet, womit die Uhr steuert — draußen ohne "
+        "Wattmessung am Rad kann sie keine Leistung messen, dort steuert die "
+        "Herzfrequenz"
     ),
 }
 
@@ -1059,6 +1053,217 @@ def _einheit_response_schema(disziplin: str) -> dict[str, Any]:
             "string – 1-3 Sätze: was du geändert hast, warum, und falls du dem "
             "Wunsch nicht in vollem Umfang gefolgt bist, woran das lag"
         ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dasselbe Format noch einmal, diesmal maschinenlesbar.
+#
+# `SESSION_SCHEMA` oben ist die *Lehrfassung*: Sie steht im Prompt-Text, erklärt
+# jedes Feld in Prosa und wird vom Weg über die Zwischenablage genauso gebraucht
+# wie vom Knopf. Was sie nicht kann, ist etwas erzwingen — sie ist eine Bitte.
+#
+# Hier daneben steht die Strukturfassung: ein echtes JSON Schema, das
+# `ki/client.py` als `--json-schema` mitgibt. Die CLI setzt das intern als
+# erzwungenen Tool-Use um (`stop_reason: "tool_use"`); die API validiert dann
+# die Struktur, und ein Komma zu viel oder eine fehlende `summary` entstehen gar
+# nicht erst.
+#
+# Die Feldnamen werden aus `_session_schema()` **abgeleitet**, nicht
+# abgeschrieben — sonst wäre das die dritte Stelle, an der dieselbe Liste
+# auseinanderlaufen kann. Typen, Enums und Pflichtfelder stehen daneben als
+# eigene Tabelle; `test_antwortschema.py` hält beides zusammen.
+# ---------------------------------------------------------------------------
+
+# Ein Datum als Muster statt als `format: date`: Ob ein Validator `format`
+# durchsetzt, ist im JSON-Schema-Standard ausdrücklich freigestellt — ein Muster
+# gilt überall.
+_DATUM = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
+
+# Was die App braucht, um aus einer Einheit ein Workout zu bauen. Bewusst kurz:
+# Jedes weitere Pflichtfeld ist eine Stelle, an der ein sonst brauchbarer Block
+# an einer Formalie scheitern kann.
+_PFLICHT_EINHEIT = ("sport", "type", "title", "structure", "duration_min", "steps")
+
+# Die Zahlengrenzen spiegeln die `Field(...)`-Grenzen in `schemas.AIStepIn`.
+# Zwei Tabellen mit denselben Zahlen sind eine zu viel — aber die Alternative
+# wäre, das Antwortformat an `schemas` zu hängen, nur um Zahlenpaare zu lesen.
+# `test_antwortschema.py` vergleicht sie stattdessen gegeneinander.
+_SCHRITT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    # Die Ein-Maß-Regel steht hier noch einmal, obwohl der Prompt sie als Regel
+    # (1) ausführlich trägt: Am echten Programm gemessen gab das Modell ohne
+    # diesen Satz an fast jedem Schritt zwei Maße. Als JSON Schema *erzwingen*
+    # ließe sie sich nur über `oneOf` — und eine Bedingung, an der ein sonst
+    # brauchbarer Block hart scheitert, ist genau die Fessel, die hier vermieden
+    # werden soll. `schemas.AISessionIn._raeume_masse` bleibt das Netz darunter.
+    "description": (
+        "Ein Abschnitt der Einheit. GENAU EIN MASS je Eintrag: duration_s ODER "
+        "distance_m ODER reps — nie zwei davon; die Uhr schaltet nach einem Maß "
+        "weiter. Eine Gruppe (repeat + steps) trägt selbst kein Maß."
+    ),
+    "properties": {
+        "kind": {
+            "type": "string",
+            "enum": list(dict.fromkeys(STEP_KIND_ALIASES.values())),
+        },
+        "duration_s": {"type": "integer", "minimum": 1, "maximum": 36000},
+        "distance_m": {"type": "number", "minimum": 1, "maximum": 100000},
+        "reps": {"type": "integer", "minimum": 1, "maximum": 500},
+        "zone": {"type": "string"},
+        "text": {"type": "string"},
+        "exercise_en": {"type": "string"},
+        "sport": {"type": "string"},
+        "repeat": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 99,
+            "description": (
+                "Zahl der Durchgänge einer Serie, zusammen mit `steps`. Wie die "
+                "Uhr zählt: drei Sätze je Seite sind 6."
+            ),
+        },
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/schritt"}},
+    },
+    "required": ["kind", "text"],
+}
+
+
+def _feld_schema(feld: str, disziplin: str) -> dict[str, Any]:
+    """Typ und Wertebereich eines Einheitenfeldes.
+
+    Die Aufzählungen werden aus `SESSION_SCHEMA` gelesen, wo dieselbe Liste
+    schon als Prosa steht („run | bike | swim | …").
+    """
+    if feld == "sport":
+        return {"type": "string", "enum": _werte(_session_schema(disziplin)["sport"])}
+    if feld == "type":
+        return {"type": "string", "enum": _werte(_session_schema(disziplin)["type"])}
+    if feld == "intensity_zone":
+        return {"type": "string", "enum": _werte(SESSION_SCHEMA["intensity_zone"])}
+    if feld == "swim_location":
+        return {"type": "string", "enum": ["pool", "open_water"]}
+    if feld == "bike_location":
+        return {"type": "string", "enum": ["indoor", "outdoor"]}
+    if feld == "duration_min":
+        return {"type": "integer", "minimum": 0, "maximum": 1440}
+    if feld == "distance_km":
+        return {"type": "number", "minimum": 0, "maximum": 500}
+    if feld in ("target_hr_low", "target_hr_high"):
+        return {"type": "integer", "minimum": HF_MIN, "maximum": HF_MAX}
+    if feld == "rpe_target":
+        return {"type": "integer", "minimum": RPE_MIN, "maximum": RPE_MAX}
+    if feld == "steps":
+        return {
+            "type": "array",
+            "items": {"$ref": "#/$defs/schritt"},
+            "description": (
+                "Der Bauplan für die Uhr, ein Eintrag je Abschnitt. Pausen sind "
+                "eigene Einträge, eine Serie ist eine Gruppe aus `repeat` und "
+                "`steps`. Bei `rest` leer."
+            ),
+        }
+    return {"type": "string"}
+
+
+def _werte(beschreibung: str) -> list[str]:
+    """„pool | open_water – nur bei …" → ['pool', 'open_water'].
+
+    Die Aufzählung steht in `SESSION_SCHEMA` vor dem Gedankenstrich; dahinter
+    beginnt die Erklärung.
+    """
+    vorne = beschreibung.split("–", 1)[0]
+    return [wert.strip() for wert in vorne.split("|") if wert.strip()]
+
+
+def _einheit_strukturschema(disziplin: str) -> dict[str, Any]:
+    """Die Einheit als JSON Schema — dieselben Felder wie in der Lehrfassung."""
+    felder = list(_session_schema(disziplin))
+    return {
+        "type": "object",
+        "properties": {feld: _feld_schema(feld, disziplin) for feld in felder},
+        # Bewusst ohne `additionalProperties: false` und ohne `if/then` je
+        # Sportart: Das wäre die Fessel, vor der `docs/ki-und-prompt.md` warnt.
+        # Beides ist auch unnötig — Pydantic ignoriert Zusatzfelder, und welches
+        # Feld zu welcher Sportart gehört, entscheidet seit
+        # `schemas.AISessionIn._raeume_fremde_felder` der Code.
+        "required": [feld for feld in _PFLICHT_EINHEIT if feld in felder],
+    }
+
+
+def strukturschema(disziplin: str) -> dict[str, Any]:
+    """Das Antwortformat des Blocks, maschinell erzwingbar.
+
+    `summary` und `coaching_notes` stehen hier als Pflicht, weil genau sie in
+    echten Antworten gefehlt haben: Der Prompt verlangt sie an vier Stellen, und
+    das reichte nicht.
+    """
+    return {
+        "type": "object",
+        "$defs": {"schritt": _SCHRITT_SCHEMA},
+        "properties": {
+            "plan": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "summary": {
+                        "type": "string",
+                        "description": (
+                            "Kernidee des Blocks in 2-4 Sätzen, mit Bezug auf "
+                            "die Historie"
+                        ),
+                    },
+                    "coaching_notes": {
+                        "type": "string",
+                        "description": "Abbruch- und Anpassungskriterien",
+                    },
+                    "start_date": _DATUM,
+                    "days": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 31,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "date": _DATUM,
+                                "sessions": {
+                                    "type": "array",
+                                    "items": _einheit_strukturschema(disziplin),
+                                },
+                            },
+                            "required": ["date", "sessions"],
+                        },
+                    },
+                },
+                "required": [
+                    "title",
+                    "summary",
+                    "coaching_notes",
+                    "start_date",
+                    "days",
+                ],
+            },
+        },
+        "required": ["plan"],
+    }
+
+
+def einheit_strukturschema(disziplin: str) -> dict[str, Any]:
+    """Dasselbe für die Einzelanpassung: genau eine Einheit."""
+    return {
+        "type": "object",
+        "$defs": {"schritt": _SCHRITT_SCHEMA},
+        "properties": {
+            "einheit": _einheit_strukturschema(disziplin),
+            "begruendung": {
+                "type": "string",
+                "description": (
+                    "1-3 Sätze: was du geändert hast, warum, und falls du dem "
+                    "Wunsch nicht gefolgt bist, woran das lag"
+                ),
+            },
+        },
+        "required": ["einheit", "begruendung"],
     }
 
 
@@ -1287,10 +1492,8 @@ gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Ant
 anzusetzen: Aus denselben Korridoren baut die App das Workout für die Uhr. Fehlt ein \
 Zonenblock, ist der Schwellenwert nicht hinterlegt; leite die Vorgabe dann aus Pace und \
 `hf_schnitt` vergleichbarer Einheiten der Historie ab und **erfinde keinen \
-Schwellenwert**. Gilt eine Größe für die Einheit nicht, **lass das Feld weg**: \
-`target_hr_low`/`target_hr_high` (beide 40-230 bpm) gehören nur an Ausdauereinheiten, \
-nicht an `strength`, `mobility` oder `rest`; dasselbe gilt für `rpe_target` (1-10) an \
-`rest`. Eine 0 ist nie ein gültiger Wert."""
+Schwellenwert**. Eine 0 ist nie ein gültiger Wert — gilt eine Größe für die Einheit \
+nicht, lass das Feld lieber weg."""
 
 _STEUER_SCHWIMMORT = """ Bei \
 `swim` gehört zusätzlich `swim_location` dazu — `pool` oder `open_water`, je nachdem, \
@@ -1618,6 +1821,12 @@ class ExportFehler(ValueError):
 class Export:
     payload: dict[str, Any]
     prompt: str
+    # Dasselbe Antwortformat noch einmal, maschinell erzwingbar — `ki/client.py`
+    # gibt es als `--json-schema` mit. Es steht hier und nicht in der Signatur
+    # des Aufrufers, damit es die Disziplin **nicht ein zweites Mal** bestimmen
+    # muss: Prompt und Schema kämen sonst aus zwei Rechnungen und könnten
+    # auseinanderlaufen. Für den Weg über die Zwischenablage bleibt es ungenutzt.
+    schema: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -1730,6 +1939,37 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
     )
 
 
+REPARATUR_PROMPT = """Die folgende JSON-Antwort ist fast richtig, wird von der \
+aufnehmenden App aber abgewiesen. Bessere sie aus.
+
+## Was die App bemängelt
+
+{fehler}
+
+## Die Antwort
+
+{antwort}
+
+## Auftrag
+
+Gib dieselbe Antwort noch einmal aus, mit genau diesen Stellen berichtigt. \
+Ändere **nichts** anderes: keine weitere Einheit, keinen anderen Umfang, keine \
+andere Intensität, keinen anderen Text. Die Trainingsentscheidung ist gefallen \
+und bleibt, wie sie ist — fehlt ein Pflichtfeld, ergänze es aus dem, was schon \
+dasteht. Antworte ausschließlich mit dem berichtigten JSON-Objekt."""
+
+
+def baue_reparatur_prompt(antwort: str, fehler: str) -> str:
+    """Der zweite, kurze Lauf: nur die Fehlerliste und das kaputte JSON.
+
+    Bewusst **ohne** Datenpaket und ohne die Prinzipien: Ein voller Prompt lüde
+    dazu ein, neu zu planen, und genau das soll hier nicht passieren — der Block
+    ist entschieden, es fehlt eine Formalie. Nebenbei ist der Lauf damit ein
+    Bruchteil so teuer wie der erste.
+    """
+    return REPARATUR_PROMPT.format(fehler=fehler.strip(), antwort=antwort.strip())
+
+
 def erzeuge_export(
     db: Session,
     user: User,
@@ -1759,7 +1999,11 @@ def erzeuge_export(
         naechste_neuplanung=kontext.naechste_planung,
         garmin_konto=kontext.garmin,
     )
-    return Export(payload=payload, prompt=build_prompt(payload))
+    return Export(
+        payload=payload,
+        prompt=build_prompt(payload),
+        schema=strukturschema(_disziplin(payload)),
+    )
 
 
 def erzeuge_einheit_export(
@@ -1795,7 +2039,11 @@ def erzeuge_einheit_export(
     )
     payload["einheit_anpassen"] = _anpassung_block(session, plan, wunsch)
 
-    return Export(payload=payload, prompt=build_einheit_prompt(payload))
+    return Export(
+        payload=payload,
+        prompt=build_einheit_prompt(payload),
+        schema=einheit_strukturschema(_disziplin(payload)),
+    )
 
 
 # --------------------------------------------------------------------------

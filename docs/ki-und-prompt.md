@@ -301,12 +301,78 @@ der Knopf ohne eine Zeile Wiederholung, was am Übernehmen hängt: der abgelöst
 Block wird weggeräumt, und der neue geht über
 `garmin.automatik.starte_uebertragung_fuer_neuen_plan` von selbst auf die Uhr.
 
-**Kein `--json-schema`, obwohl die CLI es könnte.** `parse_ai_response` fängt
-Codefences, Begleittext und `weeks`-Ebenen bereits ab und ist getestet; im
-Versuch mit dem echten Prompt kam die Antwort ohne Fence und ohne Vorrede und
-lief mit **null Warnungen** durch. Ein striktes Schema wäre ein zweiter, eigener
-Fehlerpfad — und eine Fessel für genau das Modell, von dem hier die beste
-Antwort erwartet wird. Bleibt in der Hinterhand.
+**Doch `--json-schema` — die Hinterhand ist gezogen.** Hier stand einmal das
+Gegenteil, und die Begründung war zum Zeitpunkt richtig: `parse_ai_response`
+fängt Codefences, Begleittext und `weeks`-Ebenen ab und ist getestet, und im
+ersten Versuch mit dem echten Prompt lief die Antwort mit null Warnungen durch.
+Was das umgestoßen hat, sind Fehlschläge im Betrieb — mal ein Komma zu viel, mal
+eine fehlende `summary`, mal Steuerungsgrößen an der falschen Sportart. **Eine
+Antwort, die mal stimmt und mal nicht, ist kein Parserproblem.** Der Prompt
+verlangt `summary` an vier Stellen; wenn das nicht reicht, hilft eine fünfte
+nicht.
+
+Drei Dinge am echten Programm gemessen (Version 2.1.233), bevor der Absatz
+gedreht wurde:
+
+* Die CLI setzt `--json-schema` intern als **erzwungenen Tool-Use** um — die
+  Antwort kommt mit `"stop_reason": "tool_use"` zurück. Das ist genau der
+  API-Mechanismus, für den es sonst einen Wechsel weg vom Abo hin zur
+  Token-Abrechnung bräuchte. Das Abo bleibt.
+* Die Hülle trägt zusätzlich **`structured_output`**: die Antwort schon geparst.
+  `plan_import.plan_aus_objekt()` nimmt sie direkt; im Text noch einmal nach
+  Klammern zu suchen wäre ein Umweg über die Fehlerquelle, die gerade beseitigt
+  wurde.
+* **`$defs`/`$ref` funktionieren**, auch rekursiv. Das war die eigentliche
+  Frage: `AIStepIn` verweist auf sich selbst, sonst ließe sich keine
+  Wiederholungsgruppe ausdrücken.
+
+Die Fessel, vor der der alte Absatz warnte, gibt es trotzdem nicht:
+`strukturschema()` setzt **kein** `additionalProperties: false` und **keine**
+`if/then`-Bedingung je Sportart. Pflicht ist nur, was die App zum Bauen eines
+Workouts braucht, plus `summary` und `coaching_notes`. Und der Textweg bleibt:
+Scheitert ein Lauf aus einem Grund, der nicht am Zugang liegt, wiederholt
+`client.rufe_claude` ihn genau einmal **ohne** Schema.
+
+**Zwei Fassungen desselben Formats, und das ist Absicht.** `SESSION_SCHEMA` ist
+die Lehrfassung — Prosa am Feld, die der Weg über die Zwischenablage genauso
+braucht wie der Knopf, denn dort reist kein Schema mit. `strukturschema()` ist
+die Strukturfassung. Die Feldnamen werden aus `_session_schema()` **abgeleitet**
+statt abgeschrieben, `test_antwortschema.py` hält Enums, Grenzen und Pydantic
+zusammen. Eine Grenze, die das Schema erlaubt und Pydantic ablehnt, wäre die
+schlimmste Sorte: Sie käme durch die Erzwingung und stürbe erst im Import.
+
+Genau eine Regel steht bewusst in **beiden**: „genau ein Maß je Schritt". Ohne
+sie im Strukturschema gab Opus im Versuch an fast jedem Schritt zwei Maße —
+das Modell liest beim Ausfüllen die Feldbeschreibung, nicht den Prompt fünf
+Bildschirmseiten weiter oben. Erzwingen ließe sie sich nur über `oneOf`, und
+daran stürbe ein sonst brauchbarer Block; `AISessionIn._raeume_masse` bleibt das
+Netz darunter.
+
+**Das Schema reist am `Export` mit** (`Export.schema`), nicht als eigener
+Parameter. Sonst müsste der Aufrufer die Disziplin ein zweites Mal bestimmen,
+und Prompt und Schema kämen aus zwei Rechnungen, die auseinanderlaufen können.
+
+**Die Rohantwort wird gespeichert, bevor sie geprüft wird**
+(`KiJob.roh_antwort`). Bis hierher war ein Lauf, dessen Antwort nicht durch den
+Import kam, ersatzlos verloren — samt der zweieinhalb bis vier Minuten, die er
+gedauert hat. Genau darauf beruft sich der Import an mehreren Stellen als Grund,
+lieber zu warnen als abzulehnen („Ein abgelehnter Block wäre die teuerste
+denkbare Antwort"). Geschrieben wird mit **eigenem Commit vor** dem Übernehmen:
+Scheitert es, rollt `_lauf` die Sitzung zurück, und alles danach Geschriebene
+wäre wieder weg. `KiJobOut` gibt nur `roh_antwort_vorhanden` heraus — zwanzig
+Kilobyte gehören nicht in eine Abfrage, die im Sekundentakt läuft; der Text
+kommt über `GET /api/ki/jobs/{id}/rohantwort` und landet im Einfügefeld.
+
+**Und genau ein Reparaturlauf.** Scheitert der Import trotz Schema, geht ein
+zweiter, kurzer Aufruf hinaus: nur die deutschen Fehlermeldungen und das kaputte
+JSON, dasselbe Schema, `--effort low`, 180 s (`REPARATUR_PROMPT`,
+`KiRunner._mit_reparatur`). **Kein Datenpaket und keine Trainingslehre** — ein
+voller Prompt lüde dazu ein, neu zu planen, und der Block ist längst
+entschieden; es fehlt eine Formalie. Ein zweiter *vollständiger* Lauf wäre die
+teuerste Antwort auf ein fehlendes Feld: Er dauert Minuten, kostet Kontingent
+und plante dabei einen anderen Block. Genau ein Versuch, sonst liefe die App im
+Kreis; scheitert auch er, endet der Lauf wie bisher — aber mit erhaltener
+Antwort.
 
 **Geplant wird auf Zuruf — oder einmal die Woche, wenn man darum bittet**
 (`ki/automatik.py`, `KiSettings.auto_plan_enabled`). Es gab hier einmal eine

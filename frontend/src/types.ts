@@ -484,6 +484,12 @@ export interface KiJob {
   duration_ms: number | null
   message: string | null
   error: string | null
+  /**
+   * Ob die Antwort der KI gespeichert ist. Nur das Kennzeichen, nicht der Text:
+   * Eine Antwort ist zwanzig Kilobyte und gehört nicht in jede
+   * Fortschrittsabfrage. Zu holen über GET /api/ki/jobs/{id}/rohantwort.
+   */
+  roh_antwort_vorhanden: boolean
 }
 
 export interface KiSettings {

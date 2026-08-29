@@ -302,6 +302,15 @@ export const api = {
   kiAbbrechen: (id: number) =>
     request<KiJob>(`/ki/jobs/${id}/abbrechen`, { method: 'POST' }),
   /**
+   * Die Antwort der KI im Original — der Rettungsweg für einen Fehlschlag.
+   *
+   * Ein Lauf dauert Minuten und kostet Kontingent. Kam die Antwort zurück,
+   * ließ sich aber nicht übernehmen, lässt sie sich hier holen, von Hand
+   * ausbessern und über den Einfügeweg darunter doch noch übernehmen.
+   */
+  kiRohantwort: (id: number) =>
+    request<{ raw: string }>(`/ki/jobs/${id}/rohantwort`),
+  /**
    * Eine einzelne Einheit anpassen lassen. Läuft als Job wie die Blockplanung
    * — der Server bringt die neue Fassung danach selbst auf die Uhr.
    */

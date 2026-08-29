@@ -156,6 +156,54 @@ ausgelaufener Block startete sonst in der Vergangenheit. Datiert wird in Ortszei
 weil `toISOString()` hierzulande abends bereits den Folgetag liefert und ein Block
 „ab heute" dann einen Tag zu spät anfinge.
 
+**Die Dauer wird gerechnet, nicht geglaubt** (`plan_import._gerechnete_dauer`).
+`duration_min` stand im Prompt als Regel („die Summe aller Schritte samt Pausen
+und Durchgängen") und kam bis hierher unverändert vom Modell in die Datenbank.
+Das ist die falsche Arbeitsteilung: Vierzig Schritte mit Pausen und
+Wiederholungsgruppen zu addieren ist eine Rechenoperation über `steps`, keine
+Trainingsentscheidung — und Sprachmodelle rechnen sie unzuverlässig. Die Zahlen
+liegen ohnehin sauber vor. Gerechnet wird deshalb im Code, und der gerechnete
+Wert überschreibt den gelieferten.
+
+**Aber nur, wo es exakt geht.** `_schrittzeit()` gibt auf, sobald ein
+Streckenschritt oder eine Wiederholungszahl darunterliegt: Deren Dauer hinge an
+Pace und Ausführung. Sie zu schätzen wäre keine Korrektur, sondern eine
+Erfindung der App an einer Stelle, an der bisher wenigstens ein Fachmann
+geschätzt hat — dieselbe Linie wie bei „erfundene Schwelle gegen gemessene
+Grenze". Dort bleibt der Wert des Modells stehen. Geprüft wird trotzdem etwas:
+`_zeitteil()` summiert nur die zeittragenden Schritte und ist damit eine
+**untere Schranke**. Übersteigt sie die Angabe deutlich, fehlen fast immer die
+Satzpausen. Beide Meldungen laufen mit `_DAUER_TOLERANZ` — ein Bauplan trifft
+die runde Minute selten, und ein Hinweis bei jeder Einheit wäre keiner mehr.
+
+**Für `distance_km` gibt es bewusst kein Gegenstück.** Ein Lauf mit
+zeitbasiertem Ein- und Auslaufen und Streckenintervallen ergäbe als Summe der
+`distance_m` systematisch zu wenig. Wer das ergänzt, macht die Angabe
+schlechter, nicht besser.
+
+Geschrieben wird in `build_plan()` und `uebernimm_einheit()`, **nicht** im
+Pydantic-Modell: In `Plan.raw_json` gehört die KI-Antwort im Original, nicht
+unsere Korrektur daran — dieselbe Linie, die `verworfene_zielwerte` schon mit
+`exclude=True` zieht.
+
+**Welches Feld zu welcher Sportart gehört, entscheidet der Code**
+(`schemas.AISessionIn._raeume_fremde_felder`). Der Prompt sagte das einmal
+selbst: „bei strength, mobility und rest weglassen", „nur bei sport=bike".
+Bedingte Regeln sind für ein Sprachmodell die teuerste Sorte — sie werden mal
+befolgt und mal nicht, und was durchrutscht, ist plausibel genug, um jede
+Wertprüfung zu überleben. `_raeume_zielwerte` fängt nur *ungültige* Werte (eine
+0, etwas außerhalb 40–230); ein `target_hr_low: 120` an einer Krafteinheit ist
+weder das eine noch das andere und landete als Pulskorridor auf der Uhr.
+
+Das Modell gibt seither einfach alles aus, und der Code streicht, was nicht
+passt: kein Pulskorridor bei `strength`, `mobility`, `rest`; bei `rest`
+zusätzlich weder RPE noch Tempo, Leistung oder Zone; `swim_location` nur bei
+`swim`, `bike_location` nur bei `bike` und `brick` — die Koppeleinheit hat einen
+Radteil und braucht den Ort genauso. **Ohne Warnung**, anders als bei
+`verworfene_zielwerte`: Seit der Prompt die Felder nicht mehr ausschließt, ist
+ein überflüssiger Wert kein Fehler des Modells mehr. Nebenbei sind vier
+Bedingungssätze aus dem Anweisungstext verschwunden.
+
 **Eine einzelne Einheit wird angepasst, nicht ersetzt** (`ai_export.erzeuge_einheit_export`,
 `plan_import.uebernimm_einheit`, `garmin.automatik.uebertrage_geaenderte_einheit`).
 Neben „Block neu planen" fehlte der kleine Eingriff: Der Plan stimmt, nur die
