@@ -126,6 +126,61 @@ dem Weg über die Zwischenablage, wo der Mensch es nur kopiert. Wer nach einem
 Feld sucht, sucht im `payload`-Teil der Antwort, der weiterhin strukturiert
 zurückkommt.
 
+**Tabellen statt wiederholter Schlüssel.** Der Datenteil ist seither kein
+einziges JSON-Objekt mehr, sondern ein Abschnittsdokument
+(`paketformat.paket_als_text()`): Unregelmäßiges bleibt kompaktes JSON, alles
+Gleichförmige wird eine CSV-Tabelle mit einer Kopfzeile. Zwei Kostentreiber
+verschwinden damit, beide reine Mechanik ohne Informationsgehalt — die
+dreißigmal wiederholten Schlüsselnamen je Einheit und die `null`-Felder, die
+sich durch fast jede Zeile zogen. An einem echten Paket gemessen:
+
+| Block | vorher | als Tabelle |
+|---|---:|---:|
+| `trainingshistorie.einheiten` (33 Einheiten) | 15.345 | 6.068 |
+| `fitnessdaten.tage` (29 Tage) | 6.001 | 1.587 |
+| `trainingshistorie.wochenuebersicht` | 1.799 | 1.145 |
+| `herzfrequenzzonen` | 593 | 287 |
+| **das ganze Paket** | **30.491** | **14.181** |
+
+Vier Entscheidungen halten das **verlustfrei**, und verlustfrei ist die
+Bedingung — `test_paketformat.py` baut den Text zurück in den Payload und
+vergleicht:
+
+- **Die Überschriften sind die JSON-Pfade** (`### trainingshistorie.einheiten`).
+  Deshalb musste am Anweisungsteil keine Zeile geändert werden, obwohl er
+  durchgehend mit Feldpfaden argumentiert (`wochenuebersicht`,
+  `athlet.verlauf`, `training_status.lastfenster`).
+- **Konstante Spalten wandern in die Überschrift.** `basis=HFR (Karvonen)`
+  stand fünfmal da, `status=completed` dreißigmal. Nie die erste Spalte: Sie
+  trägt die Kennung der Zeile, und eine Tabelle ohne Spalten wäre keine mehr.
+- **Verschachteltes bekommt eine eigene Tabelle**, verknüpft über eine
+  Bezugsspalte — `by_sport`, `absolvierte_abschnitte`, `absolvierte_uebungen`.
+  In der Zelle wären sie wieder JSON mit wiederholten Schlüsseln, und ihre
+  Anführungszeichen zwängen die Zelle selbst in Anführungszeichen. Der Bezug
+  läuft über die laufende Nummer `nr` und nicht über Datum und Sportart: Zwei
+  Radeinheiten an einem Tag sind keine Seltenheit.
+- **Keine erfundene Kurzschrift.** Ein `aufwaermen:3x11@139` spart mehr, aber
+  es ist eine Notation, die der Prompt erklären müsste — und jede erklärte
+  Notation ist eine Gelegenheit zur Fehldeutung. Gespart werden Klammern und
+  Namen, keine Werte.
+
+Die Spaltenreihenfolge hängt bewusst **nicht** davon ab, welche Zeile zufällig
+als erste einen Wert trägt: In den Tabellenzeilen bleiben die `None`-Schlüssel
+stehen und werden zur leeren Zelle. Gefiltert wird nur in den JSON-Köpfen.
+
+`build_payload()` liefert weiterhin denselben verschachtelten Dict — daran
+hängen `ExportOut.payload`, die Anzeige im Frontend und die Frage, ob ein
+Zurückkopieren die Antwort war. Nur der Weg **in den Prompt** führt durch das
+neue Modul, und `paket_als_text()` arbeitet auf einer Kopie.
+
+**Das eingefügte Datenpaket wird am Rohtext erkannt.** Wer den ganzen Prompt
+zurückkopiert, soll „das ist das Datenpaket, nicht ihre Antwort" lesen und
+keine Feldliste. Solange der Datenteil JSON war, genügten dafür seine obersten
+Schlüssel (`athlet`, `trainingswunsch`); jetzt ist er kein JSON-Objekt mehr,
+und das einzige lesbare Objekt im Prompt wäre ausgerechnet das Antwortformat —
+also eine Tagesliste. `paketformat.ist_datenpaket()` sucht deshalb die Legende
+im Text, und beide Importeure fragen sie, bevor sie Feldnamen aufzählen.
+
 **Die Fitnessdaten reichen 14 Tage zurück** (`WELLNESS_TAGE`), nicht vier
 Wochen. Für einen Block über wenige Tage entscheidet die jüngste Entwicklung,
 und die Vierwochensicht steht als `mittelwerte.28_tage` daneben. Über den vollen

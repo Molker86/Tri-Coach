@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from . import plan_aufraeumen
 from .models import Plan, PlanSession, TrainingRequest
+from .paketformat import ist_datenpaket
 from .schemas import (
     DISCIPLINE_LABEL,
     DISZIPLINFREIE_SPORTARTEN,
@@ -169,6 +170,12 @@ def _flatten_weeks(plan: Any) -> Any:
 # sind das Einzige, was ein Block zwingend mitbringt.
 _TAGESLISTEN = ("days", "weeks")
 
+_DATENPAKET_EINGEFUEGT = (
+    "Das ist das Datenpaket für die KI, nicht ihre Antwort. Kopiere "
+    "den Text oben, gib ihn der KI und füge hier ein, was sie "
+    "zurückschreibt."
+)
+
 
 def _ist_planform(wert: Any) -> bool:
     return isinstance(wert, dict) and any(
@@ -197,7 +204,7 @@ def _plan_darin(daten: Any, tiefe: int = 2) -> dict[str, Any] | None:
     return None
 
 
-def _falsche_antwort(objekte: list[dict[str, Any]]) -> str | None:
+def _falsche_antwort(objekte: list[dict[str, Any]], roh: str = "") -> str | None:
     """Benennt das Verwechseln, statt Feldnamen aufzuzählen.
 
     Wer das Datenpaket oder die Antwort auf eine Einzelanpassung einfügt,
@@ -205,17 +212,21 @@ def _falsche_antwort(objekte: list[dict[str, Any]]) -> str | None:
     darüber, was fehlt, während er wissen muss, was dasteht. Beide Fälle sehen
     in der Feldliste zudem gleich aus, obwohl der nächste Handgriff ein ganz
     anderer ist.
+
+    Das Datenpaket wird am **Rohtext** erkannt und nicht mehr an obersten
+    JSON-Schlüsseln: Sein Datenteil ist seit der Umstellung auf Tabellen kein
+    JSON-Objekt mehr, und ein eingefügter Prompt trüge dann nur noch das
+    Antwortformat als lesbares Objekt — also ausgerechnet eine Tagesliste.
     """
+    if roh and ist_datenpaket(roh):
+        return _DATENPAKET_EINGEFUEGT
+
     for daten in objekte:
         if any(
             schluessel in daten
             for schluessel in ("athlet", "trainingswunsch", "trainingshistorie")
         ):
-            return (
-                "Das ist das Datenpaket für die KI, nicht ihre Antwort. Kopiere "
-                "den Text oben, gib ihn der KI und füge hier ein, was sie "
-                "zurückschreibt."
-            )
+            return _DATENPAKET_EINGEFUEGT
         if any(
             isinstance(daten.get(schluessel), dict)
             for schluessel in _EINHEIT_SCHLUESSEL
@@ -245,7 +256,7 @@ def parse_ai_response(raw: str) -> AIPlanBody:
     Der Weg über die Zwischenablage hat nur diesen, und er bleibt der Rückfall,
     wenn ein Lauf ohne `--json-schema` gelaufen ist.
     """
-    return plan_aus_objekten(_gelesene_objekte(raw))
+    return plan_aus_objekten(_gelesene_objekte(raw), roh=raw)
 
 
 def plan_aus_objekt(daten: dict[str, Any]) -> AIPlanBody:
@@ -260,7 +271,9 @@ def plan_aus_objekt(daten: dict[str, Any]) -> AIPlanBody:
     return plan_aus_objekten([daten])
 
 
-def plan_aus_objekten(objekte: list[dict[str, Any]]) -> AIPlanBody:
+def plan_aus_objekten(
+    objekte: list[dict[str, Any]], roh: str = ""
+) -> AIPlanBody:
     plan = next(
         (gefunden for daten in objekte if (gefunden := _plan_darin(daten))), None
     )
@@ -274,7 +287,7 @@ def plan_aus_objekten(objekte: list[dict[str, Any]]) -> AIPlanBody:
         )
         if plan is None:
             raise PlanImportError(
-                _falsche_antwort(objekte) or _ohne_tagesliste(objekte)
+                _falsche_antwort(objekte, roh) or _ohne_tagesliste(objekte)
             )
 
     try:
@@ -288,7 +301,7 @@ def plan_aus_objekten(objekte: list[dict[str, Any]]) -> AIPlanBody:
         # wird erst hier und nicht davor: Ein gültiger Block soll nie an einem
         # Objekt scheitern, das zufällig danebensteht.
         raise PlanImportError(
-            _falsche_antwort(objekte) or _readable_validation_error(exc)
+            _falsche_antwort(objekte, roh) or _readable_validation_error(exc)
         ) from exc
 
 

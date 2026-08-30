@@ -31,6 +31,7 @@ from .models import (
     User,
     WellnessDay,
 )
+from .paketformat import paket_als_text
 from .schemas import (
     DISCIPLINE_LABEL,
     DISZIPLIN_BLOCKNAME,
@@ -1779,7 +1780,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
         schema=json.dumps(
             _response_schema(disziplin), separators=(",", ":"), ensure_ascii=False
         ),
-        payload=json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+        payload=paket_als_text(payload),
     )
 
 
@@ -1804,7 +1805,7 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
             separators=(",", ":"),
             ensure_ascii=False,
         ),
-        payload=json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+        payload=paket_als_text(payload),
     )
 
 
@@ -2349,7 +2350,7 @@ def build_ernaehrung_prompt(payload: dict[str, Any]) -> str:
         schema=json.dumps(
             ERNAEHRUNG_RESPONSE_SCHEMA, separators=(",", ":"), ensure_ascii=False
         ),
-        payload=json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+        payload=paket_als_text(payload),
     )
 
 

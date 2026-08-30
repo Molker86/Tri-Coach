@@ -219,18 +219,22 @@ def test_der_prompt_traegt_wunsch_block_und_historie(client, auth, monkeypatch):
     prompt = prompts[0]
     # Der Wunsch im Wortlaut, ganz oben.
     assert "Mein Knie zwickt, bitte schonend." in prompt
-    # Der volle Athletenkontext, wie beim Planen eines ganzen Blocks.
-    for schluessel in (
-        '"athlet"',
-        '"herzfrequenzzonen"',
-        '"trainingshistorie"',
-        '"trainingswunsch"',
+    # Der volle Athletenkontext, wie beim Planen eines ganzen Blocks. Die
+    # Abschnitte heißen wie die Pfade im Payload — als JSON-Kopf („athlet: {")
+    # oder als Tabellenüberschrift („### herzfrequenzzonen").
+    # Herzfrequenzzonen und Trainingswunsch fehlen hier zu Recht: Dieser Athlet
+    # hat weder Profil noch Fragebogen, und ein leerer Abschnitt behauptete
+    # Angaben, die es nicht gibt.
+    for abschnitt in (
+        "athlet: {",
+        "trainingshistorie: {",
     ):
-        assert schluessel in prompt, schluessel
-    # Und das, was nur diese Aufgabe braucht.
-    assert '"einheit_anpassen"' in prompt
+        assert abschnitt in prompt, abschnitt
+    # Und das, was nur diese Aufgabe braucht. `bisherige_einheit` bleibt
+    # bewusst JSON: Ihre Schlüssel sind die des Antwortformats.
+    assert "einheit_anpassen: {" in prompt
     assert '"bisherige_einheit"' in prompt
-    assert '"dies_ist_die_anzupassende_einheit":true' in prompt
+    assert "dies_ist_die_anzupassende_einheit" in prompt
     # Der ganze Block steht mit drin, damit die KI den Abstand zum letzten
     # und zum nächsten harten Reiz beurteilen kann.
     assert "Einheit 2" in prompt

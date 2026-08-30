@@ -30,6 +30,7 @@ from .models import (
     ErnaehrungsZutat,
     Plan,
 )
+from .paketformat import ist_datenpaket
 from .plan_import import (
     PlanImportError,
     _gekuerzt,
@@ -105,19 +106,29 @@ def _plan_darin(daten: Any, tiefe: int = 2) -> dict | None:
     return None
 
 
-def _falsche_antwort(objekte: list[dict]) -> str | None:
+_DATENPAKET_EINGEFUEGT = (
+    "Das ist das Datenpaket, das an die KI geht — nicht ihre "
+    "Antwort. Kopiere den Text in eine KI und füge hier ein, was "
+    "sie zurückgibt."
+)
+
+
+def _falsche_antwort(objekte: list[dict], roh: str = "") -> str | None:
     """Benennt die beiden naheliegenden Verwechslungen.
 
     „Field required" beschreibt, was fehlt — der Athlet muss aber wissen, *was*
     dasteht, denn der nächste Handgriff ist in beiden Fällen ein anderer.
+
+    Das Datenpaket am Rohtext, nicht mehr an obersten Schlüsseln: Sein Datenteil
+    ist seit der Umstellung auf Tabellen kein JSON-Objekt mehr — dieselbe
+    Überlegung wie in `plan_import._falsche_antwort`.
     """
+    if roh and ist_datenpaket(roh):
+        return _DATENPAKET_EINGEFUEGT
+
     for daten in objekte:
         if "athlet" in daten or "trainingswunsch" in daten:
-            return (
-                "Das ist das Datenpaket, das an die KI geht — nicht ihre "
-                "Antwort. Kopiere den Text in eine KI und füge hier ein, was "
-                "sie zurückgibt."
-            )
+            return _DATENPAKET_EINGEFUEGT
         # Auch eine Ebene tiefer: Der Trainingsblock steckt fast immer in einer
         # `plan`-Hülle, und nur nach den obersten Schlüsseln zu fragen ließe
         # genau den häufigsten Fall durchrutschen.
@@ -151,7 +162,7 @@ def parse_ernaehrung_antwort(raw: str) -> AIErnaehrungBody:
         # Erst wenn nichts mit Tagesliste da ist, wird nach der Verwechslung
         # gefragt — sonst scheiterte ein gültiger Plan an einem Objekt, das
         # zufällig danebensteht.
-        if (meldung := _falsche_antwort(objekte)) is not None:
+        if (meldung := _falsche_antwort(objekte, raw)) is not None:
             raise PlanImportError(meldung)
         felder = ", ".join(sorted(objekte[0].keys())[:8]) if objekte else ""
         raise PlanImportError(

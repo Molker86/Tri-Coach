@@ -108,7 +108,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 644 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 655 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -173,9 +173,10 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   `routers/plans.py`, `routers/questionnaire.py`.*
 - [docs/ki-und-prompt.md](docs/ki-und-prompt.md) — warum der Prompt die
   Trainingslehre **nicht** vorgibt, erfundene Schwelle gegen gemessene Grenze,
-  die fünf handwerklichen Vorgaben, `RESPONSE_SCHEMA`, Claude Code als
-  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tokenablage.
-  *Bei `PROMPT_TEMPLATE`, `ki/`, `routers/ki.py`.*
+  die fünf handwerklichen Vorgaben, `RESPONSE_SCHEMA`, Tabellen statt
+  wiederholter Schlüssel, Claude Code als Unterprozess, Jobs und Schloss,
+  wöchentliche Planung, Tokenablage.
+  *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten
   neben der Beschreibung.
@@ -246,6 +247,13 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   verbieten. Und die Struktur wird über `--json-schema` erzwungen, nicht
   erbeten. Wer eine neue bedingte Regel in den Prompt schreiben will, prüft
   erst, ob sie nicht in den Code gehört.
+- **Der Datenteil des Prompts ist kein JSON mehr**, sondern ein
+  Abschnittsdokument aus JSON-Köpfen und CSV-Tabellen
+  (`paketformat.paket_als_text()`). `build_payload()` liefert unverändert den
+  verschachtelten Dict; ein neues Feld darin wird von selbst zur Spalte. Nur
+  eine **verschachtelte** Struktur braucht einen Handgriff in `paketformat.py`
+  — sonst steht sie als JSON in einer Zelle. Wer im Prompt oder in einem Test
+  auf ein Feld prüft, sucht `feld` als Spaltenname, nicht `"feld":`.
 - Ein neues Feld im Antwortformat gehört in `SESSION_SCHEMA` (die Lehrfassung im
   Prompt) **und** ins Datenmodell in `schemas.py`. Das Strukturschema für
   `--json-schema` leitet seine Feldliste daraus ab; `test_antwortschema.py`
