@@ -166,7 +166,21 @@ vergleicht:
 
 Die Spaltenreihenfolge hängt bewusst **nicht** davon ab, welche Zeile zufällig
 als erste einen Wert trägt: In den Tabellenzeilen bleiben die `None`-Schlüssel
-stehen und werden zur leeren Zelle. Gefiltert wird nur in den JSON-Köpfen.
+stehen und werden zur leeren Zelle. Gefiltert wird nur in den JSON-Köpfen — und
+seit dem Umbau auf drei Ebenen fallen Spalten weg, die in **keiner** Zeile etwas
+tragen (`_leerspalten_streichen`); das ist verlustfrei und bei einem Athleten
+ohne Leistungsmesser fünfzig leere Zellen weniger.
+
+Für dieselbe Regel gilt bei den **aufgefächerten** Feldern ein eigener Schritt.
+`zeit_in_hf_zonen_min` wird zu `…z1` bis `…z5`, und aufgefächert wurde je Zeile
+— ordnet man danach nach erstem Auftreten, landet ein Unterschlüssel, den erst
+eine spätere Zeile trägt, am Ende der Tabelle. An echten Daten stand
+`zeit_in_hf_zonen_min.z5` hinter `effizienz` und `rpe_quelle`, weil die erste
+Einheit keine Zone 5 hatte. `_faecherschluessel()` sammelt den Schlüsselsatz
+deshalb **vorher über alle Zeilen** ein, und jede Zeile bekommt ihn ganz. Erstes
+Auftreten und nicht alphabetisch, aus demselben Grund wie bei `_spalten`:
+`intensitaetsverteilung_pct` heißt `niedrig`, `mittel`, `hoch`, und alphabetisch
+stünde `hoch` vorn.
 
 `build_payload()` liefert weiterhin denselben verschachtelten Dict — daran
 hängen `ExportOut.payload`, die Anzeige im Frontend und die Frage, ob ein
@@ -180,6 +194,93 @@ Schlüssel (`athlet`, `trainingswunsch`); jetzt ist er kein JSON-Objekt mehr,
 und das einzige lesbare Objekt im Prompt wäre ausgerechnet das Antwortformat —
 also eine Tagesliste. `paketformat.ist_datenpaket()` sucht deshalb die Legende
 im Text, und beide Importeure fragen sie, bevor sie Feldnamen aufzählen.
+
+## Drei Auflösungsebenen
+
+**Der Rückblick ist keine Fensterbreite mehr, sondern eine Auflösung.** Bis
+hierher legte der Export genau vier Wochen vor — jede Einheit einzeln, dieselben
+vier Wochen daneben noch einmal als Wochenübersicht. Das beantwortete eine
+Frage („wo steht er gerade?") und zwei nicht: ob er aus einer Pause kommt und
+ob es über die Saison aufwärts geht. Beides ist aus einem Vierwochenfenster
+**grundsätzlich** nicht abzulesen, egal wie genau es beschrieben ist.
+
+Seither steht derselbe Verlauf dreimal, immer gröber:
+
+| Ebene | Konstante | Reicht | Form | Zeilen |
+|---|---|---|---|---|
+| 1 | `HISTORY_WEEKS = 6` | 42 Tage | `trainingshistorie.einheiten`, je Einheit eine Zeile | ~50 |
+| 2 | `WOCHENUEBERSICHT_WOCHEN = 26` | ein halbes Jahr | `trainingshistorie.wochenuebersicht`, je Kalenderwoche eine Zeile | ~27 |
+| 3 | `VERLAUF_MONATE = 12` | ein Jahr | `athlet.verlauf`, je Monat eine Zeile | ~12 |
+
+**42 Tage sind keine gerundete Zahl.** Es ist genau das Fenster, in dem
+`garmin/sync.py` Abschnitte, Übungen, Nettozeit und Befinden überhaupt holt
+(`BEWERTUNGSFENSTER_TAGE`, `TAGESSCHLEIFE_TAGE`). Ein weiterer Rückblick auf der
+Einzelebene brächte nur noch Einheiten ohne Ausführungsdetail — und die
+beschreibt die Wochenzeile kürzer.
+
+**Die Ebenen überlappen, und der Prompt sagt das ausdrücklich.** Die
+Wochenübersicht deckt *alle* 26 Wochen ab, die sechs der Einzelebene
+eingeschlossen. Sie herauszurechnen wäre naheliegend und falsch:
+`letzte_volle_woche` ist der Bezugspunkt der Aufbauregel und liegt genau dort.
+Der Preis ist ein Satz im Prompt — „die jüngsten Wochen stehen in mehreren
+Ebenen, zähle sie nicht doppelt" —, und der ist nicht verhandelbar: Ohne ihn
+addiert das Modell dieselbe Woche zweimal und liest daraus einen Umfang, den es
+nie gab. Dafür wurde die Längenbremse in `test_der_anweisungstext_bleibt_kurz`
+von 9000 auf 9500 Zeichen angehoben.
+
+**Ebene 3 kommt aus `WellnessDay`, nicht aus `ProfileHistory`** — obwohl die
+zweite genau die sechs Größen führt, um die es geht, und obwohl sie vorher die
+Quelle war. Sie entsteht ereignisgetrieben: `profile_sync` schreibt nur bei
+einer Änderung über einer Schwelle, und das erst, seit es diese App gibt. An
+echten Daten standen dort **zwölf Zeilen aus drei Wochen** — der Jahresverlauf
+war für elf von zwölf Monaten leer, und niemand hat es gemerkt, weil ein
+fehlender Schlüssel kein Fehler ist. `WellnessDay` ist dagegen ein lückenloses
+Tagesraster über das ganze Backfill-Jahr (`RUECKBLICK_TAGE = 365`). Von
+`ProfileHistory` bleiben nur FTP und Maximalpuls: Die misst Garmin nicht
+täglich. Sie stehen deshalb meist an einem einzigen Monat, und die neue
+Leerspaltenregel lässt sie ganz weg, wo gar nichts vorliegt.
+
+Aus dem Tagesraster kommt der **Monatsmittelwert**, nicht der jüngste Tageswert
+des Monats. Ein einzelner Ruhepuls- oder HRV-Tag ist Rauschen, und Rauschen ist
+das Gegenteil dessen, was diese Ebene zeigen soll.
+
+**`effizienz_je_sportart` trägt die Ebene, nicht `vo2max`.** Die naheliegende
+Fortschrittsgröße wäre die VO2max — Garmin schätzt sie aber nur bei passenden
+Aktivitäten, an echten Daten an 41 von 383 Tagen. Tempo bzw. Leistung je
+Herzschlag lässt sich dagegen aus fast jeder Einheit mit Puls und Distanz
+rechnen und trennt „langsamer geworden" von „müder geworden". Beide stehen
+nebeneinander; wo die VO2max fehlt, bleibt die Effizienz.
+
+**Was die Ebenen kosten.** An echten Daten wuchs der Prompt von 28.513 auf
+34.432 Zeichen (+21 %, grob 9k auf 11k Token). Die Einzeleinheiten gingen von 32
+auf 48, die Wochenzeilen von 5 auf 27, der Monatsverlauf von **einer** Zeile auf
+elf. Die Abschnitts- und Übungstabellen — der größte Einzelposten des Pakets —
+wuchsen **gar nicht**, weil Garmin sie ohnehin nur 42 Tage liefert. Gegenfinanziert
+wurde ein Teil davon: `kalorien` und `trimp` sind aus der Einheitenzeile
+gefallen (das erste trägt keine Planungsentscheidung, das zweite stand als
+hergeleitete Größe neben der gemessenen `garmin_trainingslast`), `by_sport` steht
+nur noch an den jüngsten sechs Wochen (`BY_SPORT_WOCHEN`), und durchweg leere
+Spalten fallen jetzt ganz weg.
+
+`pace` und `wochentag` sind dabei **geblieben**, obwohl beide ableitbar sind: Aus
+den Ist-Paces setzt das Modell `target_pace` der neuen Einheiten, und
+Datumsarithmetik ist das Unzuverlässigste, was ein Sprachmodell tut. Zusammen
+kosten sie über fünfzig Zeilen keine 200 Token.
+
+**Nebenbei mitgewachsen:** `monotonie` und `strain` entstehen nur an
+*vollständigen* Wochen. In einem Vierwochenfenster waren das drei von fünf
+Buckets, jetzt sind es fünfundzwanzig von siebenundzwanzig — dieselbe Rechnung,
+nur mit Datenbasis. Und `plan_aufraeumen.verfallene_erbschaft_loeschen()` hängt
+seit jeher an `HISTORY_WEEKS` und reicht damit von selbst sechs statt vier
+Wochen zurück; genau so war es dort dokumentiert.
+
+**Die Ernährung bekommt die Wochenübersicht gekürzt** (`ERNAEHRUNG_WOCHEN = 6`).
+Sie steht in `ERNAEHRUNG_HISTORIE_FELDER`, und der Energiebedarf von morgen hängt
+am aktuellen Umfang — nicht daran, wie im Frühjahr trainiert wurde. Ohne die
+Kürzung wären sechsundzwanzig Wochenzeilen in einen Prompt gewandert, der von
+vier bis sechs lebt.
+
+---
 
 **Die Fitnessdaten reichen 14 Tage zurück** (`WELLNESS_TAGE`), nicht vier
 Wochen. Für einen Block über wenige Tage entscheidet die jüngste Entwicklung,
@@ -197,7 +298,7 @@ längst in der Datenbank lagen:
 |---|---|---|
 | Wie verteilt sich die Intensität? | `SessionLog.hr_zone_seconds` | je Einheit exportiert, nie zur Woche summiert |
 | Wie lang war die längste Einheit? | `duration_min` | `weekly_summary()` kannte nur Summe und Schnitt |
-| Wohin geht die Form über Monate? | `ProfileHistory` | wurde **nie** exportiert |
+| Wohin geht die Form über Monate? | `WellnessDay` (früher `ProfileHistory`) | wurde **nie** exportiert — und die damalige Quelle war ohnehin leer, siehe „Drei Auflösungsebenen" |
 | Kostet dasselbe Tempo mehr Puls? | Tempo und `avg_hr` | wurde nie ins Verhältnis gesetzt |
 
 Dazu `monotonie` und `strain` nach Foster: Zwei Wochen mit identischer Summe

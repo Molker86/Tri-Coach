@@ -2,14 +2,20 @@
 
 Ziel: Die KI bekommt alles, was sie für eine fundierte Entscheidung braucht —
 Physiologie, Zielsetzung, harte Randbedingungen und den tatsächlichen Verlauf
-der letzten vier Wochen — und ein Antwortformat, das die App direkt einlesen
-kann.
+des letzten Jahres — und ein Antwortformat, das die App direkt einlesen kann.
 
-Geplant wird bewusst nur ein kurzer Block von wenigen Tagen: Der Blick zurück
-bleibt vier Wochen weit, der Blick nach vorne kurz. Das trifft die Realität
-besser (nach vier Wochen stimmt ohnehin kaum ein Plan noch) und ist für die KI
-die deutlich leichtere Aufgabe — statt 28 Tagen sind ein paar Tage zu füllen,
-die dafür genau zur aktuellen Belastungslage passen.
+Der Verlauf steht in **drei Auflösungen, nicht drei Zeiträumen**: die letzten
+sechs Wochen Einheit für Einheit, das letzte halbe Jahr Woche für Woche, das
+letzte Jahr Monat für Monat. Die feinste Ebene sagt, wo der Athlet heute steht,
+die mittlere, wie er dorthin gekommen ist, die gröbste, ob es über das Jahr
+aufwärts oder abwärts geht. Sie überlappen absichtlich — siehe „Drei
+Auflösungsebenen" in `docs/ki-und-prompt.md`.
+
+Geplant wird trotzdem nur ein kurzer Block von wenigen Tagen: Der Blick zurück
+reicht weit, der Blick nach vorne bleibt kurz. Das trifft die Realität besser
+(nach vier Wochen stimmt ohnehin kaum ein Plan noch) und ist für die KI die
+deutlich leichtere Aufgabe — statt 28 Tagen sind ein paar Tage zu füllen, die
+dafür genau zur aktuellen Belastungslage passen.
 """
 
 import json
@@ -48,7 +54,6 @@ from .sportscience import (
     PACE_ZONEN_ANTEIL_LAUF,
     PACE_ZONEN_ANTEIL_SCHWIMM,
     acute_chronic_ratio,
-    banister_trimp,
     effizienz_je_einheit,
     calc_age,
     calc_bmi,
@@ -58,9 +63,9 @@ from .sportscience import (
     letzte_volle_woche,
     pace_zones,
     power_zones,
+    monatsverlauf,
     weekly_summary,
     wellness_auffaelligkeiten,
-    verlauf_stuetzpunkte,
     wellness_mittelwerte,
 )
 
@@ -71,8 +76,31 @@ PLAN_DAYS_DEFAULT = 7
 PLAN_DAYS_MIN = 1
 PLAN_DAYS_MAX = 14
 
-# Rückblick für die Historie. Bewusst unabhängig vom Planungshorizont.
-HISTORY_WEEKS = 4
+# Ebene 1: Wie weit die Einheiten einzeln aufgeführt werden. Bewusst unabhängig
+# vom Planungshorizont — und bewusst genau 42 Tage: Das ist zugleich das
+# Fenster, in dem `garmin.sync` Abschnitte, Übungen, Nettozeit und Befinden
+# überhaupt holt (`BEWERTUNGSFENSTER_TAGE`). Ein weiterer Rückblick brächte hier
+# nur noch Einheiten ohne Ausführungsdetail.
+HISTORY_WEEKS = 6
+
+# Ebene 2: Wie weit die Wochenübersicht zurückreicht. Sie deckt die Wochen der
+# Ebene 1 **mit** ab — sonst verlöre `letzte_volle_woche` seine Grundlage, und
+# der Prompt sagt ausdrücklich, dass die jüngsten Wochen in beiden Ebenen
+# stehen und nicht doppelt zählen. Eine Woche kostet eine Zeile; dafür werden
+# `monotonie` und `strain`, die nur an vollständigen Wochen entstehen, aus einer
+# Ausnahme zur Regel.
+WOCHENUEBERSICHT_WOCHEN = 26
+
+# Die Sportartaufschlüsselung je Woche nur in den jüngsten Wochen. Sie wird als
+# eigene Tabelle ausgerollt (zwei bis drei Zeilen je Woche) und kostete über ein
+# halbes Jahr mehr, als sie trägt: Welche Sportart über die Saison zu- oder
+# abgenommen hat, sagt Ebene 3 monatlich und billiger.
+BY_SPORT_WOCHEN = 6
+
+# Das chronische Fenster der ACWR. Bewusst eine eigene Konstante und nicht
+# `HISTORY_WEEKS`: 7 Tage gegen 28 ist das etablierte Verhältnis, und es soll
+# sich nicht verschieben, nur weil der Rückblick auf die Einheiten wächst.
+ACWR_CHRONISCH_WOCHEN = 4
 
 # Wie weit die Tagesreihe der Fitnessdaten zurückreicht. Kürzer als der
 # Rückblick auf die Einheiten: Ein Block über wenige Tage entscheidet sich an
@@ -81,10 +109,18 @@ HISTORY_WEEKS = 4
 # Fünftel des gesamten Prompts.
 WELLNESS_TAGE = 14
 
-# Wie weit der Profilverlauf zurückreicht. Deutlich länger als der Rückblick
-# auf die Einheiten, und das ist der Punkt: Vier Wochen zeigen die Belastung,
-# nicht die Richtung. Ob VO2max, Gewicht und Ruhepuls sich über die Saison
-# verbessert oder verschlechtert haben, ist aus dem Rückblickfenster
+# Wie weit `_fitness_block()` überhaupt Tage sehen darf. Nicht dasselbe wie
+# `WELLNESS_TAGE`: Die Mittelwerte brauchen 28 Tage, die ausgegebene Tagesreihe
+# nur 14. Entscheidend ist die **Obergrenze** — `aktuell` nimmt je Feld den
+# jüngsten belegten Wert, und mit der vollen Jahresreihe stellte es für ein
+# monatelang leeres Feld (VO2max Rad hat 10 belegte Tage im Jahr) einen uralten
+# Wert als "aktuell" hin.
+FITNESS_FENSTER_TAGE = 28
+
+# Ebene 3: Wie weit der Monatsverlauf zurückreicht. Deutlich länger als der
+# Rückblick auf die Einheiten, und das ist der Punkt: Sechs Wochen zeigen die
+# Belastung, nicht die Richtung. Ob VO2max, Gewicht und Ruhepuls sich über die
+# Saison verbessert oder verschlechtert haben, ist aus dem Rückblickfenster
 # grundsätzlich nicht abzulesen — und ein Monatsstützpunkt kostet eine Zeile.
 VERLAUF_MONATE = 12
 
@@ -124,7 +160,7 @@ def default_start() -> date:
 
 
 def _athlete_block(
-    profile: AthleteProfile | None, verlauf: list[Any] | None = None
+    profile: AthleteProfile | None, verlauf: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
     if profile is None:
         return {"hinweis": "Kein Profil hinterlegt — bitte konservativ planen."}
@@ -163,12 +199,12 @@ def _athlete_block(
         "sonstiges": profile.notes,
     }
 
-    # Die Richtung neben der Momentaufnahme. Alles darüber ist der Stand von
-    # heute — ob er das Ende eines Aufbaus oder eines Einbruchs ist, sagt keine
-    # dieser Zahlen. Ein Stützpunkt je Monat, sonst verdrängte der tägliche
-    # Abgleich mit dreihundert Zeilen die Historie.
-    if stuetzpunkte := verlauf_stuetzpunkte(verlauf or [], monate=VERLAUF_MONATE):
-        block["verlauf"] = stuetzpunkte
+    # Ebene 3: die Richtung neben der Momentaufnahme. Alles darüber ist der
+    # Stand von heute — ob er das Ende eines Aufbaus oder eines Einbruchs ist,
+    # sagt keine dieser Zahlen. Ein Stützpunkt je Monat, fertig gerechnet in
+    # `monatsverlauf()`; hier steht bewusst keine Ausdünnung mehr.
+    if verlauf:
+        block["verlauf"] = verlauf
 
     return block
 
@@ -308,21 +344,18 @@ def _datenstand(konto: Any) -> dict[str, str] | None:
 
 def _history_block(
     logs: list[SessionLog],
-    profile: AthleteProfile | None,
     garmin_konto: Any = None,
 ) -> dict[str, Any]:
     today = date.today()
-    cutoff = today - timedelta(weeks=HISTORY_WEEKS)
-    # Einmal gefiltert, damit Einheitenliste, Wochenübersicht, ACWR und die
-    # Abstände dieselbe Menge sehen. Zwei Zählweisen nebeneinander waren genau
-    # der Fehler, den die Wochenübersicht schon hatte.
+    # Zwei Fenster über **derselben** gefilterten Menge: Die Einheiten stehen
+    # sechs Wochen weit einzeln (Ebene 1), die Wochenübersicht reicht ein halbes
+    # Jahr zurück (Ebene 2). Zwei Zählweisen nebeneinander waren genau der
+    # Fehler, den die Wochenübersicht schon einmal hatte — deshalb ist `weit`
+    # eine Obermenge von `recent` und nicht eine zweite Herleitung.
     echte = [lg for lg in logs if _ist_einheit(lg)]
-    recent = [lg for lg in echte if lg.date >= cutoff]
-    recent.sort(key=lambda lg: lg.date)
-
-    max_hr = profile.max_hr if profile else None
-    resting_hr = profile.resting_hr if profile else None
-    sex = profile.sex if profile else None
+    echte.sort(key=lambda lg: lg.date)
+    weit = [lg for lg in echte if lg.date >= today - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)]
+    recent = [lg for lg in weit if lg.date >= today - timedelta(weeks=HISTORY_WEEKS)]
 
     sessions = []
     for lg in recent:
@@ -354,15 +387,18 @@ def _history_block(
             # sie kamen aus dem Erfassungsformular. Denselben Zustand beschreibt
             # der `fitnessdaten`-Block, gemessen statt erinnert und für jeden
             # Tag, nicht nur für Trainingstage.
-            "trimp": banister_trimp(
-                lg.duration_min, lg.avg_hr, resting_hr, max_hr, sex
-            ),
+            #
+            # Ebenso wenig `trimp` und `kalorien`: Das erste ist aus Dauer, Puls
+            # und Profil hergeleitet und stand neben der **gemessenen**
+            # `garmin_trainingslast`, das zweite trägt keine
+            # Planungsentscheidung. Über fünfzig Einheiten waren beide zusammen
+            # eine Spalte Rauschen — und die sRPE-Last der Woche, die daraus
+            # nicht folgt, steht in der Wochenübersicht.
             # Garmins roher Aktivitätstyp. `indoor_cycling` gegen
             # `road_biking` ist der einzige belastbare Hinweis darauf, ob
             # drinnen oder draußen gefahren wurde — und daran hängt, ob ein
             # Wattkorridor überhaupt etwas steuern kann.
             "garmin_typ": lg.garmin_activity_type,
-            "kalorien": lg.calories,
             "notiz": lg.notes,
         }
 
@@ -421,11 +457,26 @@ def _history_block(
 
         sessions.append(eintrag)
 
-    weekly = weekly_summary(recent, weeks=HISTORY_WEEKS)
+    # Ebene 2. `by_sport_ab` zählt vom aktuellen Montag zurück, nicht von heute:
+    # Die Übersicht rechnet in Kalenderwochen, und eine Grenze mitten in einer
+    # Woche schnitte die laufende ab.
+    montag = today - timedelta(days=today.weekday())
+    weekly = weekly_summary(
+        weit,
+        weeks=WOCHENUEBERSICHT_WOCHEN,
+        by_sport_ab=montag - timedelta(weeks=BY_SPORT_WOCHEN),
+    )
     volle = letzte_volle_woche(weekly)
 
     block: dict[str, Any] = {
-        "zeitraum": f"letzte {HISTORY_WEEKS} Wochen",
+        # Zwei Fenster, ausdrücklich benannt: Ohne den Satz läse die KI die
+        # Wochenübersicht als denselben Zeitraum wie die Einheitenliste und
+        # wunderte sich über zwanzig Wochen ohne Einheiten darin.
+        "zeitraum": (
+            f"Einheiten einzeln: letzte {HISTORY_WEEKS} Wochen · "
+            f"Wochenübersicht: letzte {WOCHENUEBERSICHT_WOCHEN} Wochen · "
+            f"Monatsverlauf in athlet.verlauf: letzte {VERLAUF_MONATE} Monate"
+        ),
         "wochenuebersicht": weekly,
         # Der Bezugspunkt für die Aufbauregel, ausdrücklich benannt. Der letzte
         # Eintrag der Übersicht ist die *laufende* Woche und an einem Dienstag
@@ -445,9 +496,12 @@ def _history_block(
         ),
         # Rollierend über die Rohdaten, nicht über die Kalenderwochen: Sonst
         # stünde die angebrochene Woche als Akutlast gegen einen vollen
-        # Vierwochenschnitt.
+        # Vierwochenschnitt. Das chronische Fenster bleibt bei vier Wochen —
+        # es ist das Standardverhältnis 7:28 und hängt bewusst **nicht** an
+        # `HISTORY_WEEKS`, sonst verschöbe sich die Kennzahl mit jeder
+        # Änderung am Rückblick.
         "acute_chronic_workload_ratio": acute_chronic_ratio(
-            recent, today, weeks=HISTORY_WEEKS
+            weit, today, weeks=ACWR_CHRONISCH_WOCHEN
         ),
         "tage_seit_letzter_einheit_je_sportart": _days_since_by_sport(echte, today),
         "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(echte, today),
@@ -795,6 +849,12 @@ def build_payload(
     selbstgesetzten Schwellen, und genau die soll die KI aus den Rohwerten und
     Garmins gemessenen Grenzen selbst ziehen. An für die Ernährung, die eine
     gekürzte Historie bekommt und die Verdichtung braucht.
+
+    `wellness` reicht ein Jahr zurück, weil Ebene 3 daraus entsteht — der
+    `fitnessdaten`-Block bekommt daraus aber nur die letzten
+    `FITNESS_FENSTER_TAGE`. Der Grund steht an der Konstante: `aktuell` nimmt je
+    Feld den jüngsten belegten Wert, und über ein Jahr fände es für ein
+    monatelang leeres Feld einen uralten und stellte ihn als heutigen Stand hin.
     """
     age = calc_age(profile.birth_date) if profile else None
     zones = hr_zones(
@@ -804,7 +864,28 @@ def build_payload(
     )
     start = start_date or default_start()
 
-    fitness = _fitness_block(wellness or [], date.today(), mit_auffaelligkeiten)
+    heute = date.today()
+
+    # Bewusst beschnitten — siehe Docstring und `FITNESS_FENSTER_TAGE`.
+    tagesreihe = [
+        tag
+        for tag in (wellness or [])
+        if tag.date > heute - timedelta(days=FITNESS_FENSTER_TAGE)
+    ]
+    fitness = _fitness_block(tagesreihe, heute, mit_auffaelligkeiten)
+
+    # Ebene 3 dagegen über die volle Reihe. Verdichtet auf einen Stützpunkt je
+    # Monat, sonst stünden dreihundert Tageszeilen im Prompt.
+    verlauf_zeilen = monatsverlauf(
+        wellness or [],
+        # Dieselbe Vorfilterung wie in `_history_block`: Ein Eintrag ohne Dauer
+        # und ohne Distanz ist keine Einheit und dürfte den Monatsumfang nicht
+        # in die Höhe zählen.
+        [lg for lg in logs if _ist_einheit(lg)],
+        verlauf,
+        heute=heute,
+        monate=VERLAUF_MONATE,
+    )
 
     zeitraum: dict[str, Any] = {
         "startdatum": start.isoformat(),
@@ -831,10 +912,10 @@ def build_payload(
         # `frontend/src/planung.ts`: UTC liefert hierzulande abends bereits den
         # Folgetag.
         "erzeugt_am": datetime.now().isoformat(timespec="minutes"),
-        "athlet": _athlete_block(profile, verlauf),
+        "athlet": _athlete_block(profile, verlauf_zeilen),
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request, date.today()),
-        "trainingshistorie": _history_block(logs, profile, garmin_konto),
+        "trainingshistorie": _history_block(logs, garmin_konto),
         "planungszeitraum": zeitraum,
     }
 
@@ -1272,10 +1353,16 @@ PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenscha
 planst die nächsten {tage} Trainingstage: {start} bis {ende}.
 
 ## Aufgabe
-Plane genau diesen kurzen Block — nicht mehr. Die Athletendaten unten enthalten den \
-tatsächlichen Verlauf der letzten {historie_wochen} Wochen: absolvierte Einheiten und \
-gemessene Gesundheitsdaten. Lies daraus ab, wo der Athlet steht, und setze diese {tage} \
-Tage dort an.
+Plane genau diesen kurzen Block — nicht mehr. Lies aus den Athletendaten unten ab, wo \
+der Athlet steht, und setze diese {tage} Tage dort an.
+
+**Der Verlauf steht in drei Auflösungen, nicht in drei Zeiträumen.** \
+`trainingshistorie.einheiten` führt die letzten {historie_wochen} Wochen einzeln auf, \
+`trainingshistorie.wochenuebersicht` fasst {uebersicht_wochen} Wochen je Kalenderwoche \
+zusammen, `athlet.verlauf` gibt je Monat einen Stützpunkt über {verlauf_monate} Monate. \
+Die jüngsten Wochen stehen damit in mehreren Ebenen — **zähle sie nicht doppelt**. Eine \
+Woche mit `sessions: 0` oder ein Monat mit `stunden: 0` heißt Trainingspause, nicht \
+fehlende Daten.
 
 **Umfang, Intensität und Zusammensetzung entscheidest du.** Maßstab sind allein das Ziel \
 in `trainingswunsch.ziel`, die absolvierten Einheiten in `trainingshistorie` und die \
@@ -1288,7 +1375,9 @@ Leicht zu übersehen, weil sie nicht die Tagesform beschreiben, sondern **Kapazi
 Richtung**: in `wochenuebersicht` je Woche `zeit_in_hf_zonen_min`, \
 `intensitaetsverteilung_pct`, `laengste_einheit_min` sowie `monotonie` und `strain` nach \
 Foster; an den Einheiten `effizienz` (Tempo bzw. Leistung je Herzschlag, vergleichbar nur \
-zwischen ähnlichen Einheiten); in `athlet.verlauf` ein Stützpunkt je Monat. Weicht \
+zwischen ähnlichen Einheiten); in `athlet.verlauf` je Monat `stunden_je_sportart` und \
+`effizienz_je_sportart` — dort steht, ob eine Sportart über die Saison zu- oder \
+abgenommen hat und ob die Effizienz mitging. Weicht \
 `schwellenpace_gemessen_garmin` von `schwellenpace_laufen_min_pro_km` ab, ist die Eingabe \
 vermutlich veraltet; die Zonen rechnen weiter mit ihr.
 
@@ -1622,9 +1711,12 @@ entscheidest du — hier mit dem Vorteil, dass beide Nachbarn schon feststehen u
 sie nachlesen kannst. Ändert der Wunsch die Intensität nach oben, ist das die erste \
 Prüfung.
 {fitnessregeln}
-3. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt die letzten \
-{historie_wochen} Wochen. Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: \
-nicht mehr, sondern weniger. `tage_seit_letzter_intensiver_einheit` und \
+3. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt denselben Verlauf in \
+drei Auflösungen — die letzten {historie_wochen} Wochen einzeln, die letzten \
+{uebersicht_wochen} Wochen je Kalenderwoche, {verlauf_monate} Monate je Monat in \
+`athlet.verlauf`. Die jüngsten Wochen stehen in mehreren davon; zähle sie nicht doppelt. \
+Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: nicht mehr, sondern \
+weniger. `tage_seit_letzter_intensiver_einheit` und \
 `tage_seit_letzter_einheit_je_sportart` gelten unverändert.
 4. **Spezifität**: Die Einheit behält ihre Rolle im Block, soweit der Wunsch sie nicht \
 gerade aufhebt. Wer „kürzer" sagt, will keine andere Trainingswirkung, sondern \
@@ -1757,6 +1849,8 @@ def build_prompt(payload: dict[str, Any]) -> str:
         start=period.get("startdatum", ""),
         ende=period.get("enddatum", ""),
         historie_wochen=HISTORY_WEEKS,
+        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
+        verlauf_monate=VERLAUF_MONATE,
         # `{tage}` darin wird hier gefüllt: `.format()` formatiert eingesetzte
         # Werte nicht erneut, der Platzhalter bliebe sonst wörtlich stehen —
         # dieselbe Falle wie bei `PRINZIP_TRIATHLON` und `FITNESSREGELN_*`.
@@ -1796,6 +1890,8 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         # Wunsch mit geschweiften Klammern kann hier also nichts anrichten.
         wunsch=anpassung.get("wunsch_des_athleten", ""),
         historie_wochen=HISTORY_WEEKS,
+        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
+        verlauf_monate=VERLAUF_MONATE,
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
         sportartwechsel=_sportartwechsel(disziplin),
         prinzip_ergaenzung=_prinzip_ergaenzung("begruendung"),
@@ -1887,20 +1983,25 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         .first()
     )
 
-    # Fitnessdaten aus Garmin, im selben Rückblickfenster wie die Historie.
-    # Ohne verbundenes Konto bleibt die Liste leer und der Block entfällt.
+    # Fitnessdaten aus Garmin über ein volles Jahr — nicht für den
+    # `fitnessdaten`-Block, der nimmt sich daraus nur die letzten vier Wochen,
+    # sondern für Ebene 3: `WellnessDay` ist das einzige lückenlose Tagesraster
+    # in dieser App und damit die einzige tragfähige Quelle für den
+    # Monatsverlauf. Ohne verbundenes Konto bleibt die Liste leer, der Block
+    # entfällt und `athlet.verlauf` ebenso.
     wellness = (
         db.query(WellnessDay)
         .filter(
             WellnessDay.user_id == user.id,
-            WellnessDay.date >= date.today() - timedelta(weeks=HISTORY_WEEKS),
+            WellnessDay.date >= date.today() - timedelta(days=VERLAUF_MONATE * 31),
         )
         .all()
     )
 
-    # Der Langzeitverlauf der Profilwerte. Anders als die Fitnessdaten über ein
-    # Jahr statt über das Rückblickfenster: Ausgedünnt wird erst im Payload
-    # (`verlauf_stuetzpunkte`), damit die Ausdünnung an einer Stelle steht.
+    # `ProfileHistory` steuert zu Ebene 3 nur FTP und Maximalpuls bei — die
+    # beiden Größen, die Garmin nicht täglich misst. Alles andere kommt aus
+    # `wellness` oben: Diese Tabelle entsteht ereignisgetrieben und erst, seit
+    # es die App gibt, taugt für einen Jahresverlauf also nicht.
     verlauf = (
         db.query(ProfileHistory)
         .filter(
@@ -2400,6 +2501,13 @@ ERNAEHRUNG_HISTORIE_FELDER = (
     "datenstand",
 )
 
+# Wie viele Wochen der Übersicht die Ernährung sieht. Der Energiebedarf hängt
+# am **aktuellen** Umfang; wie der Athlet im Frühjahr trainiert hat, ändert an
+# der Mahlzeit von morgen nichts. Ohne die Kürzung stünden hier seit dem Umbau
+# auf drei Auflösungsebenen sechsundzwanzig Wochenzeilen für eine Aufgabe, die
+# von vier bis sechs lebt.
+ERNAEHRUNG_WOCHEN = 6
+
 
 def _ernaehrungshistorie(historie: dict[str, Any]) -> dict[str, Any]:
     """Die Historie auf das, was einen Ernährungsplan trägt.
@@ -2415,15 +2523,24 @@ def _ernaehrungshistorie(historie: dict[str, Any]) -> dict[str, Any]:
     Ebenfalls draußen: die Abstände je Sportart — sie entscheiden, *welche*
     Einheit als nächstes drankommt, und das ist nicht diese Aufgabe.
 
+    Und die Wochenübersicht kommt **gekürzt**: Die Trainingsplanung bekommt sie
+    ein halbes Jahr weit, weil sie daraus die Richtung liest. Der Energiebedarf
+    von morgen hängt daran nicht — siehe `ERNAEHRUNG_WOCHEN`.
+
     Der Fitnessblock bleibt dagegen vollständig: `fitnessdaten.tage` ist die
     **einzige** Stelle mit dem Gewichtsverlauf — `mittelwerte` führt ihn nicht —,
     und der Gewichtstrend ist die Kennzahl der Energiebilanz schlechthin.
     """
-    return {
+    gekuerzt = {
         schluessel: historie[schluessel]
         for schluessel in ERNAEHRUNG_HISTORIE_FELDER
         if schluessel in historie
     }
+    if wochen := gekuerzt.get("wochenuebersicht"):
+        gekuerzt["wochenuebersicht"] = wochen[-ERNAEHRUNG_WOCHEN:]
+        # Sonst nennte der Satz einen Zeitraum, der hier gar nicht mehr steht.
+        gekuerzt["zeitraum"] = f"Wochenübersicht: letzte {ERNAEHRUNG_WOCHEN} Wochen"
+    return gekuerzt
 
 
 def erzeuge_ernaehrung_export(

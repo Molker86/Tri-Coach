@@ -183,28 +183,32 @@ def test_die_nettozeit_fehlt_wenn_sie_der_gesamtdauer_entspricht(
 # --------------------------------------------------------------------------
 
 
-def test_der_profilverlauf_steht_im_paket(client, registriere):
-    """Er lag seit jeher in der Datenbank und ging nie hinaus.
+def test_der_monatsverlauf_steht_im_paket(client, registriere):
+    """Sechs Wochen zeigen die Belastung, nicht die Richtung.
 
-    Vier Wochen zeigen die Belastung, nicht die Richtung: Ob die VO2max seit
-    dem Frühjahr steigt oder fällt, ist aus dem Rückblickfenster grundsätzlich
-    nicht abzulesen.
+    Ob die VO2max seit dem Frühjahr steigt oder fällt, ist aus dem
+    Rückblickfenster grundsätzlich nicht abzulesen.
+
+    Die Quelle ist `WellnessDay` und **nicht** `ProfileHistory`: Die zweite
+    führt zwar genau diese Größen, entsteht aber ereignisgetrieben und erst,
+    seit es diese App gibt — ein Jahresverlauf daraus wäre für elf von zwölf
+    Monaten leer. `WellnessDay` ist das lückenlose Tagesraster aus dem Backfill.
     """
     from app.database import SessionLocal
-    from app.models import ProfileHistory
+    from app.models import WellnessDay
 
     konto = registriere("verlauf@example.com", "verlauf")
     user = client.get("/api/auth/me", headers=konto).json()
     client.put("/api/profile", json={"weight_kg": 70.0}, headers=konto)
 
-    jetzt = datetime.now()
+    heute = date.today()
     with SessionLocal() as db:
         for monate, vo2 in ((6, 52.0), (3, 54.0), (1, 56.0)):
             db.add(
-                ProfileHistory(
+                WellnessDay(
                     user_id=user["id"],
-                    recorded_at=jetzt - timedelta(days=monate * 30),
-                    vo2max=vo2,
+                    date=heute - timedelta(days=monate * 30),
+                    vo2max_run=vo2,
                 )
             )
         db.commit()
@@ -255,3 +259,94 @@ def test_der_prompt_nennt_die_neuen_felder(client, historie):
     assert "80" not in anweisung
     assert "20 %" not in anweisung
     assert "polarisiert" not in anweisung.lower()
+
+
+# --------------------------------------------------------------------------
+# Die drei Auflösungsebenen
+# --------------------------------------------------------------------------
+
+
+def test_die_historie_steht_in_drei_aufloesungen(client, historie):
+    """Fein für die Gegenwart, grob für das Jahr.
+
+    Eine einzige Auflösung konnte nur eine der drei Fragen beantworten. Sechs
+    Wochen zeigen, wo der Athlet steht, aber nicht, ob er aus einer Pause
+    kommt; ein Jahr einzeln aufgeführt verdrängte alles andere aus dem Prompt.
+    """
+    from app.ai_export import (
+        HISTORY_WEEKS,
+        VERLAUF_MONATE,
+        WOCHENUEBERSICHT_WOCHEN,
+    )
+
+    payload = client.get("/api/plans/export", headers=historie).json()["payload"]
+    block = payload["trainingshistorie"]
+
+    # Ebene 1 reicht sechs Wochen, Ebene 2 ein halbes Jahr.
+    aeltester_montag = min(w["week_start"] for w in block["wochenuebersicht"])
+    grenze = date.today() - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)
+    assert aeltester_montag <= grenze.isoformat()
+    assert len(block["wochenuebersicht"]) >= WOCHENUEBERSICHT_WOCHEN
+
+    # Und die Ebenen überlappen: Die Wochen der Einzeleinheiten stehen auch in
+    # der Übersicht — sonst verlöre `letzte_volle_woche` seine Grundlage.
+    einzeln = {e["datum"] for e in block["einheiten"]}
+    assert einzeln, "keine Einheiten im Fenster"
+    assert min(einzeln) >= (date.today() - timedelta(weeks=HISTORY_WEEKS)).isoformat()
+    assert block["letzte_volle_woche"] is not None
+
+    # Der Zeitraumsatz benennt alle drei, sonst läse die KI ein Fenster.
+    for wert in (str(HISTORY_WEEKS), str(WOCHENUEBERSICHT_WOCHEN), str(VERLAUF_MONATE)):
+        assert wert in block["zeitraum"], block["zeitraum"]
+
+
+def test_die_sportartaufteilung_steht_nur_in_den_juengsten_wochen(client, historie):
+    """Als eigene Tabelle ausgerollt kostete sie über ein halbes Jahr mehr,
+    als sie trägt — die Verschiebung über die Saison sagt Ebene 3 billiger."""
+    from app.ai_export import BY_SPORT_WOCHEN
+
+    wochen = client.get("/api/plans/export", headers=historie).json()[
+        "payload"
+    ]["trainingshistorie"]["wochenuebersicht"]
+
+    heute = date.today()
+    ab = (heute - timedelta(days=heute.weekday()) - timedelta(weeks=BY_SPORT_WOCHEN))
+    for woche in wochen:
+        assert ("by_sport" in woche) == (woche["week_start"] >= ab.isoformat()), woche[
+            "week_start"
+        ]
+
+
+def test_der_fitnessblock_greift_nicht_in_die_jahresreihe(client, registriere):
+    """Der Fallstrick des Umbaus, als Test.
+
+    Für Ebene 3 werden die Tageswerte eines ganzen Jahres geladen. `aktuell`
+    nimmt je Feld den jüngsten belegten Wert — über die volle Reihe fände es
+    für ein monatelang leeres Feld einen uralten und stellte ihn als heutigen
+    Stand hin. Genau das darf nicht passieren.
+    """
+    from app.database import SessionLocal
+    from app.models import WellnessDay
+
+    konto = registriere("fenster@example.com", "fenster")
+    user = client.get("/api/auth/me", headers=konto).json()
+
+    heute = date.today()
+    with SessionLocal() as db:
+        # Ein VO2max-Wert von vor einem halben Jahr — und sonst nichts.
+        db.add(WellnessDay(user_id=user["id"], date=heute - timedelta(days=180),
+                           vo2max_run=48.0, resting_hr=60))
+        db.add(WellnessDay(user_id=user["id"], date=heute - timedelta(days=1),
+                           resting_hr=52))
+        db.commit()
+
+    payload = client.get("/api/plans/export", headers=konto).json()["payload"]
+
+    aktuell = payload["fitnessdaten"]["aktuell"]
+    assert aktuell.get("ruhepuls") == 52
+    assert aktuell["vo2max_laufen"] is None, "halbjahresalter Wert als heutiger Stand"
+
+    # In Ebene 3 steht er dagegen völlig zu Recht — dort ist er datiert.
+    monate = {z["monat"]: z for z in payload["athlet"]["verlauf"]}
+    alt = (heute - timedelta(days=180)).strftime("%Y-%m")
+    assert monate[alt]["vo2max"] == 48.0

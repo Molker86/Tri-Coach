@@ -340,9 +340,14 @@ def test_der_anweisungstext_bleibt_kurz(client, auth):
     ein Dokument, das dem Modell die Trainingslehre vorschrieb. Diese Grenze
     ist bewusst großzügig gesetzt; sie soll den nächsten Absatz nicht
     verhindern, sondern den zwanzigsten.
+
+    Einmal angehoben, von 9000 auf 9500: Die Historie kam als **drei** Ebenen
+    ins Paket, und die überlappen sich. Der Absatz, der sie benennt und das
+    Doppelzählen verbietet, ist der Preis dafür — ohne ihn addiert das Modell
+    dieselbe Woche zweimal. Das ist der nächste Absatz, nicht der zwanzigste.
     """
     prompt = client.get("/api/plans/export", headers=auth).json()["prompt"]
-    assert len(anweisungsteil(prompt)) < 9000
+    assert len(anweisungsteil(prompt)) < 9500
 
 
 def test_der_prompt_gibt_die_trainingslehre_nicht_vor(client, auth):
@@ -1030,7 +1035,12 @@ def test_export_includes_history_after_logging(client, auth):
 
     assert len(history["einheiten"]) == 1
     assert history["einheiten"][0]["rpe_1_10"] == 6
-    assert history["einheiten"][0]["trimp"] is not None
+    # `trimp` und `kalorien` stehen hier nicht mehr: Das erste ist aus Dauer,
+    # Puls und Profil hergeleitet und stand neben der gemessenen
+    # `garmin_trainingslast`, das zweite trägt keine Planungsentscheidung.
+    # `/api/logs/stats` führt den TRIMP weiterhin — er verlässt nur den Export.
+    assert "trimp" not in history["einheiten"][0]
+    assert "kalorien" not in history["einheiten"][0]
 
     # Für den kurzen Block sind die Abstände seit der letzten Einheit die
     # wichtigste Steuergröße — heute gelaufen, also 0 Tage.

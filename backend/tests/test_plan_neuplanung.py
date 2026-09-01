@@ -213,20 +213,41 @@ def test_das_erbe_reicht_so_weit_wie_der_rueckblick(client, auth, erfasse):
     """
     from app.ai_export import HISTORY_WEEKS
     from app.database import SessionLocal
-    from app.models import SessionLog
+    from app.models import Plan, PlanSession, SessionLog
 
     grenze = HEUTE - timedelta(weeks=HISTORY_WEEKS)
-    # Ein Block, der weit zurückreicht und zugleich in die Zukunft ragt.
+    # Ein Block, der zugleich in die Zukunft ragt — nur ein solcher gilt als
+    # abgelöst und vererbt seine Vergangenheit.
     alt = _importiere(client, auth, start=HEUTE - timedelta(days=30), tage=31,
                       titel="Alter Block")
-    alt_genug = next(
-        s for s in alt["sessions"]
-        if s["date"] < grenze.isoformat() and s["sport"] != "rest"
-    )
     noch_drin = next(
         s for s in alt["sessions"]
         if grenze.isoformat() <= s["date"] < HEUTE.isoformat()
     )
+
+    # Und ein Tag jenseits des Rückblicks. Über die API ist er nicht zu
+    # bekommen: Ein Block darf höchstens 31 Tage umfassen, ein Block bis heute
+    # beginnt damit innerhalb des Fensters. In der Praxis entsteht ein solcher
+    # Tag, wenn ein Block die Vergangenheit mehrerer Vorgänger geerbt hat — er
+    # liegt dann vor `geplant_ab` und ist genau das, was hier verfallen soll.
+    zu_alt = grenze - timedelta(days=1)
+    with SessionLocal() as db:
+        # Über die Kennung aus der Antwort: "Alter Block" heißt in dieser Datei
+        # mehr als ein Plan.
+        plan = db.get(Plan, alt["id"])
+        geerbt = PlanSession(
+            plan_id=plan.id,
+            date=zu_alt,
+            week_number=1,
+            sport="run",
+            session_type="endurance",
+            title="Geerbt und zu alt",
+            duration_min=50,
+        )
+        db.add(geerbt)
+        db.commit()
+        alt_genug = {"id": geerbt.id, "date": zu_alt.isoformat(), "sport": "run"}
+        assert zu_alt < plan.beginn, "kein geerbter Tag — der Test prüfte nichts"
     erfasse(
         auth,
         plan_session_id=alt_genug["id"],
@@ -241,7 +262,10 @@ def test_das_erbe_reicht_so_weit_wie_der_rueckblick(client, auth, erfasse):
     tage = {s["date"] for s in aktiv["sessions"]}
     assert alt_genug["date"] not in tage, "Verfallener Tag wurde behalten"
     assert noch_drin["date"] in tage, "Tag im Fenster wurde weggeworfen"
-    assert aktiv["start_date"] == grenze.isoformat()
+    # Nicht auf den Tag genau: Wo die Grenze zu liegen kommt, hängt daran, wie
+    # weit die geerbten Tage überhaupt reichen. Die Aussage ist, dass sie das
+    # Fenster nie überschreiten.
+    assert aktiv["start_date"] >= grenze.isoformat()
 
     with SessionLocal() as db:
         # Das Training überlebt — nur sein Verweis auf den Aufbau ist gelöst.

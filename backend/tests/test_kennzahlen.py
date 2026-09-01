@@ -21,7 +21,7 @@ from app.sportscience import (
     monotonie_und_strain,
     pace_zones,
     power_zones,
-    verlauf_stuetzpunkte,
+    monatsverlauf,
     weekly_summary,
 )
 
@@ -542,78 +542,104 @@ def test_effizienz_steigt_wenn_dasselbe_tempo_weniger_puls_kostet():
 # --------------------------------------------------------------------------
 
 
-def test_der_verlauf_wird_auf_einen_punkt_je_monat_ausgeduennt():
-    """Der tägliche Abgleich schreibt fast jeden Tag eine Zeile.
+def _tag(stand: date, **werte):
+    """Ein `WellnessDay`, wie `monatsverlauf` ihn liest."""
+    felder = {
+        "date": stand,
+        "weight_kg": None,
+        "resting_hr": None,
+        "hrv_last_night_ms": None,
+        "sleep_seconds": None,
+        "vo2max_run": None,
+        "vo2max_bike": None,
+    }
+    return SimpleNamespace(**{**felder, **werte})
 
-    Ungefiltert stünde ein Jahr mit dreihundert Zeilen im Prompt und
-    verdrängte die Historie, um die es eigentlich geht.
+
+def test_der_monatsverlauf_mittelt_statt_den_letzten_tag_zu_nehmen():
+    """Ein einzelner HRV- oder Ruhepulstag ist Rauschen.
+
+    Genau das soll die Ebene nicht zeigen — sie soll die Richtung zeigen.
     """
-    jetzt = datetime.now()
-    history = [
-        SimpleNamespace(
-            recorded_at=jetzt - timedelta(days=n),
-            weight_kg=70.0 + n * 0.01,
-            resting_hr=None,
-            hrv_rmssd=None,
-            vo2max=None,
-            max_hr=None,
-            ftp_watts=None,
-        )
-        for n in range(300)
+    heute = date(2026, 9, 1)
+    tage = [
+        _tag(date(2026, 8, tag), resting_hr=50 + tag % 3, hrv_last_night_ms=40.0)
+        for tag in range(1, 31)
     ]
 
-    stuetzpunkte = verlauf_stuetzpunkte(history)
+    (zeile,) = monatsverlauf(tage, [], heute=heute, monate=12)
 
-    assert len(stuetzpunkte) <= 12
-    # Aufsteigend, damit die Richtung ablesbar ist.
-    monate = [p["monat"] for p in stuetzpunkte]
-    assert monate == sorted(monate)
+    assert zeile["monat"] == "2026-08"
+    assert zeile["ruhepuls"] == 51.0  # Mittel aus 50/51/52, nicht der 31. August
+    assert zeile["hrv_ms"] == 40.0
 
 
-def test_der_verlauf_uebernimmt_felder_einzeln():
-    """Eine Zeile, die nur das Gewicht trug, verschwieg sonst den VO2max-Wert.
+def test_der_monatsverlauf_kommt_ohne_profilhistorie_aus():
+    """`ProfileHistory` entsteht ereignisgetrieben und erst, seit es die App gibt.
 
-    Der Abgleich schreibt je geänderten Wert — nicht jede Zeile trägt alles.
+    Ein Jahresverlauf daraus wäre für elf von zwölf Monaten leer — deshalb ist
+    `WellnessDay` die Quelle, und `history` bleibt optional.
     """
-    jetzt = datetime.now()
-    history = [
-        SimpleNamespace(
-            recorded_at=jetzt - timedelta(days=3),
-            weight_kg=None,
-            resting_hr=None,
-            hrv_rmssd=None,
-            vo2max=56.0,
-            max_hr=None,
-            ftp_watts=None,
-        ),
-        SimpleNamespace(
-            recorded_at=jetzt - timedelta(days=1),
-            weight_kg=71.5,
-            resting_hr=None,
-            hrv_rmssd=None,
-            vo2max=None,
-            max_hr=None,
-            ftp_watts=None,
-        ),
+    heute = date(2026, 9, 1)
+    tage = [_tag(date(2026, 7, 4), weight_kg=88.0), _tag(date(2026, 8, 4), weight_kg=86.0)]
+
+    zeilen = monatsverlauf(tage, [], heute=heute, monate=12)
+
+    assert [z["monat"] for z in zeilen] == ["2026-07", "2026-08"]
+    assert [z["gewicht_kg"] for z in zeilen] == [88.0, 86.0]
+
+
+def test_der_monatsverlauf_zeigt_umfang_und_effizienz_je_sportart():
+    """Erst der Zusammenhang trägt die Ebene: Umfang neben Körperwert."""
+    heute = date(2026, 9, 1)
+    logs = [
+        Einheit(date=date(2026, 8, 5), sport="run", duration_min=60, distance_km=12.0, avg_hr=140),
+        Einheit(date=date(2026, 8, 12), sport="bike", duration_min=120, distance_km=60.0, avg_hr=130),
     ]
 
-    (punkt,) = verlauf_stuetzpunkte(history)
+    (zeile,) = monatsverlauf([_tag(date(2026, 8, 5), resting_hr=52)], logs, heute=heute)
 
-    assert punkt["vo2max"] == 56.0
-    assert punkt["gewicht_kg"] == 71.5
+    assert zeile["sessions"] == 2
+    assert zeile["stunden"] == 3.0
+    assert zeile["stunden_je_sportart"] == {"run": 1.0, "bike": 2.0}
+    # Tempo je Herzschlag — die Fortschrittsgröße, wo VO2max fehlt.
+    assert set(zeile["effizienz_je_sportart"]) == {"run", "bike"}
 
 
-def test_der_verlauf_endet_am_fenster():
+def test_ein_monat_ohne_training_bleibt_als_nullzeile_stehen():
+    """Die Trainingspause ist die Aussage, um die es der Ebene geht.
+
+    Sie fällt nur heraus, wo auch kein Körperwert vorliegt — dann gab es
+    schlicht keine Daten, und eine Nullzeile läse sich wie eine Pause.
+    """
+    heute = date(2026, 9, 1)
+    tage = [_tag(date(2026, 7, 4), resting_hr=52), _tag(date(2026, 8, 4), resting_hr=54)]
+    logs = [Einheit(date=date(2026, 8, 5), duration_min=60)]
+
+    zeilen = monatsverlauf(tage, logs, heute=heute)
+
+    juli = next(z for z in zeilen if z["monat"] == "2026-07")
+    assert juli["sessions"] == 0 and juli["stunden"] == 0
+    # Ein Monat ganz ohne Daten steht gar nicht erst da.
+    assert not any(z["monat"] == "2026-06" for z in zeilen)
+
+
+def test_der_monatsverlauf_endet_am_fenster():
     """Ein zwei Jahre alter Wert beschreibt keine Richtung mehr."""
-    jetzt = datetime.now()
-    alt = SimpleNamespace(
-        recorded_at=jetzt - timedelta(days=800),
-        weight_kg=95.0,
-        resting_hr=None,
-        hrv_rmssd=None,
-        vo2max=None,
-        max_hr=None,
-        ftp_watts=None,
-    )
+    assert monatsverlauf(
+        [_tag(date(2024, 5, 1), weight_kg=95.0)], [], heute=date(2026, 9, 1)
+    ) == []
 
-    assert verlauf_stuetzpunkte([alt]) == []
+
+def test_ftp_und_maximalpuls_kommen_weiter_aus_der_profilhistorie():
+    """Die beiden Größen misst Garmin nicht täglich — hier gilt der jüngste Wert."""
+    heute = date(2026, 9, 1)
+    history = [
+        SimpleNamespace(recorded_at=datetime(2026, 8, 3), ftp_watts=240, max_hr=None),
+        SimpleNamespace(recorded_at=datetime(2026, 8, 20), ftp_watts=250, max_hr=185),
+    ]
+
+    (zeile,) = monatsverlauf([_tag(date(2026, 8, 4), resting_hr=52)], [], history, heute=heute)
+
+    assert zeile["ftp_watt"] == 250
+    assert zeile["maximalpuls"] == 185

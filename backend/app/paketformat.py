@@ -111,6 +111,30 @@ def _spalten(zeilen: list[dict[str, Any]]) -> list[str]:
     return spalten
 
 
+def _leerspalten_streichen(
+    zeilen: list[dict[str, Any]], spalten: list[str]
+) -> list[str]:
+    """Spalten, die in **keiner** Zeile einen Wert tragen, ganz weglassen.
+
+    Verlustfrei: Eine durchgängig leere Spalte sagt nichts, was ihr Fehlen
+    nicht auch sagte. `_konstanten_abtrennen` fängt sie nicht ab — es
+    überspringt Spalten mit `None` ausdrücklich, weil ein `feld=` in der
+    Überschrift eine Behauptung wäre.
+
+    Spürbar wird das an den Einheiten: `leistung_watt` steht an jeder Zeile im
+    Payload, ist aber bei einem Athleten ohne Leistungsmesser fünfzig Mal leer,
+    und `stunden_je_sportart.swim` fehlt bei einem reinen Läufer das ganze Jahr.
+
+    Die erste Spalte bleibt aus demselben Grund wie dort stehen: Sie trägt die
+    Kennung der Zeile.
+    """
+    return [
+        name
+        for i, name in enumerate(spalten)
+        if i == 0 or any(zeile.get(name) is not None for zeile in zeilen)
+    ]
+
+
 def _konstanten_abtrennen(
     zeilen: list[dict[str, Any]], spalten: list[str]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -153,24 +177,55 @@ def _tabelle(zeilen: list[dict[str, Any]], spalten: list[str]) -> str:
     return puffer.getvalue().rstrip("\n")
 
 
-def _aufgefaechert(zeile: dict[str, Any], felder: tuple[str, ...]) -> dict[str, Any]:
+def _faecherschluessel(zeilen: list[dict[str, Any]], feld: str) -> list[str]:
+    """Die Unterschlüssel eines Feldes über **alle** Zeilen, erstes Auftreten zuerst.
+
+    Der Satz muss vor dem Auffächern feststehen, sonst zerreißt die Gruppe:
+    `_aufgefaechert` schrieb je Zeile nur die Schlüssel *dieser* Zeile, und
+    `_spalten` ordnet nach erstem Auftreten. Trug die erste Einheit nur z1–z4,
+    stand `zeit_in_hf_zonen_min.z5` am Ende der Tabelle — hinter `effizienz` und
+    `rpe_quelle`, weil es erst in einer späteren Zeile auftauchte. Über fünfzig
+    Zeilen ist das genau die Zuordnung, die ein Sprachmodell verlieren soll.
+
+    Erstes Auftreten und **nicht** alphabetisch, dieselbe Regel wie in
+    `_spalten` und aus demselben Grund: `intensitaetsverteilung_pct` hat die
+    Schlüssel `niedrig`, `mittel`, `hoch`, und alphabetisch stünde `hoch` vorn.
+    """
+    namen: list[str] = []
+    for zeile in zeilen:
+        wert = zeile.get(feld)
+        if isinstance(wert, dict):
+            for name in wert:
+                if name not in namen:
+                    namen.append(name)
+    return namen
+
+
+def _aufgefaechert(
+    zeile: dict[str, Any], faecher: dict[str, list[str]]
+) -> dict[str, Any]:
     """Ein Dict-Feld wird zu Spalten `feld.schluessel`.
 
     Für `zeit_in_hf_zonen_min` und `intensitaetsverteilung_pct`: Die Unterkeys
     sind über alle Zeilen dieselben fünf, als eigene Spalten kosten ihre Namen
     einmal statt dreißigmal — und über die Zeilen hinweg untereinander stehende
     Zahlen sind genau das, was die Verteilung vergleichbar macht.
+
+    `faecher` nennt je Feld den vollständigen Schlüsselsatz aus
+    `_faecherschluessel`. Jede Zeile bekommt ihn ganz; was sie nicht trägt, wird
+    `None` und damit zur leeren Zelle. Eine Unterspalte, die in *keiner* Zeile
+    etwas trägt, streicht `_leerspalten_streichen` gleich danach wieder.
     """
-    if not felder:
+    if not faecher:
         return zeile
     neu: dict[str, Any] = {}
     for name, wert in zeile.items():
-        if name in felder:
+        if name in faecher:
             # Auch wo nichts anliegt: Sonst stünde neben den aufgefächerten
             # Spalten noch eine leere Spalte unter dem alten Namen.
-            if isinstance(wert, dict):
-                for unterschluessel, unterwert in wert.items():
-                    neu[f"{name}.{unterschluessel}"] = unterwert
+            unter = wert if isinstance(wert, dict) else {}
+            for unterschluessel in faecher[name]:
+                neu[f"{name}.{unterschluessel}"] = unter.get(unterschluessel)
         else:
             neu[name] = wert
     return neu
@@ -185,8 +240,12 @@ def _tabellenblock(
     if not zeilen:
         return []
 
-    zeilen = [_aufgefaechert(zeile, auffaechern) for zeile in zeilen]
-    fest, spalten = _konstanten_abtrennen(zeilen, _spalten(zeilen))
+    # Erst den Schlüsselsatz je Feld, dann auffächern: Die öffentliche Angabe
+    # bleibt die Feldliste, die vollständige Spaltenfolge entsteht hier.
+    faecher = {feld: _faecherschluessel(zeilen, feld) for feld in auffaechern}
+    zeilen = [_aufgefaechert(zeile, faecher) for zeile in zeilen]
+    spalten = _leerspalten_streichen(zeilen, _spalten(zeilen))
+    fest, spalten = _konstanten_abtrennen(zeilen, spalten)
     kopf = f"### {pfad}"
     if fest:
         kopf += " (" + ", ".join(f"{k}={_zelle(v)}" for k, v in fest.items()) + ")"
@@ -248,7 +307,15 @@ def _athlet(block: dict[str, Any]) -> list[str]:
     verlauf = block.pop("verlauf", None) or []
     bestzeiten = block.pop("bestzeiten_aus_garmin", None) or []
     teile = _kopf("athlet", block)
-    teile += _tabellenblock("athlet.verlauf", verlauf)
+    teile += _tabellenblock(
+        "athlet.verlauf",
+        verlauf,
+        # Sonst stünde je Monat ein JSON-Klumpen in der Zelle. Die Sportarten
+        # sind über die Zeilen hinweg dieselben — als Spalten kosten ihre Namen
+        # einmal statt zwölfmal, und untereinander stehende Zahlen sind genau
+        # das, was den Jahresverlauf lesbar macht.
+        auffaechern=("stunden_je_sportart", "effizienz_je_sportart"),
+    )
     teile += _tabellenblock("athlet.bestzeiten_aus_garmin", bestzeiten)
     return teile
 

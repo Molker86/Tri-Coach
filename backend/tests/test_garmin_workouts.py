@@ -1875,15 +1875,27 @@ def test_ruhetag_wird_abgelehnt(client, verbunden):
 # --------------------------------------------------------------------------
 
 
+def _kalendermonat(client, auth, tag: date) -> list[dict]:
+    antwort = client.get(
+        f"/api/garmin/kalender?jahr={tag.year}&monat={tag.month}", headers=auth
+    )
+    assert antwort.status_code == 200, antwort.text
+    return antwort.json()["eintraege"]
+
+
 def test_kalender_zeigt_eigene_und_fremde_eintraege(client, verbunden, fake):
     _importiere_plan(client, verbunden)
     _uebertrage(client, verbunden)
 
-    antwort = client.get(
-        f"/api/garmin/kalender?jahr={HEUTE.year}&monat={HEUTE.month}", headers=verbunden
-    )
-    assert antwort.status_code == 200, antwort.text
-    eintraege = antwort.json()["eintraege"]
+    # Garmins Kalenderdienst kennt nur ganze Monate — eine Anfrage, ein Monat.
+    # Die eigenen Einheiten liegen ab heute, die absolvierten Aktivitäten der
+    # Nachbildung bis zu sechs Tage zurück (`baue_aktivitaet(1004, …days=6)` in
+    # der `fake`-Fixture). An den meisten Tagen fällt beides in denselben Monat;
+    # am Monatsersten liegen die Aktivitäten sämtlich im Vormonat, und der
+    # laufende Monat allein zeigte dann nur die Hälfte. Deshalb beide.
+    eintraege = _kalendermonat(client, verbunden, HEUTE)
+    if (frueher := HEUTE - timedelta(days=6)).month != HEUTE.month:
+        eintraege += _kalendermonat(client, verbunden, frueher)
 
     eigene = [e for e in eintraege if e["aus_tri_coach"]]
     assert eigene, "Die übertragenen Einheiten fehlen im Kalender"

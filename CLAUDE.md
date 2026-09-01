@@ -8,9 +8,18 @@ kopiert das per Hand in eine KI und fügt die Antwort zurück in die App ein. Di
 Antwort wird zu einem strukturierten Trainingsblock über wenige Tage. Absolvierte
 Trainings werden erfasst und fließen in den nächsten Export ein.
 
-**Asymmetrie merken:** Rückblick vier Wochen, Vorausplanung wenige Tage
-(Vorgabe 7, einstellbar 1–14 über `days` am Export). Das ist eine bewusste
-Entscheidung — siehe „Planungshorizont".
+**Asymmetrie merken:** Rückblick ein Jahr, Vorausplanung wenige Tage (Vorgabe 7,
+einstellbar 1–14 über `days` am Export). Das ist eine bewusste Entscheidung —
+siehe „Planungshorizont".
+
+**Der Rückblick ist eine Auflösung, keine Fensterbreite.** Derselbe Verlauf
+steht dreimal im Paket, immer gröber: die letzten **sechs Wochen** Einheit für
+Einheit, das letzte **halbe Jahr** Woche für Woche, das letzte **Jahr** Monat
+für Monat. Die erste Ebene sagt, wo der Athlet steht, die zweite, wie er
+dorthin gekommen ist, die dritte, ob es über die Saison aufwärts geht. Sie
+**überlappen absichtlich**, und der Prompt verbietet ausdrücklich, sie zu
+addieren. Die Monatsebene kommt aus `wellness_days` und nicht aus
+`ProfileHistory` — siehe „Drei Auflösungsebenen".
 
 **Trainings- und Fitnessdaten kommen aus Garmin Connect — und nur von dort.**
 Wer ein Konto verbindet, trägt nichts mehr von Hand nach: Trainings, Schlaf,
@@ -99,16 +108,18 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
   Werte kommen inzwischen ausschließlich aus Garmin, die Formulare sind
   entfallen — siehe „Garmin ist die einzige Quelle".
 - Immer die letzten 4 Wochen plus die Wunschdaten steuern die nächste Planung.
+  **Erweitert:** Es sind inzwischen drei Auflösungsebenen bis ein Jahr zurück —
+  siehe „Drei Auflösungsebenen".
 - Geplant wird jeweils nur der nächste kurze Block (Nachforderung, ersetzt den
   ursprünglichen Vier-Wochen-Plan). Ein aktiver Plan kann per Knopfdruck um
   beliebig viele weitere Blöcke verlängert werden — die Auswertung bezieht sich
-  immer auf die letzten 4 Wochen, unabhängig davon, wie lange der Block reicht.
+  auf den Rückblick, unabhängig davon, wie lange der Block reicht.
 
 ## Starten und Testen
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 655 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 663 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -173,9 +184,9 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   `routers/plans.py`, `routers/questionnaire.py`.*
 - [docs/ki-und-prompt.md](docs/ki-und-prompt.md) — warum der Prompt die
   Trainingslehre **nicht** vorgibt, erfundene Schwelle gegen gemessene Grenze,
-  die fünf handwerklichen Vorgaben, `RESPONSE_SCHEMA`, Tabellen statt
-  wiederholter Schlüssel, Claude Code als Unterprozess, Jobs und Schloss,
-  wöchentliche Planung, Tokenablage.
+  die drei Auflösungsebenen der Historie, die fünf handwerklichen Vorgaben,
+  `RESPONSE_SCHEMA`, Tabellen statt wiederholter Schlüssel, Claude Code als
+  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten

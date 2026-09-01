@@ -127,6 +127,19 @@ pro Tag, nicht pro Anfrage. Alles ist ein Upsert über `(user_id, date)` bzw.
 `(user_id, garmin_activity_id)`, damit ein zweiter Lauf nichts verdoppelt und
 ein Wiederaufsetzen nach einer Sperre folgenlos bleibt.
 
+**Was das für den Jahresverlauf im Export heißt.** Seit die Trainingshistorie in
+drei Auflösungen ins Paket geht (siehe „Drei Auflösungsebenen" in
+[ki-und-prompt.md](ki-und-prompt.md)), speist sich die gröbste Ebene —
+`athlet.verlauf`, ein Stützpunkt je Monat über zwölf Monate — aus
+`wellness_days`. Sie kann deshalb nur führen, was die **Bereichs**abfragen
+liefern: Gewicht, Ruhepuls, HRV, Schlaf und VO2max. Trainingsreife,
+Trainingsstatus, Stress, Schlafscore und Garmins ACWR stammen aus der
+Tagesschleife und existieren daher nur für die letzten 42 Tage — an einem
+gewachsenen Konto beginnen sie schlicht an dem Tag, an dem die App zum ersten
+Mal abgeglichen hat. Sie stehen bewusst **nicht** im Monatsverlauf: Eine Spalte,
+die für zehn von zwölf Monaten leer ist, stiftet mehr Verwirrung als Nutzen. Für
+die Gegenwart steht dieselbe Größe unverändert im `fitnessdaten`-Block.
+
 **Die Bereichsantwort benennt dieselben Größen anders als die Tagesantwort** —
 und das hat zwei Spalten jahrelang leer gelassen. Beides am echten Konto
 nachgesehen und die Nachbildung darauf gezogen:

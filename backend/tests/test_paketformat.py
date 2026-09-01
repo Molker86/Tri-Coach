@@ -40,6 +40,14 @@ def zerlege(text: str) -> dict:
     return gefunden
 
 
+def kopfzeile(text: str, pfad: str) -> list[str]:
+    """Die Spaltennamen einer Tabelle — für Aussagen über ihre Reihenfolge."""
+    for block in text.split("\n\n"):
+        if block.startswith(f"### {pfad}\n") or block.startswith(f"### {pfad} ("):
+            return block.split("\n")[1].split(";")
+    raise AssertionError(f"Tabelle {pfad} fehlt")
+
+
 def konstanten(text: str, pfad: str) -> dict[str, str]:
     """Die Werte, die aus der Tabelle in ihre Überschrift gewandert sind."""
     for zeile in text.split("\n"):
@@ -105,6 +113,7 @@ def paket() -> dict:
                     "leistung_watt": None,
                     "notiz": "Rolle; ruhig, \"locker\" gehalten",
                     "zeit_in_hf_zonen_min": {"z1": 10, "z2": 45},
+                    "effizienz": 1.016,
                     "absolvierte_abschnitte": [
                         {"art": "aufwaermen", "anzahl": 1, "dauer_min": 10},
                         {"art": "belastung", "anzahl": 3, "dauer_min": 8},
@@ -117,6 +126,8 @@ def paket() -> dict:
                     "dauer_min": 20,
                     "leistung_watt": None,
                     "notiz": "Zirkel\nzweite Zeile",
+                    # z5 taucht erst hier auf — die erste Einheit kennt es nicht.
+                    "zeit_in_hf_zonen_min": {"z5": 6},
                     "absolvierte_uebungen": [
                         {"uebung": "SQUAT", "saetze": 3, "wiederholungen": 8},
                     ],
@@ -193,10 +204,24 @@ def test_das_paket_bleibt_unberuehrt(paket):
 
 
 def test_null_felder_stehen_als_leere_zelle(paket):
-    """Kein `"leistung_watt":null` mehr — die leere Zelle sagt dasselbe."""
+    """Kein `"gewicht_kg":null` mehr — die leere Zelle sagt dasselbe."""
     text = paket_als_text(paket)
     assert "null" not in text
-    assert "leistung_watt" in text  # die Spalte bleibt, nur der Wert fehlt
+    # Eine Spalte, die *irgendwo* einen Wert trägt, bleibt vollständig stehen:
+    # Sonst hinge die Spaltenreihenfolge daran, welche Zeile zufällig belegt ist.
+    tage = zerlege(text)["fitnessdaten.tage"]
+    assert [zeile["gewicht_kg"] for zeile in tage] == ["", "89.4"]
+
+
+def test_durchweg_leere_spalten_fallen_ganz_weg(paket):
+    """`leistung_watt` steht an jeder Einheit im Payload und ist bei einem
+    Athleten ohne Leistungsmesser in jeder Zeile leer — dann sagt die Spalte
+    nichts, was ihr Fehlen nicht auch sagte."""
+    text = paket_als_text(paket)
+    assert "leistung_watt" not in text
+    # Aber nur, weil *keine* Zeile sie trägt.
+    paket["trainingshistorie"]["einheiten"][0]["leistung_watt"] = 210
+    assert "leistung_watt" in paket_als_text(paket)
 
 
 def test_konstante_spalten_wandern_in_die_ueberschrift(paket):
@@ -237,6 +262,24 @@ def test_verschachteltes_wird_zur_eigenen_tabelle(paket):
     assert gelesen["trainingshistorie.einheiten"][0]["nr"] == "1"
     assert {z["nr"] for z in gelesen["trainingshistorie.einheiten.absolvierte_uebungen"]} == {"2"}
     assert "Eine Spalte \"nr\" verweist" in text
+
+
+def test_aufgefaecherte_spalten_bleiben_beieinander(paket):
+    """z5 gehört zu z1–z4, nicht ans Ende der Tabelle.
+
+    Aufgefächert wurde je Zeile, geordnet wird nach erstem Auftreten: Trug die
+    erste Einheit nur z1–z4, stand `zeit_in_hf_zonen_min.z5` hinter allem, was
+    in der ersten Zeile danach kam — hier hinter `effizienz`. Über fünfzig
+    Zeilen ist das genau die Zuordnung, die verloren gehen soll.
+    """
+    text = paket_als_text(paket)
+    kopf = kopfzeile(text, "trainingshistorie.einheiten")
+
+    zonen = [i for i, name in enumerate(kopf) if name.startswith("zeit_in_hf_zonen_min.")]
+    assert len(zonen) == 3, kopf  # z1, z2, z5
+    assert zonen == list(range(zonen[0], zonen[0] + 3)), kopf
+    # Und die späte Zone steht bei ihren Geschwistern, nicht hinter `effizienz`.
+    assert kopf.index("zeit_in_hf_zonen_min.z5") < kopf.index("effizienz"), kopf
 
 
 def test_der_bezugssatz_fehlt_ohne_bezugstabelle():

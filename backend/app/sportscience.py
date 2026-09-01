@@ -363,7 +363,9 @@ def effizienz_je_einheit(log: Any) -> float | None:
     return round((strecke * 1000 / dauer) / hf, 3)
 
 
-def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
+def weekly_summary(
+    logs: list[Any], weeks: int = 4, *, by_sport_ab: date | None = None
+) -> list[dict[str, Any]]:
     """Aggregiert die Logs kalenderwochenweise über das ganze Rückblickfenster.
 
     Kalenderwochen, weil der Athlet in ihnen denkt ("letzte Woche war viel").
@@ -380,6 +382,11 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
     Rückblickfenster. Ohne die Markierung liest ein Sprachmodell die halbe
     laufende Woche als Wocheneinbruch — und genau darauf zielt die Aufbauregel
     des Prompts, wenn sie "gegenüber der letzten Woche" sagt.
+
+    `by_sport_ab` begrenzt die Sportartaufschlüsselung auf Wochen ab diesem
+    Montag. Sie wird im Prompt als eigene Tabelle ausgerollt und kostet damit
+    zwei bis drei Zeilen je Woche — über ein halbes Jahr mehr, als sie trägt.
+    Ohne Angabe steht sie wie bisher an jeder Woche; das Dashboard ruft so auf.
     """
     today = date.today()
     current_monday = today - timedelta(days=today.weekday())
@@ -392,8 +399,12 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
         end = start + timedelta(days=6)
         in_week = [lg for lg in logs if start <= lg.date <= end]
 
+        # Ob diese Woche die Sportartaufschlüsselung trägt. Vor der Schleife
+        # entschieden: Sie wäre sonst für zwanzig Wochen umsonst gerechnet.
+        mit_by_sport = by_sport_ab is None or start >= by_sport_ab
+
         by_sport: dict[str, dict[str, Any]] = {}
-        for lg in in_week:
+        for lg in in_week if mit_by_sport else ():
             entry = by_sport.setdefault(
                 lg.sport,
                 {"sessions": 0, "minutes": 0, "km": 0.0, "laengste": 0, "last": 0.0, "ef": []},
@@ -447,7 +458,13 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
             "total_srpe_load": round(sum(loads), 0) if loads else None,
             "total_garmin_load": round(sum(garmin_loads), 0) if garmin_loads else None,
             "skipped": len([lg for lg in in_week if lg.status == "skipped"]),
-            "by_sport": {
+        }
+
+        # Der Schlüssel fehlt ganz, wo die Woche ihn nicht trägt — ein leeres
+        # Dict stünde sonst als Behauptung da, in dieser Woche sei nach
+        # Sportarten nichts gelaufen.
+        if mit_by_sport:
+            eintrag["by_sport"] = {
                 k: {
                     "sessions": v["sessions"],
                     "minutes": v["minutes"],
@@ -461,8 +478,7 @@ def weekly_summary(logs: list[Any], weeks: int = 4) -> list[dict[str, Any]]:
                     ),
                 }
                 for k, v in by_sport.items()
-            },
-        }
+            }
 
         # Die Zonenzeiten der ganzen Woche. Sie stehen je Einheit schon im
         # Export — hier summiert, weil die Verteilung über die Woche eine
@@ -533,64 +549,174 @@ def acute_chronic_ratio(
 
 
 # --------------------------------------------------------------------------
-# Der Langzeitverlauf
+# Der Langzeitverlauf — Ebene 3
 #
-# `ProfileHistory` führt Gewicht, Ruhepuls, HRV, VO2max, Maximalpuls und FTP
-# über Monate — und ging bis hierher nie in den Export. Vier Wochen zeigen die
-# Belastung, nicht die Richtung: Ob die VO2max seit dem Frühjahr steigt oder
-# fällt, ist aus dem Rückblickfenster grundsätzlich nicht abzulesen, und ein
-# einzelner Tageswert im `athlet`-Block sagt es erst recht nicht.
+# Sechs Wochen zeigen die Belastung, nicht die Richtung: Ob die VO2max seit dem
+# Frühjahr steigt oder fällt, ist aus dem Rückblickfenster grundsätzlich nicht
+# abzulesen, und ein einzelner Tageswert im `athlet`-Block sagt es erst recht
+# nicht.
+#
+# **Die Quelle ist `WellnessDay`, nicht `ProfileHistory`.** Naheliegend wäre die
+# zweite: Sie führt genau die sechs Größen, um die es geht. Sie entsteht aber
+# ereignisgetrieben — `profile_sync` schreibt nur bei einer Änderung über einer
+# Schwelle, und das erst, seit es diese App gibt. In der Praxis stehen dort ein
+# paar Zeilen aus den letzten Wochen, und ein Jahresverlauf daraus wäre für
+# elf von zwölf Monaten leer. `WellnessDay` dagegen ist ein lückenloses
+# Tagesraster über das ganze Backfill-Jahr.
+#
+# Aus ihr kommt der **Monatsmittelwert**, nicht der jüngste Tageswert des
+# Monats: Ein einzelner Ruhepuls- oder HRV-Tag ist Rauschen, und genau das
+# soll die Ebene nicht zeigen. Nur FTP und Maximalpuls stehen nicht im
+# Tagesraster; sie bleiben bei `ProfileHistory` und damit meist leer — die
+# Spalte fällt dann im Prompt von selbst weg.
 # --------------------------------------------------------------------------
 
-_VERLAUFSFELDER = ("weight_kg", "resting_hr", "hrv_rmssd", "vo2max", "max_hr", "ftp_watts")
-
-_VERLAUF_BENENNUNG = {
-    "weight_kg": "gewicht_kg",
-    "resting_hr": "ruhepuls",
-    "hrv_rmssd": "hrv_ms",
-    "vo2max": "vo2max",
-    "max_hr": "maximalpuls",
-    "ftp_watts": "ftp_watt",
+# Die Größen aus dem Tagesraster: Ausgabename -> (Feld, Teiler).
+_MONATSWERTE = {
+    "gewicht_kg": ("weight_kg", 1),
+    "ruhepuls": ("resting_hr", 1),
+    "hrv_ms": ("hrv_last_night_ms", 1),
+    "schlaf_h": ("sleep_seconds", 3600),
 }
 
+# Was `ProfileHistory` als Einziges beitragen kann. Beides misst Garmin nicht
+# täglich, beides ändert sich selten — hier gilt deshalb der jüngste belegte
+# Wert des Monats, nicht ein Mittel.
+_MONATS_PROFILFELDER = {"ftp_watts": "ftp_watt", "max_hr": "maximalpuls"}
 
-def verlauf_stuetzpunkte(
-    history: list[Any], heute: date | None = None, monate: int = 12
+
+def _monatsgrenze(heute: date, monate: int) -> tuple[int, int]:
+    """Die Untergrenze als (Jahr, Monat) — monatsgenau, nicht über 365 Tage."""
+    versatz = heute.year * 12 + heute.month - monate
+    return (versatz // 12, versatz % 12 + 1)
+
+
+def monatsverlauf(
+    wellness: list[Any],
+    logs: list[Any],
+    history: list[Any] | None = None,
+    heute: date | None = None,
+    monate: int = 12,
 ) -> list[dict[str, Any]]:
-    """Den Profilverlauf auf einen Stützpunkt je Kalendermonat ausdünnen.
+    """Ein Stützpunkt je Kalendermonat: Körperwerte neben Trainingsumfang.
 
-    Ungefiltert wäre das kein Verlauf, sondern eine Flut: `profile_sync`
-    schreibt bei **jeder** Wertänderung eine Zeile, und der tägliche Abgleich
-    ändert Gewicht, Ruhepuls oder HRV fast jeden Tag. Ein Jahr stünde mit
-    dreihundert Zeilen im Prompt und verdrängte die Historie.
+    Beides in **einer** Tabelle und nicht in zweien, weil erst der Zusammenhang
+    die Ebene trägt: Ein Monat mit halbem Umfang neben einem steigenden
+    Ruhepuls erzählt etwas, das keine der beiden Reihen für sich hergibt.
 
-    Je Monat und Feld gilt der jüngste belegte Wert. Felder werden **einzeln**
-    übernommen, nicht zeilenweise: Eine Zeile, die nur das Gewicht trug, würde
-    sonst den VO2max-Wert desselben Monats verschweigen.
+    `effizienz_je_sportart` ist dabei die eigentliche Fortschrittskennzahl.
+    VO2max wäre die naheliegende, ist aber dünn — Garmin schätzt sie nur bei
+    passenden Aktivitäten, in der Praxis an jedem zehnten Tag. Tempo bzw.
+    Leistung je Herzschlag lässt sich dagegen aus fast jeder Einheit mit Puls
+    und Distanz rechnen und trennt "langsamer geworden" von "müder geworden".
+
+    Monate ohne jeden Wert fallen heraus, nicht nur Monate ohne Training: Ein
+    Monat vor dem ersten Abgleich stünde sonst als Nullzeile da und läse sich
+    wie eine Trainingspause.
     """
     heute = heute or date.today()
-    # Monatsgenau zurückrechnen, ohne dateutil: 12 Monate zurück heißt
-    # derselbe Monat im Vorjahr, nicht 365 Tage.
-    versatz = heute.year * 12 + heute.month - monate
-    grenze = (versatz // 12, versatz % 12 + 1)
+    grenze = _monatsgrenze(heute, monate)
 
     monatlich: dict[tuple[int, int], dict[str, Any]] = {}
-    for eintrag in sorted(history, key=lambda e: e.recorded_at):
-        stand = eintrag.recorded_at.date()
-        schluessel = (stand.year, stand.month)
-        if schluessel < grenze:
-            continue
-        ziel = monatlich.setdefault(schluessel, {})
-        for feld in _VERLAUFSFELDER:
-            wert = getattr(eintrag, feld, None)
-            if wert is not None:
-                ziel[_VERLAUF_BENENNUNG[feld]] = wert
 
-    return [
-        {"monat": f"{jahr:04d}-{monat:02d}", **werte}
-        for (jahr, monat), werte in sorted(monatlich.items())
-        if werte
-    ]
+    def monat(tag: date) -> dict[str, Any] | None:
+        schluessel = (tag.year, tag.month)
+        if schluessel < grenze or schluessel > (heute.year, heute.month):
+            return None
+        return monatlich.setdefault(schluessel, {"werte": {}, "logs": []})
+
+    for tag in wellness:
+        if (ziel := monat(tag.date)) is None:
+            continue
+        for name, (feld, teiler) in _MONATSWERTE.items():
+            if (wert := getattr(tag, feld, None)) is not None:
+                ziel["werte"].setdefault(name, []).append(wert / teiler)
+        # VO2max kommt aus zwei Feldern. Laufen hat Vorrang: Es ist der Wert,
+        # den Garmin häufiger schätzt und den der `athlet`-Block ebenfalls führt.
+        for feld in ("vo2max_run", "vo2max_bike"):
+            if (wert := getattr(tag, feld, None)) is not None:
+                ziel["werte"].setdefault("vo2max", []).append(wert)
+                break
+
+    for lg in logs:
+        if (ziel := monat(lg.date)) is None:
+            continue
+        ziel["logs"].append(lg)
+
+    # FTP und Maximalpuls: jüngster belegter Wert des Monats. Sortiert, damit
+    # "jüngster" auch bei ungeordneter Eingabe stimmt.
+    for eintrag in sorted(history or [], key=lambda e: e.recorded_at):
+        if (ziel := monat(eintrag.recorded_at.date())) is None:
+            continue
+        for feld, name in _MONATS_PROFILFELDER.items():
+            if (wert := getattr(eintrag, feld, None)) is not None:
+                ziel["werte"][name] = wert
+
+    # Die Sportarten des ganzen Jahres, die umfangreichste zuerst. Sie geben die
+    # Spaltenreihenfolge vor und stehen an **jedem** Monat, auch wo nichts
+    # anliegt: `paket_als_text` fächert das Dict je Zeile auf und ordnet die
+    # Spalten nach ihrem ersten Auftreten — ohne feste Reihenfolge stünde die
+    # eine Schwimmstunde des Oktobers vor dem Radumfang des ganzen Jahres, und
+    # die Sportartspalten lägen zwischen Gewicht und VO2max verstreut.
+    gesamt: dict[str, int] = {}
+    for inhalt in monatlich.values():
+        for lg in inhalt["logs"]:
+            gesamt[lg.sport] = gesamt.get(lg.sport, 0) + (lg.duration_min or 0)
+    sportarten = sorted(gesamt, key=lambda sport: -gesamt[sport])
+
+    zeilen: list[dict[str, Any]] = []
+    for (jahr, nr), inhalt in sorted(monatlich.items()):
+        einheiten = inhalt["logs"]
+
+        stunden: dict[str, float] = {}
+        effizienz: dict[str, list[float]] = {}
+        for lg in einheiten:
+            stunden[lg.sport] = stunden.get(lg.sport, 0.0) + (lg.duration_min or 0)
+            if (ef := effizienz_je_einheit(lg)) is not None:
+                effizienz.setdefault(lg.sport, []).append(ef)
+
+        def mittel(name: str) -> float | None:
+            werte = inhalt["werte"].get(name)
+            return round(statistics.fmean(werte), 1) if werte else None
+
+        # Feste Schlüsselreihenfolge, `None` eingeschlossen: Eine Spalte, die
+        # in **keinem** Monat etwas trägt, streicht `paket_als_text` ohnehin.
+        zeile: dict[str, Any] = {
+            "monat": f"{jahr:04d}-{nr:02d}",
+            "gewicht_kg": mittel("gewicht_kg"),
+            "ruhepuls": mittel("ruhepuls"),
+            "hrv_ms": mittel("hrv_ms"),
+            "vo2max": mittel("vo2max"),
+            "schlaf_h": mittel("schlaf_h"),
+            **{
+                name: inhalt["werte"].get(name)
+                for name in _MONATS_PROFILFELDER.values()
+            },
+            "sessions": len(einheiten),
+            "stunden": round(sum(lg.duration_min or 0 for lg in einheiten) / 60, 1),
+        }
+        if sportarten:
+            zeile["stunden_je_sportart"] = {
+                sport: round(stunden[sport] / 60, 1) if sport in stunden else None
+                for sport in sportarten
+            }
+            zeile["effizienz_je_sportart"] = {
+                sport: round(statistics.fmean(effizienz[sport]), 3)
+                if sport in effizienz
+                else None
+                for sport in sportarten
+            }
+
+        # Ein Monat ganz ohne Daten fällt heraus: Eine Zeile aus Nullen und
+        # leeren Zellen läse sich wie eine Trainingspause, und das wäre eine
+        # Behauptung über einen Monat, von dem nichts bekannt ist.
+        if einheiten or any(
+            zeile[name] is not None
+            for name in ("gewicht_kg", "ruhepuls", "hrv_ms", "vo2max", "schlaf_h")
+        ):
+            zeilen.append(zeile)
+
+    return zeilen
 
 
 # --------------------------------------------------------------------------
