@@ -204,7 +204,13 @@ function GarminKarte(props: {
 }) {
   const konto = props.zustand?.konto ?? null
   const kiEinstellungen = props.ki?.einstellungen ?? null
-  const kiZugang = kiEinstellungen?.token_status === 'hinterlegt'
+  // `verfuegbar` statt `token_status`: Ein Zugang muss nicht in der Datenbank
+  // liegen. Im Add-on kommt er als `CLAUDE_CODE_OAUTH_TOKEN` aus den Optionen,
+  // lokal aus der angemeldeten CLI — in beiden Fällen steht `token_status` auf
+  // „fehlt", und der Haken war dauerhaft gesperrt, obwohl die App längst selbst
+  // planen konnte. Das Backend fragt an derselben Stelle dasselbe
+  // (`ki/tagesform._passe_an` über `ist_angemeldet`).
+  const kiZugang = props.ki?.verfuegbar ?? false
 
   return (
     <div className="card">
@@ -319,7 +325,7 @@ function GarminKarte(props: {
                 hebt es an oder lässt es stehen. Der Tag und die Sportart bleiben;
                 aus einem Ruhetag wird nie Training.{' '}
                 {!kiZugang
-                  ? 'Dafür fehlt noch ein Claude-Zugang — siehe unten.'
+                  ? 'Dafür fehlt noch ein nutzbarer Claude-Zugang — siehe unten.'
                   : !konto.auto_sync_enabled
                     ? 'Dafür muss der tägliche Abgleich eingeschaltet sein.'
                     : 'Kostet einen Lauf aus deinem Claude-Kontingent pro Tag.'}
