@@ -626,6 +626,90 @@ Konfiguration, und **genau ein** `asyncio.create_task` in `main.py` — eine
 Weckschleife, die wieder einzöge, fiele sonst erst am aufgebrauchten Kontingent
 auf, und dann an einem Tag ohne Plan.
 
+**Die Tagesanpassung hängt am Abgleich, und zwar mit Absicht**
+(`ki/tagesform.py`, `KiSettings.auto_tagesform_enabled`). Ein Block deckt sieben
+Tage ab; was auf Tag 4 liegt, wurde vier Tage vorher entschieden — auf einer
+Erholungslage, die es an diesem Morgen noch gar nicht gab. Gleichzeitig holt der
+tägliche Abgleich genau die Werte, an denen das hängt, und bis zum nächsten
+Sonntag liest sie niemand. Der Schalter schließt die Lücke: Ist der Abgleich
+durch, wird geprüft, ob die Einheiten von heute noch zum heutigen Tag passen.
+
+**Zwei Absätze weiter oben steht das Gegenteil, und beides stimmt.** Die
+*Planung* wurde vom Abgleich gelöst, weil sie nichts von ihm braucht — ihn
+abzuwarten kostete sie ihre eigene Uhrzeit. Hier ist der Abgleich der ganze
+Gegenstand: Vor ihm gäbe es nichts zu entscheiden, und eine eigene Uhrzeit liefe
+seinen Werten entweder hinterher oder voraus. Der Anstoß steht deshalb wieder in
+`garmin/runner._fuehre_aus` — aber **außerhalb** des Schlosses, denn am Ende
+schiebt der Lauf geänderte Einheiten nach Garmin und liefe sonst in ein Schloss,
+das der Abgleich selbst noch hält. Und nur nach `kind == "auto"`: Wer abends
+„Jetzt abgleichen" drückt, will seine Historie sehen, nicht seine Einheit
+umgeschrieben bekommen. Dass der Lauf **erfolgreich** war, wird nicht
+durchgereicht, sondern an `konto.last_sync_at` abgelesen — den setzt nur ein
+geglückter Abgleich, und dieselbe Frage („sind die Daten von heute da?")
+beantwortet damit denselben Ausdruck.
+
+**Ein vierter Jobtyp, kein aufgebohrter dritter.** Naheliegend wäre gewesen,
+`kind="einheit"` mit einem erfundenen Wunsch zu starten — zehn Zeilen. Aber der
+Einheitsprompt ist ganz um „Sein Wunsch, im Wortlaut" herum gebaut und räumt ihm
+ausdrücklich Vorrang vor der Trainingslehre ein. Einen Wunsch zu erfinden hieße,
+dem Modell an genau der Stelle etwas vorzuschreiben, an der es selbst entscheiden
+soll, und es bekäme einen Auftrag zu *ändern*, wo der Auftrag lautet:
+nachzusehen, ob zu ändern ist. `_lauf` hat seither **vier** Zweige, und der
+Auffangfall ist weiterhin die Blockplanung.
+
+**Unverändert ist der Regelfall, und der Prompt sagt es als Erstes.** Ein Modell,
+das gefragt wird, ob etwas zu ändern ist, ändert etwas. Der Absatz steht deshalb
+vor den Prinzipien und nennt „alles bleibt" ausdrücklich eine **vollständige**
+Antwort — samt der Bitte, auch dann zu sagen, woran es festgemacht ist.
+Schwellenzahlen stehen keine darin: Gelesen wird der Tageswert gegen die an
+diesem Athleten **gemessene** Grenze (`hrv_normalbereich_ms`,
+`training_status.lastfenster`), genau wie beim Block. Technisch trägt das
+`unveraendert: true` je Eintrag — die Zeile wird dann gar nicht erst angefasst,
+und `angepasst_am` bleibt leer.
+
+**Der ganze Tag, nicht eine Einheit.** Ein Tag kann mehrere tragen, und sie
+hängen zusammen: Wer den harten Lauf zurücknimmt, entscheidet damit auch über die
+Mobility daneben. Ein Lauf je Einheit hätte beides nicht gewusst und zwei bis
+drei Opus-Läufe an einem Morgen gekostet. Zugeordnet wird über die `nr` aus
+`tagesform.einheiten_heute` und **nicht** über die Position in der Liste: Lässt
+das Modell eine Einheit aus, landete die Anpassung der einen sonst auf der
+anderen, ohne dass irgendwo etwas fehlschlüge.
+
+**Die Riegel stehen alle in `ist_faellig()`, und jeder aus eigenem Grund.** Der
+Schalter muss stehen; der Abgleich muss heute durch sein; einmal am Tag reicht
+(der Merker wird **vor** dem Start gesetzt, wie bei der Planung); und **am
+Planungstag setzt sie aus** — der frische Block entsteht ohnehin aus denselben
+Werten, beides an einem Morgen zahlte zwei Läufe, von denen einer verworfen wird.
+Geprüft wird das in beide Richtungen: schon gelaufen und heute noch fällig.
+Daneben, in `_passe_an()`: kein Lauf ohne planbare Einheit von heute (ein Ruhetag
+ist eine Entscheidung des Blocks über die Woche, kein Mangel an Lust) und keiner,
+wenn heute schon **von Hand** angepasst wurde — wer der App gerade gesagt hat,
+was er will, bekommt es nicht Stunden später überschrieben. In beiden Fällen
+bleibt der Merker aus: Es ist nichts geschehen, was ein zweites Mal geschähe.
+
+**Und ein Ausstieg, bevor es Kontingent kostet.** Trägt der Payload keinen
+`fitnessdaten`-Block, endet der Lauf als `done` mit einem Satz dazu — ohne einen
+einzigen Aufruf gegen Claude. Der Prompt fragt nach den Werten von heute; ohne
+sie bliebe eine Aufgabe ohne Gegenstand übrig, und die Antwort darauf wäre
+geraten.
+
+**Die Begründung muss die Nacht überleben** (`PlanSession.anpassungsbegruendung`).
+Bei der Anpassung von Hand steht sie in der Meldung des Jobs, und das reichte,
+weil der Athlet daneben stand. Hier ist der Lauf um sechs Uhr früh vorbei, bevor
+jemand die App öffnet, und die Meldung eines abgeschlossenen Jobs rutscht aus der
+Liste — eine Einheit, die ohne sichtbaren Grund anders aussieht als gestern
+Abend, wäre der schlechteste aller Zustände. Die Spalte hebt nebenbei auch die
+Einzelanpassung, wo der Grund bisher mit dem Wegklicken verschwand.
+
+**`anpassungswunsch` bleibt dabei leer, und das ist die Unterscheidung.** Dort
+einen Satz wie „Automatisch angepasst" abzulegen wäre bequem gewesen; die
+Ansicht liest das Feld aber als Wunsch („auf den Wunsch ‚automatisch
+angepasst'"), und ein Feld, das mal eine Bitte und mal eine Erklärung trägt, ist
+keins mehr. Leer heißt jetzt genau eines: Diese Anpassung ging von Messwerten
+aus, nicht von einer Bitte. Beides reist als `frueherer_anpassungswunsch` bzw.
+`frueherer_anpassungsgrund` in den nächsten Lauf, damit der die bereits
+angepasste Einheit nicht für die ursprüngliche Planung hält.
+
 **Der Zugang steht in der App, verschlüsselt** (`KiSettings.token_encrypted`,
 `client.token_aus`). Er kam einmal ausschließlich aus den Add-on-Optionen —
 dafür musste man die App verlassen, ihn in Home Assistant eintragen und das

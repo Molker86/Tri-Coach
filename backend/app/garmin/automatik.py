@@ -47,7 +47,7 @@ from ..models import (
     Plan,
     PlanSession,
 )
-from ..zeit import als_utc, liegt_in_der_zukunft
+from ..zeit import liegt_in_der_zukunft, ortsdatum
 from . import uebertragung, workouts
 from .errors import GarminFehler, GarminNichtVerbunden
 from .runner import runner
@@ -115,7 +115,7 @@ def starte_faellige_syncs(jetzt: datetime | None = None) -> int:
             # Rechner folgenlos, und anders geht „je Nutzer eine Stunde" nicht.
             if (jetzt.hour, jetzt.minute) < _abgleichzeit(konto):
                 continue
-            if konto.last_sync_at is not None and _als_datum(konto.last_sync_at) >= heute:
+            if konto.last_sync_at is not None and ortsdatum(konto.last_sync_at) >= heute:
                 continue
             if liegt_in_der_zukunft(konto.rate_limited_until):
                 continue
@@ -182,16 +182,6 @@ def _abgleichzeit(konto: GarminAccount) -> tuple[int, int]:
     stunde = konto.sync_hour if konto.sync_hour is not None else GARMIN_SYNC_HOUR
     minute = konto.sync_minute if konto.sync_minute is not None else 0
     return stunde, minute
-
-
-def _als_datum(zeitpunkt: datetime) -> date:
-    """Das **Ortszeit**-Datum eines Zeitstempels aus der Datenbank.
-
-    `last_sync_at` wird in UTC geschrieben, verglichen wird gegen das lokale
-    `date.today()`. Ohne die Umrechnung fiel ein Lauf kurz nach Mitternacht
-    Ortszeit als „gestern" in die Datenbank, und die Tagessperre griff nicht.
-    """
-    return als_utc(zeitpunkt).astimezone().date()
 
 
 # --------------------------------------------------------------------------

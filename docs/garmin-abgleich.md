@@ -230,7 +230,7 @@ Rechner unmessbar.
 wird gegen das lokale `date.today()`. Ungerechnet fiel ein Lauf kurz nach
 Mitternacht Ortszeit als „gestern" in die Datenbank, und die Sperre griff nicht
 — bei einer Abgleichstunde am Vormittag folgenlos, bei einer nachts nicht.
-`_als_datum()` geht deshalb über `zeit.als_utc()` und `astimezone()`.
+`zeit.ortsdatum()` geht deshalb über `als_utc()` und `astimezone()` — die Funktion hieß einmal `_als_datum` und lag hier; sie steht in `zeit.py`, seit die Tagesanpassung dieselbe Frage stellt.
 
 **Die Automatik wählt `status != "token_expired"`, nicht `== "connected"`.**
 Das ist der stillste Defekt, den die Mehrbenutzer-Durchsicht zutage gefördert
@@ -244,6 +244,26 @@ was wirklich eine Hand verlangt: ein abgelaufenes Token. Eine Anfragesperre
 deckt `rate_limited_until` weiterhin gesondert ab, und der Tagesriegel über
 `last_sync_at` verhindert, dass ein dauerhaft kaputtes Konto minütlich
 weiterprobiert.
+
+**Was am Ende eines automatischen Laufs noch angestoßen wird**
+(`runner._fuehre_aus`). An dieser Stelle hing einmal die automatische Planung;
+sie ist an ihre eigene Uhrzeit gezogen und nicht zurückgekommen. Die
+**Tagesanpassung** steht seither dort — und das ist kein Rückfall in dieselbe
+Bauart, sondern der umgekehrte Fall: Ihr ganzer Gegenstand sind die Werte, die
+dieser Lauf gerade geholt hat, und eine eigene Uhrzeit liefe ihnen entweder
+hinterher oder voraus. Drei Dinge daran sind nicht beliebig. Sie steht
+**außerhalb** des Schlosses, weil sie am Ende geänderte Einheiten nach Garmin
+schiebt und im Schloss gegen den Abgleich liefe, der es noch hält. Sie greift nur
+bei `kind == "auto"`, weil ein Abgleich von Hand eine andere Frage beantwortet.
+Und ob der Lauf **geglückt** ist, wird nicht durchgereicht, sondern drüben an
+`konto.last_sync_at` abgelesen — den setzt nur ein erfolgreicher Lauf, und
+dieselbe Bedingung beantwortet damit auch „sind die Daten von heute überhaupt
+da?". Der Rest steht unter „Die Tagesanpassung hängt am Abgleich" in
+[ki-und-prompt.md](ki-und-prompt.md).
+
+Nebenbei ist dabei `_als_datum()` nach `zeit.ortsdatum()` gewandert: Der
+Tagesriegel des Abgleichs und der der Tagesanpassung stellen dieselbe Frage, und
+zwei Kopien derselben Umrechnung laufen beim ersten Sonderfall auseinander.
 
 **Der Abgleich läuft in einem eigenen Thread** (`runner.py`), nicht in
 `BackgroundTasks`: Er dauert Minuten und muss abfragbar, abbrechbar und nach

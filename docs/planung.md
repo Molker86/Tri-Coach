@@ -302,6 +302,37 @@ Lauf im `KiRunner` (`kind = "einheit"`, dieselben Zustände, derselbe Abbruch),
 benutzen dieselben zwei Funktionen — `test_der_handweg_liefert_denselben_prompt`
 vergleicht die erzeugten Texte Zeichen für Zeichen, damit sie es bleiben.
 
+**Der Tag ist die zweite Einheit der Anpassung** (`ai_export._tagesform_block`,
+`plan_import.uebernimm_tagesform`, `ki/tagesform.py`). Neben „Block neu planen"
+und „diese Einheit anpassen" steht seither das Nachschärfen des heutigen Tages —
+ohne Wunsch, ausgelöst vom Abgleich, sobald die Werte des Morgens da sind. Warum
+das am Abgleich hängt und warum es ein eigener Prompt ist, steht unter „Die
+Tagesanpassung hängt am Abgleich" in [ki-und-prompt.md](ki-und-prompt.md); hier
+zählt, was es mit dem Plan macht.
+
+**Angefasst wird derselbe Satz Zeilen wie bei der Einzelanpassung, nur mehrere.**
+`_schreibe_einheit()` ist dafür aus `uebernimm_einheit` herausgezogen — zwei
+Kopien liefen mit dem ersten neuen Feld auseinander, und dann trüge dieselbe
+Einheit je nach Weg einen anderen Aufbau. Es gelten dieselben Grenzen: `date` und
+`order_in_day` bleiben, `Plan.raw_json` bleibt das Original, und `GarminWorkoutLink`
+hält, weil die Zeile ihre Kennung behält.
+
+**Ruhetage bleiben Ruhetage, und die Sportart bleibt.** `anpassbare_einheiten()`
+lässt `sport == "rest"` und alles mit erfasstem Training gar nicht erst zu — die
+zwei Grenzen von `anpassbare_einheit`, dieselben Gründe. Ein Ruhetag ist eine
+Entscheidung des Blocks über die ganze Woche; ihn an einem guten Morgen zu
+Training zu machen unterliefe genau die Struktur, um derentwillen der Block
+geplant wurde. Umgekehrt darf aus einer Einheit sehr wohl Ruhe werden — und dann
+nimmt `uebertrage_geaenderte_einheit()` den Termin von der Uhr, aus demselben
+Grund wie bei der Einzelanpassung. Der **Sportartwechsel** ist hier anders als
+dort verboten: Bei der Einzelanpassung ist er die eine Ausnahme, weil der Athlet
+ausdrücklich darum bittet („lieber schwimmen"); hier bittet niemand um etwas, und
+von sich aus wechselt die KI die Sportart nie.
+
+**Übertragen wird nur, was sich geändert hat.** Was `unveraendert` blieb, liegt in
+Garmin schon richtig — es noch einmal hinzuschieben wären Anfragen ohne
+Gegenwert an einer Gegenstelle, deren Grenze an der Anfragedichte hängt.
+
 **Die gewählte Disziplin entscheidet, was im Block vorkommen darf**
 (`schemas.DISZIPLIN_SPORTARTEN`, `ai_export._prinzip_disziplin`,
 `_session_schema`). Der Fragebogen kennt vier Disziplinen — Laufen, Schwimmen,

@@ -319,3 +319,8 @@ def test_anmeldung_wird_am_programm_geprueft(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", _run_aus)
     assert ki_client.ist_angemeldet(erzwinge=True) is False
+
+    # Der Cache hängt am Modul und überlebt den Test. Ein dort abgelegtes
+    # „nicht angemeldet" beantwortete später die Frage anderer Tests — und zwar
+    # nur dann, wenn sie *nach* diesem laufen, also je nach Dateinamen.
+    ki_client._anmeldung_cache.clear()

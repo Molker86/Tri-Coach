@@ -9,6 +9,7 @@ sucht darin nach der Form des Plans, statt sich auf das erste zu verlassen.
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -30,6 +31,8 @@ from .schemas import (
     AIPlanImport,
     AISessionIn,
     AIStepIn,
+    AITagesformBody,
+    AITagesformImport,
 )
 from .zeit import jetzt_utc
 
@@ -1084,6 +1087,53 @@ def pruefe_einheit(body: AIEinheitBody) -> list[str]:
     return warnings
 
 
+def _schreibe_einheit(
+    session: PlanSession,
+    neu: AISessionIn,
+    wunsch: str | None,
+    begruendung: str | None,
+) -> None:
+    """Die neue Fassung in eine bestehende Planeinheit — für beide Anpassungen.
+
+    Steht für sich, weil zwei Aufgaben dieselbe Zeile überschreiben: die
+    Einzelanpassung auf Wunsch und die Tagesanpassung nach dem Abgleich. Zwei
+    Kopien liefen mit dem ersten neuen Feld auseinander, und dann trüge dieselbe
+    Einheit je nach Weg einen anderen Aufbau.
+
+    Nicht angetastet werden Datum, Reihenfolge und Zugehörigkeit: Der Tag steht
+    fest, und die Einheit bleibt an ihrem Platz im Block.
+    """
+    session.sport = neu.sport
+    session.session_type = neu.type
+    session.title = neu.title
+    session.description = neu.description
+    session.structure = neu.structure
+    session.purpose = neu.purpose
+    # Dieselbe Rechnung wie beim Block (siehe `_gerechnete_dauer`).
+    session.duration_min = _gerechnete_dauer(neu) or neu.duration_min
+    session.distance_km = neu.distance_km
+    session.intensity_zone = neu.intensity_zone
+    session.target_hr_low = neu.target_hr_low
+    session.target_hr_high = neu.target_hr_high
+    session.target_pace = neu.target_pace
+    session.target_power = neu.target_power
+    session.rpe_target = neu.rpe_target
+    session.swim_location = neu.swim_location
+    session.bike_location = neu.bike_location
+    session.steps_json = _schritte_json(neu)
+    session.angepasst_am = jetzt_utc()
+    # `None` bei der Tagesanpassung, und das ist der Unterschied, an dem die
+    # Ansicht die beiden Fälle auseinanderhält: Dort gab es keinen Wunsch,
+    # sondern Messwerte. „Auf den Wunsch ‚automatisch angepasst'" wäre ein Satz,
+    # der sich selbst widerspricht.
+    session.anpassungswunsch = wunsch
+    # Der Grund bleibt an der Einheit stehen. Bei der Anpassung von Hand steht
+    # er auch in der Meldung des Laufs, und das reichte, solange der Athlet
+    # daneben stand; die Tagesanpassung läuft dagegen morgens ab, und ihre
+    # Meldung liest niemand.
+    session.anpassungsbegruendung = begruendung
+
+
 @dataclass(slots=True)
 class EinheitUebernahme:
     session: PlanSession
@@ -1124,26 +1174,7 @@ def uebernimm_einheit(
     warnings = pruefe_einheit(body)
     neu = body.einheit
 
-    session.sport = neu.sport
-    session.session_type = neu.type
-    session.title = neu.title
-    session.description = neu.description
-    session.structure = neu.structure
-    session.purpose = neu.purpose
-    # Dieselbe Rechnung wie beim Block (siehe `_gerechnete_dauer`).
-    session.duration_min = _gerechnete_dauer(neu) or neu.duration_min
-    session.distance_km = neu.distance_km
-    session.intensity_zone = neu.intensity_zone
-    session.target_hr_low = neu.target_hr_low
-    session.target_hr_high = neu.target_hr_high
-    session.target_pace = neu.target_pace
-    session.target_power = neu.target_power
-    session.rpe_target = neu.rpe_target
-    session.swim_location = neu.swim_location
-    session.bike_location = neu.bike_location
-    session.steps_json = _schritte_json(neu)
-    session.angepasst_am = jetzt_utc()
-    session.anpassungswunsch = wunsch
+    _schreibe_einheit(session, neu, wunsch, body.begruendung)
 
     # `Plan.raw_json` bleibt bewusst, wie es war: Dort steht die KI-Antwort im
     # Original, also der Block, wie er einmal geplant wurde. Die Anpassung
@@ -1158,3 +1189,165 @@ def uebernimm_einheit(
         warnings=warnings,
         war_uebertragbar=neu.sport != "rest",
     )
+
+
+# --------------------------------------------------------------------------
+# Den heutigen Tag anpassen
+#
+# Derselbe Zuschnitt wie bei der Einzelanpassung, nur über mehrere Zeilen. Der
+# Unterschied, der alles trägt: Zugeordnet wird über die `nr` aus dem Payload
+# und **nicht** über die Position in der Liste. Über die Position zuzuordnen
+# wäre still falsch, sobald das Modell eine Einheit auslässt — dann landete die
+# Anpassung der einen auf der anderen, ohne dass irgendwo etwas fehlschlüge.
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class TagesformUebernahme:
+    geaendert: list[PlanSession] = field(default_factory=list)
+    unveraendert: list[PlanSession] = field(default_factory=list)
+    begruendung: str | None = None
+    warnings: list[str] = field(default_factory=list)
+
+
+def parse_tagesform_antwort(raw: str) -> AITagesformBody:
+    """Liest die Antwort auf eine Tagesanpassung."""
+    return _tagesform_aus_objekten(_gelesene_objekte(raw))
+
+
+def tagesform_aus_objekt(daten: dict[str, Any]) -> AITagesformBody:
+    """Der Objekteinstieg für die Tagesanpassung — siehe `plan_aus_objekt`."""
+    return _tagesform_aus_objekten([daten])
+
+
+def _tagesform_aus_objekten(objekte: list[dict[str, Any]]) -> AITagesformBody:
+    # Wie beim Block und bei der Einheit: Trägt der Text mehrere Objekte, gilt
+    # das mit der Liste darin und nicht das erste.
+    data: Any = next(
+        (d for d in objekte if isinstance(d.get("einheiten"), list)),
+        objekte[0],
+    )
+
+    if "plan" in data or "days" in data or "weeks" in data:
+        raise PlanImportError(
+            "Die Antwort enthält einen ganzen Trainingsblock, erwartet war die "
+            "Anpassung der heutigen Einheiten."
+        )
+
+    if not isinstance(data.get("einheiten"), list):
+        raise PlanImportError(
+            "In der Antwort war keine Einheitenliste zu finden. Erwartet wird "
+            'ein Objekt mit dem Schlüssel "einheiten".'
+        )
+
+    try:
+        gelesen = AITagesformImport.model_validate(data)
+    except ValidationError as exc:
+        raise PlanImportError(_readable_validation_error(exc)) from exc
+
+    return AITagesformBody(
+        einheiten=gelesen.einheiten, begruendung=gelesen.begruendung
+    )
+
+
+def pruefe_tagesform(
+    body: AITagesformBody, sessions: Sequence[PlanSession]
+) -> list[str]:
+    """Nicht-blockierende Hinweise zur Tagesanpassung.
+
+    Dieselbe Linie wie überall im Import: Was sich melden lässt, wird gemeldet;
+    abgelehnt wird nichts. Eine Antwort, die eine von drei Einheiten vergisst,
+    hat immer noch zwei richtig — sie deswegen ganz zu verwerfen wäre die
+    teuerste denkbare Reaktion auf eine Formalie.
+    """
+    warnings: list[str] = []
+    gueltig = set(range(1, len(sessions) + 1))
+    genannt = [e.nr for e in body.einheiten]
+
+    for nr in sorted(set(genannt) - gueltig):
+        warnings.append(
+            f"Die Antwort nennt eine Einheit {nr}, die es heute nicht gibt. "
+            "Der Eintrag wurde übergangen."
+        )
+    for nr in sorted(gueltig - set(genannt)):
+        warnings.append(
+            f"Zur Einheit {nr} stand nichts in der Antwort. Sie bleibt, wie sie "
+            "geplant war."
+        )
+    for nr in sorted({nr for nr in genannt if genannt.count(nr) > 1}):
+        warnings.append(
+            f"Die Einheit {nr} kam mehrfach in der Antwort vor. Es gilt der "
+            "erste Eintrag."
+        )
+
+    for eintrag in body.einheiten:
+        if not eintrag.unveraendert and eintrag.einheit is None:
+            warnings.append(
+                f"Zur Einheit {eintrag.nr} war eine Änderung angekündigt, aber "
+                "keine neue Fassung dabei. Sie bleibt, wie sie geplant war."
+            )
+        # Jede Einheit einzeln durch dieselbe Prüfung wie bei der
+        # Einzelanpassung: Ein fehlender Bauplan ist hier derselbe Mangel.
+        if eintrag.einheit is not None:
+            warnings += [
+                f"Einheit {eintrag.nr}: {hinweis}"
+                for hinweis in pruefe_einheit(
+                    AIEinheitBody(einheit=eintrag.einheit)
+                )
+            ]
+
+    return warnings
+
+
+def uebernimm_tagesform(
+    db: Session,
+    sessions: Sequence[PlanSession],
+    raw: str,
+    struktur: dict[str, Any] | None = None,
+) -> TagesformUebernahme:
+    """Schreibt die angepassten Fassungen in die bestehenden Planeinheiten.
+
+    **Dieselben Zeilen, nicht neue** — aus demselben Grund wie bei der
+    Einzelanpassung: `GarminWorkoutLink` zeigt auf `plan_session_id`, und eine
+    neue Einheit ließe die alte samt ihrem Termin im fremden Kalender zurück.
+
+    Was nicht zugeordnet werden kann, bleibt stehen. Die Begründung gilt für
+    den ganzen Tag und wird an jede angefasste Einheit geschrieben: Der Athlet
+    öffnet eine einzelne Einheit, nicht den Tag.
+    """
+    body = (
+        tagesform_aus_objekt(struktur)
+        if struktur is not None
+        else parse_tagesform_antwort(raw)
+    )
+    warnings = pruefe_tagesform(body, sessions)
+
+    ergebnis = TagesformUebernahme(begruendung=body.begruendung, warnings=warnings)
+    erledigt: set[int] = set()
+
+    for eintrag in body.einheiten:
+        if not 1 <= eintrag.nr <= len(sessions) or eintrag.nr in erledigt:
+            continue
+        erledigt.add(eintrag.nr)
+        session = sessions[eintrag.nr - 1]
+
+        if eintrag.unveraendert or eintrag.einheit is None:
+            ergebnis.unveraendert.append(session)
+            continue
+
+        _schreibe_einheit(session, eintrag.einheit, None, body.begruendung)
+        ergebnis.geaendert.append(session)
+
+    # Was in der Antwort gar nicht vorkam, bleibt geplant — und zählt als
+    # unverändert, damit der Aufrufer den Tag vollständig beschreiben kann.
+    ergebnis.unveraendert += [
+        session
+        for nr, session in enumerate(sessions, start=1)
+        if nr not in erledigt
+    ]
+
+    db.commit()
+    for session in ergebnis.geaendert:
+        db.refresh(session)
+
+    return ergebnis

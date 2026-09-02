@@ -165,12 +165,14 @@ class SyncRunner:
         if im_hintergrund:
             threading.Thread(
                 target=self._fuehre_aus,
-                args=(job_id, user_id, von, bis, tagesschleife_von, pause_s),
+                args=(job_id, user_id, kind, von, bis, tagesschleife_von, pause_s),
                 name=f"garmin-sync-{job_id}",
                 daemon=True,
             ).start()
         else:
-            self._fuehre_aus(job_id, user_id, von, bis, tagesschleife_von, pause_s)
+            self._fuehre_aus(
+                job_id, user_id, kind, von, bis, tagesschleife_von, pause_s
+            )
 
         return job_id
 
@@ -180,6 +182,7 @@ class SyncRunner:
         self,
         job_id: int,
         user_id: int,
+        kind: str,
         von: date,
         bis: date,
         tagesschleife_von: date,
@@ -198,10 +201,23 @@ class SyncRunner:
                 self._aktiver_nutzer = None
                 self._abbruch.pop(job_id, None)
 
-        # Hier stand einmal der Anstoß der automatischen Planung. Sie hängt
+        # Hier stand einmal der Anstoß der automatischen **Planung**. Sie hängt
         # nicht mehr am Abgleich, sondern an ihrer eigenen Uhrzeit — siehe
         # `garmin.automatik.starte_faellige_planung()` und den Modulkopf von
         # `ki.automatik`.
+        #
+        # Die **Tagesanpassung** steht hier trotzdem, und das ist kein Rückfall
+        # in dieselbe Bauart: Ihr ganzer Gegenstand sind die Werte, die dieser
+        # Lauf gerade geholt hat. Eine eigene Uhrzeit liefe ihnen entweder
+        # hinterher oder voraus. Und sie steht **außerhalb** des Schlosses, weil
+        # sie am Ende geänderte Einheiten nach Garmin schiebt — im Schloss wäre
+        # das ein Deadlock gegen den Abgleich, der es noch hält. Nur nach einem
+        # automatischen Lauf: Wer abends „Jetzt abgleichen" drückt, will seine
+        # Historie sehen, nicht seine Einheit umgeschrieben bekommen.
+        if kind == "auto":
+            from ..ki import tagesform
+
+            tagesform.passe_an(user_id)
 
     def _lauf(
         self,

@@ -391,6 +391,20 @@ def _anpassung(block: dict[str, Any]) -> list[str]:
     )
 
 
+def _tagesform(block: dict[str, Any]) -> list[str]:
+    """Der heutige Tag: die Einheiten als JSON, der Block als Tabelle.
+
+    `einheiten_heute` bleibt bewusst JSON und wird **keine** Tabelle — aus
+    demselben Grund wie `einheit_anpassen.bisherige_einheit`: Seine Schlüssel
+    sind die des Antwortformats, und die KI soll dieselben Felder zurückgeben,
+    die sie hier sieht. Nebenbei trüge eine Tabelle mit einer Spalte `nr` sonst
+    dieselbe Überschrift wie die Bezugsspalte der Historie und meinte etwas
+    anderes.
+    """
+    umfeld = block.pop("block", None) or {}
+    return _kopf("tagesform", block) + _blockumfeld("tagesform.block", umfeld)
+
+
 def _ernaehrung(block: dict[str, Any]) -> list[str]:
     trainingsblock = block.pop("trainingsblock", None) or {}
     return _kopf("ernaehrung", block) + _blockumfeld(
@@ -447,6 +461,8 @@ def paket_als_text(payload: dict[str, Any]) -> str:
             abschnitte += _fitness(wert)
         elif name == "einheit_anpassen":
             abschnitte += _anpassung(wert)
+        elif name == "tagesform":
+            abschnitte += _tagesform(wert)
         elif name == "ernaehrung":
             abschnitte += _ernaehrung(wert)
         elif isinstance(wert, dict):

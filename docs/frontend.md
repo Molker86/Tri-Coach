@@ -69,6 +69,17 @@ Dabei überspringt `PUT /api/garmin/settings` neuerdings `None` wie der
 KI-Router: Ein ausdrücklich geschicktes `null` löschte sonst die Abgleichstunde,
 und das Konto fiele lautlos auf die Vorgabe zurück.
 
+**Die Tagesanpassung steht in der Garmin-Karte, obwohl sie der KI gehört.** Ihr
+Schalter liegt unter der Abgleichzeit, weil dort die Frage steht, die er
+beantwortet — „und was passiert, wenn die Daten da sind?". Gespeichert wird er
+trotzdem in `KiSettings`, neben den anderen Schaltern, die Claude-Kontingent
+kosten; die Karte ist eine Frage der Oberfläche, nicht der Ablage. `GarminKarte`
+bekommt dafür `ki` und `onKiAendern` zusätzlich — beides liegt in
+`Einstellungen()` ohnehin geladen vor. Ohne hinterlegten Zugang und bei
+abgeschaltetem Abgleich ist er gesperrt und sagt in seinem `field-hint`, woran es
+liegt: Ein Häkchen, das sich setzen lässt und nichts tut, ist schlimmer als
+keins.
+
 **Und inzwischen auch das Anmelden selbst.** Das Formular für Garmin-E-Mail,
 Passwort und Bestätigungscode stand auf `/garmin`, die Schalter dazu schon in
 den Einstellungen — wer ein Konto einrichtete, musste zwischen zwei Seiten hin
@@ -80,6 +91,44 @@ Komponente: Er geht niemanden außerhalb etwas an, und die Einstellungsseite
 soll ihn nicht mitschleppen. Daneben steht die Bring-Karte, nach demselben
 Muster wie der Claude-Zugang — mit dem einen Unterschied, dass das Passwort
 wirklich gespeichert wird (siehe [einkaufsliste.md](einkaufsliste.md)).
+
+**Auf der Planungsseite gilt jetzt derselbe Filter für den letzten wie für den
+laufenden Lauf** (`PlanExchange.istBlockLauf`). Es gibt genau **einen** KI-Lauf
+für alle Aufgaben, und `aktiver_job` wurde deshalb längst auf `manual`/`auto`
+gefiltert — `letzter_job` nicht. Das fiel nicht auf, solange eine Einheit oder
+ein Ernährungsplan selten dazwischenkam; seit die Tagesanpassung jeden Morgen
+läuft, stünde dort täglich „Der heutige Tag bleibt, wie er geplant war" unter dem
+Knopf, der einen Block plant.
+
+**Was nachts passiert ist, steht morgens oben auf der Startseite**
+(`Dashboard.tagesanpassung`). Die Tagesanpassung läuft, während niemand
+hinsieht; ein Fähnchen an der Einheitenkarte wäre für eine Änderung, die der
+Athlet nicht bestellt hat, zu leise — er müsste erst eine Einheit anklicken, um
+zu erfahren, dass und warum sein Tag anders aussieht als gestern Abend geplant.
+In der Karte „Heute" steht deshalb ein `Alert kind="info"` über den Einheiten,
+mit der Begründung der KI. Einmal, nicht je Karte: Die Begründung gilt für den
+ganzen Tag und steht an jeder angefassten Einheit gleich.
+
+Gezeigt wird er nur bei **fehlendem** `anpassungswunsch` — wer selbst angepasst
+hat, weiß es und braucht keinen Hinweis. Im Trainingsplan bleibt es beim Badge
+an der Karte: Dort stehen alle Tage nebeneinander, und ein Banner je Tag wäre
+Lärm statt Hinweis.
+
+**Ob ein Zeitstempel „heute" ist, rechnet `planung.istHeute()`** und nicht die
+ersten zehn Zeichen der Zeichenkette. Die stehen in UTC; früh morgens und
+abends ist das ein anderer Tag als der, den der Athlet vor sich hat — und
+ausgerechnet früh morgens läuft die Anpassung. Gegenstück zu `zeit.ortsdatum()`
+im Backend, aus demselben Grund und mit derselben Falle.
+
+**Am Detaildialog hängt der einzige sichtbare Beleg der Tagesanpassung**
+(`SessionDetail.tsx`). Der Satz „✎ Diese Einheit wurde angepasst — auf den Wunsch
+…" gibt es jetzt in zwei Fassungen, und unterschieden werden sie an einem
+**leeren** `anpassungswunsch`: Dann ging die Anpassung von Messwerten aus, nicht
+von einer Bitte, und „auf den Wunsch ‚automatisch angepasst'" wäre ein Satz, der
+sich selbst widerspricht. Darunter steht in beiden Fällen
+`anpassungsbegruendung` — dieselbe, die auf der Startseite über dem Tag steht.
+Die Meldung des Jobs trägt sie nicht mehr weit: Sie ist längst aus der Liste
+gerutscht, wenn der Athlet die App öffnet.
 
 **Die Einkaufsliste geht über einen Vorschaudialog** (`Ernaehrung.tsx`,
 `EinkaufslistenDialog`). Zwei Schritte statt einem, weil sich das Ergebnis nicht

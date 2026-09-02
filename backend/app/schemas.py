@@ -702,6 +702,42 @@ class AIEinheitImport(BaseModel):
     begruendung: str | None = None
 
 
+class AITagesformEintrag(BaseModel):
+    """Eine Zeile der Tagesanpassung: die Nummer und was mit ihr geschehen soll.
+
+    `einheit` fehlt bei `unveraendert`, und das ist der Regelfall — die geplante
+    Fassung noch einmal auszuschreiben, nur damit dasselbe herauskommt, kostet
+    Ausgabe und lädt zum Ändern um des Änderns willen ein.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    nr: int
+    # Mit Vorgabe, weil das Feld die teurere Richtung absichert: Fehlt es an
+    # einem Eintrag mit Einheit, ist offensichtlich eine Änderung gemeint.
+    unveraendert: bool = False
+    einheit: AISessionIn | None = None
+
+
+class AITagesformBody(BaseModel):
+    """Die Antwort auf eine Tagesanpassung: eine Zeile je geplanter Einheit."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    einheiten: list[AITagesformEintrag]
+    begruendung: str | None = None
+
+
+class AITagesformImport(BaseModel):
+    """Wurzelobjekt der Tagesanpassung."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: str | None = None
+    einheiten: list[AITagesformEintrag]
+    begruendung: str | None = None
+
+
 class PlanImportIn(BaseModel):
     raw: str  # der eingefügte JSON-Text
     request_id: int | None = None
@@ -753,6 +789,10 @@ class PlanSessionOut(BaseModel):
     # der Planung des Blocks unverändert steht.
     angepasst_am: UtcDatetime | None = None
     anpassungswunsch: str | None = None
+    # Und warum. Bei der Tagesanpassung ist das die **einzige** Stelle, an der
+    # der Athlet den Grund je zu sehen bekommt: Ihr Lauf ist morgens vorbei,
+    # und die Meldung eines abgeschlossenen Jobs rutscht aus der Liste.
+    anpassungsbegruendung: str | None = None
 
 
 class PlanOut(BaseModel):
@@ -1170,6 +1210,11 @@ class KiSettingsOut(BaseModel):
     auto_plan_hour: int
     auto_plan_minute: int
     last_auto_plan_on: date | None = None
+    # Ob der heutige Tag nach jedem automatischen Abgleich an die
+    # Tagesverfassung angepasst wird. Keine eigene Uhrzeit — es gilt die des
+    # Abgleichs, denn dessen Werte sind der Gegenstand.
+    auto_tagesform_enabled: bool
+    last_tagesform_on: date | None = None
     # **Nie der Token selbst**, nur seine Lage. „unlesbar" heißt: gespeichert,
     # aber der `TRI_SECRET_KEY` passt nicht mehr dazu — dann hilft nur neu
     # eintragen, und das muss die Oberfläche sagen können.
@@ -1186,6 +1231,7 @@ class KiSettingsIn(BaseModel):
     auto_plan_weekday: int | None = Field(None, ge=0, le=6)
     auto_plan_hour: int | None = Field(None, ge=0, le=23)
     auto_plan_minute: int | None = Field(None, ge=0, le=59)
+    auto_tagesform_enabled: bool | None = None
     # Der Zugang im Klartext — er wird verschlüsselt abgelegt und nie wieder
     # herausgegeben. Ein leerer String löscht ausdrücklich; deshalb wird das
     # Feld im Router eigens behandelt und nicht über die Teil-Update-Schleife,

@@ -128,9 +128,19 @@ export function SessionDetail({
         </>
       )}
 
-      {session.anpassungswunsch && (
+      {/* Zwei Fälle, ein Feld: Auf einen Wunsch hin angepasst, oder morgens
+          von selbst an die Werte des Tages. `anpassungswunsch` bleibt bei der
+          Tagesanpassung leer und ist damit die Unterscheidung — „auf den Wunsch
+          ‚automatisch angepasst‘“ wäre ein Satz, der sich selbst widerspricht.
+          Die Begründung steht in beiden Fällen dabei: Bei der Tagesanpassung
+          ist sie der einzige Ort, an dem der Athlet den Grund je zu sehen
+          bekommt, denn ihr Lauf ist vorbei, bevor er die App öffnet. */}
+      {session.angepasst_am && (
         <p className="small faint mt-1 mb-0">
-          ✎ Diese Einheit wurde angepasst — auf den Wunsch „{session.anpassungswunsch}“.
+          {session.anpassungswunsch
+            ? `✎ Diese Einheit wurde angepasst — auf den Wunsch „${session.anpassungswunsch}“.`
+            : '✎ Heute früh an deine Tagesform angepasst.'}
+          {session.anpassungsbegruendung && ` ${session.anpassungsbegruendung}`}
         </p>
       )}
 

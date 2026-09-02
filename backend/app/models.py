@@ -308,6 +308,13 @@ class PlanSession(Base):
     # aussieht als der Rest.
     angepasst_am: Mapped[datetime | None] = mapped_column(DateTime)
     anpassungswunsch: Mapped[str | None] = mapped_column(Text)
+    # Und was die KI dazu gesagt hat. Bei der Anpassung von Hand steht der Satz
+    # auch in der Meldung des Laufs, und das reichte, solange der Athlet daneben
+    # stand. Die Tagesanpassung läuft dagegen frühmorgens nach dem Abgleich ab:
+    # Ihr Job ist längst vorbei, wenn jemand die App öffnet, und eine Einheit,
+    # die ohne sichtbaren Grund anders aussieht als gestern Abend, ist der
+    # schlechteste aller Zustände.
+    anpassungsbegruendung: Mapped[str | None] = mapped_column(Text)
 
     # Als welches Garmin-Workout diese Einheit auf der Uhr lag und seit wann.
     # Sieht aus wie eine Kopie von `GarminWorkoutLink` und ist das Gegenteil:
@@ -786,6 +793,16 @@ class KiSettings(Base):
     # Der Riegel dazu — verhindert einen zweiten Lauf in derselben Woche, etwa
     # nach einem Neustart. Wird nur fortgeschrieben, wenn wirklich einer startet.
     last_auto_plan_on: Mapped[date | None] = mapped_column(Date)
+
+    # Ob nach jedem *automatischen* Garmin-Abgleich die Einheiten des heutigen
+    # Tages auf die Tagesverfassung hin geprüft werden. Anders als die Planung
+    # hängt das mit Absicht am Abgleich: Sein einziger Gegenstand sind die
+    # Werte, die der Lauf gerade geholt hat. Vorgabe aus — ein weiterer Lauf
+    # am Tag aus demselben Kontingent.
+    auto_tagesform_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Der Riegel dazu, ein Lauf je Tag. Wird gesetzt, bevor der Lauf startet:
+    # Er hängt an einem eigenen Schloss und meldet sich nicht zurück.
+    last_tagesform_on: Mapped[date | None] = mapped_column(Date)
     # Altlast: Die Blocklänge der Automatik kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
     # Die Spalte steht hier, weil sie in bestehenden Datenbanken NOT NULL ist —
     # aus dem Modell entfernt, ohne die Spalte zu löschen, schlüge das Anlegen

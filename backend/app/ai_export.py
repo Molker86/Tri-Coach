@@ -19,6 +19,7 @@ dafür genau zur aktuellen Belastungslage passen.
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -565,7 +566,7 @@ def _planumfeld(
     *,
     ab: date | None = None,
     bis: date | None = None,
-    markiere: PlanSession | None = None,
+    markiere: PlanSession | Sequence[PlanSession] | None = None,
 ) -> dict[str, Any]:
     """Ein Trainingsblock als Tagesliste — Titel, Ausrichtung, Einheiten je Tag.
 
@@ -578,8 +579,17 @@ def _planumfeld(
     `ab` schneidet vorn ab — ohne Angabe bei `plan.beginn`, denn ein Block
     trägt die Vergangenheit seiner Vorgänger mit, und die wächst unbegrenzt.
     `bis` schneidet hinten ab, wo nur ein Teil des Blocks gefragt ist.
+
+    `markiere` nimmt eine Einheit oder mehrere: Die Einzelanpassung zeigt auf
+    genau eine, die Tagesanpassung auf alle Einheiten des heutigen Tages.
     """
     grenze = ab or plan.beginn
+    if markiere is None:
+        markiert: set[int] = set()
+    elif isinstance(markiere, PlanSession):
+        markiert = {markiere.id}
+    else:
+        markiert = {s.id for s in markiere}
     tage: dict[str, list[dict[str, Any]]] = {}
     umfeld = [
         s
@@ -594,7 +604,7 @@ def _planumfeld(
             "dauer_min": eintrag.duration_min,
             "intensitaetszone": eintrag.intensity_zone,
         }
-        if markiere is not None and eintrag.id == markiere.id:
+        if eintrag.id in markiert:
             # Die Markierung steht an der Einheit selbst und nicht nur oben im
             # Prompt: Bei zwei Einheiten desselben Sports am selben Tag wäre
             # sonst nicht zu erkennen, welche von beiden gemeint ist.
@@ -646,7 +656,47 @@ def _anpassung_block(
     # erste Anpassung womöglich wieder zurück.
     if session.anpassungswunsch:
         block["frueherer_anpassungswunsch"] = session.anpassungswunsch
+    # Dasselbe für die Tagesanpassung, die keinen Wunsch kennt: Was heute früh
+    # gegen die Messwerte entschieden wurde, ist genauso wenig „ursprüngliche
+    # Planung" — und der Athlet baut mit seinem Wunsch darauf auf.
+    if session.anpassungsbegruendung:
+        block["frueherer_anpassungsgrund"] = session.anpassungsbegruendung
     return block
+
+
+def _tagesform_block(
+    sessions: Sequence[PlanSession], plan: Plan, tag: date
+) -> dict[str, Any]:
+    """Die Einheiten des heutigen Tages, durchnummeriert, samt ihrem Block.
+
+    Die `nr` ist der Anker, über den die Antwort zurückgefunden wird. Über die
+    Position in der Liste zuzuordnen wäre still falsch, sobald das Modell eine
+    Einheit auslässt oder eine zusätzliche schickt: Dann landete die Anpassung
+    der einen auf der anderen, ohne dass irgendwo etwas fehlschlüge.
+
+    Die Felder je Einheit sind dieselben englischen Schlüssel des
+    Antwortformats wie bei der Einzelanpassung (`_einheit_felder`) — die KI
+    soll nicht übersetzen, sondern zurückgeben, was sie hier sieht.
+    """
+    einheiten = []
+    for nr, eintrag in enumerate(sessions, start=1):
+        zeile: dict[str, Any] = {"nr": nr}
+        zeile.update(_einheit_felder(eintrag))
+        # Beim Blick auf den heutigen Tag ist eine bereits angepasste Einheit
+        # kein Rätsel mehr: Ohne den Wunsch läse die KI sie als ursprüngliche
+        # Planung und nähme die Anpassung womöglich wieder zurück.
+        if eintrag.anpassungswunsch:
+            zeile["frueherer_anpassungswunsch"] = eintrag.anpassungswunsch
+        if eintrag.anpassungsbegruendung:
+            zeile["frueherer_anpassungsgrund"] = eintrag.anpassungsbegruendung
+        einheiten.append(zeile)
+
+    return {
+        "datum": tag.isoformat(),
+        "wochentag": WEEKDAYS[tag.weekday()],
+        "einheiten_heute": einheiten,
+        "block": _planumfeld(plan, markiere=sessions),
+    }
 
 
 def _gerundet(wert: float | None, stellen: int = 1) -> float | None:
@@ -1157,6 +1207,38 @@ def _einheit_response_schema(disziplin: str) -> dict[str, Any]:
     }
 
 
+def _tagesform_response_schema(disziplin: str) -> dict[str, Any]:
+    """Das Antwortformat der Tagesanpassung.
+
+    Eine **Liste**, nicht eine Einheit: Ein Tag kann mehrere tragen, und sie
+    hängen zusammen — wer den harten Lauf zurücknimmt, entscheidet damit auch
+    über die Mobility daneben. `unveraendert` ist der Regelfall und spart die
+    Einheit ganz: Sie noch einmal auszuschreiben, nur damit dasselbe
+    herauskommt, kostet Ausgabe und lädt zum Ändern um des Änderns willen ein.
+    """
+    return {
+        "schema_version": "1.0",
+        "einheiten": [
+            {
+                "nr": "int – die Nummer aus `tagesform.einheiten_heute`",
+                "unveraendert": (
+                    "bool – true, wenn die Einheit so bleiben soll, wie sie "
+                    "geplant ist; dann `einheit` weglassen"
+                ),
+                # Nur bei `unveraendert: false`. Dieselbe Feldliste wie beim
+                # Block und bei der Einzelanpassung — abgeleitet, nicht
+                # abgeschrieben.
+                "einheit": _session_schema(disziplin),
+            }
+        ],
+        "begruendung": (
+            "string – 2-4 Sätze für den ganzen Tag: welche Werte du gelesen "
+            "hast, was du daraus geschlossen hast und was du geändert hast; "
+            "bleibt alles, sag auch das und woran du es festmachst"
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Dasselbe Format noch einmal, diesmal maschinenlesbar.
 #
@@ -1365,6 +1447,54 @@ def einheit_strukturschema(disziplin: str) -> dict[str, Any]:
             },
         },
         "required": ["einheit", "begruendung"],
+    }
+
+
+def tagesform_strukturschema(disziplin: str) -> dict[str, Any]:
+    """Dasselbe für die Tagesanpassung: eine Liste mit Nummern.
+
+    `einheit` steht bewusst **nicht** in `required`: Bei `unveraendert: true`
+    gibt es sie nicht, und ein `oneOf` darüber wäre genau die Fessel, vor der
+    `docs/ki-und-prompt.md` warnt — daran stürbe eine sonst brauchbare Antwort.
+    Dass beides zusammenpasst, prüft `plan_import.pruefe_tagesform()` und warnt.
+    """
+    return {
+        "type": "object",
+        "$defs": {"schritt": _SCHRITT_SCHEMA},
+        "properties": {
+            "einheiten": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "nr": {
+                            "type": "integer",
+                            "description": (
+                                "die Nummer aus tagesform.einheiten_heute"
+                            ),
+                        },
+                        "unveraendert": {
+                            "type": "boolean",
+                            "description": (
+                                "true, wenn die Einheit bleiben soll, wie sie "
+                                "geplant ist; dann einheit weglassen"
+                            ),
+                        },
+                        "einheit": _einheit_strukturschema(disziplin),
+                    },
+                    "required": ["nr", "unveraendert"],
+                },
+            },
+            "begruendung": {
+                "type": "string",
+                "description": (
+                    "2-4 Sätze für den ganzen Tag: welche Werte du gelesen "
+                    "hast und was du daraus geschlossen hast"
+                ),
+            },
+        },
+        "required": ["einheiten", "begruendung"],
     }
 
 
@@ -1791,6 +1921,112 @@ an der der Athlet es erfährt.
 """
 
 
+# --------------------------------------------------------------------------
+# Den heutigen Tag an die Tagesverfassung anpassen
+#
+# Warum ein dritter Prompt und nicht der der Einzelanpassung: Der ist ganz um
+# den Wunsch des Athleten herum gebaut und räumt ihm ausdrücklich Vorrang vor
+# der Trainingslehre ein („Er kennt seinen Tag, du kennst seine Belastungslage").
+# Hier gibt es keinen Wunsch. Einen zu erfinden hieße, dem Modell an genau der
+# Stelle etwas vorzuschreiben, an der es selbst entscheiden soll — und es bekäme
+# einen Auftrag zu ändern, wo der Auftrag lautet: nachsehen, ob zu ändern ist.
+#
+# Deshalb ist die Grundhaltung hier umgekehrt: **unverändert ist der Regelfall.**
+# --------------------------------------------------------------------------
+
+TAGESFORM_PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe und Trainer. \
+Der Athlet hat einen fertigen Trainingsblock, und für heute — {datum} ({wochentag}) — stehen \
+darin {einheiten_zahl}. Heute früh sind frische Messwerte von seiner Uhr gekommen: Schlaf, \
+HRV, Ruhepuls, Erholung.
+
+## Aufgabe
+Prüfe für jede Einheit von heute, ob sie noch zur Tagesverfassung passt, und entscheide \
+eines von drei Dingen:
+
+* **unverändert lassen** — die Planung passt zu dem, was die Werte zeigen,
+* **zurücknehmen** — Umfang, Intensität oder beides herunter, bis hin zu Ruhe,
+* **anheben** — der Athlet ist erholter als beim Planen angenommen, und der Tag trägt mehr.
+
+Alles unter `tagesform` beschreibt den heutigen Tag: `einheiten_heute` sind die Einheiten \
+in ihrer jetzigen Fassung, jede mit ihrer `nr`; `block` ist der ganze Trainingsblock mit \
+den Tagen davor und danach, die heutigen Einheiten sind dort markiert.
+
+## Unverändert ist der Regelfall
+Der Block wurde für diese Woche geplant und kennt die Rolle dieses Tages. Ändere ihn nur, \
+wenn die Werte von heute es **tragen** — nicht, weil eine Anpassung erwartet wird. Ein Tag \
+im gewohnten Rahmen ist der häufigste Fall, und dann ist `unveraendert: true` für jede \
+Einheit die richtige und vollständige Antwort. Sage in `begruendung` auch dann, woran du \
+das festmachst.
+
+## Was feststeht und nicht geändert werden darf
+- **Der Tag.** Die Einheiten bleiben am {datum}. Verschieben kann der Athlet selbst.
+- **Die Sportart.** Was als Lauf geplant ist, bleibt ein Lauf. Ausgewichen wird über \
+Umfang, Intensität, Untergrund und Bewegungsform — nicht über die Disziplin.
+- **Die Zahl der Einheiten.** Zu jeder `nr` aus `einheiten_heute` gehört genau ein \
+Eintrag in der Antwort. Erfinde keine zusätzliche Einheit und lass keine aus.
+- **Die übrigen Tage des Blocks.** Du entscheidest über heute; der nächste Block wird \
+ohnehin frisch geplant.
+
+`"sport": "rest"` ist eine zulässige Antwort, wenn die Werte deutlich dagegen sprechen — \
+dann fällt die Einheit ersatzlos aus und wird von der Uhr genommen. Umgekehrt gilt: Ein \
+Tag, der im Block als Ruhetag geplant war, steht gar nicht erst in `einheiten_heute`; \
+Ruhetage macht diese Aufgabe nicht zu Training.
+
+## Verbindliche Trainingsprinzipien
+1. **Die Werte von heute sind der Anlass.** {fitnessregeln}
+2. **Der Platz im Block**: Sieh in `tagesform.block` nach, was gestern stand und was \
+morgen kommt. Nimmst du heute zurück, entscheidest du damit auch über den Reiz von \
+morgen; hebst du an, prüfe zuerst den Abstand zum letzten harten Tag. \
+`tage_seit_letzter_intensiver_einheit` und `tage_seit_letzter_einheit_je_sportart` \
+gelten unverändert.
+3. **Nach oben ist nicht die Gegenrichtung von nach unten.** Zurücknehmen kostet einen \
+Reiz, Anheben kostet Erholung. Hebe nur an, wenn die Werte das *und* der Platz im Block \
+es hergeben — und dann in Maßen: Ein Tag mit guter Erholung ist kein Nachholtermin für \
+das, was in den Wochen davor fehlte.
+4. **Stehen mehrere Einheiten am Tag, entscheide sie zusammen.** Sie teilen sich \
+denselben Tag und denselben Athleten; die Mobility neben einem zurückgenommenen \
+Intervalltraining ist eine andere Frage als die neben dem geplanten.
+5. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt denselben Verlauf in \
+drei Auflösungen — die letzten {historie_wochen} Wochen einzeln, die letzten \
+{uebersicht_wochen} Wochen je Kalenderwoche, {verlauf_monate} Monate je Monat in \
+`athlet.verlauf`. Die jüngsten Wochen stehen in mehreren davon; zähle sie nicht doppelt. \
+Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: nicht mehr, sondern weniger.
+6. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
+**geschätzt** — `rpe_quelle` nennt, woraus. Steht dort „athlet", hat er die Einheit in \
+Garmin Connect selbst bewertet; das wiegt schwerer als jede Schätzung. Dasselbe gilt für \
+`befinden_0_10`. **Beide Felder fehlen an den meisten Einheiten**, und das ist keine \
+Aussage über sie — leite aus ihrem Fehlen nichts ab.
+7. **Beschwerden und Einschränkungen**: `athlet.verletzungen_einschraenkungen` ist der \
+Freitext des Athleten über seinen Körper. Steht dort etwas, gilt es auch heute: Umfang, \
+Intensität, Untergrund und Bewegungsform so wählen, dass die Beschwerde nicht provoziert \
+wird.
+8. {prinzip_ergaenzung}
+9. {prinzip_steuergroessen}
+
+## Ausgabeformat — zwingend einhalten
+Antworte **ausschließlich** mit einem einzigen gültigen JSON-Objekt. Kein Fließtext \
+davor oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
+
+Struktur:
+{schema}
+
+Regeln für die Ausgabe:
+- Genau ein Eintrag je `nr` aus `tagesform.einheiten_heute`, in derselben Reihenfolge.
+- Bei `unveraendert: true` **kein** `einheit`-Objekt — die geplante Fassung bleibt stehen.
+- Bei `unveraendert: false` gib **alle** Felder an, die für die neue Fassung gelten — auch \
+die, die sich nicht geändert haben. Was fehlt, ist danach leer.
+- `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
+- `begruendung` gilt für den ganzen Tag und steht in 2-4 Sätzen: welche Werte du gelesen \
+hast, was du daraus geschlossen hast, was du geändert hast. Das ist die **einzige** \
+Stelle, an der der Athlet erfährt, warum sein Tag heute anders aussieht — er liest sie \
+Stunden später, ohne dass jemand nachfragen kann.
+- Alle Texte auf Deutsch.
+
+## Athletendaten
+{payload}
+"""
+
+
 # Steht nur im Prompt, wenn der neue Block einen laufenden überlappt. Ohne den
 # Absatz sähe die KI zwei Pläne über dieselben Tage — `aktueller_plan` in der
 # Historie und den angeforderten Zeitraum — und schriebe den bestehenden fort,
@@ -1945,6 +2181,38 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
         schema=json.dumps(
             _einheit_response_schema(disziplin),
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
+        payload=paket_als_text(payload),
+    )
+
+
+def build_tagesform_prompt(payload: dict[str, Any]) -> str:
+    """Der Prompt für die Anpassung des heutigen Tages an die Tagesverfassung."""
+    tagesform = payload.get("tagesform", {})
+    wochentag = tagesform.get("wochentag", "")
+    disziplin = _disziplin(payload)
+    anzahl = len(tagesform.get("einheiten_heute", []))
+    return TAGESFORM_PROMPT_TEMPLATE.format(
+        datum=tagesform.get("datum", ""),
+        wochentag=WOCHENTAG_DEUTSCH.get(wochentag, wochentag),
+        # Ausgeschrieben statt als Zahl neben einem festen Wort: „stehen darin
+        # 1 Einheiten" ist der Satz, an dem ein Leser merkt, dass niemand
+        # hingesehen hat — und das Modell liest ihn genauso.
+        einheiten_zahl=(
+            "eine Einheit" if anzahl == 1 else f"{anzahl} Einheiten"
+        ),
+        historie_wochen=HISTORY_WEEKS,
+        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
+        verlauf_monate=VERLAUF_MONATE,
+        # Alle drei gehen als fertiger Text hinein: `.format()` formatiert
+        # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
+        fitnessregeln=_fitnessregeln(payload, "begruendung"),
+        prinzip_ergaenzung=_prinzip_ergaenzung(payload, "begruendung"),
+        prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
+        schema=json.dumps(
+            _tagesform_response_schema(disziplin),
             separators=(",", ":"),
             ensure_ascii=False,
         ),
@@ -2192,6 +2460,44 @@ def erzeuge_einheit_export(
         payload=payload,
         prompt=build_einheit_prompt(payload),
         schema=einheit_strukturschema(_disziplin(payload)),
+    )
+
+
+def erzeuge_tagesform_export(
+    db: Session, user: User, plan: Plan, sessions: Sequence[PlanSession], tag: date
+) -> Export:
+    """Datenpaket und Prompt, um den heutigen Tag an die Tagesverfassung anzupassen.
+
+    Derselbe volle Kontext wie beim Block und bei der Einzelanpassung — und
+    dieselbe Begründung dafür: Ob ein harter Reiz heute trägt, ist eine
+    Trainingsentscheidung, und sie auf die Werte von heute Morgen zu verkürzen
+    hieße, ausgerechnet die Belastung wegzulassen, gegen die sie zu lesen sind.
+
+    Dazu kommt, was nur diese Aufgabe braucht: die Einheiten des Tages mit
+    ihrer `nr` und der Block, in dem sie stehen.
+    """
+    if plan.user_id != user.id:
+        raise ExportFehler("Trainingsblock nicht gefunden.")
+
+    kontext = _lade_kontext(db, user, plan.request_id)
+
+    payload = build_payload(
+        user=user,
+        profile=user.profile,
+        request=kontext.request,
+        logs=kontext.logs,
+        wellness=kontext.wellness,
+        verlauf=kontext.verlauf,
+        start_date=tag,
+        days=1,
+        garmin_konto=kontext.garmin,
+    )
+    payload["tagesform"] = _tagesform_block(sessions, plan, tag)
+
+    return Export(
+        payload=payload,
+        prompt=build_tagesform_prompt(payload),
+        schema=tagesform_strukturschema(_disziplin(payload)),
     )
 
 

@@ -130,6 +130,10 @@ export default function Einstellungen() {
         zustand={garmin}
         busy={busy}
         onAendern={(daten) => void handle(() => api.garminSettings(daten))}
+        ki={ki}
+        onKiAendern={(daten, meldung) =>
+          void handle(() => api.kiSettings(daten), meldung)
+        }
         onVerbunden={() => {
           setFehler(null)
           setErfolg('Garmin-Konto verbunden.')
@@ -189,11 +193,18 @@ function GarminKarte(props: {
     profile_sync_enabled?: boolean
     auto_push_enabled?: boolean
   }) => void
+  // Die Tagesanpassung steht hier, weil sie am Abgleich hängt und nirgends
+  // sonst — gespeichert wird sie trotzdem bei der KI: Was Claude-Kontingent
+  // kostet, liegt beisammen.
+  ki: KiStatus | null
+  onKiAendern: (daten: Partial<KiSettingsIn>, meldung?: string) => void
   onVerbunden: () => void
   onFehler: (meldung: string) => void
   onTrennen: () => void
 }) {
   const konto = props.zustand?.konto ?? null
+  const kiEinstellungen = props.ki?.einstellungen ?? null
+  const kiZugang = kiEinstellungen?.token_status === 'hinterlegt'
 
   return (
     <div className="card">
@@ -280,6 +291,41 @@ function GarminKarte(props: {
               <span className="uhrzeit-einheit">Uhr</span>
             </div>
           </Field>
+
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={kiEinstellungen?.auto_tagesform_enabled ?? false}
+              disabled={
+                props.busy ||
+                !konto.auto_sync_enabled ||
+                !kiZugang ||
+                kiEinstellungen === null
+              }
+              onChange={(e) =>
+                props.onKiAendern(
+                  { auto_tagesform_enabled: e.target.checked },
+                  e.target.checked
+                    ? 'Der heutige Tag wird nach jedem Abgleich geprüft.'
+                    : 'Die tägliche Anpassung ist aus.',
+                )
+              }
+            />
+            <span>
+              Danach die heutigen Einheiten an die Tagesform anpassen
+              <span className="field-hint">
+                Sobald die Werte da sind, prüft Claude, was für heute geplant ist
+                — gegen Schlaf, HRV, Ruhepuls und Erholung — und nimmt es zurück,
+                hebt es an oder lässt es stehen. Der Tag und die Sportart bleiben;
+                aus einem Ruhetag wird nie Training.{' '}
+                {!kiZugang
+                  ? 'Dafür fehlt noch ein Claude-Zugang — siehe unten.'
+                  : !konto.auto_sync_enabled
+                    ? 'Dafür muss der tägliche Abgleich eingeschaltet sein.'
+                    : 'Kostet einen Lauf aus deinem Claude-Kontingent pro Tag.'}
+              </span>
+            </span>
+          </label>
 
           <label className="check-row">
             <input

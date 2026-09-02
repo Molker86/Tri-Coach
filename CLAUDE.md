@@ -61,6 +61,21 @@ extra. Der Weg über die Zwischenablage bleibt vollständig erhalten — als
 Rückfallebene für einen abgelaufenen Zugang, ein aufgebrauchtes Kontingent oder
 eine andere KI.
 
+**Und der geplante Tag wird morgens noch einmal nachgeschärft.** Ein Block deckt
+sieben Tage ab — was auf Tag 4 liegt, wurde vier Tage vorher entschieden, auf
+einer Erholungslage, die es an dem Morgen noch gar nicht gab. Ein Schalter im
+Garmin-Bereich der Einstellungen schließt die Lücke: Sobald der tägliche Abgleich
+durch ist, prüft die KI die Einheiten von **heute** gegen Schlaf, HRV, Ruhepuls
+und Erholung und nimmt sie zurück, hebt sie an oder lässt sie stehen —
+**unverändert ist ausdrücklich der Regelfall**. Der Tag, die Sportart und die
+Zahl der Einheiten bleiben; aus einem geplanten Ruhetag wird nie Training, aus
+einer Einheit sehr wohl Ruhe. Geänderte Einheiten gehen von selbst auf die Uhr — dieselbe
+Vorlage am selben Termin, nur mit neuem Inhalt; wird Ruhe daraus, verschwindet
+der Termin. Gesehen wird das auf der Startseite: über der Karte „Heute" steht,
+dass angepasst wurde und warum. Der Lauf selbst ist vorbei, bevor jemand die
+App öffnet. Ab Werk aus, denn er kostet einen Lauf **pro Tag**; am Planungstag
+setzt er aus. Siehe „Die Tagesanpassung hängt am Abgleich".
+
 **Und neben dem Training plant sie inzwischen auch das Essen.** Wer einen
 Trainingsblock hat, bekommt auf Knopfdruck den Ernährungsplan dazu — Tag für
 Tag, Mahlzeit für Mahlzeit, in Mo–So-Spalten, mit Supplementempfehlung, wo eine
@@ -119,7 +134,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 670 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 703 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -179,14 +194,16 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
 
 - [docs/planung.md](docs/planung.md) — Planungshorizont, Überbügeln eines
   laufenden Blocks, Vergangenheitserbe (`Plan.geplant_ab`), Einzelanpassung per
-  Freitext, Disziplinwahl, Fragebogen ändern.
+  Freitext, der Tag als zweite Einheit der Anpassung, Disziplinwahl, Fragebogen
+  ändern.
   *Bei `ai_export.py`, `plan_import.py`, `plan_aufraeumen.py`,
   `routers/plans.py`, `routers/questionnaire.py`.*
 - [docs/ki-und-prompt.md](docs/ki-und-prompt.md) — warum der Prompt die
   Trainingslehre **nicht** vorgibt, erfundene Schwelle gegen gemessene Grenze,
   die drei Auflösungsebenen der Historie, die fünf handwerklichen Vorgaben,
   `RESPONSE_SCHEMA`, Tabellen statt wiederholter Schlüssel, Claude Code als
-  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tokenablage.
+  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tagesanpassung am
+  Abgleich, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten

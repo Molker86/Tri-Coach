@@ -26,6 +26,18 @@ export function heuteIso(): string {
 }
 
 /**
+ * Ob ein Zeitstempel aus der API (UTC, mit Zeitzone) auf den heutigen Tag
+ * fällt — in **Ortszeit** gerechnet.
+ *
+ * Nicht die ersten zehn Zeichen der Zeichenkette: Die stehen in UTC, und
+ * abends wie früh morgens ist das ein anderer Tag als der, den der Athlet vor
+ * sich hat. Gegenstück zu `zeit.ortsdatum()` im Backend.
+ */
+export function istHeute(zeitstempel: string | null): boolean {
+  return zeitstempel != null && alsIso(new Date(zeitstempel)) === heuteIso()
+}
+
+/**
  * Erster Tag des *anschließenden* Blocks: der Tag nach dem Blockende — aber nie
  * in der Vergangenheit. Ein Block, der vor einer Woche ausgelaufen ist, würde
  * sonst rückwirkend geplant.

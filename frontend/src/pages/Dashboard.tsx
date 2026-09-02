@@ -7,7 +7,7 @@ import { SessionDetail } from '../components/SessionDetail'
 import { Alert, EmptyState, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
 import { schlafdauer, sportIcon, sportLabel } from '../constants'
-import { heuteIso, naechsterBlockStart, planErzeugenPfad } from '../planung'
+import { heuteIso, istHeute, naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type {
   GarminAccount,
   Plan,
@@ -301,6 +301,13 @@ export default function Dashboard() {
 
   const today = heuteIso()
   const todaySessions = plan?.sessions.filter((s) => s.date === today) ?? []
+  // Was die Tagesanpassung heute früh geändert hat. Erkennbar am **fehlenden**
+  // Wunsch: Wer selbst angepasst hat, weiß es ohnehin und braucht den Hinweis
+  // nicht. Die Begründung gilt für den ganzen Tag und steht an jeder
+  // angefassten Einheit gleich — also einmal, nicht je Karte.
+  const tagesanpassung = todaySessions.find(
+    (s) => s.anpassungswunsch == null && istHeute(s.angepasst_am),
+  )
   const upcoming =
     plan?.sessions
       .filter((s) => s.date > today && s.sport !== 'rest')
@@ -454,6 +461,19 @@ export default function Dashboard() {
             )}
             <hr className="divider" />
           </>
+        )}
+
+        {/* Über den Einheiten und nicht nur als Fähnchen an der Karte: Die
+            Anpassung ist nachts passiert, und wer die App morgens öffnet, soll
+            nicht erst eine Einheit anklicken müssen, um zu erfahren, dass und
+            warum sein Tag anders aussieht als gestern Abend geplant. */}
+        {tagesanpassung && (
+          <Alert kind="info">
+            <strong>✎ Heute früh an deine Tagesform angepasst.</strong>
+            {tagesanpassung.anpassungsbegruendung && (
+              <> {tagesanpassung.anpassungsbegruendung}</>
+            )}
+          </Alert>
         )}
 
         {!plan ? (

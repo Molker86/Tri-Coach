@@ -153,6 +153,10 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "plan_sessions": {
         "angepasst_am": "DATETIME",
         "anpassungswunsch": "TEXT",
+        # Was die KI zur Anpassung gesagt hat. Bleibt an bereits angepassten
+        # Einheiten leer — ihre Begründung stand nur in der Meldung des Laufs
+        # und ist mit ihr vergangen.
+        "anpassungsbegruendung": "TEXT",
         # Becken oder Freiwasser. Bleibt an bestehenden Einheiten leer; die
         # werden wie bisher als Beckentraining behandelt, sofern nicht der
         # Rückfall in `workouts.schwimmort()` etwas anderes erkennt.
@@ -192,6 +196,11 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "auto_plan_weekday": "INTEGER NOT NULL DEFAULT 6",
         "auto_plan_hour": "INTEGER NOT NULL DEFAULT 9",
         "auto_plan_minute": "INTEGER NOT NULL DEFAULT 0",
+        # Die Tagesanpassung nach dem Abgleich. Neu und deshalb überall aus —
+        # ein Gegenstück zu `_ZURUECKZUSETZENDE_ALTWERTE` braucht es nicht,
+        # weil niemand ihr je zugestimmt haben kann.
+        "auto_tagesform_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+        "last_tagesform_on": "DATE",
     },
     # Wann die Zutaten eines Tages auf die Bring-Liste gingen. Bestehende Tage
     # bleiben leer und gelten damit als nicht übertragen — richtig so: Sie

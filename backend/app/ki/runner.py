@@ -36,11 +36,17 @@ EINHEIT = "einheit"
 # Die Jobart, die den Ernährungsplan zum aktiven Trainingsblock schreibt.
 ERNAEHRUNG = "ernaehrung"
 
+# Die Jobart, die den heutigen Tag an die Tagesverfassung anpasst. Wird nicht
+# von einem Knopf gestartet, sondern nach jedem automatischen Garmin-Abgleich —
+# siehe `ki/tagesform.py`.
+TAGESFORM = "tagesform"
+
 # Womit ein Lauf startet. Als Tabelle statt als Kette von Bedingungen: Beim
 # dritten Fall wurde der Ausdruck unlesbar.
 _STARTMELDUNG = {
     EINHEIT: "Die Anpassung wird vorbereitet …",
     ERNAEHRUNG: "Der Ernährungsplan wird vorbereitet …",
+    TAGESFORM: "Der heutige Tag wird geprüft …",
 }
 _STARTMELDUNG_VORGABE = "Der Planungslauf wird vorbereitet …"
 
@@ -191,6 +197,8 @@ class KiRunner:
                 self._einheit_lauf(db, job, user, einstellungen)
             elif job.kind == ERNAEHRUNG:
                 self._ernaehrung_lauf(db, job, user, einstellungen)
+            elif job.kind == TAGESFORM:
+                self._tagesform_lauf(db, job, user, einstellungen)
             else:
                 # Der Auffangfall ist die Blockplanung („manual" und das alte
                 # „auto"). Eine neue Jobart gehört deshalb **davor** als `elif`
@@ -368,6 +376,78 @@ class KiRunner:
 
         garmin, hinweis = automatik.uebertrage_geaenderte_einheit(db, user.id, session)
         _fertig(job, _einheit_meldung(ergebnis, garmin, hinweis))
+
+    def _tagesform_lauf(
+        self, db, job: KiJob, user: User, einstellungen: KiSettings
+    ) -> None:
+        """Die Einheiten von heute, geprüft gegen die Werte von heute Morgen.
+
+        Derselbe Ablauf wie bei der Einzelanpassung, nur über alle Einheiten des
+        Tages und mit einem Ausstieg davor: Ohne Fitnessdaten hat die Aufgabe
+        keinen Gegenstand, und der Lauf endet, **bevor** er Kontingent kostet.
+
+        Der Nachlauf auf die Uhr steht wie dort im Lauf und nicht dahinter, damit
+        sein Ergebnis in derselben Meldung landet — und er läuft nur über die
+        tatsächlich geänderten Einheiten: Was unverändert bleibt, liegt in Garmin
+        schon richtig.
+        """
+        from .. import ai_export, plan_import
+        from ..garmin import automatik
+        from . import tagesform
+
+        # Was zwischen Anstoß und Lauf noch stehen geblieben ist. Dieselbe
+        # Vorsicht wie bei `_EinheitFehlt`: Dazwischen liegen Minuten, in denen
+        # der Block gelöscht oder das Training schon erfasst worden sein kann.
+        tag = job.start_date or date.today()
+        plan, sessions = tagesform.anpassbare_einheiten(db, user.id, tag)
+        if plan is None or not sessions:
+            _fertig(job, "Für heute stand nichts an, was sich anpassen ließe.")
+            return
+
+        export = ai_export.erzeuge_tagesform_export(db, user, plan, sessions, tag)
+
+        # Der Prompt fragt nach den Werten von heute. Fehlen sie, bliebe eine
+        # Aufgabe ohne Gegenstand übrig — und die Antwort darauf wäre geraten.
+        if not export.payload.get("fitnessdaten"):
+            _fertig(
+                job,
+                "Keine Fitnessdaten vorhanden — ohne Schlaf, HRV und Erholung "
+                "gibt es am heutigen Tag nichts zu entscheiden.",
+            )
+            return
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            export.prompt,
+            "Claude prüft die heutigen Einheiten …",
+            json_schema=export.schema,
+        )
+
+        job.message = "Die Antwort wird geprüft und übernommen …"
+        db.commit()
+
+        ergebnis = self._mit_reparatur(
+            db,
+            job,
+            einstellungen,
+            antwort,
+            lambda a: plan_import.uebernimm_tagesform(
+                db, sessions, a.text, struktur=a.struktur
+            ),
+        )
+        job.plan_id = plan.id
+
+        hinweise: list[str] = []
+        for session in ergebnis.geaendert:
+            _, hinweis = automatik.uebertrage_geaenderte_einheit(
+                db, user.id, session
+            )
+            if hinweis:
+                hinweise.append(hinweis)
+
+        _fertig(job, _tagesform_meldung(ergebnis, hinweise))
 
     def _ernaehrung_lauf(
         self, db, job: KiJob, user: User, einstellungen: KiSettings
@@ -613,6 +693,30 @@ def _einheit_meldung(ergebnis, garmin: str, hinweis: str | None) -> str:
         teile.append(hinweis)
     if ergebnis.warnings:
         teile.append("Hinweis: " + " ".join(ergebnis.warnings[:2]))
+    return " ".join(teile)
+
+
+def _tagesform_meldung(ergebnis, hinweise: list[str]) -> str:
+    """Was aus dem heutigen Tag geworden ist.
+
+    Die Begründung steht ganz drin — sie ist die einzige Stelle, an der der
+    Athlet erfährt, warum sein Tag anders aussieht. Anders als bei der Anpassung
+    von Hand liest er sie allerdings kaum hier: Der Lauf ist vorbei, bevor
+    jemand die App öffnet, und die Meldung eines abgeschlossenen Jobs rutscht
+    aus der Liste. Deshalb steht sie zusätzlich an jeder angefassten Einheit.
+    """
+    anzahl = len(ergebnis.geaendert)
+    if anzahl == 0:
+        teile = ["Der heutige Tag bleibt, wie er geplant war."]
+    elif anzahl == 1:
+        teile = [f'Eine Einheit angepasst: „{ergebnis.geaendert[0].title}".']
+    else:
+        teile = [f"{anzahl} Einheiten an die Tagesverfassung angepasst."]
+    if ergebnis.begruendung:
+        teile.append(ergebnis.begruendung)
+    teile += hinweise
+    if ergebnis.warnings:
+        teile.append("Hinweis: " + " ".join(ergebnis.warnings[:3]))
     return " ".join(teile)
 
 

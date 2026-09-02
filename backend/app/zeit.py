@@ -12,7 +12,7 @@ aber, jede bestehende Datenbank anzufassen. Stattdessen wird beim Vergleich
 normalisiert: Was ohne Zeitzone aus der Datenbank kommt, ist UTC.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 from pydantic import PlainSerializer
@@ -29,6 +29,21 @@ def als_utc(zeitpunkt: datetime | None) -> datetime | None:
     if zeitpunkt.tzinfo is None:
         return zeitpunkt.replace(tzinfo=timezone.utc)
     return zeitpunkt
+
+
+def ortsdatum(zeitpunkt: datetime) -> date:
+    """Das **Ortszeit**-Datum eines Zeitstempels aus der Datenbank.
+
+    Zeitstempel stehen dort in UTC, verglichen wird gegen das lokale
+    `date.today()`. Ohne die Umrechnung fiel ein Lauf kurz nach Mitternacht
+    Ortszeit als „gestern" in die Datenbank, und die Tagessperre griff nicht —
+    bei einer Uhrzeit am Vormittag folgenlos, bei einer nachts nicht.
+
+    Steht hier und nicht bei einem der beiden Aufrufer: Der tägliche Abgleich
+    und die Tagesanpassung stellen dieselbe Frage, und zwei Kopien derselben
+    Umrechnung laufen beim ersten Sonderfall auseinander.
+    """
+    return als_utc(zeitpunkt).astimezone().date()
 
 
 def liegt_in_der_zukunft(zeitpunkt: datetime | None) -> bool:

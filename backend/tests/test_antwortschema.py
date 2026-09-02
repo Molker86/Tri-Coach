@@ -145,6 +145,39 @@ def test_die_einzelanpassung_verlangt_die_begruendung():
     }
 
 
+@pytest.mark.parametrize("disziplin", ["run", "swim", "bike", "triathlon"])
+def test_die_tagesanpassung_kennt_dieselben_felder(disziplin):
+    """Auch hier abgeleitet statt abgeschrieben — es ist die dritte Fassung."""
+    schema = ai_export.tagesform_strukturschema(disziplin)
+    eintrag = schema["properties"]["einheiten"]["items"]
+    struktur = set(eintrag["properties"]["einheit"]["properties"])
+    assert struktur == set(ai_export._session_schema(disziplin))
+    assert struktur <= set(AISessionIn.model_fields)
+
+
+def test_die_tagesanpassung_verlangt_nummer_und_entscheidung():
+    """Die `nr` trägt die Zuordnung — ohne sie wäre die Antwort nicht zuzuordnen."""
+    schema = ai_export.tagesform_strukturschema("run")
+    eintrag = schema["properties"]["einheiten"]["items"]
+
+    assert set(schema["required"]) == {"einheiten", "begruendung"}
+    assert set(eintrag["required"]) == {"nr", "unveraendert"}
+    # `einheit` steht bewusst **nicht** darin: Bei „unverändert" gibt es sie
+    # nicht, und ein `oneOf` darüber wäre die Fessel, an der eine sonst
+    # brauchbare Antwort stürbe.
+    assert "einheit" not in eintrag["required"]
+
+
+def test_die_tagesanpassung_kennt_dieselben_felder_wie_pydantic():
+    """Eine Zeile, die das Schema erlaubt und Pydantic ablehnt, stürbe erst im Import."""
+    from app.schemas import AITagesformEintrag
+
+    eintrag = ai_export.tagesform_strukturschema("run")["properties"]["einheiten"]
+    assert set(eintrag["items"]["properties"]) == set(
+        AITagesformEintrag.model_fields
+    )
+
+
 def test_das_schema_reist_mit_dem_export():
     """Prompt und Schema kommen aus derselben Disziplin, nicht aus zwei Rechnungen."""
     payload = {

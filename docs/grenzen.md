@@ -483,6 +483,32 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   eingestellten Wochentag) — aber nur, solange der Schalter steht: Wer ihn
   abends ausschaltet, hat einen Block, dessen späte Tage plötzlich zählen, und
   der Hinweis von heute stand umsonst darin. Umgekehrt genauso.
+- **Die Tagesanpassung kostet einen Opus-Lauf pro Tag**, aus demselben
+  Fünf-Stunden-Fenster, das man daneben selbst benutzt — anders als die Planung
+  fällt er *täglich* an. Ab Werk ist sie deshalb aus. Wer sie und die
+  wöchentliche Planung einschaltet, zahlt an sechs Tagen einen Lauf und am
+  siebten einen: Am Planungstag setzt die Anpassung aus.
+- **Ohne Garmin-Konto gibt es sie nicht.** Der Auslöser ist der automatische
+  Abgleich; ohne verbundenes Konto, bei `TRI_GARMIN_AUTOSYNC=0` oder nach einem
+  gescheiterten Lauf bleibt es beim geplanten Block. Das ist kein Versehen: Ihr
+  ganzer Gegenstand sind die Werte, die der Abgleich holt.
+- **Sie fasst nur den heutigen Tag an, und nur nach oben oder unten.** Der Tag,
+  die Sportart und die Zahl der Einheiten stehen fest; ein geplanter Ruhetag wird
+  nie zu Training, und ein Tag, an dem alles absolviert ist, löst nichts aus.
+  Wer mehr will, plant neu.
+- **Wer morgens von Hand anpasst, schaltet sie für den Tag ab.** Sobald an einer
+  Einheit von heute ein Wunsch hängt, läuft sie nicht mehr — sonst überschriebe
+  sie Stunden später, was der Athlet gerade selbst entschieden hat. Umgekehrt
+  gibt es keinen Riegel: Nach der automatischen Anpassung lässt sich jede Einheit
+  weiter von Hand ändern, und der Grund von heute früh reist als Kontext mit.
+- **Gesehen wird sie erst, wenn jemand die App öffnet.** Ihr Job ist vorbei,
+  bevor das geschieht, und seine Meldung rutscht aus der Liste. Was bleibt, ist
+  der Hinweis über der Karte „Heute", das Badge „✎ angepasst" und die Begründung
+  im Dialog — eine Benachrichtigung aufs Telefon gibt es nicht, und auf der Uhr
+  steht die neue Fassung ohne einen Hinweis darauf, dass sie neu ist.
+- **Und was sie geändert hat, lässt sich nicht zurücknehmen.** Die alte Fassung
+  steht in keiner Spalte — dieselbe Lage wie bei der Einzelanpassung. Wer sie
+  zurück will, passt die Einheit von Hand wieder an.
 - **Zwischen Abgleich und Planung liegt keine Reihenfolge mehr.** Sie hing
   einmal am Ende eines erfolgreichen automatischen Abgleichs und konnte deshalb
   nie auf veralteten Daten laufen. Jetzt haben beide eine eigene Uhrzeit: Wer

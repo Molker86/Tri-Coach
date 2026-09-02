@@ -56,7 +56,16 @@ export function SessionCard({
           )}
           {session.logged && <span className="badge badge-success">✓ erfasst</span>}
           {!session.logged && session.angepasst_am && (
-            <span className="badge" title={session.anpassungswunsch ?? undefined}>
+            <span
+              // Ohne Wunsch war es die Tagesanpassung nach dem Abgleich; dann
+              // trägt die Begründung, was sonst der Wunsch tragen würde.
+              title={
+                session.anpassungswunsch ??
+                session.anpassungsbegruendung ??
+                undefined
+              }
+              className="badge"
+            >
               ✎ angepasst
             </span>
           )}

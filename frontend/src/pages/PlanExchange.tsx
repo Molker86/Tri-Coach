@@ -81,10 +81,7 @@ export default function PlanExchange() {
         // aktiven KI-Lauf für alle Aufgaben. Ein Ernährungslauf trägt am Ende
         // kein `plan_id`, fiele hier also in den Fehlerzweig — und seine
         // Erfolgsmeldung stünde als Fehler über dem Trainingsplan.
-        const art = status.aktiver_job?.kind
-        if (status.aktiver_job && (art === 'manual' || art === 'auto')) {
-          beobachte(status.aktiver_job)
-        }
+        if (istBlockLauf(status.aktiver_job)) beobachte(status.aktiver_job!)
       })
       .catch(() => setKiStatus(null))
     // Der Block wird aus dem gebaut, was aus der Uhr da ist. Ist der letzte
@@ -292,8 +289,13 @@ export default function PlanExchange() {
                   Modell: {kiStatus?.modell} · Denktiefe: {kiStatus?.effort}
                 </span>
               </div>
-              {kiStatus?.letzter_job && !laeuft && (
-                <LetzterLauf job={kiStatus.letzter_job} onAntwort={holeRohantwort} />
+              {/* Dieselbe Auswahl wie beim aktiven Lauf oben, und aus
+                  demselben Grund: Es gibt genau **einen** letzten KI-Lauf für
+                  alle Aufgaben. Seit die Tagesanpassung jeden Morgen läuft,
+                  stünde hier sonst der Regelfall „Der heutige Tag bleibt, wie er
+                  geplant war" unter dem Knopf, der einen Block plant. */}
+              {istBlockLauf(kiStatus?.letzter_job) && !laeuft && (
+                <LetzterLauf job={kiStatus!.letzter_job!} onAntwort={holeRohantwort} />
               )}
             </>
           )}
@@ -412,6 +414,14 @@ function AbgleichStand({ konto }: { konto: GarminAccount | null }) {
     </Alert>
   )
 }
+
+/** Ob dieser Lauf einen Trainingsblock betrifft — und nicht eine Einheit, die
+ *  Ernährung oder die Tagesanpassung. Es gibt genau einen KI-Lauf für alle
+ *  Aufgaben; ohne die Frage landete jeder davon auf dieser Seite. */
+function istBlockLauf(job: KiJob | null | undefined): boolean {
+  return job?.kind === 'manual' || job?.kind === 'auto'
+}
+
 
 function LetzterLauf({
   job,

@@ -134,6 +134,8 @@ export interface PlanSession {
   angepasst_am: string | null
   /** Der Wunsch, auf den hin sie angepasst wurde, im Wortlaut. */
   anpassungswunsch: string | null
+  /** Was die KI zur Anpassung gesagt hat — bei der Tagesanpassung der einzige Ort dafür. */
+  anpassungsbegruendung: string | null
 }
 
 export interface Plan {
@@ -512,6 +514,13 @@ export interface KiSettings {
   auto_plan_minute: number
   last_auto_plan_on: string | null
   /**
+   * Ob nach jedem automatischen Garmin-Abgleich die Einheiten von heute an die
+   * Tagesverfassung angepasst werden. Keine eigene Uhrzeit — es gilt die des
+   * Abgleichs.
+   */
+  auto_tagesform_enabled: boolean
+  last_tagesform_on: string | null
+  /**
    * Die Lage des Tokens, nie der Token selbst. `unlesbar` heißt: hinterlegt,
    * aber der Schlüssel passt nicht mehr — dann hilft nur neu eintragen.
    */
@@ -526,6 +535,7 @@ export interface KiSettingsIn {
   auto_plan_weekday: number
   auto_plan_hour: number
   auto_plan_minute: number
+  auto_tagesform_enabled: boolean
   /** Leerer String löscht den hinterlegten Zugang. */
   token: string
 }
