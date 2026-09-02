@@ -82,7 +82,12 @@ export default function NewTraining() {
       .then(([geladenesProfil, fragebogen]) => {
         setProfile(geladenesProfil)
         if (fragebogen) {
-          const { id: _i, created_at: _c, ...antworten } = fragebogen
+          const {
+            id: _i,
+            created_at: _c,
+            updated_at: _u,
+            ...antworten
+          } = fragebogen
           setForm(antworten)
         }
       })

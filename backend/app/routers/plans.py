@@ -197,10 +197,17 @@ def validate_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanI
     """Prüft eine KI-Antwort, ohne sie zu speichern (Vorschau vor dem Import)."""
     try:
         body = plan_import.parse_ai_response(data.raw)
+        # Derselbe geprüfte Fragebogen wie beim Import — die Vorschau darf
+        # weder an einer fremden Kennung hängen noch gegen andere Vorgaben
+        # prüfen als der Import gleich darauf.
+        fragebogen = plan_import.gepruefter_fragebogen(db, user.id, data.request_id)
     except plan_import.PlanImportError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
-    preview = plan_import.build_plan(body, user.id, data.request_id)
+    disziplin, zusatztraining = plan_import.vorgaben_des_fragebogens(
+        db, user.id, fragebogen
+    )
+    preview = plan_import.build_plan(body, user.id, fragebogen)
     sessions = sorted(preview.sessions, key=lambda s: (s.date, s.order_in_day))
 
     return PlanImportOut(
@@ -219,7 +226,7 @@ def validate_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanI
             # Von Hand mitgezogen: Anders als `_to_plan_out` baut die Vorschau
             # `PlanOut` Feld für Feld, und das Feld hat eine Vorgabe — vergessen
             # käme es still als `null` heraus.
-            request_id=data.request_id,
+            request_id=fragebogen,
             sessions=[
                 PlanSessionOut(
                     id=0,
@@ -244,12 +251,10 @@ def validate_plan(data: PlanImportIn, user: CurrentUser, db: DbSession) -> PlanI
                 for s in sessions
             ],
         ),
+        # Die Vorschau soll dieselben Hinweise zeigen wie der Import — sonst
+        # taucht die Warnung erst auf, wenn der Block schon steht.
         warnings=plan_import.validate_coverage(
-            body,
-            data.days,
-            # Die Vorschau soll dieselben Hinweise zeigen wie der Import —
-            # sonst taucht die Warnung erst auf, wenn der Block schon steht.
-            plan_import.disziplin_des_fragebogens(db, user.id, data.request_id),
+            body, data.days, disziplin, zusatztraining
         ),
     )
 

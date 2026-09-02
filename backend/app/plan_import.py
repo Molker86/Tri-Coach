@@ -17,12 +17,13 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from . import plan_aufraeumen
-from .models import Plan, PlanSession, TrainingRequest
+from .models import TRAININGSWUNSCH_AKTUALITAET, Plan, PlanSession, TrainingRequest
 from .paketformat import ist_datenpaket
 from .schemas import (
     DISCIPLINE_LABEL,
     DISZIPLINFREIE_SPORTARTEN,
     DISZIPLIN_SPORTARTEN,
+    ERGAENZUNGSSPORTARTEN,
     AIEinheitBody,
     AIEinheitImport,
     AIPlanBody,
@@ -524,10 +525,15 @@ def _gekuerzt(eintraege: list[str], trenner: str = ", ") -> str:
     return gezeigt
 
 
-# Die drei Ausdauersportarten heißen wie ihre Disziplinen; die Koppeleinheit
-# hat keine eigene Disziplin und stünde sonst als „brick" in einer deutschen
-# Meldung.
-_SPORT_TEXT = {**DISCIPLINE_LABEL, "brick": "Koppeltraining"}
+# Die drei Ausdauersportarten heißen wie ihre Disziplinen. Koppeleinheit, Kraft
+# und Mobility haben keine, kommen in den Meldungen aber vor — ohne Eintrag
+# stünde ihre englische Kennung in einem deutschen Satz.
+_SPORT_TEXT = {
+    **DISCIPLINE_LABEL,
+    "brick": "Koppeltraining",
+    "strength": "Kraft",
+    "mobility": "Mobility",
+}
 
 
 def _fremde_sportarten(body: AIPlanBody, disziplin: str | None) -> list[str]:
@@ -565,10 +571,58 @@ def _fremde_sportarten(body: AIPlanBody, disziplin: str | None) -> list[str]:
     ]
 
 
+def _ungewolltes_ergaenzungstraining(
+    body: AIPlanBody, zusatztraining: list[str] | None
+) -> list[str]:
+    """Kraft und Mobility, die im Fragebogen nicht angekreuzt sind.
+
+    `_fremde_sportarten()` lässt beide bewusst durch — sie gehören in jede
+    Disziplin. Ob sie überhaupt in den Block gehören, sagt aber nicht die
+    Disziplin, sondern `supplemental`, und genau das ging verloren: Bei leerer
+    Auswahl fiel das Feld aus dem Paket (`ai_export.KEIN_ZUSATZTRAINING`), und
+    die KI plante Kraft- und Mobilityeinheiten, die niemand wollte. Der Prompt
+    verbietet sie jetzt ausdrücklich; nachprüfen kann das nur der Import.
+
+    Gemeldet, nicht gelöscht: Eine Einheit zu entfernen risse ein Loch in den
+    Tag — dieselbe Linie wie bei den fremden Sportarten.
+    """
+    if zusatztraining is None:
+        return []
+
+    ungewollt: dict[str, int] = {}
+    for tag in body.days:
+        for einheit in tag.sessions:
+            if einheit.sport not in ERGAENZUNGSSPORTARTEN:
+                continue
+            if einheit.sport in zusatztraining:
+                continue
+            ungewollt[einheit.sport] = ungewollt.get(einheit.sport, 0) + 1
+
+    if not ungewollt:
+        return []
+
+    benannt = ", ".join(
+        f"{anzahl}x {_SPORT_TEXT.get(sport, sport)}"
+        for sport, anzahl in sorted(ungewollt.items())
+    )
+    gewaehlt = (
+        ", ".join(_SPORT_TEXT.get(s, s) for s in zusatztraining)
+        if zusatztraining
+        else "nichts davon"
+    )
+    return [
+        f"Der Block enthält Ergänzungstraining, das im Fragebogen nicht "
+        f"gewählt ist ({benannt}; gewählt: {gewaehlt}). Es ist übernommen; wer "
+        "es nicht will, passt die Einheiten einzeln an oder ergänzt den "
+        "Fragebogen."
+    ]
+
+
 def validate_coverage(
     body: AIPlanBody,
     expected_days: int | None = None,
     disziplin: str | None = None,
+    zusatztraining: list[str] | None = None,
 ) -> list[str]:
     """Nicht-blockierende Plausibilitätsprüfungen für die Nutzer-Rückmeldung.
 
@@ -579,6 +633,10 @@ def validate_coverage(
     `disziplin` ist die Wahl aus dem Fragebogen. Ohne sie wird die Sportart
     nicht geprüft — dieselbe Zurückhaltung wie beim Prompt, der ohne
     Fragebogen alle Disziplinen offen lässt.
+
+    `zusatztraining` ist dieselbe Wahl für Kraft und Mobility. `None` heißt
+    „kein Fragebogen, also keine Prüfung"; die leere Liste heißt „ausdrücklich
+    nichts davon" und ist damit die schärfste Vorgabe, nicht die schwächste.
     """
     warnings: list[str] = []
 
@@ -635,6 +693,7 @@ def validate_coverage(
         warnings.append(f"{len(empty)} Tag(e) enthalten keine Einheit.")
 
     warnings.extend(_fremde_sportarten(body, disziplin))
+    warnings.extend(_ungewolltes_ergaenzungstraining(body, zusatztraining))
 
     # Unbrauchbare Steuerungsgrößen (Zielpuls, RPE) hat `AISessionIn` bereits
     # weggeworfen, statt den Block abzulehnen. Stillschweigend darf das nicht
@@ -748,33 +807,76 @@ def _letzter_fragebogen(db: Session, user_id: int) -> int | None:
     zeile = (
         db.query(TrainingRequest.id)
         .filter(TrainingRequest.user_id == user_id)
-        .order_by(TrainingRequest.created_at.desc())
+        .order_by(TRAININGSWUNSCH_AKTUALITAET.desc())
         .first()
     )
     return zeile[0] if zeile else None
 
 
-def disziplin_des_fragebogens(
+def gepruefter_fragebogen(
     db: Session, user_id: int, request_id: int | None
-) -> str | None:
-    """Die Disziplin, auf die sich dieser Block bezieht.
+) -> int | None:
+    """Die Kennung, an der dieser Block hängen wird — nur wenn sie dem Nutzer gehört.
+
+    Ohne Angabe der letzte eigene. Mit Angabe kam sie bisher ungeprüft aus dem
+    Anfragekörper und landete über `build_plan()` in `Plan.request_id`: Ein Plan
+    konnte an einem fremden Fragebogen hängen, und jeder spätere Export darauf
+    scheiterte in `ai_export._lade_kontext()` an „Fragebogen nicht gefunden." —
+    dann aber ohne Hinweis darauf, woher die falsche Kennung stammte. Der Weg
+    über die KI prüft an derselben Stelle (`routers/ki.py`).
+    """
+    if request_id is None:
+        return _letzter_fragebogen(db, user_id)
+    treffer = (
+        db.query(TrainingRequest.id)
+        .filter(
+            TrainingRequest.id == request_id,
+            TrainingRequest.user_id == user_id,
+        )
+        .first()
+    )
+    if treffer is None:
+        raise PlanImportError("Fragebogen nicht gefunden.")
+    return treffer[0]
+
+
+def vorgaben_des_fragebogens(
+    db: Session, user_id: int, request_id: int | None
+) -> tuple[str | None, list[str] | None]:
+    """Disziplin und Ergänzungstraining — die beiden Vorgaben, die der Import prüft.
+
+    In einer Abfrage, weil beide aus derselben Zeile kommen und aus derselben
+    Zeile kommen **müssen**: Zwei Abfragen mit je eigenem Rückfall könnten die
+    Disziplin des einen und das Ergänzungstraining eines anderen Fragebogens
+    liefern.
 
     Ohne ausdrückliche `request_id` gilt derselbe Rückfall wie überall sonst:
-    der zuletzt gespeicherte Fragebogen (`_letzter_fragebogen()`). Ohne
-    Fragebogen gibt es keine Disziplin — dann wird nichts geprüft.
+    der zuletzt geänderte Fragebogen (`_letzter_fragebogen()`). Ohne Fragebogen
+    gibt es keine Vorgabe — dann wird nichts geprüft, und beides ist `None`.
     """
     gesucht = request_id or _letzter_fragebogen(db, user_id)
     if gesucht is None:
-        return None
+        return None, None
     zeile = (
-        db.query(TrainingRequest.discipline)
+        db.query(TrainingRequest.discipline, TrainingRequest.supplemental)
         .filter(
             TrainingRequest.id == gesucht,
             TrainingRequest.user_id == user_id,
         )
         .first()
     )
-    return zeile[0] if zeile else None
+    if zeile is None:
+        return None, None
+    # Die leere Liste ist eine Aussage („nichts davon“) und darf nicht zu `None`
+    # („nicht bekannt“) werden — `list(...)` hält beides auseinander.
+    return zeile[0], list(zeile[1] or [])
+
+
+def disziplin_des_fragebogens(
+    db: Session, user_id: int, request_id: int | None
+) -> str | None:
+    """Nur die Disziplin — für Aufrufer, die das Ergänzungstraining nicht brauchen."""
+    return vorgaben_des_fragebogens(db, user_id, request_id)[0]
 
 
 def uebernimm_plan(
@@ -803,12 +905,12 @@ def uebernimm_plan(
     body = plan_aus_objekt(struktur) if struktur is not None else parse_ai_response(raw)
     # Einmal auflösen: Plan und Prüfung müssen denselben Fragebogen sehen,
     # sonst prüfte die Warnung gegen eine andere Disziplin als die, an der
-    # der Plan später hängt.
-    fragebogen = request_id or _letzter_fragebogen(db, user_id)
+    # der Plan später hängt. Und geprüft, weil `request_id` bis hierher aus dem
+    # Anfragekörper kommt.
+    fragebogen = gepruefter_fragebogen(db, user_id, request_id)
     plan = build_plan(body, user_id, fragebogen)
-    warnings = validate_coverage(
-        body, days, disziplin_des_fragebogens(db, user_id, fragebogen)
-    )
+    disziplin, zusatztraining = vorgaben_des_fragebogens(db, user_id, fragebogen)
+    warnings = validate_coverage(body, days, disziplin, zusatztraining)
 
     # Nur ein Plan ist gleichzeitig aktiv.
     db.query(Plan).filter(Plan.user_id == user_id, Plan.is_active.is_(True)).update(

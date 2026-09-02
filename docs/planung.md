@@ -412,16 +412,40 @@ alle Antworten; bei einem Teil-Update wäre „ich will kein Ergänzungstraining
 mehr" (`supplemental: []`) nicht von „dieses Feld war nicht dabei" zu
 unterscheiden, und ein abgewählter Wunsch stünde weiter im nächsten Prompt.
 
-**`created_at` wandert dabei nicht**, und daran hängt eine Falle:
-`_letzter_fragebogen()` sortiert danach. Liegt neben der bearbeiteten Zeile eine
-jüngere, griffe der Export daneben — die Anpassung wirkte nie, ohne dass
-irgendwo etwas fehlschlüge, der unangenehmste aller Fehlerfälle. Den Zeitstempel
-hochzusetzen wäre eine Zeile und machte die Spalte zur Lüge (die Liste sortiert
-danach, und „wann habe ich den ausgefüllt" hätte keine Antwort mehr).
-Durchgereicht wird stattdessen die **Kennung**: `planErzeugenPfad()` hängt sie an
-(beide Planungsknöpfe geben `plan.request_id` mit), und `ki/automatik` nimmt die
-des aktiven Blocks statt `None`. Damit trägt sich die Wahl fort — `uebernimm_plan`
-schreibt sie an den neuen Plan, der nächste Lauf liest sie dort.
+**`created_at` wandert dabei nicht, `updated_at` schon.** Daran hing eine Falle:
+`_letzter_fragebogen()` sortierte nach `created_at`. Lag neben der bearbeiteten
+Zeile eine jüngere, griff der Export daneben — die Anpassung wirkte nie, ohne
+dass irgendwo etwas fehlschlug, der unangenehmste aller Fehlerfälle.
+`created_at` dafür hochzusetzen wäre eine Zeile und machte die Spalte zur Lüge:
+„wann habe ich den ausgefüllt" hätte dann keine Antwort mehr. Die Aktualität
+trägt deshalb eine **eigene** Spalte, und `TRAININGSWUNSCH_AKTUALITAET`
+(`models.py`) ist der Ausdruck, nach dem alle vier Stellen sortieren, die „den
+letzten Fragebogen" suchen — Liste, `/latest`, `ai_export._lade_kontext()`,
+`plan_import._letzter_fragebogen()`. Ein Ausdruck und nicht vier Kopien: Die
+liefen beim ersten Sonderfall auseinander. An bestehenden Zeilen bleibt
+`updated_at` leer, und `coalesce` fällt dann auf `created_at` zurück — genau die
+Reihenfolge, die vorher galt.
+
+Die **Kennung** wird trotzdem weiter durchgereicht, und zwar unabhängig davon:
+`planErzeugenPfad()` hängt sie an (beide Planungsknöpfe geben `plan.request_id`
+mit), und `ki/automatik` nimmt die des aktiven Blocks statt `None`. Die
+Sortierung ist der Rückfall, die Kennung die Aussage — wer aus einem laufenden
+Block heraus plant, meint dessen Fragebogen und nicht den zuletzt angefassten.
+
+**Die Kennung wird geprüft, bevor sie an den Plan geht**
+(`plan_import.gepruefter_fragebogen()`). Sie kommt bei `POST /api/plans/import`
+und `/validate` aus dem Anfragekörper und landete ungeprüft in
+`Plan.request_id`: Ein Block konnte damit an einem fremden Fragebogen hängen.
+Bemerkt hätte man es erst viel später und an ganz anderer Stelle — jeder
+Einheit- und Ernährungsexport darauf scheitert in `ai_export._lade_kontext()` an
+„Fragebogen nicht gefunden.", ohne einen Hinweis darauf, woher die falsche
+Kennung stammte. Der Weg über die KI prüfte an derselben Stelle längst
+(`routers/ki.py`); der Handweg zog nach.
+
+Disziplin und Ergänzungstraining kommen seither aus **einer** Abfrage
+(`vorgaben_des_fragebogens()`) — zwei Abfragen mit je eigenem Rückfall könnten
+die Disziplin des einen und das Ergänzungstraining eines anderen Fragebogens
+liefern.
 
 **Der laufende Block ändert sich nicht**, und der Wizard sagt das im letzten
 Schritt ausdrücklich: Die Änderung gilt ab dem nächsten Block. Ohne den Satz wäre

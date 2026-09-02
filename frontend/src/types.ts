@@ -84,6 +84,9 @@ export interface ProfileHistoryEntry {
 export interface TrainingRequest {
   id: number
   created_at: string
+  /** Wann zuletzt geändert -- `null`, solange unangetastet. Danach richtet
+   *  sich, welchen Fragebogen der Export als „den letzten" nimmt. */
+  updated_at: string | null
   discipline: Discipline
   goal_type: string | null
   goal_text: string | null
@@ -99,7 +102,10 @@ export interface TrainingRequest {
   free_text: Record<string, string>
 }
 
-export type TrainingRequestInput = Omit<TrainingRequest, 'id' | 'created_at'>
+export type TrainingRequestInput = Omit<
+  TrainingRequest,
+  'id' | 'created_at' | 'updated_at'
+>
 
 export interface PlanSession {
   id: number

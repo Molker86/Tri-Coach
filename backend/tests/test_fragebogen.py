@@ -195,3 +195,164 @@ def test_ohne_fragebogen_bleibt_die_kennung_leer(client, auth):
     """Ein Block ohne Fragebogen sagt das, statt einen zu erfinden."""
     plan = _importiere(client, auth)
     assert plan["request_id"] is None
+
+
+def test_geaenderter_fragebogen_gilt_als_der_letzte(client, auth):
+    """`created_at` steht still — die Aktualität trägt `updated_at`.
+
+    Sonst war Bearbeiten wirkungslos, sobald daneben eine jüngere Zeile lag:
+    Der Export sortierte nach `created_at`, nahm die jüngere und plante gegen
+    die alten Antworten.
+    """
+    alt = _lege_an(client, auth, goal_type="Grundlagenausdauer")
+    _lege_an(client, auth, goal_type="Wiedereinstieg")
+
+    assert client.get("/api/requests/latest", headers=auth).json()["id"] != alt["id"]
+
+    client.put(
+        f"/api/requests/{alt['id']}",
+        headers=auth,
+        json={"discipline": "run", "goal_type": "Bestzeit"},
+    )
+
+    jetzt_letzter = client.get("/api/requests/latest", headers=auth).json()
+    assert jetzt_letzter["id"] == alt["id"]
+    assert jetzt_letzter["created_at"] == alt["created_at"]
+    assert jetzt_letzter["updated_at"] is not None
+    # Die Liste folgt derselben Reihenfolge — sonst zeigte das Frontend eine
+    # andere Zeile als die, gegen die geplant wird.
+    assert client.get("/api/requests", headers=auth).json()[0]["id"] == alt["id"]
+
+
+def test_unberuehrter_fragebogen_hat_keine_aenderung(client, auth):
+    """`updated_at` bleibt leer, bis wirklich jemand etwas ändert."""
+    assert _lege_an(client, auth)["updated_at"] is None
+
+
+def test_fremde_request_id_kommt_nicht_an_den_plan(client, auth, registriere):
+    """Sonst hing ein Block an einem fremden Fragebogen.
+
+    Aufgefallen wäre das erst später und woanders: Jeder Einheit- und
+    Ernährungsexport darauf scheiterte an „Fragebogen nicht gefunden.", ohne
+    einen Hinweis darauf, woher die falsche Kennung stammte.
+    """
+    fremd = registriere("fremd-import@example.com", "fremdimport")
+    fremder_fragebogen = _lege_an(client, fremd)
+
+    for pfad in ("/api/plans/import", "/api/plans/validate"):
+        antwort = client.post(
+            pfad,
+            headers=auth,
+            json={
+                "raw": json.dumps(
+                    {
+                        "plan": {
+                            "title": "Geklaut",
+                            "start_date": HEUTE.isoformat(),
+                            "days": [
+                                {
+                                    "date": HEUTE.isoformat(),
+                                    "sessions": [
+                                        {
+                                            "sport": "run",
+                                            "type": "endurance",
+                                            "title": "Lauf",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                ),
+                "request_id": fremder_fragebogen["id"],
+                "days": 1,
+            },
+        )
+        assert antwort.status_code == 422, pfad
+        assert "Fragebogen nicht gefunden" in antwort.text
+
+    # Und es ist wirklich nichts entstanden — der Import bricht ab, bevor er
+    # den bisherigen Block ablöst.
+    assert client.get("/api/plans/active", headers=auth).json() is None
+
+
+def _prompt(client, auth) -> dict:
+    antwort = client.get("/api/plans/export", headers=auth)
+    assert antwort.status_code == 200, antwort.text
+    return antwort.json()
+
+
+def test_abgewaehltes_ergaenzungstraining_steht_im_prompt(client, auth):
+    """Der Verzicht ist eine Angabe, kein Fehlen.
+
+    Eine leere Liste fiel in `paketformat._ohne_leere()` heraus. Im Prompt
+    stand dann kein `zusatztraining` — wohl aber der Absatz, der darauf
+    verweist. Die KI füllte die Lücke mit Kraft- und Mobilityeinheiten, die
+    niemand gewählt hatte.
+    """
+    _lege_an(client, auth, supplemental=[])
+    ergebnis = _prompt(client, auth)
+
+    assert ergebnis["payload"]["trainingswunsch"]["zusatztraining"] == "keines"
+    # Und nicht nur im Dict: Der Prompt ist der Text, den die KI sieht.
+    assert '"zusatztraining":"keines"' in ergebnis["prompt"]
+    assert "**Kein Ergänzungstraining**" in ergebnis["prompt"]
+    assert "Kraft und Mobility stehen gleichrangig" not in ergebnis["prompt"]
+
+
+def test_gewaehltes_ergaenzungstraining_behaelt_die_anleitung(client, auth):
+    _lege_an(client, auth, supplemental=["strength"])
+    prompt = _prompt(client, auth)["prompt"]
+
+    assert "Kraft und Mobility stehen gleichrangig" in prompt
+    assert "**Kein Ergänzungstraining**" not in prompt
+
+
+def test_ohne_fragebogen_bleibt_alles_offen(client, auth):
+    """Kein Fragebogen heißt „nicht gewählt", nicht „abgewählt".
+
+    Dieselbe Zurückhaltung wie bei der Disziplin: Ohne Fragebogen wird nichts
+    ausgeschlossen. Ein Verbot aus einer fehlenden Angabe abzuleiten wäre eine
+    Vorgabe, die der Athlet nie gemacht hat.
+    """
+    prompt = _prompt(client, auth)["prompt"]
+
+    assert "**Kein Ergänzungstraining**" not in prompt
+    assert "Kraft und Mobility stehen gleichrangig" in prompt
+
+
+def test_ungewolltes_ergaenzungstraining_wird_gemeldet(client, auth):
+    """Gemeldet, nicht gelöscht — eine entfernte Einheit risse ein Loch in den Tag."""
+    fragebogen = _lege_an(client, auth, supplemental=["mobility"])
+    roh = json.dumps(
+        {
+            "plan": {
+                "title": "Mit Kraft",
+                "start_date": HEUTE.isoformat(),
+                "days": [
+                    {
+                        "date": HEUTE.isoformat(),
+                        "sessions": [
+                            {"sport": "run", "type": "endurance", "title": "Lauf"},
+                            {"sport": "strength", "type": "strength", "title": "Kraft"},
+                            {"sport": "mobility", "type": "mobility", "title": "Dehnen"},
+                        ],
+                    }
+                ],
+            }
+        }
+    )
+    antwort = client.post(
+        "/api/plans/import",
+        headers=auth,
+        json={"raw": roh, "request_id": fragebogen["id"], "days": 1},
+    )
+    assert antwort.status_code == 201, antwort.text
+    warnungen = " ".join(antwort.json()["warnings"])
+
+    assert "nicht gewählt" in warnungen
+    assert "1x Kraft" in warnungen
+    # Mobility ist gewählt und darf nicht mitgemeldet werden.
+    assert "Mobility" not in warnungen.split("gewählt:")[0]
+    # Übernommen ist der Block trotzdem — mit allen drei Einheiten.
+    assert len(antwort.json()["plan"]["sessions"]) == 3

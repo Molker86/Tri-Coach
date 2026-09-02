@@ -103,6 +103,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
     "plans": {
         "geplant_ab": "DATE",
     },
+    # Wann der Fragebogen zuletzt geändert wurde. Bleibt an bestehenden Zeilen
+    # leer, und das ist richtig: `TRAININGSWUNSCH_AKTUALITAET` fällt dann auf
+    # `created_at` zurück — genau die Reihenfolge, die bisher galt.
+    "training_requests": {
+        "updated_at": "DATETIME",
+    },
     # Umbenennung von `recovery_time_h`: Garmin liefert Minuten, der alte Name
     # behauptete Stunden. Die Werte zieht `_uebertrage_spalten()` herüber.
     "wellness_days": {

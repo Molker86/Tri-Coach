@@ -374,6 +374,39 @@ der Einzelanpassung hat keins. `PRINZIP_ERGAENZUNG` geht deshalb wie
 `.format()` formatiert eingesetzte Werte **nicht** erneut, der Platzhalter muss
 also gefüllt sein, bevor der Text in die Vorlage geht.
 
+**Der Verzicht ist eine Angabe, kein Fehlen** — und das war ein echter Fehler.
+`paketformat._ohne_leere()` wirft `None`, `{}` und `[]` aus den JSON-Köpfen; bei
+`supplemental: []` fehlte `zusatztraining` im `trainingswunsch`-Kopf also
+vollständig. Punkt 3 stand trotzdem unverändert im Prompt und verwies darauf:
+„was davon überhaupt in den Block gehört, sagt `trainingswunsch.zusatztraining`".
+Ein Verweis auf ein Feld, das nicht dasteht — und die KI füllte die Lücke mit
+Kraft- und Mobilityeinheiten, die der Athlet ausdrücklich abgewählt hatte.
+Aufgefallen ist es an einem zweiten Konto, weil dort zum ersten Mal jemand
+nichts davon wollte.
+
+Zwei Änderungen, beide klein: `_request_block()` schreibt
+`ai_export.KEIN_ZUSATZTRAINING` (`"keines"`) statt der leeren Liste — Strings
+lässt `_ohne_leere()` ausdrücklich stehen. Und `_prinzip_ergaenzung()` wählt
+danach die Fassung: `PRINZIP_KEIN_ERGAENZUNG` verbietet beide Sportarten in
+einem Satz, statt eine Anleitung zu geben, die der Block nicht brauchen darf.
+Dieselbe Bauform wie `_fitnessregeln()` und `_wettkampfhinweis()`, aus demselben
+Grund — und nebenbei kürzer als der Absatz, den es ersetzt.
+
+**Das Verbot hängt am ausdrücklichen `"keines"`, nicht am fehlenden Feld.** Ohne
+Fragebogen steht `trainingswunsch` überhaupt nicht im Paket, und das heißt
+„nicht gewählt", nicht „abgewählt" — dann gilt weiter die volle Anleitung. Die
+gleiche Unterscheidung trägt `plan_import.validate_coverage()`: `None` heißt
+„kein Fragebogen, also keine Prüfung", die leere Liste heißt „ausdrücklich
+nichts davon" und ist damit die **schärfste** Vorgabe, nicht die schwächste. Wer
+die beiden Fälle zusammenwirft, leitet aus einer fehlenden Angabe ein Verbot ab,
+das der Athlet nie ausgesprochen hat.
+
+Nachgeprüft wird es trotzdem: `_ungewolltes_ergaenzungstraining()` meldet Kraft-
+und Mobilityeinheiten, die nicht im Fragebogen stehen — gemeldet, nicht
+gelöscht, dieselbe Linie wie bei `_fremde_sportarten()`. Eine Einheit zu
+entfernen risse ein Loch in den Tag, und das ist die teurere Antwort auf etwas,
+das der Athlet notfalls selbst anpasst.
+
 **Punkt 5 ist die Beschwerde des Athleten, und sie wirkt in zwei Richtungen.**
 `athlet.verletzungen_einschraenkungen` reiste lange im Payload mit, ohne dass
 ein Punkt darauf zeigte. Beim Ausdauerteil las das Modell den Freitext von

@@ -119,7 +119,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 663 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 670 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 

@@ -94,6 +94,12 @@ DISZIPLIN_BLOCKNAME = {
 # Ausnahmeliste braucht.
 DISZIPLINFREIE_SPORTARTEN = ("strength", "mobility", "rest")
 
+# Davon zwei sind Ergänzungstraining: Ob sie in den Block gehören, entscheidet
+# nicht die Disziplin, sondern `TrainingRequest.supplemental` — dieselben Kennungen
+# wie im Fragebogen (`SUPPLEMENTAL_OPTIONS` im Frontend). `rest` bleibt außen vor,
+# Ruhe wählt niemand an.
+ERGAENZUNGSSPORTARTEN = ("strength", "mobility")
+
 # Ohne Fragebogen ist keine Disziplin gewählt — dann bleibt alles erlaubt, so
 # wie es vor der Unterscheidung überall war.
 DISZIPLIN_FALLBACK = "triathlon"
@@ -298,6 +304,10 @@ class TrainingRequestOut(TrainingRequestIn):
 
     id: int
     created_at: UtcDatetime
+    # `None`, solange der Fragebogen unangetastet ist. Steht in der Ausgabe,
+    # damit die Reihenfolge der Liste im Frontend nachvollziehbar bleibt: Sie
+    # richtet sich nach dieser Spalte, nicht nach `created_at`.
+    updated_at: UtcDatetime | None = None
 
 
 # --------------------------------------------------------------------------

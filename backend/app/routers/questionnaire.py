@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from ..deps import CurrentUser, DbSession
-from ..models import TrainingRequest
+from ..models import TRAININGSWUNSCH_AKTUALITAET, TrainingRequest, jetzt
 from ..schemas import TrainingRequestIn, TrainingRequestOut
 
 router = APIRouter(prefix="/api/requests", tags=["questionnaire"])
@@ -23,7 +23,7 @@ def list_requests(user: CurrentUser, db: DbSession) -> list[TrainingRequest]:
     return (
         db.query(TrainingRequest)
         .filter(TrainingRequest.user_id == user.id)
-        .order_by(TrainingRequest.created_at.desc())
+        .order_by(TRAININGSWUNSCH_AKTUALITAET.desc())
         .all()
     )
 
@@ -33,7 +33,7 @@ def latest_request(user: CurrentUser, db: DbSession) -> TrainingRequest | None:
     return (
         db.query(TrainingRequest)
         .filter(TrainingRequest.user_id == user.id)
-        .order_by(TrainingRequest.created_at.desc())
+        .order_by(TRAININGSWUNSCH_AKTUALITAET.desc())
         .first()
     )
 
@@ -61,11 +61,15 @@ def update_request(
     # unterscheiden — und ein abgewählter Wunsch stünde weiter im nächsten Prompt.
     #
     # `created_at` bleibt dabei stehen: Es sagt, wann der Fragebogen ausgefüllt
-    # wurde, und `listRequests` sortiert danach. Wer ihn hochsetzte, um
-    # `_letzter_fragebogen()` zu beeinflussen, machte die Spalte zur Lüge — die
-    # Kennung reichen stattdessen `planErzeugenPfad` und `ki/automatik` durch.
+    # wurde, und wer es hochsetzte, machte die Spalte zur Lüge. Die Aktualität
+    # trägt stattdessen `updated_at` — danach sortiert alles, was „den letzten
+    # Fragebogen" sucht (`TRAININGSWUNSCH_AKTUALITAET`). Ohne diese Zeile war
+    # eine Änderung wirkungslos, sobald daneben eine jüngere Zeile lag: Der
+    # Export nahm die jüngere und plante gegen die alten Antworten.
     for field, value in data.model_dump().items():
         setattr(request, field, value)
+
+    request.updated_at = jetzt()
 
     db.commit()
     db.refresh(request)

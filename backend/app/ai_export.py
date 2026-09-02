@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy.orm import Session, selectinload
 
 from .models import (
+    TRAININGSWUNSCH_AKTUALITAET,
     AthleteProfile,
     GarminAccount,
     KiSettings,
@@ -70,6 +71,14 @@ from .sportscience import (
 )
 
 SCHEMA_VERSION = "2.2"
+
+# Was im Paket steht, wenn der Athlet ausdrücklich kein Ergänzungstraining
+# gewählt hat. Eine leere Liste fiele in `paketformat._ohne_leere()` heraus, und
+# der Prompt verwiese dann auf ein Feld, das nicht dasteht — dieselbe Sorte
+# Lücke, die `_fitnessregeln()` und `_wettkampfhinweis()` vermeiden. Ein Wort
+# statt einer leeren Liste, weil `_ohne_leere()` Strings ausdrücklich stehen
+# lässt.
+KEIN_ZUSATZTRAINING = "keines"
 
 # Planungshorizont in Tagen. Kurz gehalten — siehe Modul-Docstring.
 PLAN_DAYS_DEFAULT = 7
@@ -221,13 +230,19 @@ def _request_block(req: TrainingRequest | None, heute: date) -> dict[str, Any]:
         wochen_bis = round((req.race_date - heute).days / 7, 1)
 
     return {
-        # Wann der Fragebogen ausgefüllt wurde. Ein halbes Jahr alter Wunsch
-        # sah im Payload aus wie ein frischer; Zeitbudget und verfügbare Tage
-        # sind aber genau die Angaben, die veralten.
-        "ausgefuellt_am": req.created_at.date().isoformat() if req.created_at else None,
+        # Wie aktuell dieser Wunsch ist. Ein halbes Jahr alter sah im Payload
+        # aus wie ein frischer; Zeitbudget und verfügbare Tage sind aber genau
+        # die Angaben, die veralten. Deshalb der zuletzt geänderte Stand und
+        # nicht der erste: Ein gerade überarbeiteter Fragebogen **ist** frisch,
+        # auch wenn er vor einem halben Jahr angelegt wurde.
+        "ausgefuellt_am": (
+            (req.updated_at or req.created_at).date().isoformat()
+            if (req.updated_at or req.created_at)
+            else None
+        ),
         "disziplin": DISCIPLINE_LABEL.get(req.discipline, req.discipline),
         "disziplin_key": req.discipline,
-        "ziel": req.goal_type,
+        "ziel": req.goal_type or "nicht angegeben",
         "ziel_beschreibung": req.goal_text,
         "wettkampfdatum": req.race_date.isoformat() if req.race_date else None,
         "wochen_bis_wettkampf": wochen_bis,
@@ -237,7 +252,11 @@ def _request_block(req: TrainingRequest | None, heute: date) -> dict[str, Any]:
         "zeitbudget_min_je_tag": req.day_time_budget,
         "bevorzugter_tag_lange_einheit": req.long_session_day,
         "wunsch_wochenstunden": req.weekly_hours_target,
-        "zusatztraining": req.supplemental,
+        # `[]` fiele in `paketformat._ohne_leere()` aus dem Paket, und
+        # `PRINZIP_ERGAENZUNG` verwiese auf ein Feld, das gar nicht dasteht —
+        # genau die Lücke, in die die KI Kraft- und Mobilityeinheiten erfunden
+        # hat, die niemand wollte. Der Verzicht ist eine Angabe, kein Fehlen.
+        "zusatztraining": req.supplemental or KEIN_ZUSATZTRAINING,
         "equipment": req.equipment,
         "freitext_ergaenzungen": req.free_text,
     }
@@ -1570,6 +1589,20 @@ erscheint. Dieselbe Übungsliste gehört zusätzlich als Bauplan in `steps`, und
 zahlenmäßig zusammenpassen; die Satzpause gehört in `steps`, auch wenn `structure` sie \
 nicht nennt."""
 
+# Die Gegenfassung — kein Begründungsfeld darin, deshalb auch kein `.format()`.
+# Der lange Absatz oben ist gegenstandslos, wenn der Athlet nichts davon will,
+# und stand trotzdem im Prompt: Er verwies auf `trainingswunsch.zusatztraining`,
+# das bei leerer Auswahl gar nicht im Paket steht, und die KI füllte die Lücke
+# mit Kraft- und Mobilityeinheiten, die niemand gewählt hatte. Ein Verbot ist
+# hier kürzer als die Anleitung, die es ersetzt.
+PRINZIP_KEIN_ERGAENZUNG = """**Kein Ergänzungstraining**: Der Athlet hat im Fragebogen \
+ausdrücklich weder Kraft- noch Mobilitytraining gewählt \
+(`trainingswunsch.zusatztraining`). Der Block enthält deshalb **keine** Einheit mit \
+`"sport": "strength"` oder `"sport": "mobility"` — auch nicht als Ausgleich, als \
+Regenerationseinheit, als Ersatz für eine ausgefallene Ausdauereinheit oder als Zugabe zu \
+einem kurzen Tag. Kräftigungs- oder Dehnanteile gehören dann allenfalls in die \
+Beschreibung einer Ausdauereinheit, nicht in eine eigene."""
+
 
 # Punkt 4, aus vier Stücken. Der Ort einer Einheit gehört zu ihrer Sportart:
 # Ein Laufblock, dem der Prompt Beckenlänge und Wattsteuerung auf der Rolle
@@ -1826,15 +1859,29 @@ def _fitnessregeln(payload: dict[str, Any], begruendungsfeld: str) -> str:
     return vorlage.format(begruendungsfeld=begruendungsfeld)
 
 
-def _prinzip_ergaenzung(begruendungsfeld: str) -> str:
-    """Das Ergänzungstraining, mit dem Begründungsfeld der jeweiligen Aufgabe.
+def _prinzip_ergaenzung(payload: dict[str, Any], begruendungsfeld: str) -> str:
+    """Das Ergänzungstraining, in der Fassung, die zum Fragebogen passt.
 
-    Aus demselben Grund wie bei `_fitnessregeln()`: Der Text verweist auf das
-    Feld, in dem eine bewusst wiederholte Ergänzungseinheit zu begründen ist —
-    und das heißt beim Block `summary`, bei der Einzelanpassung `begruendung`.
-    Ein Verweis auf ein Feld, das das Antwortformat nicht kennt, ist eine
-    Aufforderung zum Danebenschreiben.
+    Zwei Gründe für die Fallunterscheidung, beide dieselben wie bei
+    `_fitnessregeln()`:
+
+    Der Text verweist auf das Feld, in dem eine bewusst wiederholte
+    Ergänzungseinheit zu begründen ist — beim Block `summary`, bei der
+    Einzelanpassung `begruendung`. Ein Verweis auf ein Feld, das das
+    Antwortformat nicht kennt, ist eine Aufforderung zum Danebenschreiben.
+
+    Und wer nichts davon gewählt hat, bekommt statt der Anleitung das Verbot:
+    Eine Anleitung zu einer Einheitenart, die der Block nicht enthalten darf,
+    ist genauso eine Einladung zum Erfinden.
+
+    Das Verbot hängt am ausdrücklichen `KEIN_ZUSATZTRAINING`, nicht am fehlenden
+    Feld: Ohne Fragebogen steht `trainingswunsch` gar nicht im Paket, und das
+    heißt „nicht gewählt", nicht „abgewählt" — dieselbe Zurückhaltung wie bei
+    der Disziplin, die ohne Fragebogen alles offen lässt.
     """
+    wunsch = payload.get("trainingswunsch") or {}
+    if wunsch.get("zusatztraining") == KEIN_ZUSATZTRAINING:
+        return PRINZIP_KEIN_ERGAENZUNG
     return PRINZIP_ERGAENZUNG.format(begruendungsfeld=begruendungsfeld)
 
 
@@ -1865,7 +1912,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
         # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
         prinzip_disziplin=_prinzip_disziplin(disziplin, tage),
         ausweichhinweis=_ausweichhinweis(disziplin),
-        prinzip_ergaenzung=_prinzip_ergaenzung("summary"),
+        prinzip_ergaenzung=_prinzip_ergaenzung(payload, "summary"),
         prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
         # Kompakt statt eingerückt: Die Einrückung kostete rund ein Viertel des
         # gesamten Prompts und sagt der KI nichts, was die Struktur nicht schon
@@ -1894,7 +1941,7 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         verlauf_monate=VERLAUF_MONATE,
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
         sportartwechsel=_sportartwechsel(disziplin),
-        prinzip_ergaenzung=_prinzip_ergaenzung("begruendung"),
+        prinzip_ergaenzung=_prinzip_ergaenzung(payload, "begruendung"),
         prinzip_steuergroessen=_prinzip_steuergroessen(disziplin),
         schema=json.dumps(
             _einheit_response_schema(disziplin),
@@ -1961,7 +2008,7 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         training_request = (
             db.query(TrainingRequest)
             .filter(TrainingRequest.user_id == user.id)
-            .order_by(TrainingRequest.created_at.desc())
+            .order_by(TRAININGSWUNSCH_AKTUALITAET.desc())
             .first()
         )
 

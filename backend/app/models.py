@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +28,12 @@ from .database import Base
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# Derselbe Zeitstempel für Aufrufer außerhalb der Modelle — damit ein von Hand
+# gesetztes Datum (`TrainingRequest.updated_at`) nicht anders entsteht als eins
+# aus einem Spalten-Default.
+jetzt = _now
 
 
 class User(Base):
@@ -155,6 +162,12 @@ class TrainingRequest(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    # Wann zuletzt geändert — `None`, solange der Fragebogen unangetastet ist.
+    # Steht neben `created_at` statt an dessen Stelle: Das sagt, wann
+    # ausgefüllt wurde, und darf nicht zur Lüge werden. Wonach „der letzte
+    # Fragebogen" sich richtet, ist trotzdem diese Spalte — wer seine Antworten
+    # ändert, statt neu auszufüllen, wirkte sonst nie (`AKTUALITAET`).
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     discipline: Mapped[str] = mapped_column(String(32))  # run|swim|bike|triathlon
 
@@ -180,6 +193,16 @@ class TrainingRequest(Base):
 
     user: Mapped[User] = relationship(back_populates="requests")
     plans: Mapped[list["Plan"]] = relationship(back_populates="request")
+
+
+# Wonach sich „der letzte Fragebogen" richtet — an vier Stellen dieselbe Wahl
+# (Liste, `latest`, Export, Planübernahme). Als ein Ausdruck, weil vier Kopien
+# beim ersten Sonderfall auseinanderliefen: Wer seine Antworten ändert, statt
+# neu auszufüllen, hebt `created_at` nicht an und wurde vom Export nie gesehen,
+# sobald daneben eine jüngere Zeile lag.
+TRAININGSWUNSCH_AKTUALITAET = func.coalesce(
+    TrainingRequest.updated_at, TrainingRequest.created_at
+)
 
 
 class Plan(Base):
