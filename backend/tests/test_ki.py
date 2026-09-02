@@ -570,14 +570,15 @@ def test_ohne_fragebogen_entsteht_nichts(client, auth, monkeypatch):
     assert ki_automatik.plane(stelle_planungszeit(auth)) is None
 
 
-def test_die_automatik_nimmt_den_fragebogen_des_aktiven_blocks(
-    client, auth, monkeypatch
-):
-    """Nicht den zuletzt angelegten — sonst liefe eine Anpassung ins Leere.
+def test_die_automatik_nimmt_den_aktuellsten_fragebogen(client, auth, monkeypatch):
+    """Nicht den des laufenden Blocks — der ist die Vergangenheit.
 
-    Wer seinen Fragebogen anpasst, statt einen neuen auszufüllen, ändert
-    `created_at` nicht. `_letzter_fragebogen()` sortiert danach und griffe
-    daneben, sobald daneben eine jüngere Zeile liegt.
+    Hier stand einmal das Gegenteil, mit der Begründung, eine *bearbeitete*
+    Zeile werde sonst übersehen (`created_at` bleibt beim Bearbeiten stehen).
+    Seit `TRAININGSWUNSCH_AKTUALITAET` das trägt, ist der Schutz überflüssig —
+    und er hat echten Schaden angerichtet: Ein frisch ausgefüllter Fragebogen
+    wurde nie gesehen, solange der alte Block lief. Der Athlet hatte Kraft und
+    Mobility abgewählt und bekam beides weiter geplant.
     """
     from app.database import SessionLocal
     from app.models import KiJob
@@ -592,15 +593,38 @@ def test_die_automatik_nimmt_den_fragebogen_des_aktiven_blocks(
         headers=auth,
         json={"raw": antwort_json(HEUTE), "days": 3, "request_id": alter},
     )
-    # … und daneben eine jüngere Zeile, die niemand benutzt.
+    # … und daneben die frischere Antwort des Athleten.
     juenger = lege_fragebogen_an(client, auth)
     assert juenger != alter
 
     lauf = ki_automatik.plane(stelle_planungszeit(auth))
     assert lauf is not None
 
+    # Ohne Kennung im Lauf — der Export nimmt dann `_letzter_fragebogen()`.
     with SessionLocal() as db:
-        assert db.get(KiJob, lauf).request_id == alter
+        assert db.get(KiJob, lauf).request_id is None
+
+    # Und der ist wirklich der jüngere, nicht der des Blocks.
+    assert client.get("/api/requests/latest", headers=auth).json()["id"] == juenger
+
+
+def test_ein_bearbeiteter_fragebogen_schlaegt_die_juengere_zeile(client, auth):
+    """Der Fall, für den die alte Festlegung gedacht war — er trägt sich selbst.
+
+    Bearbeiten hebt `updated_at` an, und danach *ist* die bearbeitete Zeile die
+    aktuellste. Es braucht dafür keine Kennung am Plan.
+    """
+    alter = lege_fragebogen_an(client, auth)
+    juenger = lege_fragebogen_an(client, auth)
+    assert client.get("/api/requests/latest", headers=auth).json()["id"] == juenger
+
+    client.put(
+        f"/api/requests/{alter}",
+        headers=auth,
+        json={"discipline": "run", "supplemental": []},
+    )
+
+    assert client.get("/api/requests/latest", headers=auth).json()["id"] == alter
 
 
 # --------------------------------------------------------------------------

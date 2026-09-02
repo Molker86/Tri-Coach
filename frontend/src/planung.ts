@@ -52,16 +52,19 @@ export function naechsterBlockStart(endDatum: string): string {
 
 /** Weg zum Austausch mit der KI, mit vorbelegtem Zeitraum.
  *
- * `requestId` ist der Fragebogen des Blocks, aus dem heraus geplant wird. Ohne
- * ihn nähme der Export den zuletzt *angelegten* — und wer seinen Fragebogen
- * anpasst, statt einen neuen auszufüllen, ändert `created_at` nicht: Die
- * Anpassung wirkte dann nie, sobald daneben eine jüngere Zeile liegt.
+ * **Ohne Fragebogen-Kennung, und das ist die Aussage.** Hier stand einmal
+ * `plan.request_id` — der Fragebogen des laufenden Blocks. Der Grund dafür ist
+ * entfallen: Er sollte verhindern, dass eine *bearbeitete* Zeile übersehen
+ * wird, weil `created_at` beim Bearbeiten stehen bleibt. Seit `updated_at` das
+ * trägt, hat der Rückfall dieses Problem nicht mehr — die Festlegung richtete
+ * dafür einen schlimmeren Schaden an: Wer „Neues Training" ausfüllte und
+ * danach von hier aus plante, bekam still den **alten** Fragebogen in den
+ * Prompt, samt abgewähltem Ergänzungstraining.
+ *
+ * Der nächste Block folgt deshalb dem aktuellsten Fragebogen. Woraus ein Block
+ * entstanden ist, sagt weiterhin `Plan.request_id` — daran hängen die
+ * Einzelanpassung und die Ernährung, und die gehören zu *diesem* Block.
  */
-export function planErzeugenPfad(
-  start: string,
-  tage: number = PLAN_TAGE,
-  requestId?: number | null,
-): string {
-  const fragebogen = requestId ? `&request=${requestId}` : ''
-  return `/plan-erzeugen?start=${start}&days=${tage}${fragebogen}`
+export function planErzeugenPfad(start: string, tage: number = PLAN_TAGE): string {
+  return `/plan-erzeugen?start=${start}&days=${tage}`
 }

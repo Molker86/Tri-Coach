@@ -258,7 +258,19 @@ export interface ErsetzterBlock {
   }[]
 }
 
+/** Der Fragebogen, gegen den geplant wird — nur die Felder, die die
+ *  Austauschseite anzeigt. Alles Weitere steht im Paket, nicht im Typ. */
+export interface AiExportWunsch {
+  ausgefuellt_am?: string | null
+  disziplin?: string
+  ziel?: string
+  /** Eine Liste, oder `"keines"` bei ausdrücklich abgewähltem Zusatztraining
+   *  (`ai_export.KEIN_ZUSATZTRAINING`) -- eine leere Liste fiele aus dem Paket. */
+  zusatztraining?: string[] | string
+}
+
 export interface AiExportPayload {
+  trainingswunsch?: AiExportWunsch
   planungszeitraum?: {
     startdatum: string
     tage: number

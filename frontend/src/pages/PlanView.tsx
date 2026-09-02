@@ -387,14 +387,14 @@ export default function PlanView() {
               Läuft der Block nicht mehr, fallen beide zusammen — dann bleibt
               nur einer stehen. */}
           {plan.is_active && plan.end_date >= heute && (
-            <Link className="btn btn-primary" to={planErzeugenPfad(heute, undefined, plan.request_id)}>
+            <Link className="btn btn-primary" to={planErzeugenPfad(heute)}>
               Neu planen ab heute
             </Link>
           )}
           {plan.is_active && (
             <Link
               className="btn btn-secondary"
-              to={planErzeugenPfad(naechsterBlockStart(plan.end_date), undefined, plan.request_id)}
+              to={planErzeugenPfad(naechsterBlockStart(plan.end_date))}
             >
               {plan.end_date >= heute
                 ? 'Nächste 7 Tage planen'

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, jobLaeuft, pollJob } from '../api/client'
 import { Alert, Field, Loading } from '../components/ui'
 import { PLAN_TAGE, heuteIso } from '../planung'
+import { sportLabel } from '../constants'
 import type {
   AiExport,
+  AiExportWunsch,
   ErsetzterBlock,
   GarminAccount,
   GarminStatus,
@@ -246,6 +248,10 @@ export default function PlanExchange() {
       </div>
 
       {error && <Alert kind="error">{error}</Alert>}
+
+      {exported?.payload.trainingswunsch && (
+        <WunschHinweis wunsch={exported.payload.trainingswunsch} />
+      )}
 
       {ersetzt && <ErsatzHinweis block={ersetzt} start={startDate} />}
 
@@ -624,6 +630,32 @@ function ManuellerWeg(props: {
  * verschwunden ist: Er wird stillgelegt und, wenn nie eine Einheit daran
  * erfasst wurde, weggeräumt.
  */
+/** Welcher Fragebogen im Paket steckt — vor dem Knopf, nicht danach.
+ *
+ * Genau das war unsichtbar: Die Planungsknöpfe hingen sich an den Fragebogen
+ * des laufenden Blocks, ein frisch ausgefüllter wurde nie benutzt, und nichts
+ * schlug dabei fehl. Der Fehler fiel erst am fertigen Plan auf — an
+ * Krafteinheiten, die der Athlet abgewählt hatte.
+ */
+function WunschHinweis({ wunsch }: { wunsch: AiExportWunsch }) {
+  const zusatz = wunsch.zusatztraining
+  const ergaenzung =
+    !zusatz || zusatz === 'keines'
+      ? 'kein Ergänzungstraining'
+      : (Array.isArray(zusatz) ? zusatz : [zusatz]).map(sportLabel).join(' und ')
+
+  return (
+    <p className="small muted">
+      Geplant wird gegen deinen Fragebogen
+      {wunsch.ausgefuellt_am &&
+        ` vom ${new Date(wunsch.ausgefuellt_am).toLocaleDateString('de-DE')}`}
+      : {wunsch.disziplin}
+      {wunsch.ziel && `, ${wunsch.ziel}`}, {ergaenzung}.{' '}
+      <Link to="/neues-training">Stimmt etwas nicht, fülle „Neues Training" aus.</Link>
+    </p>
+  )
+}
+
 function ErsatzHinweis({ block, start }: { block: ErsetzterBlock; start: string }) {
   const tage = block.verworfene_tage.length
   const einheiten = block.verworfene_einheiten.length

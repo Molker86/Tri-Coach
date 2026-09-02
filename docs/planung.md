@@ -457,11 +457,30 @@ liefen beim ersten Sonderfall auseinander. An bestehenden Zeilen bleibt
 `updated_at` leer, und `coalesce` fällt dann auf `created_at` zurück — genau die
 Reihenfolge, die vorher galt.
 
-Die **Kennung** wird trotzdem weiter durchgereicht, und zwar unabhängig davon:
-`planErzeugenPfad()` hängt sie an (beide Planungsknöpfe geben `plan.request_id`
-mit), und `ki/automatik` nimmt die des aktiven Blocks statt `None`. Die
-Sortierung ist der Rückfall, die Kennung die Aussage — wer aus einem laufenden
-Block heraus plant, meint dessen Fragebogen und nicht den zuletzt angefassten.
+**Der nächste Block folgt dem aktuellsten Fragebogen — nicht dem des laufenden.**
+Hier stand das Gegenteil, und es hat echten Schaden angerichtet.
+`planErzeugenPfad()` hängte `plan.request_id` an (beide Planungsknöpfe, dazu der
+auf der Startseite), und `ki/automatik` nahm die des aktiven Blocks statt
+`None` — mit derselben Begründung wie oben: eine *bearbeitete* Zeile sollte
+nicht übersehen werden. Seit `TRAININGSWUNSCH_AKTUALITAET` das trägt, ist die
+Festlegung überflüssig; sie kehrte den Fehler nur um. Wer „Neues Training"
+ausfüllte und danach aus dem Trainingsplan heraus plante, bekam still den
+**alten** Fragebogen in den Prompt: abgewähltes Ergänzungstraining stand weiter
+drin, und die KI plante Kraft und Mobility, die niemand mehr wollte. Wieder
+ohne dass irgendwo etwas fehlschlug.
+
+Die Aufteilung ist jetzt: Was ein Block **war**, sagt `Plan.request_id` — daran
+hängen die Einzelanpassung und die Ernährung, und die gehören zu genau diesem
+Block. Was als **Nächstes** geplant wird, folgt `_letzter_fragebogen()`. Beide
+Fälle, für die die Kennung einmal gedacht war, tragen sich damit selbst:
+Bearbeiten behält die Zeile und hebt `updated_at` an, sie *ist* danach die
+aktuellste; ein neu ausgefüllter Fragebogen ist es ohnehin.
+
+**Und die Wahl steht jetzt auf der Austauschseite** (`WunschHinweis` in
+`PlanExchange.tsx`): Disziplin, Ziel und Ergänzungstraining, so wie sie im Paket
+stehen — vor dem Knopf, nicht nach dem fertigen Plan. Der ganze Fehler lebte
+davon, dass niemand sehen konnte, welcher Fragebogen mitgeht; eine Zeile über
+dem Knopf ist billiger als jede weitere Regel darüber, welcher der richtige ist.
 
 **Die Kennung wird geprüft, bevor sie an den Plan geht**
 (`plan_import.gepruefter_fragebogen()`). Sie kommt bei `POST /api/plans/import`
