@@ -463,25 +463,48 @@ landete eine Fehlermeldung im Planparser und käme als „unlesbares JSON" herau
 Geprüft werden `is_error`, `api_error_status` und `stop_reason` — ein
 `refusal` bekommt eine eigene Meldung.
 
-**Der Lauf ist ein Job mit eigenem Schloss.** Er dauerte in zwei Messungen 85 s
-und 211 s — der Unterschied kommt aus der Denkzeit, nicht aus der Prompt-Größe.
-Hinter dem Ingress wäre eine so lange HTTP-Antwort ein Risiko, und der Nutzer
-säße vor einem Balken ohne Rückmeldung. Aufbau und
+**Der Lauf ist ein Job, und es läuft einer je Konto.** Er dauerte in zwei
+Messungen 85 s und 211 s — der Unterschied kommt aus der Denkzeit, nicht aus
+der Prompt-Größe. Hinter dem Ingress wäre eine so lange HTTP-Antwort ein
+Risiko, und der Nutzer säße vor einem Balken ohne Rückmeldung. Aufbau und
 Zustandsnamen wie bei `GarminSyncJob`, damit `pollJob` im Frontend für beide
-gilt. Aber **nicht dasselbe Schloss** wie bei Garmin: Die beiden Gegenstellen
-haben nichts miteinander zu tun, ein Planungslauf dürfte nicht hinter einem
-Jahresrückblick warten — und der Import am Ende stößt seinerseits eine
-Garmin-Übertragung an, die sonst auf ein Schloss liefe, das der Planungslauf
-selbst noch hält.
+gilt.
 
-**Drei Jobarten, ein Runner.** `manual` plant den Block, `einheit` passt eine
-Einheit an, `ernaehrung` schreibt den Ernährungsplan. Alle drei teilen sich
-Zustände, Fortschrittsleiter, Abbruch und `GET /api/ki/jobs/{id}` — und **ein**
-Schloss: Es läuft immer nur einer. Die Verzweigung in `_lauf` ist deshalb eine
-`elif`-Kette mit der Blockplanung als `else`; wer eine vierte Art ergänzt, hängt
-sie **davor**, sonst plant sie still einen Trainingsblock. Die Anfangsmeldung
-kommt aus `_STARTMELDUNG` — beim dritten Fall wurde der Bedingungsausdruck
-unlesbar.
+**Aber nicht derselbe Riegel wie bei Garmin.** Dort läuft ein Job im ganzen
+Prozess, und das ist richtig: Dahinter steht Garmins Anfragegrenze an der
+Herkunftsadresse, die sich alle Konten teilen. Hier stand einmal dasselbe
+globale Schloss — und dahinter nichts Geteiltes. Ein Lauf kostet einen
+Unterprozess und das Kontingent des Kontos, das ihn anstößt; beides gehört
+diesem Konto allein. Ein zweiter Nutzer bekam trotzdem „Gerade läuft der
+Planungslauf eines anderen Kontos". Der Runner hält über den Lauf deshalb gar
+kein Schloss mehr, sondern einen Vermerk je Nutzer (`_laeufe: user_id →
+job_id`); das eine verbliebene Schloss steht nur um „prüfen, anlegen,
+vormerken" und ist nach Millisekunden wieder offen. Was bleibt, ist die
+Trennung von Garmin: Der Import am Ende stößt eine Garmin-Übertragung an, die
+sonst auf ein Schloss liefe, das der Planungslauf selbst noch hielte.
+
+**Prüfen und Vormerken sind ein Zug.** `_pruefe_startbar` im Router ist nur die
+freundliche Vorprüfung, damit die Meldung kommt, bevor die Route ihre übrige
+Arbeit tut; verbindlich entscheidet `runner.starte()`, weil erst dort der
+`KiJob`-Insert und der Vermerk unter demselben Schloss stehen. Getrennt bliebe
+genau das Fenster, das es früher gab: Der Vermerk entstand erst **im** Faden,
+nach dem Erwerb des Schlosses, und zwei schnelle Klicks kamen beide durch — der
+zweite hing danach unsichtbar am Schloss. Aufgefangen hat das nur dieses
+Schloss, als Nebenwirkung. Die Absage ist `LaeuftBereits`, und sie steht
+bewusst **nicht** in `errors.py`: Alles dort erbt von `KiFehler`, und
+`_notiere_fehler` schriebe sie als Fehlschlag an einen Job.
+
+**Vier Jobarten, ein Runner.** `manual` plant den Block, `einheit` passt eine
+Einheit an, `ernaehrung` schreibt den Ernährungsplan, `tagesform` prüft den
+heutigen Tag. Alle vier teilen sich Zustände, Fortschrittsleiter, Abbruch und
+`GET /api/ki/jobs/{id}` — und **einen Vermerk je Konto**: Ein Nutzer hat
+höchstens einen Lauf, quer über alle Jobarten; wer den Ernährungsplan schreiben
+lässt, kann nebenher keine Einheit anpassen (der Ernährungsplan liest den
+Block, den ein Planungslauf gerade ersetzt). Läufe fremder Konten stören dabei
+nicht. Die Verzweigung in `_lauf` ist eine `elif`-Kette mit der Blockplanung
+als `else`; wer eine fünfte Art ergänzt, hängt sie **davor**, sonst plant sie
+still einen Trainingsblock. Die Anfangsmeldung kommt aus `_STARTMELDUNG` — beim
+dritten Fall wurde der Bedingungsausdruck unlesbar.
 
 **Ein Weg für beide Auslöser.** `ai_export.erzeuge_export()` und
 `plan_import.uebernimm_plan()` sind aus den Routen herausgezogen und werden vom
@@ -604,9 +627,13 @@ Aufrufer ist eine Schleife, die weiterlaufen muss.
 **Die Wochensperre zählt Tage, nicht Wochentage.** `(heute - last).days >= 7`
 statt „an diesem Wochentag noch nicht gelaufen": Sonst liefe ein zweiter Block
 in derselben Woche, sobald jemand den Wochentag mitten in der Woche umstellt.
-Vorgemerkt wird **vor** dem Start, nicht danach — der Lauf hängt an einem
-eigenen Schloss und meldet sich nicht zurück, und eine Minute später wäre
-derselbe Tag sonst noch einmal fällig.
+Vorgemerkt wird **vor** dem Start, nicht danach — der Lauf läuft in einem
+eigenen Faden und meldet sich nicht zurück, und eine Minute später wäre
+derselbe Tag sonst noch einmal fällig. Der Preis ist ein schmales Fenster:
+Drückt der Nutzer in derselben Sekunde selbst, wirft `runner.starte()`
+`LaeuftBereits`, die Automatik verschluckt es still — und die Woche ist
+verbraucht, ohne dass ein Block entstanden wäre. Die Reihenfolge bleibt
+trotzdem, weil sie den häufigeren Fall trägt.
 
 `plan_days` bleibt Altlast an `KiSettings` (NOT NULL in bestehenden
 Datenbanken); die Blocklänge kommt aus `ai_export.PLAN_DAYS_DEFAULT`.

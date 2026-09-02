@@ -80,7 +80,7 @@ export default function PlanExchange() {
       .then((status) => {
         setKiStatus(status)
         // Nur die Blockplanung, nicht jeder Lauf: Es gibt genau **einen**
-        // aktiven KI-Lauf für alle Aufgaben. Ein Ernährungslauf trägt am Ende
+        // aktiven KI-Lauf dieses Kontos für alle Aufgaben. Ein Ernährungslauf trägt am Ende
         // kein `plan_id`, fiele hier also in den Fehlerzweig — und seine
         // Erfolgsmeldung stünde als Fehler über dem Trainingsplan.
         if (istBlockLauf(status.aktiver_job)) beobachte(status.aktiver_job!)

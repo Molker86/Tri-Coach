@@ -7,7 +7,7 @@ from ..config import KI_EFFORT, KI_MODELL
 from ..crypto import verschluessle
 from ..deps import CurrentUser, DbSession
 from ..ki.client import ist_angemeldet, token_aus
-from ..ki.runner import EINHEIT, ENDZUSTAENDE, ERNAEHRUNG, runner
+from ..ki.runner import EINHEIT, ENDZUSTAENDE, ERNAEHRUNG, LaeuftBereits, runner
 from ..models import KiJob, KiSettings, TrainingRequest
 from ..schemas import (
     KiEinheitIn,
@@ -77,10 +77,8 @@ def pruefe_zugang(user: CurrentUser, db: DbSession) -> KiStatusOut:
 def _zustand(db, user_id: int, *, erzwinge: bool = False) -> KiStatusOut:
     einstellungen = _einstellungen(db, user_id)
 
-    aktiv_id = runner.laeuft_gerade()
+    aktiv_id = runner.laeuft_fuer(user_id)
     aktiver = db.get(KiJob, aktiv_id) if aktiv_id else None
-    if aktiver is not None and aktiver.user_id != user_id:
-        aktiver = None
 
     letzter = (
         db.query(KiJob)
@@ -180,7 +178,7 @@ def planen(data: KiPlanenIn, user: CurrentUser, db: DbSession) -> KiJob:
             "neues Training an.",
         )
 
-    job_id = runner.starte(
+    job_id = _starte(
         user.id,
         "manual",
         request_id=data.request_id,
@@ -190,12 +188,27 @@ def planen(data: KiPlanenIn, user: CurrentUser, db: DbSession) -> KiJob:
     return db.get(KiJob, job_id)
 
 
+LAEUFT_BEREITS = (
+    "Es läuft bereits ein Lauf gegen die KI. Bitte warte, bis er fertig ist."
+)
+
+
 def _pruefe_startbar(einstellungen: KiSettings) -> None:
     """Die beiden Riegel, die vor jedem Lauf gelten.
 
-    Der zweite ist bewusst ein Riegel und keine Warteschlange: Wer selbst
-    drückt, kann warten und es gleich noch einmal versuchen — anders als beim
-    automatisch angestoßenen Lauf, den niemand nachholen würde.
+    Der zweite gilt **je Konto**, nicht je Prozess: Anders als bei Garmin steht
+    dahinter keine geteilte Anfragegrenze, sondern ein Unterprozess und das
+    Kontingent des Kontos, das ihn anstößt — beides gehört diesem Konto allein,
+    und ein Lauf eines anderen steht ihm nicht im Weg.
+
+    Innerhalb eines Kontos bleibt es bewusst ein Riegel und keine
+    Warteschlange: Wer selbst drückt, kann warten und es gleich noch einmal
+    versuchen — anders als beim automatisch angestoßenen Lauf, den niemand
+    nachholen würde.
+
+    Geprüft wird hier nur *freundlich*, damit die Meldung kommt, bevor die
+    Route ihre übrige Arbeit tut. Verbindlich entscheidet `runner.starte()`,
+    weil erst dort Prüfen und Vormerken ein Zug sind.
     """
     if not ist_angemeldet(token_aus(einstellungen.token_encrypted)):
         raise HTTPException(
@@ -204,21 +217,22 @@ def _pruefe_startbar(einstellungen: KiSettings) -> None:
             "KI-Planung ein mit `claude setup-token` erzeugtes Token ein.",
         )
 
-    if runner.laeuft_gerade() is not None:
-        if runner.besitzer() == einstellungen.user_id:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Es läuft bereits ein Lauf gegen die KI. Bitte warte, bis er "
-                "fertig ist.",
-            )
-        # Anders als bei Garmin steckt hier keine Anfragegrenze dahinter,
-        # sondern nur, dass ein Unterprozess zur Zeit läuft. Das darf die
-        # Meldung sagen, sonst sucht der Nutzer den Fehler bei sich.
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Gerade läuft der Planungslauf eines anderen Kontos. Es kann nur "
-            "einer zur Zeit laufen — bitte gleich noch einmal versuchen.",
-        )
+    if runner.laeuft_fuer(einstellungen.user_id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, LAEUFT_BEREITS)
+
+
+def _starte(*args, **kwargs) -> int:
+    """Startet den Lauf und übersetzt das Rennen zweier Klicks in eine 409.
+
+    `_pruefe_startbar` prüft eine Anfrage früher; zwischen ihr und hier liegt
+    noch die Feldprüfung der Route. Zwei Klicks in derselben Sekunde kamen
+    früher beide durch — aufgefangen hat das nur das globale Schloss, und das
+    gibt es nicht mehr.
+    """
+    try:
+        return runner.starte(*args, **kwargs)
+    except LaeuftBereits as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, LAEUFT_BEREITS) from exc
 
 
 @router.post(
@@ -238,7 +252,7 @@ def passe_einheit_an(data: KiEinheitIn, user: CurrentUser, db: DbSession) -> KiJ
     _pruefe_startbar(_einstellungen(db, user.id))
     session = anpassbare_einheit(db, data.plan_session_id, user.id)
 
-    job_id = runner.starte(
+    job_id = _starte(
         user.id,
         EINHEIT,
         plan_session_id=session.id,
@@ -257,12 +271,12 @@ def plane_ernaehrung(
 
     Steht hier und nicht im Ernährungsrouter — genau wie `POST /einheit`: An
     dieser Stelle stehen `_pruefe_startbar()` und der Runner, und der Riegel „es
-    läuft schon ein Lauf" gilt für alle Jobarten gleich. Die inhaltliche Grenze
+    läuft schon ein Lauf dieses Kontos" gilt für alle Jobarten gleich. Die inhaltliche Grenze
     kommt umgekehrt von dort (`pruefe_zeitraum`), damit Knopf und Zwischenablage
     denselben Zeitraum zulassen.
     """
     _pruefe_startbar(_einstellungen(db, user.id))
     _, start, tage = pruefe_zeitraum(db, user.id, data.start_date, data.days)
 
-    job_id = runner.starte(user.id, ERNAEHRUNG, start_date=start, days=tage)
+    job_id = _starte(user.id, ERNAEHRUNG, start_date=start, days=tage)
     return db.get(KiJob, job_id)

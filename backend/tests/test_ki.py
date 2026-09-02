@@ -7,10 +7,14 @@ Programm liegt und ein Fehlschlag sonst erst am echten Konto auffiele.
 """
 
 import json
+import threading
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+
+from app.database import SessionLocal
 
 from app import main as app_main
 from app.ki import automatik as ki_automatik
@@ -26,6 +30,13 @@ _zaehler = iter(range(1, 1000))
 @pytest.fixture
 def auth(registriere):
     """Für jeden Test ein eigenes Konto — die Tests legen eigene Pläne an."""
+    nummer = next(_zaehler)
+    return registriere(f"ki{nummer}@example.com", f"kiathlet{nummer}")
+
+
+@pytest.fixture
+def zweiter(registriere):
+    """Ein zweites Konto — die Gleichzeitigkeit ist der ganze Gegenstand."""
     nummer = next(_zaehler)
     return registriere(f"ki{nummer}@example.com", f"kiathlet{nummer}")
 
@@ -80,6 +91,21 @@ def ki_antwortet(monkeypatch, text: str, *, modell: str = "claude-opus-5"):
     monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
 
 
+def warte_auf_ende(client, auth, job_id: int, frist_s: float = 10.0) -> str:
+    """Fragt den Job ab, bis er in einem Endzustand steht — für Hintergrundläufe.
+
+    Die meisten Tests laufen synchron (Fixture `synchron`) und brauchen das
+    nicht. Wo es um Gleichzeitigkeit geht, führt daran aber nichts vorbei.
+    """
+    ende = time.monotonic() + frist_s
+    while time.monotonic() < ende:
+        zustand = client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()
+        if zustand["state"] in ki_runner.ENDZUSTAENDE:
+            return zustand["state"]
+        time.sleep(0.02)
+    raise AssertionError(f"Lauf {job_id} wurde nicht fertig")
+
+
 def ki_scheitert(monkeypatch, fehler: Exception):
     def _ruf(prompt, **kwargs):
         raise fehler
@@ -106,26 +132,52 @@ def lege_fragebogen_an(client, auth) -> int:
 # --------------------------------------------------------------------------
 
 
-def test_fremder_lauf_meldet_sich_als_fremder(client, auth, monkeypatch):
-    """Ein zweiter Nutzer soll erfahren, dass der laufende Job nicht seiner ist.
+def test_ein_fremder_lauf_steht_nicht_im_weg(client, auth, monkeypatch):
+    """Der Riegel gilt je Konto, nicht je Prozess.
 
-    Der Riegel selbst bleibt — es läuft ein Unterprozess zur Zeit. Falsch war
-    nur die Meldung: Sie behauptete einen eigenen Lauf, den es nicht gab.
+    Hier stand einmal das Gegenteil: Ein Lauf sperrte alle anderen Nutzer mit
+    „Gerade läuft der Planungslauf eines anderen Kontos". Dahinter stand nie
+    eine geteilte Ressource — anders als bei Garmin, wo die Anfragegrenze an
+    der Herkunftsadresse hängt.
     """
     lege_fragebogen_an(client, auth)
-    eigene_id = client.get("/api/auth/me", headers=auth).json()["id"]
+    eigene_id = nutzer_id(auth)
 
-    monkeypatch.setattr(ki_runner.runner, "laeuft_gerade", lambda: 4711)
+    # Ein fremdes Konto läuft — und nur das.
+    monkeypatch.setattr(
+        ki_runner.runner,
+        "laeuft_fuer",
+        lambda user_id: 4711 if user_id != eigene_id else None,
+    )
+    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    fremd = client.post("/api/ki/planen", headers=auth, json={"days": 7})
+    assert fremd.status_code == 202, fremd.text
 
-    monkeypatch.setattr(ki_runner.runner, "besitzer", lambda: eigene_id)
+    # Der eigene dagegen riegelt weiter.
+    monkeypatch.setattr(ki_runner.runner, "laeuft_fuer", lambda user_id: 4711)
     eigen = client.post("/api/ki/planen", headers=auth, json={"days": 7})
     assert eigen.status_code == 409
     assert "bereits ein Lauf" in eigen.json()["detail"]
 
-    monkeypatch.setattr(ki_runner.runner, "besitzer", lambda: eigene_id + 1000)
-    fremd = client.post("/api/ki/planen", headers=auth, json={"days": 7})
-    assert fremd.status_code == 409
-    assert "anderen Kontos" in fremd.json()["detail"]
+
+def test_der_riegel_gilt_jobartuebergreifend(client, auth, monkeypatch):
+    """Ein Konto hat einen Lauf — gleich welcher Art.
+
+    Block, Einheit und Ernährung teilen sich den Vermerk. Der Ernährungsplan
+    liest den Block, den ein Planungslauf gerade ersetzt; nebeneinander wäre
+    die Reihenfolge unbestimmt.
+    """
+    lege_fragebogen_an(client, auth)
+    monkeypatch.setattr(ki_runner.runner, "laeuft_fuer", lambda user_id: 4711)
+
+    for pfad, koerper in (
+        ("/api/ki/planen", {"days": 7}),
+        ("/api/ki/einheit", {"plan_session_id": 1, "wunsch": "kürzer"}),
+        ("/api/ki/ernaehrung", {}),
+    ):
+        antwort = client.post(pfad, headers=auth, json=koerper)
+        assert antwort.status_code == 409, (pfad, antwort.text)
+        assert "bereits ein Lauf" in antwort.json()["detail"], pfad
 
 
 def test_lauf_uebernimmt_den_block(client, auth, monkeypatch):
@@ -349,11 +401,12 @@ def test_abbruch_ist_kein_fehler(client, auth, monkeypatch):
     from app.ki.runner import runner
 
     lege_fragebogen_an(client, auth)
+    user_id = nutzer_id(auth)
 
     def _ruf(prompt, **kwargs):
         # So verhält sich ein getöteter Prozess: Der Abbruch ist vermerkt, und
         # der Aufruf scheitert an der abgeschnittenen Ausgabe.
-        runner._abgebrochen.add(runner.laeuft_gerade())
+        runner._abgebrochen.add(runner.laeuft_fuer(user_id))
         raise KiAntwortUnbrauchbar()
 
     monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
@@ -363,6 +416,117 @@ def test_abbruch_ist_kein_fehler(client, auth, monkeypatch):
 
     assert job["state"] == "cancelled"
     assert "abgebrochen" in job["message"]
+
+
+def test_zwei_nutzer_laufen_wirklich_gleichzeitig(client, auth, zweiter, monkeypatch):
+    """Der Beweis, nicht bloß die Abwesenheit einer 409.
+
+    Die Schranke geht nur auf, wenn **beide** Läufe gleichzeitig in
+    `rufe_claude` stehen. Mit dem alten globalen Schloss liefe sie in einen
+    `BrokenBarrierError` — der Test kann also nicht versehentlich grün bleiben.
+
+    Am HTTP vorbei über den Runner: `starte()` kennt `im_hintergrund` schon,
+    und die autouse-Fixture stellt sonst auf synchron.
+    """
+    from app.ki.runner import runner
+
+    lege_fragebogen_an(client, auth)
+    lege_fragebogen_an(client, zweiter)
+
+    schranke = threading.Barrier(2, timeout=10)
+
+    def _ruf(prompt, **kwargs):
+        schranke.wait()
+        return ki_client.Antwort(
+            text=antwort_json(HEUTE), modell="claude-opus-5", dauer_ms=1
+        )
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    kennungen = [
+        runner.starte(nutzer_id(kopf), "manual", im_hintergrund=True)
+        for kopf in (auth, zweiter)
+    ]
+
+    for job_id, kopf in zip(kennungen, (auth, zweiter)):
+        assert warte_auf_ende(client, kopf, job_id) == "done"
+
+
+def test_derselbe_nutzer_bekommt_409(client, auth, monkeypatch):
+    """Ein Konto, ein Lauf — geprüft am wirklich laufenden Hintergrundfaden."""
+    from app.ki.runner import runner
+
+    lege_fragebogen_an(client, auth)
+    haltepunkt = threading.Event()
+
+    def _ruf(prompt, **kwargs):
+        # Nicht von hier aus über den TestClient nachfragen: Das wäre ein
+        # wiedereintretender Aufruf in die App aus ihrem eigenen Faden.
+        haltepunkt.wait(timeout=10)
+        return ki_client.Antwort(text=antwort_json(HEUTE), modell="claude-opus-5")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    job_id = runner.starte(nutzer_id(auth), "manual", im_hintergrund=True)
+    try:
+        zweiter_versuch = client.post("/api/ki/planen", headers=auth, json={})
+        assert zweiter_versuch.status_code == 409
+        assert "bereits ein Lauf" in zweiter_versuch.json()["detail"]
+    finally:
+        haltepunkt.set()
+
+    assert warte_auf_ende(client, auth, job_id) == "done"
+
+
+def test_das_rennen_zweier_klicks_ist_geschlossen(client, auth, monkeypatch):
+    """Prüfen und Vormerken sind ein Zug — auch bei fünf Fäden zugleich.
+
+    Der Vermerk entstand früher erst **im** Faden; zwei schnelle Klicks kamen
+    beide durch, und aufgefangen hat das nur das globale Schloss. Die zweite
+    Zusicherung ist die wichtigere: Sie fällt, wenn jemand die Reservierung
+    später hinter den Insert zieht.
+    """
+    from app.ki.runner import LaeuftBereits, runner
+    from app.models import KiJob
+
+    lege_fragebogen_an(client, auth)
+    user_id = nutzer_id(auth)
+    haltepunkt = threading.Event()
+
+    def _ruf(prompt, **kwargs):
+        haltepunkt.wait(timeout=10)
+        return ki_client.Antwort(text=antwort_json(HEUTE), modell="claude-opus-5")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    los = threading.Barrier(5, timeout=10)
+    ergebnisse: list = []
+    sperre = threading.Lock()
+
+    def _druecke() -> None:
+        los.wait()
+        try:
+            kennung = runner.starte(user_id, "manual", im_hintergrund=True)
+        except LaeuftBereits as exc:
+            kennung = exc
+        with sperre:
+            ergebnisse.append(kennung)
+
+    faeden = [threading.Thread(target=_druecke) for _ in range(5)]
+    for faden in faeden:
+        faden.start()
+    for faden in faeden:
+        faden.join(timeout=10)
+
+    durchgekommen = [e for e in ergebnisse if isinstance(e, int)]
+    assert len(durchgekommen) == 1, ergebnisse
+    assert sum(isinstance(e, LaeuftBereits) for e in ergebnisse) == 4
+
+    haltepunkt.set()
+    assert warte_auf_ende(client, auth, durchgekommen[0]) == "done"
+
+    with SessionLocal() as db:
+        assert db.query(KiJob).filter(KiJob.user_id == user_id).count() == 1
 
 
 def test_ohne_fragebogen_kein_lauf(client, auth, monkeypatch):
@@ -527,6 +691,24 @@ def test_die_planung_braucht_keinen_abgleich(client, auth, monkeypatch):
         )
 
     assert ki_automatik.plane(user_id) is not None
+
+
+def test_jeder_faellige_nutzer_bekommt_seinen_block(client, auth, zweiter, monkeypatch):
+    """Der Weckruf hört nicht beim ersten auf.
+
+    Hier stand einmal ein `break` — begründet mit dem globalen Schloss im
+    Runner, das den zweiten ohnehin nicht durchgelassen hätte. Mit dem Riegel
+    je Konto gibt es dafür keinen Grund mehr, und `gestartet` hielt sonst nie
+    mehr als eins, obwohl der Docstring die Anzahl verspricht.
+    """
+    from app.garmin.automatik import starte_faellige_planung
+
+    bestellt(client, auth, monkeypatch)
+    bestellt(client, zweiter, monkeypatch)
+
+    assert starte_faellige_planung() == 2
+    for kopf in (auth, zweiter):
+        assert client.get("/api/plans/active", headers=kopf).json() is not None
 
 
 def test_nur_ein_block_je_woche(client, auth, monkeypatch):

@@ -161,13 +161,15 @@ def starte_faellige_planung(jetzt: datetime | None = None) -> int:
             e.user_id for e in einstellungen if ki_automatik.ist_faellig(e, jetzt, heute)
         ]
 
+    # Jeder fällige Nutzer bekommt seinen Lauf, und sie laufen nebeneinander.
+    # Hier stand einmal ein `break` — begründet damit, dass das Schloss im
+    # KI-Runner den zweiten ohnehin nicht durchließe. Das Schloss ist weg, der
+    # Riegel gilt je Konto, und ein Bremsklotz ohne Grund gehört nicht in den
+    # Code. Was bleibt, ist die Rechnerlast bei vielen gleichzeitig fälligen
+    # Konten — die steht in `docs/grenzen.md` und ist bewusst nicht begrenzt.
     for user_id in faellig:
         if ki_automatik.plane(user_id) is not None:
             gestartet += 1
-            # Nur ein Lauf je Aufwachen, aus demselben Grund wie beim Abgleich:
-            # Das Schloss im KI-Runner ließe den zweiten ohnehin nicht durch,
-            # und der nächste Aufwacher ist in einer Minute dran.
-            break
 
     return gestartet
 

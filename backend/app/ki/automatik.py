@@ -34,7 +34,7 @@ from ..ai_export import PLAN_DAYS_DEFAULT
 from ..database import SessionLocal
 from ..models import KiSettings, TrainingRequest
 from .client import ist_angemeldet, token_aus
-from .runner import runner
+from .runner import LaeuftBereits, runner
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,12 @@ def plane(user_id: int) -> int | None:
     """
     try:
         return _plane(user_id)
+    except LaeuftBereits:
+        # Kein Fehler, sondern das Rennen mit einem Klick des Nutzers in
+        # derselben Sekunde: Zwischen dem Riegel unten und `runner.starte()`
+        # wird die Sitzung geschlossen. Ohne diesen Zweig stünde dafür ein
+        # Stacktrace im Log.
+        return None
     except Exception:  # noqa: BLE001
         logger.exception("Automatische Planung fehlgeschlagen")
         return None
@@ -103,16 +109,19 @@ def _plane(user_id: int) -> int | None:
         if not ist_angemeldet(token_aus(einstellungen.token_encrypted)):
             return None
 
-        # Anders als beim Knopf wird hier **nicht** gewartet: Ein Lauf, der in
-        # einen anderen fällt, hat niemanden, der ihn nachholt — aber ein
-        # zweiter Block wäre auch keine Hilfe. Der nächste Aufwacher ist in
-        # einer Minute dran, und der Wochentag dauert noch.
-        if runner.laeuft_gerade() is not None:
+        # Dieses Konto plant schon — von Hand oder aus einem Lauf, der noch
+        # nicht fertig ist. Anders als beim Knopf wird hier **nicht** gewartet:
+        # Ein zweiter Block wäre keine Hilfe, und der nächste Aufwacher ist in
+        # einer Minute dran, während der Wochentag noch dauert. Läufe fremder
+        # Konten stehen nicht im Weg — der Riegel gilt je Konto.
+        if runner.laeuft_fuer(user_id) is not None:
             return None
 
-        # Erst vormerken, dann starten: Der Lauf hängt sich an ein eigenes
-        # Schloss und meldet sich nicht zurück. Bliebe der Vermerk aus, liefe
-        # eine Minute später derselbe Tag noch einmal.
+        # Erst vormerken, dann starten: Der Lauf läuft in einem eigenen Faden
+        # und meldet sich nicht zurück. Bliebe der Vermerk aus, liefe eine
+        # Minute später derselbe Tag noch einmal. Der Preis der Reihenfolge ist
+        # das schmale Fenster darunter — drückt der Nutzer in derselben Sekunde
+        # selbst, ist die Woche verbraucht, ohne dass etwas entstanden wäre.
         einstellungen.last_auto_plan_on = heute
         db.commit()
 

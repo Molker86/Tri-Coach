@@ -7,11 +7,18 @@ säße vor einem Balken ohne jede Rückmeldung. Dasselbe Muster wie beim
 Garmin-Abgleich (`garmin/runner.py`), bis hin zu den Zustandsnamen — damit die
 Abfrageschleife im Frontend für beide Jobarten gilt.
 
-Warum ein **eigenes** Schloss und nicht das des Garmin-Runners: Anthropic und
-Garmin haben nichts miteinander zu tun. Gemeinsam genutzt müsste ein
-Planungslauf hinter einem Jahresrückblick warten — und der Import am Ende stößt
+Warum **ein Lauf je Konto** und nicht einer je Prozess wie beim Garmin-Runner:
+Dort steht Garmins Anfragegrenze an der Herkunftsadresse dahinter, hier nur ein
+Unterprozess und das Kontingent des Kontos, das ihn anstößt — beides gehört
+diesem Konto allein. Der Runner hält über den Lauf deshalb gar kein Schloss
+mehr, sondern einen Vermerk je Nutzer (`_laeufe`); das eine verbliebene Schloss
+steht nur um „prüfen, anlegen, vormerken" und ist nach Millisekunden offen.
+
+Und warum der Lauf auch **nicht** das Schloss des Garmin-Runners nimmt:
+Anthropic und Garmin haben nichts miteinander zu tun, ein Planungslauf dürfte
+nicht hinter einem Jahresrückblick warten — und der Import am Ende stößt
 seinerseits eine Garmin-Übertragung an, die dann auf ein Schloss liefe, das der
-Planungslauf selbst noch hält.
+Planungslauf selbst noch hielte.
 """
 
 import json
@@ -85,26 +92,34 @@ def _now() -> datetime:
 
 
 class KiRunner:
-    """Ein Lauf zur Zeit, im eigenen Thread, Fortschritt in der Datenbank."""
+    """Ein Lauf je Konto, im eigenen Thread, Fortschritt in der Datenbank."""
 
     def __init__(self) -> None:
-        self._schloss = threading.Lock()
-        self._aktiver_job: int | None = None
-        self._aktiver_nutzer: int | None = None
+        # Wer gerade läuft: user_id → job_id. Das Schloss steht **nur** über
+        # diesem Eintrag, nie über dem Lauf selbst — sonst wäre es wieder das
+        # alte globale, das einen Nutzer minutenlang für alle anderen sperrte.
+        self._register_schloss = threading.Lock()
+        self._laeufe: dict[int, int] = {}
         self._prozesse: dict[int, subprocess.Popen] = {}
         self._abgebrochen: set[int] = set()
-        # Das Schema des laufenden Aufrufs, damit der Reparaturlauf dasselbe
-        # mitgeben kann. Es läuft immer nur ein Job — dafür sorgt das Schloss.
-        self._letztes_schema: dict | None = None
 
     # -- Steuerung ----------------------------------------------------------
 
-    def laeuft_gerade(self) -> int | None:
-        return self._aktiver_job
+    def laeuft_fuer(self, user_id: int) -> int | None:
+        """Die Kennung des Laufs dieses Kontos, sonst `None`.
 
-    def besitzer(self) -> int | None:
-        """Wem der laufende Lauf gehört — für die Meldung, nicht für den Riegel."""
-        return self._aktiver_nutzer
+        Bewusst **kein** Vorgabewert für `user_id` und bewusst nicht mehr
+        `laeuft_gerade()` wie beim Garmin-Runner: Der riegelt global, weil
+        hinter ihm Garmins Anfragegrenze an der Herkunftsadresse steht; hier
+        steht nur ein Unterprozess und das Kontingent des Kontos, das ihn
+        anstößt. Gleiche Namen bei ungleichem Verhalten wären die teurere
+        Verwechslung, und ein vergessener Aufrufer stirbt so mit `TypeError`,
+        statt still fremde Konten auszuriegeln.
+
+        Ohne Schloss: `dict.get` ist unter dem GIL atomar, wie schon bei
+        `_prozesse`. Das Schloss trägt nur das Vormerken.
+        """
+        return self._laeufe.get(user_id)
 
     def brich_ab(self, job_id: int) -> bool:
         """Beendet den Unterprozess des Laufs. Gibt zurück, ob es einen gab."""
@@ -132,31 +147,54 @@ class KiRunner:
         `kind="einheit"` passt eine einzelne Planeinheit an — dann sind
         `plan_session_id` und `wunsch` belegt und `request_id`/`start_date`
         bedeutungslos, weil Fragebogen und Tag aus der Einheit selbst kommen.
+
+        Wirft `LaeuftBereits`, wenn dieses Konto schon einen Lauf hat — gleich
+        welcher Jobart. Hier und nicht im Router, weil erst hier Prüfen und
+        Vormerken unter demselben Schloss stehen.
         """
         im_hintergrund = IM_HINTERGRUND if im_hintergrund is None else im_hintergrund
-        with SessionLocal() as db:
-            job = KiJob(
-                user_id=user_id,
-                kind=kind,
-                state="queued",
-                request_id=request_id,
-                start_date=start_date,
-                days=days,
-                plan_session_id=plan_session_id,
-                wunsch=wunsch,
-                message=_STARTMELDUNG.get(kind, _STARTMELDUNG_VORGABE),
-            )
-            db.add(job)
-            db.commit()
-            job_id = job.id
+
+        # Prüfen, anlegen und vormerken sind **ein** Zug. Getrennt bliebe genau
+        # das Fenster, das es früher gab: Der Vermerk entstand erst im Faden,
+        # zwei schnelle Klicks kamen beide durch, und aufgefangen hat das nur
+        # das globale Schloss — das es nicht mehr gibt.
+        with self._register_schloss:
+            laeuft = self._laeufe.get(user_id)
+            if laeuft is not None:
+                raise LaeuftBereits(laeuft)
+            with SessionLocal() as db:
+                job = KiJob(
+                    user_id=user_id,
+                    kind=kind,
+                    state="queued",
+                    request_id=request_id,
+                    start_date=start_date,
+                    days=days,
+                    plan_session_id=plan_session_id,
+                    wunsch=wunsch,
+                    message=_STARTMELDUNG.get(kind, _STARTMELDUNG_VORGABE),
+                )
+                db.add(job)
+                db.commit()
+                job_id = job.id
+            self._laeufe[user_id] = job_id
 
         if im_hintergrund:
-            threading.Thread(
-                target=self._fuehre_aus,
-                args=(job_id, user_id),
-                name=f"ki-planung-{job_id}",
-                daemon=True,
-            ).start()
+            try:
+                threading.Thread(
+                    target=self._fuehre_aus,
+                    args=(job_id, user_id),
+                    name=f"ki-planung-{job_id}",
+                    daemon=True,
+                ).start()
+            except BaseException:
+                # `RuntimeError: can't start new thread` wird erst mit
+                # unbegrenzter Parallelität überhaupt möglich. Ohne Freigeben
+                # bliebe dieses Konto für immer gesperrt, und der Job stünde
+                # für immer auf „queued" — ein Balken, der sich nie bewegt.
+                self._gib_frei(user_id, job_id)
+                _markiere_gescheitert(job_id)
+                raise
         else:
             self._fuehre_aus(job_id, user_id)
 
@@ -168,16 +206,23 @@ class KiRunner:
         # Der Thread bekommt seine **eigene** Sitzung: Eine aus einer Anfrage
         # weitergereichte wäre über Threadgrenzen hinweg nicht sicher und stürbe
         # mit der Anfrage.
-        with self._schloss, SessionLocal() as db:
-            self._aktiver_job = job_id
-            self._aktiver_nutzer = user_id
+        with SessionLocal() as db:
             try:
                 self._lauf(db, job_id, user_id)
             finally:
-                self._aktiver_job = None
-                self._aktiver_nutzer = None
+                self._gib_frei(user_id, job_id)
                 self._prozesse.pop(job_id, None)
                 self._abgebrochen.discard(job_id)
+
+    def _gib_frei(self, user_id: int, job_id: int) -> None:
+        """Räumt den Vermerk — aber nur den eigenen.
+
+        Die Kennung wird mitgeprüft, damit ein spät sterbender Lauf nicht den
+        Nachfolger desselben Nutzers freigibt.
+        """
+        with self._register_schloss:
+            if self._laeufe.get(user_id) == job_id:
+                del self._laeufe[user_id]
 
     def _lauf(self, db, job_id: int, user_id: int) -> None:
         job = db.get(KiJob, job_id)
@@ -237,7 +282,9 @@ class KiRunner:
                 _notiere_fehler(job, einstellungen, exc)
                 db.commit()
 
-    def _mit_reparatur(self, db, job, einstellungen, antwort, uebernehmen):
+    def _mit_reparatur(
+        self, db, job, einstellungen, antwort, uebernehmen, *, json_schema=None
+    ):
         """Übernimmt die Antwort — und lässt sie einmal nachbessern, wenn nicht.
 
         Ein zweiter voller Planungslauf wäre die teuerste Antwort auf ein
@@ -275,7 +322,7 @@ class KiRunner:
             effort=REPARATUR_EFFORT,
             timeout_s=REPARATUR_TIMEOUT_S,
             token=client.token_aus(einstellungen.token_encrypted),
-            json_schema=self._letztes_schema,
+            json_schema=json_schema,
             bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
         )
         job.roh_antwort = _gekuerzte_antwort(nachbesserung)
@@ -319,6 +366,7 @@ class KiRunner:
                 days=job.days,
                 struktur=a.struktur,
             ),
+            json_schema=export.schema,
         )
 
         job.plan_id = ergebnis.plan.id
@@ -371,6 +419,7 @@ class KiRunner:
             lambda a: plan_import.uebernimm_einheit(
                 db, session, a.text, wunsch, struktur=a.struktur
             ),
+            json_schema=export.schema,
         )
         job.plan_id = session.plan_id
 
@@ -436,6 +485,7 @@ class KiRunner:
             lambda a: plan_import.uebernimm_tagesform(
                 db, sessions, a.text, struktur=a.struktur
             ),
+            json_schema=export.schema,
         )
         job.plan_id = plan.id
 
@@ -533,14 +583,10 @@ class KiRunner:
 
         job.progress_pct = 20
         job.message = meldung
-        # Der Reparaturlauf braucht dasselbe Schema. Am Runner und nicht als
-        # Parameter durchgereicht: Es hängt am laufenden Job, und es läuft immer
-        # nur einer — das Schloss steht darüber.
-        self._letztes_schema = json_schema
         db.commit()
 
-        # Wer abbricht, während der Lauf noch am Schloss wartet, hat noch
-        # keinen Prozess zum Töten — deshalb hier noch einmal nachsehen.
+        # Wer abbricht, bevor der Unterprozess steht, hat noch keinen Prozess
+        # zum Töten — deshalb hier noch einmal nachsehen.
         if job.id in self._abgebrochen:
             raise _Abgebrochen()
 
@@ -586,6 +632,19 @@ class KiRunner:
                 )
             db.commit()
             return len(offen)
+
+
+class LaeuftBereits(Exception):
+    """Dieses Konto hat schon einen Lauf — quer über alle Jobarten.
+
+    Kein `KiFehler`: Das hier ist kein Fehlschlag gegen die KI, den man an
+    einen Job schriebe, sondern die Absage an einen zweiten Start. Öffentlich,
+    weil Router und beide Automatiken sie abfangen.
+    """
+
+    def __init__(self, job_id: int) -> None:
+        self.job_id = job_id
+        super().__init__(f"Für dieses Konto läuft bereits Lauf {job_id}.")
 
 
 class _Abgebrochen(Exception):
@@ -663,6 +722,25 @@ def _notiere_fehler(job: KiJob, einstellungen: KiSettings, exc: Exception) -> No
     job.message = meldung
     if status is not None:
         _setze_status(einstellungen, status, meldung)
+
+
+def _markiere_gescheitert(job_id: int) -> None:
+    """Schließt einen Job, der nie zum Laufen kam — sonst bliebe er „queued".
+
+    Eigene Sitzung: Der Aufrufer ist `starte()`, dessen Sitzung längst zu ist.
+    """
+    with SessionLocal() as db:
+        job = db.get(KiJob, job_id)
+        if job is None:
+            return
+        job.state = "failed"
+        job.finished_at = _now()
+        job.error = "Der Lauf ließ sich nicht starten."
+        job.message = (
+            "Der Lauf ließ sich nicht starten — der Rechner ist ausgelastet. "
+            "Bitte versuche es gleich noch einmal."
+        )
+        db.commit()
 
 
 def _fertig(job: KiJob, meldung: str) -> None:

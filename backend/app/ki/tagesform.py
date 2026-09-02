@@ -36,7 +36,7 @@ from ..database import SessionLocal
 from ..models import GarminAccount, KiSettings, Plan, PlanSession, SessionLog
 from ..zeit import ortsdatum
 from .client import ist_angemeldet, token_aus
-from .runner import TAGESFORM, runner
+from .runner import LaeuftBereits, TAGESFORM, runner
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,12 @@ def passe_an(user_id: int) -> int | None:
     """
     try:
         return _passe_an(user_id)
+    except LaeuftBereits:
+        # Kein Fehler, sondern das Rennen mit einem Klick des Nutzers in
+        # derselben Sekunde: Zwischen dem Riegel unten und `runner.starte()`
+        # wird die Sitzung geschlossen. Ohne diesen Zweig stünde dafür ein
+        # Stacktrace im Log.
+        return None
     except Exception:  # noqa: BLE001
         logger.exception("Automatische Tagesanpassung fehlgeschlagen")
         return None
@@ -146,15 +152,16 @@ def _passe_an(user_id: int) -> int | None:
         if not ist_angemeldet(token_aus(einstellungen.token_encrypted)):
             return None
 
-        # Nicht warten: Der Aufrufer ist der Abgleichthread, und ein Lauf, der
-        # in einen anderen fällt, hat niemanden, der ihn nachholt. Der Fall ist
-        # ohnehin selten — der Abgleich hält sein eigenes Schloss, nicht dieses.
-        if runner.laeuft_gerade() is not None:
+        # Dieses Konto hat schon einen Lauf. Nicht warten: Der Aufrufer ist der
+        # Abgleichthread, und ein Lauf, der in einen anderen fällt, hat
+        # niemanden, der ihn nachholt. Der Fall ist ohnehin selten — der
+        # Abgleich hält sein eigenes Schloss, nicht dieses.
+        if runner.laeuft_fuer(user_id) is not None:
             return None
 
         # Erst vormerken, dann starten — dieselbe Reihenfolge und derselbe
-        # Grund wie bei der wöchentlichen Planung: Der Lauf hängt an einem
-        # eigenen Schloss und meldet sich nicht zurück.
+        # Grund wie bei der wöchentlichen Planung: Der Lauf läuft in einem
+        # eigenen Faden und meldet sich nicht zurück.
         einstellungen.last_tagesform_on = heute
         db.commit()
 

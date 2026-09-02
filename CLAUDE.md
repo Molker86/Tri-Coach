@@ -202,7 +202,7 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Trainingslehre **nicht** vorgibt, erfundene Schwelle gegen gemessene Grenze,
   die drei Auflösungsebenen der Historie, die fünf handwerklichen Vorgaben,
   `RESPONSE_SCHEMA`, Tabellen statt wiederholter Schlüssel, Claude Code als
-  Unterprozess, Jobs und Schloss, wöchentliche Planung, Tagesanpassung am
+  Unterprozess, Jobs und ein Lauf je Konto, wöchentliche Planung, Tagesanpassung am
   Abgleich, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie

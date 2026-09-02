@@ -165,9 +165,9 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   der KI. Nachgerechnet wird genau eine Sache: ob Kalorien und Makronährstoffe
   zueinander passen (`MAKRO_TOLERANZ_PCT`), und auch die nur als Warnung.
 - **Ein Ernährungslauf kostet ein eigenes Kontingent** aus demselben Abo — ein
-  Opus-Lauf bei `max`, wie ein ganzer Trainingsblock. Und er belegt dasselbe
-  Schloss: Solange er läuft, lässt sich kein Block planen und keine Einheit
-  anpassen.
+  Opus-Lauf bei `max`, wie ein ganzer Trainingsblock. Und er belegt den
+  Vermerk des Kontos: Solange er läuft, plant **dieses Konto** keinen Block und
+  passt keine Einheit an. Andere Konten stört er nicht.
 - **Ein Ernährungsplan lässt sich nicht teilweise ändern.** Es gibt kein
   Gegenstück zur Einzelanpassung — wer einen Tag anders haben will, plant neu.
   Und es gibt immer nur einen: Ein abgelöster Plan gibt seine früheren Tage ab
@@ -555,10 +555,31 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   aus der Umgebung zurück (`config.py`, `ki/client.py`) — also auf das Abo
   dessen, der das Add-on betreibt. Als Rückfall ist das gewollt; bei mehreren
   Nutzern ist es eine Rechnung, die keiner von ihnen sieht.
-- **Zwei Nutzer teilen sich ein Schloss.** Garmin-Abgleich und KI-Planung lassen
-  je einen Lauf im ganzen Prozess zu. Beim Abgleich ist das begründet — Garmins
-  Anfragegrenze hängt an der Herkunftsadresse —, bei der KI ist es schlicht so.
-  Die Meldungen sagen inzwischen, wessen Lauf im Weg steht, aber eine
-  Warteschlange gibt es nicht: Wer selbst drückt, muss es später noch einmal
-  tun. Die automatische Planung holt einen ausgefallenen Lauf **nicht** nach.
+- **Beim Abgleich teilen sich zwei Nutzer ein Schloss, bei der KI nicht mehr.**
+  Der Garmin-Abgleich lässt einen Lauf im ganzen Prozess zu, und das ist
+  begründet: Garmins Anfragegrenze hängt an der Herkunftsadresse. Die
+  KI-Planung riegelt dagegen **je Konto** — dahinter steht nichts Geteiltes.
+  Was als Grenze bleibt: Innerhalb eines Kontos gibt es keine Warteschlange
+  (wer selbst drückt, muss es später noch einmal tun, gleich welcher Jobart),
+  und die automatische Planung holt einen ausgefallenen Lauf **nicht** nach.
+- **Gleichzeitige KI-Läufe sind nach oben nicht begrenzt.** Sind am
+  Planungstag zehn Konten fällig, laufen zehn `claude`-Unterprozesse
+  nebeneinander — auf einem Raspberry Pi ist das spürbar, und wenn keines von
+  ihnen ein eigenes Token hinterlegt hat (siehe oben), gehen sie alle auf
+  dasselbe Fünf-Stunden-Fenster. Ein Lauf, der daran scheitert, verbraucht
+  trotzdem den Wochenmerker: Der Block fällt für diese Woche aus.
+- **Zwei gleichzeitige Einzelanpassungen können sich an Garmin stoßen.**
+  `_einheit_lauf` und `_tagesform_lauf` schieben die geänderte Einheit im
+  eigenen Faden auf die Uhr und nehmen dafür das globale Garmin-Schloss
+  (`exklusiver_direktaufruf`, fünf Sekunden Frist). Vorher serialisierte das
+  KI-Schloss sie; jetzt kann der zweite abgewiesen werden. Die Anpassung
+  bleibt gespeichert, aber auf der Uhr steht dann noch die alte Fassung —
+  sichtbar als Hinweis in der Meldung des Laufs, nachzuholen über den Knopf im
+  Trainingsplan.
+- **Das Register lebt im Prozess.** `run.sh` startet Uvicorn ohne `--workers`,
+  und der Vermerk „dieses Konto läuft" steht im Speicher. Mit einem zweiten
+  Worker gäbe es einen zweiten Vermerk, und ein Nutzer könnte zwei Läufe
+  zugleich starten. Das galt für das alte globale Schloss genauso — nur ist es
+  jetzt die Voraussetzung für eine Zusage an den *Nutzer*, nicht bloß für eine
+  Bequemlichkeit.
 
