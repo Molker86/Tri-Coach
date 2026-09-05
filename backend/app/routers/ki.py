@@ -1,14 +1,24 @@
 """Die KI plant den nächsten Block — Knopf, Einstellungen und Fortschritt."""
 
+from datetime import date, datetime
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from ..config import KI_EFFORT, KI_MODELL
 from ..crypto import verschluessle
 from ..deps import CurrentUser, DbSession
+from ..ki import tagesform
 from ..ki.client import ist_angemeldet, token_aus
-from ..ki.runner import EINHEIT, ENDZUSTAENDE, ERNAEHRUNG, LaeuftBereits, runner
-from ..models import KiJob, KiSettings, TrainingRequest
+from ..ki.runner import (
+    EINHEIT,
+    ENDZUSTAENDE,
+    ERNAEHRUNG,
+    TAGESFORM,
+    LaeuftBereits,
+    runner,
+)
+from ..models import GarminAccount, KiJob, KiSettings, TrainingRequest
 from ..schemas import (
     KiEinheitIn,
     KiErnaehrungIn,
@@ -17,7 +27,9 @@ from ..schemas import (
     KiSettingsIn,
     KiSettingsOut,
     KiStatusOut,
+    TagesformBefundOut,
 )
+from ..zeit import als_utc, ortsdatum
 from .ernaehrung import pruefe_zeitraum
 from .plans import anpassbare_einheit
 
@@ -233,6 +245,161 @@ def _starte(*args, **kwargs) -> int:
         return runner.starte(*args, **kwargs)
     except LaeuftBereits as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, LAEUFT_BEREITS) from exc
+
+
+# --------------------------------------------------------------------------
+# Der heutige Tag
+#
+# Die Tagesanpassung lief bis hierher **nur** hinten am automatischen Abgleich,
+# und ihr Ergebnis erreichte die Oberfläche an keiner Stelle: Ein Lauf, der zu
+# dem Schluss kam, dass alles passt, schreibt an keine Einheit etwas — und sah
+# damit für den Athleten aus wie einer, der nie stattgefunden hat. Die beiden
+# Routen hier schließen das: eine, die sagt, was war, und eine, die es auslöst.
+# --------------------------------------------------------------------------
+
+
+@router.get("/tagesform", response_model=TagesformBefundOut)
+def tagesbefund(user: CurrentUser, db: DbSession) -> TagesformBefundOut:
+    """Was heute mit den Einheiten des Tages geschehen ist — oder warum nichts.
+
+    **Drei Quellen, in dieser Reihenfolge.** Gibt es einen Lauf von heute, ist
+    sein `KiJob` die Auskunft — er ist das Genaueste, was der Tag hergibt, und
+    trägt die Begründung der KI im Wortlaut. Gibt es keinen, aber einen Vermerk
+    von heute, gilt der. Und gibt es beides nicht, wird der Grund **jetzt**
+    ausgerechnet.
+
+    Der dritte Fall ist kein Randfall, sondern der wahrscheinlichste: Die
+    Vermerke schreibt `ki/tagesform._passe_an`, und das läuft nur hinten am
+    automatischen Abgleich. Ist das Garmin-Token abgelaufen, überspringt
+    `starte_faellige_syncs` das Konto — dann findet gar kein Abgleich statt, es
+    wird nichts vermerkt, und ohne diesen Zweig stünde der Athlet vor einem
+    „unbekannt", obwohl der Grund glasklar ist und in derselben Funktion steht,
+    die auch die Automatik fragt.
+
+    Zusammengesetzt wird das hier und nicht in der Oberfläche: Sonst läge die
+    Deutung zweimal vor, einmal je Seite, die sie anzeigt.
+    """
+    einstellungen = _einstellungen(db, user.id)
+    heute = date.today()
+
+    job = (
+        db.query(KiJob)
+        .filter(KiJob.user_id == user.id, KiJob.kind == TAGESFORM)
+        .order_by(KiJob.started_at.desc())
+        .first()
+    )
+    job_am = als_utc(job.started_at) if job is not None else None
+    if job is not None and job_am is not None and ortsdatum(job_am) == heute:
+        return TagesformBefundOut(
+            aktiv=einstellungen.auto_tagesform_enabled,
+            stand=_stand_aus_job(job),
+            text=job.message or job.error or "",
+            geprueft_am=job_am,
+            von_heute=True,
+            job_id=job.id,
+            progress_pct=job.progress_pct,
+            roh_antwort_vorhanden=bool(job.roh_antwort),
+        )
+
+    ausfall_am = als_utc(einstellungen.tagesform_ausfall_am)
+    if (
+        einstellungen.tagesform_ausfall is not None
+        and ausfall_am is not None
+        and ortsdatum(ausfall_am) == heute
+    ):
+        return _ausfall_befund(
+            einstellungen, einstellungen.tagesform_ausfall, ausfall_am, True
+        )
+
+    # Nichts von heute. Der Grund lässt sich trotzdem sagen — es ist derselbe
+    # Ausdruck, den die Automatik auswertet.
+    konto = db.scalar(
+        select(GarminAccount).where(GarminAccount.user_id == user.id)
+    )
+    grund = tagesform.ausfallgrund(einstellungen, konto, heute)
+    if grund is not None and grund != tagesform.AUSFALL_SCHON_GELAUFEN:
+        return _ausfall_befund(einstellungen, grund, None, False)
+
+    # Fällig, aber noch nicht gelaufen: Der Abgleich kommt erst später am Tag,
+    # oder er ist gerade unterwegs. Kein Mangel, sondern ein Zwischenstand.
+    return TagesformBefundOut(
+        aktiv=einstellungen.auto_tagesform_enabled,
+        stand="unbekannt",
+        text="Der heutige Tag wurde noch nicht geprüft.",
+    )
+
+
+def _ausfall_befund(
+    einstellungen: KiSettings,
+    grund: str,
+    wann: datetime | None,
+    von_heute: bool,
+) -> TagesformBefundOut:
+    """Ein Ausfallgrund als Befund.
+
+    `aus` bekommt einen eigenen Stand, weil die Oberfläche dafür **nichts**
+    zeigt: Ein Schalter, den der Athlet bewusst aus gelassen hat, ist kein
+    Grund, ihn jeden Morgen daran zu erinnern.
+    """
+    return TagesformBefundOut(
+        aktiv=einstellungen.auto_tagesform_enabled,
+        stand="aus" if grund == tagesform.AUSFALL_AUS else "ausgefallen",
+        text=tagesform.ausfalltext(grund),
+        geprueft_am=wann,
+        von_heute=von_heute,
+    )
+
+
+def _stand_aus_job(job: KiJob) -> str:
+    """Der Zustand eines Tagesform-Laufs, übersetzt für die Anzeige.
+
+    `done` **ohne** `model_used` ist die Feinheit: Genau so enden die beiden
+    Frühausstiege in `ki/runner._tagesform_lauf` — kein Plan mehr da, oder keine
+    Fitnessdaten für heute. Der Lauf ist sauber zu Ende gegangen, aber Claude
+    wurde nie gefragt. Das als „geprüft" anzuschreiben wäre falsch, und ein
+    eigenes Feld dafür bräuchte es nicht: `model_used` setzt allein
+    `_frage_claude`.
+    """
+    if job.state in {"queued", "running"}:
+        return "laeuft"
+    if job.state == "done":
+        return "geprueft" if job.model_used else "ausgefallen"
+    return "fehlgeschlagen"
+
+
+@router.post(
+    "/tagesform", response_model=KiJobOut, status_code=status.HTTP_202_ACCEPTED
+)
+def pruefe_tagesform_jetzt(user: CurrentUser, db: DbSession) -> KiJob:
+    """Prüft die Einheiten von heute jetzt — von Hand angestoßen.
+
+    **Die Riegel aus `tagesform.ausfallgrund()` gelten hier ausdrücklich
+    nicht.** Sie beantworten alle dieselbe Frage: Soll das ungefragt Kontingent
+    kosten? Wer drückt, hat gefragt. Ohne diesen Weg gäbe es die Funktion nur
+    für Konten mit laufendem Garmin-Abgleich — wessen Token abgelaufen ist oder
+    wer schlicht wissen will, ob die Sache arbeitet, hätte keinen.
+
+    Was bleibt, sind die sachlichen Grenzen: Es muss heute etwas zu ändern
+    geben, und ein zweiter Lauf desselben Kontos wird abgewiesen.
+
+    **`last_tagesform_on` wird bewusst nicht gesetzt.** Wer um sieben selbst
+    drückt, soll den automatischen Lauf um zehn nicht verbrauchen — der liest
+    dann frischere Werte. Der Preis steht in `docs/grenzen.md`: Beides an einem
+    Morgen kostet zwei Läufe.
+    """
+    _pruefe_startbar(_einstellungen(db, user.id))
+
+    heute = date.today()
+    plan, sessions = tagesform.anpassbare_einheiten(db, user.id, heute)
+    if plan is None or not sessions:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Für heute steht nichts an, was sich anpassen ließe — Ruhetag, "
+            "kein aktiver Block, oder alles schon absolviert.",
+        )
+
+    job_id = _starte(user.id, TAGESFORM, start_date=heute, days=1)
+    return db.get(KiJob, job_id)
 
 
 @router.post(

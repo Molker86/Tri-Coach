@@ -1478,7 +1478,9 @@ def tagesform_strukturschema(disziplin: str) -> dict[str, Any]:
                             "type": "boolean",
                             "description": (
                                 "true, wenn die Einheit bleiben soll, wie sie "
-                                "geplant ist; dann einheit weglassen"
+                                "geplant ist; dann einheit weglassen. Bei false "
+                                "ist einheit Pflicht — eine angekündigte "
+                                "Änderung ohne neue Fassung wird zurückgefragt"
                             ),
                         },
                         "einheit": _einheit_strukturschema(disziplin),

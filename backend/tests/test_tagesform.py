@@ -16,7 +16,9 @@ from app.database import SessionLocal
 from app.ki import client as ki_client
 from app.ki import runner as ki_runner
 from app.ki import tagesform
-from app.models import GarminAccount, KiSettings, PlanSession, WellnessDay
+from app.models import GarminAccount, KiSettings, Plan, PlanSession, WellnessDay
+from app.routers import ki as ki_router
+from app.zeit import jetzt_utc
 
 HEUTE = date.today()
 
@@ -41,6 +43,12 @@ def synchron(monkeypatch):
     )
     monkeypatch.setattr(
         ki_client, "ist_angemeldet", lambda token=None, erzwinge=False: True
+    )
+    # Und noch einmal am Router: Der importiert den Namen beim Laden des Moduls,
+    # ein Patch am Ursprungsmodul ginge an ihm vorbei — und `_pruefe_startbar`
+    # riefe dann die echte CLI, was den Test um eine Minute verlängert.
+    monkeypatch.setattr(
+        ki_router, "ist_angemeldet", lambda token=None, erzwinge=False: True
     )
 
 
@@ -447,20 +455,77 @@ def test_eine_vergessene_einheit_bleibt_geplant(client, auth, monkeypatch):
     assert zweite["title"] == "Kraft" and zweite["angepasst_am"] is None
 
 
-def test_eine_angekuendigte_aenderung_ohne_einheit_bleibt_stehen(
+def test_eine_angekuendigte_aenderung_loest_eine_nachbesserung_aus(
     client, auth, monkeypatch
 ):
-    """`unveraendert: false` ohne Fassung ist eine Ankündigung ohne Inhalt."""
+    """`unveraendert: false` ohne Fassung ist eine Ankündigung ohne Inhalt.
+
+    Das Strukturschema kann sie nicht verhindern — `einheit` steht dort bewusst
+    nicht in `required`, weil sie bei `unveraendert: true` fehlen soll. Also
+    fragt der Import zurück, statt die Änderung still fallen zu lassen.
+    """
     user_id = richte_ein(client, auth)
     lege_block_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json({"nr": 1, "unveraendert": False}))
+
+    antworten = iter(
+        [
+            antwort_json({"nr": 1, "unveraendert": False}),
+            antwort_json(kuerzer(1, duration_min=40)),
+        ]
+    )
+    gefragt: list[str] = []
+
+    def _ruf(prompt, **kwargs):
+        gefragt.append(prompt)
+        return ki_client.Antwort(
+            text=next(antworten), modell="claude-opus-5", kosten_usd=0.1, dauer_ms=100
+        )
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
 
     job_id = tagesform.passe_an(user_id)
     job = client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()
 
+    assert len(gefragt) == 2, "Es hätte nachgefragt werden müssen"
     assert job["state"] == "done", job["message"]
-    assert "keine neue Fassung" in job["message"]
-    assert einheiten_von_heute(client, auth)[0]["duration_min"] == 75
+    assert einheiten_von_heute(client, auth)[0]["duration_min"] == 40
+
+
+def test_scheitert_auch_die_nachbesserung_bleibt_der_rest_stehen(
+    client, auth, monkeypatch
+):
+    """Eine fehlende Fassung wirft nicht die anderen Einheiten weg.
+
+    Der Gegentest zur „alles oder nichts"-Regression: Zwei richtige Einheiten
+    wegzuwerfen, weil zu einer dritten nichts kam, wäre die teuerste denkbare
+    Reaktion auf eine Formalie — benannt werden muss der Verlust trotzdem.
+    """
+    user_id = richte_ein(client, auth)
+    lege_block_an(
+        client,
+        auth,
+        einheiten=[
+            {"sport": "run", "type": "tempo", "title": "Tempolauf", "duration_min": 75},
+            {"sport": "strength", "type": "strength", "title": "Kraft", "duration_min": 45},
+        ],
+    )
+    # Beide Male dasselbe: Die Nachbesserung liefert die Fassung ebenfalls nicht.
+    ki_antwortet(
+        monkeypatch,
+        antwort_json({"nr": 1, "unveraendert": False}, kuerzer(2, sport="strength",
+                                                              type="strength",
+                                                              title="Kraft kurz",
+                                                              duration_min=25)),
+    )
+
+    job_id = tagesform.passe_an(user_id)
+    job = client.get(f"/api/ki/jobs/{job_id}", headers=auth).json()
+    heute = sorted(einheiten_von_heute(client, auth), key=lambda s: s["order_in_day"])
+
+    assert job["state"] == "done", job["message"]
+    assert "Einheit 1" in job["message"] and "nicht kam" in job["message"]
+    assert heute[0]["duration_min"] == 75, "Einheit 1 bleibt, wie sie geplant war"
+    assert heute[1]["duration_min"] == 25, "Einheit 2 ist trotzdem angepasst"
 
 
 def test_ein_ganzer_block_als_antwort_wird_abgelehnt(client, auth, monkeypatch):
@@ -474,6 +539,279 @@ def test_ein_ganzer_block_als_antwort_wird_abgelehnt(client, auth, monkeypatch):
 
     assert job["state"] == "failed"
     assert einheiten_von_heute(client, auth)[0]["duration_min"] == 75
+
+
+# --------------------------------------------------------------------------
+# Der Befund
+#
+# Der Prompt nennt „unverändert" ausdrücklich den Regelfall, und ein
+# unveränderter Tag schreibt an keine Einheit etwas. Ohne diesen Endpunkt sah
+# ein geglückter Lauf, der zu dem Schluss kam, dass alles passt, für den
+# Athleten **exakt** so aus wie einer, der nie stattgefunden hat — und wie
+# einer, der an einem Fehler gestorben ist.
+# --------------------------------------------------------------------------
+
+
+def befund(client, auth) -> dict:
+    antwort = client.get("/api/ki/tagesform", headers=auth)
+    assert antwort.status_code == 200, antwort.text
+    return antwort.json()
+
+
+def test_ein_unveraenderter_tag_hinterlaesst_einen_befund(client, auth, monkeypatch):
+    """Der Fall, in dem bisher gar nichts zu sehen war."""
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    ki_antwortet(
+        monkeypatch,
+        antwort_json(
+            {"nr": 1, "unveraendert": True},
+            begruendung="HRV bei 61 ms im Normalbereich, Schlaf 7:10 h.",
+        ),
+    )
+
+    tagesform.passe_an(user_id)
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "geprueft"
+    assert stand["von_heute"] is True
+    assert "bleibt, wie er geplant war" in stand["text"]
+    # Und die Einheit bleibt unberührt — das war nie das Problem.
+    assert einheiten_von_heute(client, auth)[0]["angepasst_am"] is None
+
+
+def test_der_befund_traegt_die_begruendung_der_ki(client, auth, monkeypatch):
+    """Sie ist die einzige Stelle, an der der Athlet das Warum erfährt."""
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    ki_antwortet(
+        monkeypatch,
+        antwort_json(
+            {"nr": 1, "unveraendert": True},
+            begruendung="Ruhepuls unauffällig, Erholung 71 — der Tag trägt.",
+        ),
+    )
+
+    tagesform.passe_an(user_id)
+
+    assert "Erholung 71" in befund(client, auth)["text"]
+
+
+def test_ein_gescheiterter_lauf_steht_im_befund(client, auth, monkeypatch):
+    """Ein Fehlschlag verbraucht Kontingent — er darf nicht unsichtbar bleiben."""
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+
+    def _ruf(prompt, **kwargs):
+        raise ki_client.KiFehler("Claude Code hat nicht geantwortet.")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _ruf)
+
+    tagesform.passe_an(user_id)
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "fehlgeschlagen"
+    assert "nicht geantwortet" in stand["text"]
+
+
+def test_ohne_fitnessdaten_meldet_der_befund_einen_ausfall(client, auth, monkeypatch):
+    """Der Lauf endet sauber — aber Claude wurde nie gefragt.
+
+    Erkennbar am fehlenden `model_used`: Das setzt allein `_frage_claude`. Als
+    „geprüft" anzuschreiben, was ohne die KI zu Ende ging, wäre falsch.
+    """
+    user_id = richte_ein(client, auth, fitnessdaten=False)
+    lege_block_an(client, auth)
+    gesehen = ki_antwortet(monkeypatch, antwort_json({"nr": 1, "unveraendert": True}))
+
+    tagesform.passe_an(user_id)
+    stand = befund(client, auth)
+
+    assert not gesehen, "Ohne Werte darf kein Kontingent draufgehen"
+    assert stand["stand"] == "ausgefallen"
+    assert "Keine Fitnessdaten" in stand["text"]
+
+
+def test_der_ausgeschaltete_schalter_meldet_sich_nicht(client, auth):
+    """Wer sie bewusst aus lässt, soll nicht täglich daran erinnert werden."""
+    richte_ein(client, auth, schalter=False)
+    lege_block_an(client, auth)
+
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "aus"
+    assert stand["aktiv"] is False
+
+
+def test_ohne_abgleich_von_heute_nennt_der_befund_den_grund(client, auth):
+    """Und zwar **ohne** dass die Automatik je gelaufen wäre.
+
+    Genau der Fall eines abgelaufenen Garmin-Tokens: Dann überspringt
+    `starte_faellige_syncs` das Konto, es findet gar kein Abgleich statt, und
+    ohne den Rückfall auf `ausfallgrund()` stünde hier „unbekannt", obwohl der
+    Grund glasklar ist.
+    """
+    richte_ein(client, auth, abgleich_am=None)
+    lege_block_an(client, auth)
+
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "ausgefallen"
+    assert "Garmin-Daten" in stand["text"]
+
+
+def test_am_planungstag_nennt_der_befund_den_grund(client, auth):
+    richte_ein(client, auth)
+    lege_block_an(client, auth)
+    client.put(
+        "/api/ki/settings",
+        json={"auto_plan_enabled": True, "auto_plan_weekday": HEUTE.weekday()},
+        headers=auth,
+    )
+
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "ausgefallen"
+    assert "Planungstag" in stand["text"]
+
+
+def test_ein_ruhetag_steht_als_grund_im_befund(client, auth, monkeypatch):
+    user_id = richte_ein(client, auth)
+    lege_block_an(
+        client, auth, einheiten=[{"sport": "rest", "type": "rest", "title": "Ruhetag"}]
+    )
+    ki_antwortet(monkeypatch, antwort_json({"nr": 1, "unveraendert": True}))
+
+    assert tagesform.passe_an(user_id) is None
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "ausgefallen"
+    assert "Ruhetag" in stand["text"]
+
+
+def test_wer_selbst_angepasst_hat_sieht_den_grund(client, auth, monkeypatch):
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    with SessionLocal() as db:
+        einheit = (
+            db.query(PlanSession)
+            .join(Plan)
+            .filter(Plan.user_id == user_id, PlanSession.date == HEUTE)
+            .first()
+        )
+        einheit.angepasst_am = jetzt_utc()
+        einheit.anpassungswunsch = "Nur 40 Minuten Zeit."
+        db.commit()
+
+    assert tagesform.passe_an(user_id) is None
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "ausgefallen"
+    assert "selbst" in stand["text"]
+
+
+def test_ohne_claude_zugang_nennt_der_befund_den_grund(client, auth, monkeypatch):
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    monkeypatch.setattr(
+        tagesform, "ist_angemeldet", lambda token=None, erzwinge=False: False
+    )
+
+    assert tagesform.passe_an(user_id) is None
+    stand = befund(client, auth)
+
+    assert stand["stand"] == "ausgefallen"
+    assert "Claude-Zugang" in stand["text"]
+
+
+def test_ein_gelaufener_tag_ueberschreibt_keinen_ausfallgrund(
+    client, auth, monkeypatch
+):
+    """Der Riegel „schon gelaufen" darf den Befund des Laufs nicht verdecken.
+
+    Die Automatik wacht minütlich auf und käme nach einem geglückten Lauf jedes
+    Mal wieder hier vorbei. Vermerkte sie dabei „bereits geprüft", stünde nach
+    einer Minute statt der Begründung der KI ein nichtssagender Satz.
+    """
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    ki_antwortet(
+        monkeypatch,
+        antwort_json({"nr": 1, "unveraendert": True}, begruendung="Alles im Lot."),
+    )
+
+    tagesform.passe_an(user_id)
+    assert tagesform.passe_an(user_id) is None, "Zweiter Lauf am selben Tag"
+
+    stand = befund(client, auth)
+    assert stand["stand"] == "geprueft"
+    assert "Alles im Lot." in stand["text"]
+
+
+# --------------------------------------------------------------------------
+# Der Knopf
+#
+# Bis hierher gab es die Tagesanpassung nur hinten am automatischen Abgleich.
+# Wer kein Garmin-Konto hat oder wessen Token abgelaufen ist, hatte keinen Weg,
+# sie auszulösen — und keinen, ihren Ausgang zu sehen.
+# --------------------------------------------------------------------------
+
+
+def test_der_knopf_prueft_auch_ohne_abgleich_von_heute(client, auth, monkeypatch):
+    """Die Riegel fragen alle dasselbe: ungefragt Kontingent? Wer drückt, fragt."""
+    richte_ein(client, auth, schalter=False, abgleich_am=None)
+    lege_block_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json(kuerzer(1, duration_min=40)))
+
+    antwort = client.post("/api/ki/tagesform", headers=auth)
+
+    assert antwort.status_code == 202, antwort.text
+    assert antwort.json()["kind"] == "tagesform"
+    assert einheiten_von_heute(client, auth)[0]["duration_min"] == 40
+    assert befund(client, auth)["stand"] == "geprueft"
+
+
+def test_der_knopf_verbraucht_den_automatischen_lauf_nicht(client, auth, monkeypatch):
+    """Wer um sieben selbst drückt, soll den Lauf um zehn nicht verlieren.
+
+    Der liest dann frischere Werte — der Preis sind zwei Läufe an einem Morgen,
+    und das ist die Entscheidung dessen, der gedrückt hat.
+    """
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    ki_antwortet(monkeypatch, antwort_json({"nr": 1, "unveraendert": True}))
+
+    assert client.post("/api/ki/tagesform", headers=auth).status_code == 202
+    with SessionLocal() as db:
+        einstellungen = db.query(KiSettings).filter(
+            KiSettings.user_id == user_id
+        ).one()
+        assert einstellungen.last_tagesform_on is None
+
+    assert tagesform.passe_an(user_id) is not None
+
+
+def test_ohne_einheiten_von_heute_lehnt_der_knopf_ab(client, auth, monkeypatch):
+    richte_ein(client, auth)
+    lege_block_an(
+        client, auth, einheiten=[{"sport": "rest", "type": "rest", "title": "Ruhetag"}]
+    )
+    gesehen = ki_antwortet(monkeypatch, antwort_json({"nr": 1, "unveraendert": True}))
+
+    antwort = client.post("/api/ki/tagesform", headers=auth)
+
+    assert antwort.status_code == 409
+    assert not gesehen, "Ein abgelehnter Knopf darf kein Kontingent kosten"
+
+
+def test_ein_zweiter_druck_prallt_ab(client, auth, monkeypatch):
+    user_id = richte_ein(client, auth)
+    lege_block_an(client, auth)
+    monkeypatch.setitem(ki_runner.runner._laeufe, user_id, 4711)
+
+    antwort = client.post("/api/ki/tagesform", headers=auth)
+
+    assert antwort.status_code == 409
 
 
 # --------------------------------------------------------------------------

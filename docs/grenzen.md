@@ -503,9 +503,31 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   weiter von Hand ändern, und der Grund von heute früh reist als Kontext mit.
 - **Gesehen wird sie erst, wenn jemand die App öffnet.** Ihr Job ist vorbei,
   bevor das geschieht, und seine Meldung rutscht aus der Liste. Was bleibt, ist
-  der Hinweis über der Karte „Heute", das Badge „✎ angepasst" und die Begründung
-  im Dialog — eine Benachrichtigung aufs Telefon gibt es nicht, und auf der Uhr
-  steht die neue Fassung ohne einen Hinweis darauf, dass sie neu ist.
+  die Karte über „Heute", das Badge „✎ angepasst" und die Begründung im Dialog
+  — eine Benachrichtigung aufs Telefon gibt es nicht, und auf der Uhr steht die
+  neue Fassung ohne einen Hinweis darauf, dass sie neu ist. Dort steht
+  inzwischen auch, wenn **nichts** geändert wurde und wenn gar nicht geprüft
+  wurde; bis dahin sah der Regelfall „alles bleibt" aus wie ein Lauf, den es nie
+  gegeben hat.
+- **Nur der letzte Ausfallgrund wird gehalten, es gibt keine Historie.**
+  `KiSettings.tagesform_ausfall` ist eine Spalte, kein Protokoll: Warum die
+  Prüfung vorgestern nicht lief, ist nicht mehr zu erfahren. Wer das braucht,
+  liest das Serverprotokoll (`TRI_LOG_LEVEL=INFO`, im Add-on die Option
+  `log_level`).
+- **Eine Datenbank ohne Job und ohne Vermerk zeigt „unbekannt".** Das trifft
+  frische Installationen und solche, die die Spalten noch nicht hatten, als
+  zuletzt etwas zu vermerken gewesen wäre. Einen Grund nachträglich zu erfinden
+  wäre schlimmer als keiner.
+- **Der Knopf „Jetzt prüfen" umgeht alle Riegel bis auf zwei** — es muss heute
+  etwas zu ändern geben, und es darf kein Lauf für dieses Konto unterwegs sein.
+  Er setzt `last_tagesform_on` bewusst nicht, damit er den automatischen Lauf
+  nicht verbraucht; der Preis ist, dass beides an einem Morgen **zwei** Läufe
+  kostet. Und er fragt nicht nach: Wer drückt, hat entschieden.
+- **Eine angekündigte Änderung, die auch nach der Nachfrage keine Fassung
+  mitbringt, geht verloren.** Sie wird benannt — als eigener Satz in der Meldung
+  des Laufs, der es in die Karte schafft —, aber nicht farblich abgesetzt und
+  nicht ein zweites Mal nachgefragt: Ein dritter Lauf kostete mehr, als die
+  fehlende Einheit wert ist.
 - **Und was sie geändert hat, lässt sich nicht zurücknehmen.** Die alte Fassung
   steht in keiner Spalte — dieselbe Lage wie bei der Einzelanpassung. Wer sie
   zurück will, passt die Einheit von Hand wieder an.

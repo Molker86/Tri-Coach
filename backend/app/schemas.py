@@ -1239,6 +1239,49 @@ class KiSettingsIn(BaseModel):
     token: str | None = Field(None, max_length=512)
 
 
+class TagesformBefundOut(BaseModel):
+    """Was aus dem heutigen Tag geworden ist — auch, wenn nichts geschah.
+
+    **Der Grund, dass es dieses Schema gibt.** Der Prompt der Tagesanpassung
+    nennt „unverändert" ausdrücklich den Regelfall, und ein unveränderter Tag
+    schreibt an keine Einheit etwas: `angepasst_am` bleibt leer, das Badge
+    erscheint nicht, der Hinweis über der Karte „Heute" auch nicht. Bis hierher
+    sah ein geglückter Lauf, der zu dem Schluss kam, dass alles passt, für den
+    Athleten **exakt** so aus wie einer, der nie stattgefunden hat — und wie
+    einer, der an einem Fehler gestorben ist. Sein Kontingent war weg, seine
+    Antwort nirgends zu sehen.
+
+    Zwei Quellen, jede für ihren Fall: Lief ein Lauf, ist der `KiJob` die
+    Auskunft; lief keiner, steht der Grund als Code an `KiSettings`.
+    Zusammengesetzt wird das im Router, damit die Oberfläche nicht zwei
+    Abfragen und zwei Deutungen davon braucht.
+    """
+
+    # Ob die Automatik überhaupt eingeschaltet ist. Trägt die Entscheidung, den
+    # Knopf „Jetzt prüfen" anzubieten, ohne dass die Oberfläche dafür die
+    # Einstellungen mitladen müsste.
+    aktiv: bool
+    # aus: der Schalter ist aus | laeuft: ein Lauf ist gerade unterwegs |
+    # geprueft: ein Lauf ist durch | ausgefallen: er kam nicht zustande |
+    # fehlgeschlagen: er ist gescheitert oder wurde abgebrochen |
+    # unbekannt: es gibt weder Job noch Vermerk (frische Datenbank).
+    stand: Literal[
+        "aus", "laeuft", "geprueft", "ausgefallen", "fehlgeschlagen", "unbekannt"
+    ]
+    # Der Satz dazu, fertig zum Anzeigen. Bei einem gelaufenen Lauf ist das
+    # `KiJob.message` — dort steht die Begründung der KI im Wortlaut.
+    text: str
+    geprueft_am: UtcDatetime | None = None
+    # Ob dieser Befund von heute ist. Ein Befund von vorgestern ist keine
+    # Auskunft über den heutigen Tag und wird anders angeschrieben.
+    von_heute: bool = False
+    job_id: int | None = None
+    progress_pct: int | None = None
+    # Nur bei einem gescheiterten Lauf von Belang: Dann ist die Antwort der KI
+    # über `GET /api/ki/jobs/{id}/rohantwort` zu retten.
+    roh_antwort_vorhanden: bool = False
+
+
 class KiStatusOut(BaseModel):
     # Ob überhaupt ein Claude-Zugang da ist. Ohne den blendet die Oberfläche den
     # Knopf aus und zeigt weiter nur den Weg über die Zwischenablage.

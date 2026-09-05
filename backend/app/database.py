@@ -201,6 +201,12 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # weil niemand ihr je zugestimmt haben kann.
         "auto_tagesform_enabled": "BOOLEAN NOT NULL DEFAULT 0",
         "last_tagesform_on": "DATE",
+        # Warum die Tagesanpassung zuletzt **nicht** lief. Bestehende Zeilen
+        # bleiben leer, und das ist richtig: Was vor dieser Spalte geschah, hat
+        # niemand vermerkt, und ein nachträglich erfundener Grund wäre schlimmer
+        # als gar keiner — die Oberfläche zeigt dann „unbekannt".
+        "tagesform_ausfall": "VARCHAR(24)",
+        "tagesform_ausfall_am": "DATETIME",
     },
     # Wann die Zutaten eines Tages auf die Bring-Liste gingen. Bestehende Tage
     # bleiben leer und gelten damit als nicht übertragen — richtig so: Sie

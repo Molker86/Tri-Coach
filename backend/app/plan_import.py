@@ -1208,6 +1208,12 @@ class TagesformUebernahme:
     unveraendert: list[PlanSession] = field(default_factory=list)
     begruendung: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # Einheiten, zu denen eine Änderung angekündigt war, aber keine Fassung
+    # dabei. Sie bleiben stehen — aber der Aufrufer muss es sagen können: Bis
+    # hierher verschwand genau dieser Fall in einer Warnung, die niemand las,
+    # und der Athlet sah einen Tag, der „bleibt, wie er geplant war", obwohl
+    # die KI ihn ändern wollte.
+    unvollstaendig: list[int] = field(default_factory=list)
 
 
 def parse_tagesform_antwort(raw: str) -> AITagesformBody:
@@ -1304,6 +1310,8 @@ def uebernimm_tagesform(
     sessions: Sequence[PlanSession],
     raw: str,
     struktur: dict[str, Any] | None = None,
+    *,
+    streng: bool = False,
 ) -> TagesformUebernahme:
     """Schreibt die angepassten Fassungen in die bestehenden Planeinheiten.
 
@@ -1314,6 +1322,14 @@ def uebernimm_tagesform(
     Was nicht zugeordnet werden kann, bleibt stehen. Die Begründung gilt für
     den ganzen Tag und wird an jede angefasste Einheit geschrieben: Der Athlet
     öffnet eine einzelne Einheit, nicht den Tag.
+
+    `streng` verlangt zu jeder angekündigten Änderung auch die Fassung dazu und
+    wirft sonst — **bevor irgendetwas geschrieben ist**. Das Strukturschema
+    kann das nicht erzwingen: `einheit` steht dort bewusst nicht in `required`,
+    weil sie bei `unveraendert: true` fehlen *soll*, und ein `oneOf` darüber
+    wäre genau die Fessel, an der eine sonst brauchbare Antwort stürbe (siehe
+    `docs/ki-und-prompt.md`). Der Anspruch gehört also hierher, und der Wurf
+    ist die Eintrittskarte in den bestehenden Reparaturlauf.
     """
     body = (
         tagesform_aus_objekt(struktur)
@@ -1322,7 +1338,29 @@ def uebernimm_tagesform(
     )
     warnings = pruefe_tagesform(body, sessions)
 
-    ergebnis = TagesformUebernahme(begruendung=body.begruendung, warnings=warnings)
+    # Vor der Schreibschleife: Ein Wurf mitten im Schreiben ließe die Hälfte
+    # der Einheiten geändert zurück, und der Reparaturlauf schriebe sie danach
+    # ein zweites Mal.
+    unvollstaendig = [
+        eintrag.nr
+        for eintrag in body.einheiten
+        if not eintrag.unveraendert
+        and eintrag.einheit is None
+        and 1 <= eintrag.nr <= len(sessions)
+    ]
+    if streng and unvollstaendig:
+        nummern = ", ".join(str(nr) for nr in unvollstaendig)
+        raise PlanImportError(
+            f"Zu Einheit {nummern} steht `unveraendert: false`, aber keine "
+            '"einheit" mit der neuen Fassung. Entweder `unveraendert: true` '
+            "setzen oder die vollständige Einheit mitliefern."
+        )
+
+    ergebnis = TagesformUebernahme(
+        begruendung=body.begruendung,
+        warnings=warnings,
+        unvollstaendig=unvollstaendig,
+    )
     erledigt: set[int] = set()
 
     for eintrag in body.einheiten:

@@ -14,6 +14,7 @@ from .database import init_db
 from .garmin.automatik import automatik_schleife
 from .garmin.runner import markiere_unterbrochene_jobs
 from .ki.runner import runner as ki_runner
+from .protokoll import richte_ein as richte_protokoll_ein
 from .routers import (
     auth,
     bring,
@@ -25,6 +26,11 @@ from .routers import (
     profile,
     questionnaire,
 )
+
+# Vor allem anderen und **nicht** im `lifespan`: Bis der läuft, haben `init_db()`
+# und die Importe oben längst gemeldet, was sie zu melden hatten — und ohne
+# Handler wäre das verloren. Siehe `protokoll.py`, warum es das überhaupt braucht.
+richte_protokoll_ein()
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +48,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if unterbrochen:
         logger.info("%d unterbrochene Planungsläufe aufgeräumt", unterbrochen)
 
-    # Nur der Garmin-Abgleich läuft von selbst. Die KI-Planung hat bewusst
-    # keine Schleife: Ein Block entsteht ausschließlich auf Knopfdruck.
+    # Eine Schleife für beide Automatiken: Der Abgleich hängt an der Uhrzeit des
+    # Kontos, die wöchentliche Planung an ihrer eigenen — sie teilen sich nur den
+    # Zeitgeber (`garmin.automatik.automatik_schleife`). `TRI_GARMIN_AUTOSYNC=0`
+    # legt deshalb beides zugleich still, und mit dem Abgleich auch die
+    # Tagesanpassung, die hinten an ihm hängt.
     aufgaben = [asyncio.create_task(automatik_schleife())] if GARMIN_AUTOSYNC else []
     try:
         yield

@@ -702,7 +702,7 @@ drei Opus-Läufe an einem Morgen gekostet. Zugeordnet wird über die `nr` aus
 das Modell eine Einheit aus, landete die Anpassung der einen sonst auf der
 anderen, ohne dass irgendwo etwas fehlschlüge.
 
-**Die Riegel stehen alle in `ist_faellig()`, und jeder aus eigenem Grund.** Der
+**Die Riegel stehen alle in `ausfallgrund()`, und jeder aus eigenem Grund.** Der
 Schalter muss stehen; der Abgleich muss heute durch sein; einmal am Tag reicht
 (der Merker wird **vor** dem Start gesetzt, wie bei der Planung); und **am
 Planungstag setzt sie aus** — der frische Block entsteht ohnehin aus denselben
@@ -713,6 +713,74 @@ ist eine Entscheidung des Blocks über die Woche, kein Mangel an Lust) und keine
 wenn heute schon **von Hand** angepasst wurde — wer der App gerade gesagt hat,
 was er will, bekommt es nicht Stunden später überschrieben. In beiden Fällen
 bleibt der Merker aus: Es ist nichts geschehen, was ein zweites Mal geschähe.
+
+**Aber jeder Riegel hinterlässt seinen Grund.** Sieben stille `return None`
+standen hier einmal, und zusammen bedeuteten sie, dass der Athlet eine Funktion
+eingeschaltet hatte, die still nichts tat — ohne jede Möglichkeit zu erfahren,
+woran es lag. `ausfallgrund()` gibt deshalb einen Code zurück statt eines
+`bool`, und `_passe_an()` schreibt ihn nach `KiSettings.tagesform_ausfall` samt
+Zeitstempel. `ist_faellig()` bleibt als dünner Mantel daneben stehen: An
+einigen Stellen ist „läuft sie jetzt?" die einzige Frage. Der deutsche Satz zum
+Code steht in `AUSFALLTEXT` und **nicht** in der Datenbank — der Wortlaut soll
+sich ändern dürfen, ohne dass ihn jede Installation mitschleppt.
+
+Eine Ausnahme: `schon_gelaufen` wird nicht vermerkt. Für heute gibt es dann
+einen Job, und der ist die genauere Auskunft; die Automatik wacht minütlich auf
+und überschriebe die Begründung der KI sonst nach einer Minute mit „bereits
+geprüft".
+
+**Der Befund überlebt den Lauf — aus zwei Quellen, nicht aus einer.**
+`GET /api/ki/tagesform` beantwortet die Frage, die die Startseite stellt: Was
+ist heute mit meinem Tag geschehen? Gibt es einen `KiJob` von heute, ist er die
+Auskunft — er trägt `state`, `message` (mit der Begründung der KI im Wortlaut),
+`error` und `roh_antwort`. Gibt es keinen, aber einen Vermerk von heute, gilt
+der. Und gibt es beides nicht, wird `ausfallgrund()` **jetzt** ausgerechnet.
+
+Dieser dritte Zweig ist kein Randfall, sondern der wahrscheinlichste: Die
+Vermerke schreibt `_passe_an`, und das läuft nur hinten am automatischen
+Abgleich. Ist das Garmin-Token abgelaufen, überspringt `starte_faellige_syncs`
+das Konto — dann findet gar kein Abgleich statt, es wird nichts vermerkt, und
+ohne diesen Zweig stünde „unbekannt", obwohl der Grund glasklar ist und in
+derselben Funktion steht, die auch die Automatik fragt.
+
+Alles in `KiSettings` zu halten wäre die naheliegende Vereinfachung und wäre
+falsch: Die Meldung des Jobs müsste an vier Stellen kopiert werden (`_fertig`,
+`_notiere_fehler`, der Abbruchzweig, `markiere_unterbrochene_jobs`) und liefe
+beim ersten neuen Endzustand auseinander. Alles über `KiJob` zu halten ginge
+ebenso wenig: `_passe_an` steigt **vor** `runner.starte()` aus, es gibt an dem
+Punkt noch gar keine Kennung — und eine Job-Zeile ohne Aufruf verfälschte
+`letzter_job`, `cost_usd` und `roh_antwort`.
+
+**`done` ohne `model_used` heißt „ausgefallen", nicht „geprüft".** So enden die
+beiden Frühausstiege in `_tagesform_lauf`: kein Plan mehr da, oder keine
+Fitnessdaten für heute. Der Lauf ist sauber zu Ende gegangen, aber Claude wurde
+nie gefragt. `model_used` setzt allein `_frage_claude` — ein eigenes Feld dafür
+braucht es also nicht, und es kostet nichts.
+
+**Der Knopf „Jetzt prüfen" umgeht die Riegel, und das ist seine Aufgabe.**
+`POST /api/ki/tagesform` prüft nur, ob es heute etwas zu ändern gibt und ob
+nicht schon ein Lauf für dieses Konto unterwegs ist. Die übrigen Riegel fragen
+alle dasselbe — soll das *ungefragt* Kontingent kosten? Wer drückt, hat gefragt.
+Ohne diesen Weg gäbe es die Funktion nur für Konten mit laufendem
+Garmin-Abgleich, und niemand hätte je prüfen können, ob sie überhaupt arbeitet.
+`last_tagesform_on` setzt er bewusst **nicht**: Wer um sieben selbst drückt,
+soll den automatischen Lauf um zehn nicht verbrauchen — der liest frischere
+Werte.
+
+**Eine angekündigte Änderung ohne Fassung geht in die Nachbesserung.**
+`unveraendert: false` ohne `einheit` war bis hierher eine Warnung, die niemand
+las: Die Zeile blieb stehen, der Lauf galt als geglückt, und die Absicht des
+Modells verschwand. Das Strukturschema kann das nicht abfangen — `einheit` steht
+dort bewusst nicht in `required`, weil sie bei `unveraendert: true` fehlen
+*soll*, und ein `oneOf` darüber wäre genau die Fessel, an der eine sonst
+brauchbare Antwort stürbe. Der Anspruch steht deshalb im Import
+(`uebernimm_tagesform(..., streng=True)`), wirft **bevor irgendetwas geschrieben
+ist** und landet damit im bestehenden Reparaturlauf. Liefert auch der nichts
+nach, greift `_mit_reparatur(..., nachgiebig=...)`: Es gilt die **erste**
+Antwort, so weit sie trägt — zwei richtige Einheiten wegzuwerfen, weil zu einer
+dritten nichts kam, wäre die teuerste Reaktion auf eine Formalie. Der Verlust
+steht dann als eigener Satz in der Jobmeldung, vor den allgemeinen Warnungen und
+damit außerhalb der Kürzung auf drei.
 
 **Und ein Ausstieg, bevor es Kontingent kostet.** Trägt der Payload keinen
 `fitnessdaten`-Block, endet der Lauf als `done` mit einem Satz dazu — ohne einen

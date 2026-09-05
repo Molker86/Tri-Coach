@@ -72,7 +72,9 @@ Zahl der Einheiten bleiben; aus einem geplanten Ruhetag wird nie Training, aus
 einer Einheit sehr wohl Ruhe. Geänderte Einheiten gehen von selbst auf die Uhr — dieselbe
 Vorlage am selben Termin, nur mit neuem Inhalt; wird Ruhe daraus, verschwindet
 der Termin. Gesehen wird das auf der Startseite: über der Karte „Heute" steht,
-dass angepasst wurde und warum. Der Lauf selbst ist vorbei, bevor jemand die
+ob geprüft wurde, was dabei herauskam — **auch wenn nichts zu ändern war** —
+und woran es lag, wenn nicht geprüft werden konnte. Ein Knopf daneben stößt die
+Prüfung von Hand an, ohne auf den Abgleich zu warten. Der Lauf selbst ist vorbei, bevor jemand die
 App öffnet. Ab Werk aus, denn er kostet einen Lauf **pro Tag**; am Planungstag
 setzt er aus. Siehe „Die Tagesanpassung hängt am Abgleich".
 
@@ -134,7 +136,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 704 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 725 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -164,6 +166,9 @@ Umgebungsvariablen: `TRI_SECRET_KEY` (sonst `backend/.secret_key`, automatisch
 erzeugt — ein Wechsel macht gespeicherte Garmin-Token unlesbar und verlangt eine
 Neuanmeldung), `TRI_DATABASE_URL`, `TRI_CORS_ORIGINS`, `TRI_GARMIN_AUTOSYNC`
 (`0` schaltet den täglichen Abgleich ab; in Tests gesetzt) und
+`TRI_LOG_LEVEL` (Vorgabe `INFO`; im Add-on die Option `log_level`. Ohne
+`app/protokoll.py` hatte der Wurzel-Logger gar keinen Handler, und jedes
+`logger.info` der Automatiken war unsichtbar) und
 `TRI_GARMIN_SYNC_HOUR` (Ortszeit-Stunde, ab der abgeglichen wird, Vorgabe 9
 — nur noch die **Vorgabe** für ein neu verbundenes Konto; maßgeblich sind
 `GarminAccount.sync_hour` und `.sync_minute` aus den Einstellungen).

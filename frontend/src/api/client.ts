@@ -30,6 +30,7 @@ import type {
   ProfileHistoryEntry,
   SessionLog,
   Stats,
+  TagesformBefund,
   TrainingRequest,
   TrainingRequestInput,
   User,
@@ -289,6 +290,12 @@ export const api = {
   // `token_status`.
   kiSettings: (data: Partial<KiSettingsIn>) =>
     request<KiSettings>('/ki/settings', { method: 'PUT', body: data }),
+  // Wie es um die Tagesanpassung von heute steht — und der Knopf, sie
+  // auszulösen. Beides eigene Routen und nicht `kiStatus`: Der liefert den
+  // *letzten* Lauf gleich welcher Art, und ein Ernährungsplan von gestern sagt
+  // nichts über den heutigen Tag.
+  kiTagesform: () => request<TagesformBefund>('/ki/tagesform'),
+  kiTagesformPruefen: () => request<KiJob>('/ki/tagesform', { method: 'POST' }),
   kiPlanen: (startDate?: string, days?: number, requestId?: number) =>
     request<KiJob>('/ki/planen', {
       method: 'POST',

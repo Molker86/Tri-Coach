@@ -177,3 +177,26 @@ dauert auf dem Raspberry Pi ~15–20 Min (Node-Frontend wird mitkompiliert).
 Zugriff über **Ingress** (kein offener LAN-Port, authentifiziert via
 HA-Session). Der `Dockerfile` nutzt `python:3.12-slim` — kein S6-Overlay oder
 Bashio nötig (nur ein Uvicorn-Prozess), deshalb bleibt `init` auf der Vorgabe.
+
+
+**Der Wurzel-Logger hatte keinen Handler** (`app/protokoll.py`). Uvicorn richtet
+nur seine eigenen ein (`uvicorn`, `uvicorn.error`, `uvicorn.access`) und lässt
+sie nicht weiterreichen; alles andere fiel auf `logging.lastResort`, und der
+schluckt jede Meldung unterhalb von WARNING. Damit war **jedes** `logger.info`
+dieser App unsichtbar — ausgerechnet in den Automatiken, denen ohnehin niemand
+zusieht. `ki/tagesform.py` schreibt seit jeher „Tagesanpassung … gestartet", und
+die Zeile hat nie ein Auge erreicht; wer wissen wollte, warum die Tagesanpassung
+nicht lief, hatte keine einzige Spur.
+
+`richte_ein()` wird in `main.py` auf **Modulebene** gerufen, nicht im
+`lifespan`: Bis der läuft, haben `init_db()` und die Importe längst gemeldet,
+was sie zu melden hatten. Ausgegeben wird auf stderr — im Add-on sammelt Home
+Assistant den Strom des Prozesses ein und zeigt ihn im Protokoll; eine Datei
+unter `/data` müsste selbst gedreht und von Hand gelesen werden. `force=True`,
+weil `basicConfig` sonst nichts täte, sobald schon ein Handler hängt (Import in
+anderer Reihenfolge, `--reload`). `sqlalchemy.engine` wird gedämpft: Auf INFO
+meldet es jede einzelne Anweisung samt Parametern, und die eine interessante
+Zeile ginge darin unter — `TRI_LOG_LEVEL=DEBUG` holt es gezielt zurück. Im
+Add-on steht dasselbe als Option `log_level` in `config.yaml`, die `run.sh` nach
+`TRI_LOG_LEVEL` durchreicht: Der Nutzer sieht dort das Protokoll, aber nicht den
+Quelltext.

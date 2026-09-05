@@ -205,3 +205,30 @@ export function Modal({
 export function Loading({ text = 'Lädt …' }: { text?: string }) {
   return <div className="loading">{text}</div>
 }
+
+/**
+ * Ein Textblock, der zugeklappt anfängt — Überschrift sichtbar, Text auf Klick.
+ *
+ * Ausrichtung des Blocks, Steuerungshinweise und die Begründung der
+ * Tagesanpassung sind Fließtext von mehreren Sätzen. Aufgeklappt schieben sie
+ * genau das unter die Bildschirmkante, wofür die Startseite morgens geöffnet
+ * wird: die Einheit von heute. Sie sollen weiter erreichbar sein, aber nicht
+ * jeden Tag aufs Neue gelesen werden müssen.
+ */
+export function Klappblock({
+  titel,
+  offen = false,
+  children,
+}: {
+  titel: ReactNode
+  /** Nur setzen, wo der Inhalt beim ersten Blick wichtiger ist als der Platz. */
+  offen?: boolean
+  children: ReactNode
+}) {
+  return (
+    <details className="klappblock" open={offen}>
+      <summary>{titel}</summary>
+      {children}
+    </details>
+  )
+}

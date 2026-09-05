@@ -53,6 +53,13 @@ _default_cors = [
 _env_cors = os.environ.get("TRI_CORS_ORIGINS", "").strip()
 CORS_ORIGINS = _env_cors.split(",") if _env_cors else _default_cors
 
+# Wie gesprächig der Server ist. Ausgewertet in `protokoll.py`, das dem
+# Wurzel-Logger überhaupt erst einen Handler gibt — ohne ihn galt
+# `logging.lastResort`, und der ließ nichts unterhalb von WARNING durch. Als
+# Variable, weil man im Add-on nicht eben eine Zeile Code ändert: Dort kommt sie
+# aus den Optionen (`config.yaml` → `run.sh`).
+LOG_LEVEL = (os.environ.get("TRI_LOG_LEVEL", "INFO").strip() or "INFO").upper()
+
 # Automatischer täglicher Garmin-Abgleich. Abschaltbar, weil er in Tests gegen
 # die echte API liefe und weil man ihn im Betrieb notfalls stilllegen können muss.
 GARMIN_AUTOSYNC = os.environ.get("TRI_GARMIN_AUTOSYNC", "1").strip() not in {

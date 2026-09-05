@@ -479,11 +479,12 @@ export interface KiJob {
   id: number
   /**
    * 'einheit' passt eine einzelne Planeinheit an, 'ernaehrung' schreibt den
-   * Ernährungsplan zum aktiven Block, 'manual' plant einen ganzen Block.
-   * 'auto' steht nur noch an Läufen von vor dem Wegfall der automatischen
-   * Planung.
+   * Ernährungsplan zum aktiven Block, 'manual' plant einen ganzen Block,
+   * 'auto' derselbe Lauf aus der wöchentlichen Automatik. 'tagesform' prüft die
+   * Einheiten von heute gegen die Werte von heute Morgen — angezeigt wird der
+   * nicht über den Job, sondern über `TagesformBefund`.
    */
-  kind: 'manual' | 'auto' | 'einheit' | 'ernaehrung'
+  kind: 'manual' | 'auto' | 'einheit' | 'ernaehrung' | 'tagesform'
   state: KiJobState
   started_at: string
   finished_at: string | null
@@ -560,6 +561,39 @@ export interface KiStatus {
   einstellungen: KiSettings | null
   aktiver_job: KiJob | null
   letzter_job: KiJob | null
+}
+
+/**
+ * Wie es um die Tagesanpassung von heute steht.
+ *
+ * **Warum es das braucht.** „Unverändert" ist der Regelfall, und ein
+ * unveränderter Tag schreibt an keine Einheit etwas: kein `angepasst_am`, kein
+ * Badge, kein Hinweis. Ein geglückter Lauf, der zu dem Schluss kam, dass alles
+ * passt, sah damit exakt aus wie einer, der nie stattfand — und wie einer, der
+ * an einem Fehler starb. Der Befund ist der einzige Ort, an dem die drei sich
+ * unterscheiden.
+ */
+export type TagesformStand =
+  | 'aus'
+  | 'laeuft'
+  | 'geprueft'
+  | 'ausgefallen'
+  | 'fehlgeschlagen'
+  | 'unbekannt'
+
+export interface TagesformBefund {
+  /** Ob die Automatik eingeschaltet ist — trägt den Knopf „Jetzt prüfen“. */
+  aktiv: boolean
+  stand: TagesformStand
+  /** Fertiger Satz. Bei einem gelaufenen Lauf die Begründung der KI im Wortlaut. */
+  text: string
+  geprueft_am: string | null
+  /** Ein Befund von vorgestern ist keine Auskunft über heute. */
+  von_heute: boolean
+  job_id: number | null
+  progress_pct: number | null
+  /** Nur bei einem Fehlschlag von Belang: Dann ist die Antwort noch zu retten. */
+  roh_antwort_vorhanden: boolean
 }
 
 /** Was aus einer einzeln angepassten Einheit geworden ist. */

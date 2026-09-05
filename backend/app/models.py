@@ -803,6 +803,19 @@ class KiSettings(Base):
     # Der Riegel dazu, ein Lauf je Tag. Wird gesetzt, bevor der Lauf startet:
     # Er hängt an einem eigenen Schloss und meldet sich nicht zurück.
     last_tagesform_on: Mapped[date | None] = mapped_column(Date)
+    # Warum der heutige Tag **nicht** geprüft wurde — und nur dafür. Lief ein
+    # Lauf, ist sein `KiJob` die genauere Auskunft; eine Kopie seiner Meldung
+    # hier müsste an vier Stellen mitgeschrieben werden (`_fertig`,
+    # `_notiere_fehler`, der Abbruchzweig, `markiere_unterbrochene_jobs`) und
+    # liefe beim ersten neuen Endzustand auseinander. Die sieben Riegel in
+    # `ki/tagesform._passe_an` legen umgekehrt gar keinen Job an, und sie sollen
+    # auch keinen anlegen: Ein `KiJob` heißt „ein Lauf gegen Claude".
+    #
+    # Als **Code** und nicht als Satz: Der Wortlaut soll sich ändern dürfen,
+    # ohne dass ihn jede Datenbank mitschleppt. Den Katalog dazu führt
+    # `ki/tagesform.AUSFALLTEXT`.
+    tagesform_ausfall: Mapped[str | None] = mapped_column(String(24))
+    tagesform_ausfall_am: Mapped[datetime | None] = mapped_column(DateTime)
     # Altlast: Die Blocklänge der Automatik kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
     # Die Spalte steht hier, weil sie in bestehenden Datenbanken NOT NULL ist —
     # aus dem Modell entfernt, ohne die Spalte zu löschen, schlüge das Anlegen
@@ -830,8 +843,8 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # manual | einheit | ernaehrung — „auto" steht nur noch an Läufen aus der
-    # Zeit vor dem Wegfall der Automatik.
+    # manual | einheit | ernaehrung | tagesform — „auto" steht an den Läufen der
+    # wöchentlichen Planung.
     kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
     # queued | running | done | failed | cancelled | interrupted

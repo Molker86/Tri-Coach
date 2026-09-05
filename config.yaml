@@ -3,7 +3,7 @@ description: Trainingsplanung für Ausdauersport
 # Der Store bietet ein Update erst an, wenn diese Zahl größer ist als die
 # installierte — bei einem lokal gebauten Add-on gibt es keinen anderen
 # Auslöser. Jeder Stand, der auf den Pi soll, braucht hier eine neue Version.
-version: 4.3.11
+version: 4.4.0
 slug: tricoach
 url: https://github.com/Molker86/Tri-Coach
 arch:
@@ -33,9 +33,17 @@ panel_title: Tri-Coach
 # `password?` statt `str?`: Die Oberfläche maskiert den Wert dann. Er liegt
 # trotzdem im Klartext in /data/options.json und wandert damit in jedes
 # Home-Assistant-Backup — siehe docs/grenzen.md.
+#
+# `log_level` bestimmt, wie gesprächig der Server im Add-on-Protokoll ist. Bis
+# hierher hatte der Wurzel-Logger überhaupt keinen Handler, und alles unterhalb
+# von WARNING war unsichtbar — auch die Zeilen der Automatiken, an denen man
+# sieht, ob und warum ein Abgleich oder eine Tagesanpassung gelaufen ist. Leer
+# heißt INFO; DEBUG nimmt zusätzlich jede SQL-Anweisung mit.
 options:
   secret_key: ""
   claude_oauth_token: ""
+  log_level: ""
 schema:
   secret_key: str?
   claude_oauth_token: password?
+  log_level: list(DEBUG|INFO|WARNING|ERROR)?

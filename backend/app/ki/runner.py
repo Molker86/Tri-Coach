@@ -283,7 +283,15 @@ class KiRunner:
                 db.commit()
 
     def _mit_reparatur(
-        self, db, job, einstellungen, antwort, uebernehmen, *, json_schema=None
+        self,
+        db,
+        job,
+        einstellungen,
+        antwort,
+        uebernehmen,
+        *,
+        json_schema=None,
+        nachgiebig=None,
     ):
         """Übernimmt die Antwort — und lässt sie einmal nachbessern, wenn nicht.
 
@@ -295,6 +303,12 @@ class KiRunner:
 
         Genau ein Versuch. Scheitert auch der, endet der Lauf wie bisher als
         gescheitert, aber mit erhaltener Rohantwort in `job.roh_antwort`.
+
+        `nachgiebig` ist der Ausweg für einen Anspruch, der nur *einen Teil* der
+        Antwort betrifft: Dann gilt am Ende die erste Antwort, so weit sie
+        trägt. Die Tagesanpassung nutzt das — drei Einheiten wegzuwerfen, weil
+        zu einer die neue Fassung fehlt, wäre die teuerste Reaktion auf eine
+        Formalie, und dieselbe Linie fährt der Import ohnehin überall sonst.
         """
         from .. import plan_import
 
@@ -327,7 +341,17 @@ class KiRunner:
         )
         job.roh_antwort = _gekuerzte_antwort(nachbesserung)
         db.commit()
-        return uebernehmen(nachbesserung)
+
+        try:
+            return uebernehmen(nachbesserung)
+        except plan_import.PlanImportError:
+            if nachgiebig is None:
+                raise
+            # Auch die Nachbesserung hat nicht geliefert, was fehlte. Dann gilt
+            # die **erste** Antwort — nicht die zweite: Die war nur auf das
+            # Ausbessern angesetzt und hat den Rest womöglich verkürzt.
+            logger.info("Nachbesserung erneut unvollständig, die erste Antwort gilt")
+            return nachgiebig(antwort)
 
     def _block_lauf(self, db, job: KiJob, user: User, einstellungen: KiSettings) -> None:
         """Der ganze nächste Block — der Regelfall."""
@@ -483,9 +507,14 @@ class KiRunner:
             einstellungen,
             antwort,
             lambda a: plan_import.uebernimm_tagesform(
-                db, sessions, a.text, struktur=a.struktur
+                db, sessions, a.text, struktur=a.struktur, streng=True
             ),
             json_schema=export.schema,
+            # Und wenn auch die Nachbesserung die fehlende Fassung nicht
+            # nachliefert: übernehmen, was da ist, und den Rest benennen.
+            nachgiebig=lambda a: plan_import.uebernimm_tagesform(
+                db, sessions, a.text, struktur=a.struktur
+            ),
         )
         job.plan_id = plan.id
 
@@ -793,6 +822,16 @@ def _tagesform_meldung(ergebnis, hinweise: list[str]) -> str:
     if ergebnis.begruendung:
         teile.append(ergebnis.begruendung)
     teile += hinweise
+    # Eigener Satz und **vor** den allgemeinen Warnungen: Dass die KI etwas
+    # ändern wollte und es nicht getan hat, ist die einzige Auskunft hier, an
+    # der der Athlet etwas tun kann — der Kürzung auf drei Warnungen darf sie
+    # nicht zum Opfer fallen.
+    if ergebnis.unvollstaendig:
+        nummern = ", ".join(str(nr) for nr in ergebnis.unvollstaendig)
+        teile.append(
+            f"Zu Einheit {nummern} war eine Änderung angekündigt, die auch nach "
+            "einer Nachfrage nicht kam — sie steht unverändert."
+        )
     if ergebnis.warnings:
         teile.append("Hinweis: " + " ".join(ergebnis.warnings[:3]))
     return " ".join(teile)

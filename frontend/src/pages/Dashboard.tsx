@@ -4,8 +4,10 @@ import { api } from '../api/client'
 import { AnpassungsKarte } from '../components/AnpassungsKarte'
 import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
-import { Alert, EmptyState, Loading, Stat } from '../components/ui'
+import { TagesformKarte } from '../components/TagesformKarte'
+import { Alert, EmptyState, Klappblock, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
+import { useTagesform } from '../components/useTagesform'
 import { schlafdauer, sportIcon, sportLabel } from '../constants'
 import { heuteIso, istHeute, naechsterBlockStart, planErzeugenPfad } from '../planung'
 import type {
@@ -295,6 +297,13 @@ export default function Dashboard() {
   // und Fortschritt, damit beide Seiten nicht zwei Fassungen davon haben.
   const anpassungLauf = useEinheitAnpassung(reload, setError)
   const anpassung = anpassungLauf.anpassung
+  // Und der Zustand des heutigen Tages. Eigener Hook, weil es eine andere Frage
+  // ist: nicht „was habe ich gerade angestoßen", sondern „was ist heute früh
+  // mit meinem Tag geschehen" — die gilt auch, wenn nichts geschehen ist.
+  const tagesform = useTagesform(reload, setError)
+  // Beide belegen den einen Lauf je Konto. Ohne das Oder liefe „Einheit
+  // anpassen" in ein 409, während im Server gerade der Tag geprüft wird.
+  const einLaufAktiv = anpassungLauf.laeuft || tagesform.laeuft
 
   if (loading) return <Loading />
   if (error) return <Alert kind="error">{error}</Alert>
@@ -337,7 +346,7 @@ export default function Dashboard() {
         <SessionDetail
           session={selected}
           kiVerfuegbar={anpassungLauf.kiVerfuegbar}
-          anpassungLaeuft={anpassungLauf.laeuft}
+          anpassungLaeuft={einLaufAktiv}
           onLauf={(job) => {
             anpassungLauf.beobachte(job)
             setSelected(null)
@@ -439,23 +448,23 @@ export default function Dashboard() {
 
         {/* Ausrichtung und Steuerungshinweise standen bisher nur im
             Trainingsplan — dabei gehören sie über die Einheit von heute: Sie
-            sagen, warum der Block so liegt und woran zu steuern ist, und
-            werden gelesen, bevor der Athlet auf die Vorgabe des Tages sieht.
-            Wer den Block automatisch erzeugen lässt, sieht die Planansicht
-            sonst nie. */}
+            sagen, warum der Block so liegt und woran zu steuern ist, und wer
+            den Block automatisch erzeugen lässt, sieht die Planansicht sonst
+            nie. Zugeklappt, weil sie für den ganzen Block gelten und sich
+            nicht täglich ändern: Wer sie sieben Tage lang aufgeschlagen über
+            der Vorgabe des Tages stehen hat, scrollt jeden Morgen an
+            demselben Absatz vorbei. */}
         {plan && (plan.summary || plan.coaching_notes) && (
           <>
             {plan.summary && (
-              <>
-                <h3>Zur Ausrichtung des Blocks</h3>
-                <p className={plan.coaching_notes ? '' : 'mb-0'}>{plan.summary}</p>
-              </>
+              <Klappblock titel={<h3>Zur Ausrichtung des Blocks</h3>}>
+                <p className="mb-0">{plan.summary}</p>
+              </Klappblock>
             )}
             {plan.coaching_notes && (
-              <>
-                <h3>Hinweise zur Steuerung</h3>
+              <Klappblock titel={<h3>Hinweise zur Steuerung</h3>}>
                 <p className="mb-0">{plan.coaching_notes}</p>
-              </>
+              </Klappblock>
             )}
             <hr className="divider" />
           </>
@@ -464,15 +473,19 @@ export default function Dashboard() {
         {/* Über den Einheiten und nicht nur als Fähnchen an der Karte: Die
             Anpassung ist nachts passiert, und wer die App morgens öffnet, soll
             nicht erst eine Einheit anklicken müssen, um zu erfahren, dass und
-            warum sein Tag anders aussieht als gestern Abend geplant. */}
-        {tagesanpassung && (
-          <Alert kind="info">
-            <strong>✎ Heute früh an deine Tagesform angepasst.</strong>
-            {tagesanpassung.anpassungsbegruendung && (
-              <> {tagesanpassung.anpassungsbegruendung}</>
-            )}
-          </Alert>
-        )}
+            warum sein Tag anders aussieht als gestern Abend geplant. Und weil
+            „alles bleibt" der Regelfall ist, steht hier auch dann etwas, wenn
+            keine Einheit angefasst wurde — sonst sähe ein geglückter Lauf aus
+            wie einer, den es nie gab. */}
+        <TagesformKarte
+          befund={tagesform.befund}
+          angepasst={tagesanpassung ?? null}
+          busy={einLaufAktiv}
+          onPruefen={() => {
+            setError(null)
+            void tagesform.pruefeJetzt().catch((err) => setError(err.message))
+          }}
+        />
 
         {!plan ? (
           <EmptyState icon="📋" title="Kein aktiver Plan">

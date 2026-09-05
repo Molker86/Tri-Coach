@@ -1072,6 +1072,32 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 .alert ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
 
+/* Aufklappbarer Textblock: Die Überschrift steht, der Fließtext kommt auf
+   Klick. Die Überschrift trägt weiter ein <h3>, damit die Gliederung der Seite
+   erhalten bleibt — es liegt nur inline neben dem Dreieck statt darunter. */
+.klappblock {
+  margin-bottom: 0.75rem;
+}
+
+.klappblock > summary {
+  cursor: pointer;
+}
+
+.klappblock > summary > h3 {
+  display: inline;
+  margin: 0;
+}
+
+.klappblock[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
+/* In einer Meldung ist die Zusammenfassung die Meldung selbst: gleiche Schrift,
+   gleiche Farbe, nur klickbar. */
+.alert > .klappblock {
+  margin-bottom: 0;
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem 1.5rem;

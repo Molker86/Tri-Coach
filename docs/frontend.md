@@ -114,6 +114,47 @@ hat, weiß es und braucht keinen Hinweis. Im Trainingsplan bleibt es beim Badge
 an der Karte: Dort stehen alle Tage nebeneinander, und ein Banner je Tag wäre
 Lärm statt Hinweis.
 
+**Unverändert ist auch eine Nachricht** (`TagesformKarte`, `useTagesform`). Der
+Absatz oben beschreibt den selteneren Fall. Der Prompt der Tagesanpassung nennt
+„unverändert" ausdrücklich den Regelfall, und ein unveränderter Tag schreibt an
+keine Einheit etwas: kein `angepasst_am`, kein Badge, kein Banner. Ein
+geglückter Lauf, der zu dem Schluss kam, dass alles passt, sah damit für den
+Athleten **exakt** so aus wie einer, der nie stattgefunden hat — und wie einer,
+der an einem Fehler gestorben ist. Sein Kontingent war weg, seine Antwort
+nirgends zu sehen; es gab keinen Ort in der Oberfläche, an dem ein
+`tagesform`-Job je auftauchte (`useEinheitAnpassung` filtert auf `einheit`,
+`PlanExchange` auf `istBlockLauf`, `Ernaehrung` auf `ernaehrung`).
+
+`TagesformKarte` steht deshalb an derselben Stelle über der Karte „Heute" und
+zeigt **immer** etwas — außer bei ausgeschaltetem Schalter: Wer ihn bewusst aus
+gelassen hat, braucht dazu keine tägliche Erinnerung. Eine tatsächlich geänderte
+Einheit hat Vorrang vor allem anderen; darunter kommen „geprüft, alles bleibt",
+„läuft gerade", „gescheitert" und „gar nicht gelaufen — und woran es lag". Beim
+Knopf „Jetzt prüfen" steht dabei, dass er Kontingent kostet.
+
+Die **Begründung** der KI — warum sie die Einheit von heute angefasst oder
+stehen gelassen hat — liegt dabei zugeklappt hinter der Zeile selbst
+(`Klappblock`, dasselbe Muster wie bei Ausrichtung und Steuerungshinweisen).
+Sichtbar bleiben muss täglich nur, *dass* geprüft wurde; der Fließtext dahinter
+wird einmal gelesen. Fehlt er, bleibt es bei der Zeile ohne Reiter — ein leerer
+Reiter wäre eine Einladung ins Nichts. Die kurzen Zustandssätze von
+„gescheitert" und „nicht gelaufen" stehen weiter offen: Sie sind eine
+Handlungsaufforderung, kein Nachschlagetext.
+
+**Ein zweiter Hook neben `useEinheitAnpassung`, mit Absicht.** Der beobachtet
+einen Lauf, den der Nutzer gerade selbst angestoßen hat, und dessen Karte er
+danach wegklickt. `useTagesform` beobachtet einen *Zustand des Tages*: Er gilt,
+ob jemand hinsieht oder nicht, wird nicht weggeklickt, und er ist auch dann eine
+Aussage, wenn nichts gelaufen ist. Beides in einen Hook zu ziehen hieße, zwei
+verschiedene Fragen mit denselben Feldern zu beantworten. Am Ende eines Laufs
+holt er **erst** den Befund neu und ruft **dann** `reload()`: Der Job allein
+sagt nicht, ob Claude überhaupt gefragt wurde — das entscheidet der Endpunkt an
+`model_used`.
+
+Beide belegen denselben einen Lauf je Konto. Das Dashboard reicht deshalb
+`anpassungLaeuft={einLaufAktiv}` an `SessionDetail`, sonst liefe „Einheit
+anpassen" in ein 409, während im Server gerade der Tag geprüft wird.
+
 **Ob ein Zeitstempel „heute" ist, rechnet `planung.istHeute()`** und nicht die
 ersten zehn Zeichen der Zeichenkette. Die stehen in UTC; früh morgens und
 abends ist das ein anderer Tag als der, den der Athlet vor sich hat — und
@@ -211,9 +252,14 @@ ohnehin liest.
 
 **Ausrichtung und Steuerungshinweise stehen auch auf der Startseite**
 (`plan.summary` / `plan.coaching_notes`, direkt unter der Überschrift der
-„Heute"-Karte und **über** den Einheiten des Tages — die Einordnung wird
-gelesen, bevor der Athlet auf die Vorgabe sieht; die Trennlinie steht deshalb
-darunter). Sie standen bisher nur im Trainingsplan — und genau dorthin geht
+„Heute"-Karte und **über** den Einheiten des Tages — die Einordnung gehört vor
+die Vorgabe; die Trennlinie steht deshalb darunter). **Zugeklappt** allerdings
+(`Klappblock`): Beide gelten für den ganzen Block und ändern sich sieben Tage
+lang nicht, während die Einheit von heute der Grund ist, aus dem die Seite
+morgens geöffnet wird. Aufgeschlagen schöben zwei Absätze Fließtext sie unter
+die Bildschirmkante, und gelesen würden sie trotzdem nur einmal. Die
+Überschriften bleiben stehen — sie sagen, dass es die Einordnung gibt und wo
+sie liegt. Sie standen bisher nur im Trainingsplan — und genau dorthin geht
 niemand, der den Block automatisch erzeugen lässt: Die Uhr trägt das Workout,
 die Startseite die Einheit von heute, und *warum* der Block so liegt und woran
 zu steuern ist, las man nirgends. Zwei Überschriften, im Wortlaut

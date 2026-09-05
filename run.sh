@@ -44,4 +44,14 @@ if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -f /data/options.json ]; then
   fi
 fi
 
+# Wie gesprächig der Server sein soll. Ohne diesen Dreisatz ließe sich das im
+# Add-on nur durch eine Codeänderung drehen — und genau dort braucht man es:
+# Der Nutzer sieht das Protokoll, aber nicht den Quelltext.
+if [ -z "$TRI_LOG_LEVEL" ] && [ -f /data/options.json ]; then
+  LEVEL=$(python3 -c "import json;print(json.load(open('/data/options.json')).get('log_level') or '')" 2>/dev/null || true)
+  if [ -n "$LEVEL" ]; then
+    export TRI_LOG_LEVEL="$LEVEL"
+  fi
+fi
+
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
