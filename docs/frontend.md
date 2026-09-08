@@ -105,8 +105,8 @@ Knopf, der einen Block plant.
 hinsieht; ein Fähnchen an der Einheitenkarte wäre für eine Änderung, die der
 Athlet nicht bestellt hat, zu leise — er müsste erst eine Einheit anklicken, um
 zu erfahren, dass und warum sein Tag anders aussieht als gestern Abend geplant.
-In der Karte „Heute" steht deshalb ein `Alert kind="info"` über den Einheiten,
-mit der Begründung der KI. Einmal, nicht je Karte: Die Begründung gilt für den
+In der Karte „Heute" steht deshalb eine eigene Zeile über den Einheiten, mit
+der Begründung der KI. Einmal, nicht je Karte: Die Begründung gilt für den
 ganzen Tag und steht an jeder angefassten Einheit gleich.
 
 Gezeigt wird er nur bei **fehlendem** `anpassungswunsch` — wer selbst angepasst
@@ -129,17 +129,29 @@ nirgends zu sehen; es gab keinen Ort in der Oberfläche, an dem ein
 zeigt **immer** etwas — außer bei ausgeschaltetem Schalter: Wer ihn bewusst aus
 gelassen hat, braucht dazu keine tägliche Erinnerung. Eine tatsächlich geänderte
 Einheit hat Vorrang vor allem anderen; darunter kommen „geprüft, alles bleibt",
-„läuft gerade", „gescheitert" und „gar nicht gelaufen — und woran es lag". Beim
-Knopf „Jetzt prüfen" steht dabei, dass er Kontingent kostet.
+„läuft gerade", „gescheitert" und „gar nicht gelaufen — und woran es lag".
+
+**Eine Zeile, keine gerahmte Meldung.** Das war einmal ein `Alert` mit
+Knopfleiste und nahm über der Vorgabe des Tages mehr Platz ein als die Vorgabe
+selbst — für einen Satz, der an den meisten Tagen „alles bleibt" lautet. Jetzt
+steht sie als dritte Klappzeile *neben* „Zur Ausrichtung des Blocks" und
+„Hinweise zur Steuerung", noch über dem Trenner: gleiche Bauform, gleiches
+Dreieck, nur in der Farbe ihres Zustands (`.tagesform-ok` grün, `-warn`,
+`-info`, `-neutral`). Der Trenner hängt seitdem nicht mehr allein an den
+Blockhinweisen, sondern an `zeigtTagesform()` mit — sonst stünde ein Strich
+ohne etwas darüber.
 
 Die **Begründung** der KI — warum sie die Einheit von heute angefasst oder
 stehen gelassen hat — liegt dabei zugeklappt hinter der Zeile selbst
 (`Klappblock`, dasselbe Muster wie bei Ausrichtung und Steuerungshinweisen).
 Sichtbar bleiben muss täglich nur, *dass* geprüft wurde; der Fließtext dahinter
-wird einmal gelesen. Fehlt er, bleibt es bei der Zeile ohne Reiter — ein leerer
-Reiter wäre eine Einladung ins Nichts. Die kurzen Zustandssätze von
-„gescheitert" und „nicht gelaufen" stehen weiter offen: Sie sind eine
-Handlungsaufforderung, kein Nachschlagetext.
+wird einmal gelesen. **Und mit ihr der Knopf „Jetzt prüfen"** samt dem Hinweis,
+dass er Kontingent kostet: Er wird selten gebraucht und gehört hinter denselben
+Klick, statt täglich eine zweite Zeile unter der grünen Meldung zu belegen.
+Fehlen Text *und* Knopf, bleibt es bei der Zeile ohne Reiter — ein leerer Reiter
+wäre eine Einladung ins Nichts. „Gescheitert" und „nicht gelaufen" klappen
+dagegen **offen** auf (`offen`): Sie sind eine Handlungsaufforderung, kein
+Nachschlagetext, und der Knopf ist dort die Antwort darauf.
 
 **Ein zweiter Hook neben `useEinheitAnpassung`, mit Absicht.** Der beobachtet
 einen Lauf, den der Nutzer gerade selbst angestoßen hat, und dessen Karte er
@@ -264,6 +276,15 @@ niemand, der den Block automatisch erzeugen lässt: Die Uhr trägt das Workout,
 die Startseite die Einheit von heute, und *warum* der Block so liegt und woran
 zu steuern ist, las man nirgends. Zwei Überschriften, im Wortlaut
 wie in der Planansicht — zwei Fassungen desselben Textes liefen auseinander.
+**Derselbe Handgriff im Ernährungsplan** (`Ernaehrung.PlanAnsicht`): `summary`
+und `begruendung` sind der Antwortteil der KI — worauf der Block ausgerichtet
+ist und woran sie sich orientiert hat. Sie standen offen über dem Wochenraster
+und schoben die Mahlzeiten von heute nach unten, obwohl sie sich über den
+ganzen Block nicht ändern. Jetzt liegen beide hinter **einem** Reiter „Zur
+Ausrichtung des Blocks": Es sind zwei Absätze zu derselben Frage, und zwei
+Reiter für je drei Sätze wären ein Klick zu viel. Der Titel des Blocks bleibt
+als Kartenüberschrift stehen.
+
 Dafür wird „Heute" auf die **ganze Breite** gezogen und „Als Nächstes" darunter
 gestellt (`grid grid-2` entfällt): Ein Fließtext von ein paar Sätzen in einer
 halbbreiten Spalte neben einer Tabelle liest sich schlecht, und die Reihenfolge

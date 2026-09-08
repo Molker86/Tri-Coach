@@ -1092,11 +1092,33 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   margin-bottom: 0.5rem;
 }
 
+/* Als letztes Kind einer Karte trägt die Karte den Abstand schon selbst. */
+.card > .klappblock:last-child {
+  margin-bottom: 0;
+}
+
 /* In einer Meldung ist die Zusammenfassung die Meldung selbst: gleiche Schrift,
    gleiche Farbe, nur klickbar. */
 .alert > .klappblock {
   margin-bottom: 0;
 }
+
+/* Der Zustand des heutigen Tages steht als dritte Klappzeile unter
+   „Ausrichtung" und „Hinweise zur Steuerung" — gleiche Bauform, nur in der
+   Farbe seines Ausgangs. Als gerahmte Meldung nahm derselbe Satz über der
+   Vorgabe des Tages mehr Platz ein als die Vorgabe. */
+.tagesform-zeile > h3 {
+  display: inline;
+  margin: 0;
+}
+
+.tagesform-ok { color: var(--success); }
+.tagesform-warn { color: var(--warning); }
+.tagesform-info { color: var(--accent); }
+.tagesform-neutral { color: var(--text-muted); }
+
+/* Die Begründung kommt als Fließtext der KI und bringt eigene Absätze mit. */
+.tagesform-text { white-space: pre-wrap; }
 
 .empty-state {
   text-align: center;

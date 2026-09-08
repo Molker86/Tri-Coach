@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, jobLaeuft, pollJob } from '../api/client'
-import { Alert, EmptyState, Loading, Modal, TextArea } from '../components/ui'
+import { Alert, EmptyState, Klappblock, Loading, Modal, TextArea } from '../components/ui'
 import { useHeute } from '../components/useHeute'
 import { heuteIso, planErzeugenPfad } from '../planung'
 import type {
@@ -590,9 +590,18 @@ function PlanAnsicht({ plan, heute }: { plan: Ernaehrungsplan; heute: string }) 
     <>
       <div className="card">
         <div className="card-title">{plan.title}</div>
-        {plan.summary && <p className="mb-1">{plan.summary}</p>}
-        {plan.begruendung && (
-          <p className="small muted mb-0">{plan.begruendung}</p>
+        {/* Ausrichtung und Begründung sind der Antwortteil der KI: warum der
+            Block so aussieht, wie er aussieht. Das wird einmal gelesen und
+            gilt danach für alle sieben Tage — offen stünde es jeden Morgen
+            über dem, weswegen die Seite geöffnet wird: was heute auf den Tisch
+            kommt. Zugeklappt, dasselbe Muster wie in der Karte „Heute". */}
+        {(plan.summary || plan.begruendung) && (
+          <Klappblock titel={<h3>Zur Ausrichtung des Blocks</h3>}>
+            {plan.summary && <p className="mb-1">{plan.summary}</p>}
+            {plan.begruendung && (
+              <p className="small muted mb-0">{plan.begruendung}</p>
+            )}
+          </Klappblock>
         )}
       </div>
 

@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import { AnpassungsKarte } from '../components/AnpassungsKarte'
 import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
-import { TagesformKarte } from '../components/TagesformKarte'
+import { TagesformKarte, zeigtTagesform } from '../components/TagesformKarte'
 import { Alert, EmptyState, Klappblock, Loading, Stat } from '../components/ui'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
 import { useTagesform } from '../components/useTagesform'
@@ -446,46 +446,51 @@ export default function Dashboard() {
           {plan && <Link className="small" to="/plan">Ganzen Plan ansehen</Link>}
         </div>
 
-        {/* Ausrichtung und Steuerungshinweise standen bisher nur im
-            Trainingsplan — dabei gehören sie über die Einheit von heute: Sie
-            sagen, warum der Block so liegt und woran zu steuern ist, und wer
-            den Block automatisch erzeugen lässt, sieht die Planansicht sonst
-            nie. Zugeklappt, weil sie für den ganzen Block gelten und sich
-            nicht täglich ändern: Wer sie sieben Tage lang aufgeschlagen über
-            der Vorgabe des Tages stehen hat, scrollt jeden Morgen an
-            demselben Absatz vorbei. */}
-        {plan && (plan.summary || plan.coaching_notes) && (
+        {/* Ausrichtung, Steuerungshinweise und der Zustand des Tages: drei
+            Zeilen derselben Bauform.
+
+            Die ersten beiden standen bisher nur im Trainingsplan — dabei
+            gehören sie über die Einheit von heute: Sie sagen, warum der Block
+            so liegt und woran zu steuern ist, und wer den Block automatisch
+            erzeugen lässt, sieht die Planansicht sonst nie. Zugeklappt, weil
+            sie für den ganzen Block gelten und sich nicht täglich ändern: Wer
+            sie sieben Tage lang aufgeschlagen über der Vorgabe des Tages
+            stehen hat, scrollt jeden Morgen an demselben Absatz vorbei.
+
+            Die dritte gehört daneben und nicht als gerahmte Meldung darunter:
+            Was heute früh mit dem Tag geschehen ist, ist eine Auskunft über den
+            Block, kein Alarm. Sie steht über den Einheiten und nicht nur als
+            Fähnchen an der Karte, weil die Anpassung nachts passiert ist und
+            niemand erst eine Einheit anklicken soll, um zu erfahren, dass sein
+            Tag anders aussieht als gestern Abend geplant. Und weil „alles
+            bleibt" der Regelfall ist, steht sie auch dann da, wenn keine
+            Einheit angefasst wurde — sonst sähe ein geglückter Lauf aus wie
+            einer, den es nie gab. */}
+        {(!!(plan && (plan.summary || plan.coaching_notes)) ||
+          zeigtTagesform(tagesform.befund, tagesanpassung ?? null)) && (
           <>
-            {plan.summary && (
+            {plan?.summary && (
               <Klappblock titel={<h3>Zur Ausrichtung des Blocks</h3>}>
                 <p className="mb-0">{plan.summary}</p>
               </Klappblock>
             )}
-            {plan.coaching_notes && (
+            {plan?.coaching_notes && (
               <Klappblock titel={<h3>Hinweise zur Steuerung</h3>}>
                 <p className="mb-0">{plan.coaching_notes}</p>
               </Klappblock>
             )}
+            <TagesformKarte
+              befund={tagesform.befund}
+              angepasst={tagesanpassung ?? null}
+              busy={einLaufAktiv}
+              onPruefen={() => {
+                setError(null)
+                void tagesform.pruefeJetzt().catch((err) => setError(err.message))
+              }}
+            />
             <hr className="divider" />
           </>
         )}
-
-        {/* Über den Einheiten und nicht nur als Fähnchen an der Karte: Die
-            Anpassung ist nachts passiert, und wer die App morgens öffnet, soll
-            nicht erst eine Einheit anklicken müssen, um zu erfahren, dass und
-            warum sein Tag anders aussieht als gestern Abend geplant. Und weil
-            „alles bleibt" der Regelfall ist, steht hier auch dann etwas, wenn
-            keine Einheit angefasst wurde — sonst sähe ein geglückter Lauf aus
-            wie einer, den es nie gab. */}
-        <TagesformKarte
-          befund={tagesform.befund}
-          angepasst={tagesanpassung ?? null}
-          busy={einLaufAktiv}
-          onPruefen={() => {
-            setError(null)
-            void tagesform.pruefeJetzt().catch((err) => setError(err.message))
-          }}
-        />
 
         {!plan ? (
           <EmptyState icon="📋" title="Kein aktiver Plan">
