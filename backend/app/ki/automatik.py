@@ -5,6 +5,12 @@ Morgen zu überschreiben hieß, dass von jedem Block nur der erste Tag je erreic
 wurde — und jeder Lauf kostet Kontingent. Wochentag und Uhrzeit stehen je Nutzer
 in `KiSettings` (Vorgabe Sonntag 09:00).
 
+**Acht Tage, nicht sieben.** Der automatische Block reicht einen Tag weiter als
+der Wochenabstand (`AUTO_PLAN_TAGE`): Der achte Tag ist der nächste
+Planungstag selbst — an dem der Nachfolger diesen Block ohnehin ablöst. So
+steht auch dann eine Einheit auf der Uhr, wenn der nächste Lauf zu spät kommt
+oder scheitert.
+
 **Keine eigene Schleife.** Es gab hier einmal eine zweite Viertelstundenschleife
 neben der von Garmin; sie ist nicht zurückgekommen. Geweckt wird aus
 `garmin/automatik.starte_faellige_planung()` — es gibt genau einen Zeitgeber im
@@ -30,7 +36,6 @@ from datetime import date, datetime
 
 from sqlalchemy import select
 
-from ..ai_export import PLAN_DAYS_DEFAULT
 from ..database import SessionLocal
 from ..models import KiSettings, TrainingRequest
 from .client import ist_angemeldet, token_aus
@@ -42,6 +47,16 @@ logger = logging.getLogger(__name__)
 # „manual" nur in der Herkunft, nicht in der Ausführung — `runner._lauf`
 # verzweigt allein auf `EINHEIT`.
 AUTO = "auto"
+
+# Blocklänge der Automatik: ein Tag mehr als der Abstand der Wochensperre
+# (`(heute - letzter).days >= 7` in `ist_faellig`). Der Block reicht damit bis
+# auf den Tag, an dem der nächste automatische Lauf ihn ersetzt — läuft der zu
+# spät oder gar nicht, steht für diesen Tag trotzdem eine Einheit auf der Uhr.
+# Mit 7 endete der Block am Vortag, und der Neuplanungstag hatte bis zum
+# erfolgreichen Lauf keinen Plan. Bewusst nicht `ai_export.PLAN_DAYS_DEFAULT`
+# (7): Das ist die Vorgabe des manuellen Exports und hat mit dem Wochenabstand
+# der Automatik nichts zu tun.
+AUTO_PLAN_TAGE = 8
 
 
 def plane(user_id: int) -> int | None:
@@ -131,7 +146,7 @@ def _plane(user_id: int) -> int | None:
         user_id,
         AUTO,
         start_date=heute,
-        days=PLAN_DAYS_DEFAULT,
+        days=AUTO_PLAN_TAGE,
         # Ohne Kennung, also der aktuellste Fragebogen. Hier stand einmal der
         # des laufenden Blocks — als Schutz davor, dass eine *bearbeitete*
         # Zeile übersehen wird, weil `created_at` beim Bearbeiten stehen

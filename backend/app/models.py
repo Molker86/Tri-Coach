@@ -816,7 +816,7 @@ class KiSettings(Base):
     # `ki/tagesform.AUSFALLTEXT`.
     tagesform_ausfall: Mapped[str | None] = mapped_column(String(24))
     tagesform_ausfall_am: Mapped[datetime | None] = mapped_column(DateTime)
-    # Altlast: Die Blocklänge der Automatik kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
+    # Altlast: Die Blocklänge der Automatik kommt aus `ki/automatik.AUTO_PLAN_TAGE`.
     # Die Spalte steht hier, weil sie in bestehenden Datenbanken NOT NULL ist —
     # aus dem Modell entfernt, ohne die Spalte zu löschen, schlüge das Anlegen
     # einer Einstellungszeile fehl.

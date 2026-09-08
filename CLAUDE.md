@@ -53,7 +53,11 @@ wird angepasst, nicht ersetzt".
 Wer ein Claude-Abo hinterlegt, drückt einen Knopf statt zu kopieren — und wer
 will, auch das nicht mehr: Ein Schalter in den Einstellungen lässt den nächsten
 Block **einmal pro Woche** von selbst entstehen, an einem wählbaren Wochentag zu
-wählbarer Uhrzeit (Vorgabe Sonntag 09:00). Ab Werk ist er aus, denn jeder Lauf
+wählbarer Uhrzeit (Vorgabe Sonntag 09:00). Der automatische Block umfasst
+**acht Tage** statt der sieben des manuellen Exports — einen mehr als der
+Wochenabstand, damit er bis auf den Tag reicht, an dem der Nachfolger ihn
+ablöst; sonst stünde der Neuplanungstag ohne Einheit da, bis sein Lauf durch
+ist. Ab Werk ist er aus, denn jeder Lauf
 kostet Kontingent; siehe „Geplant wird auf Zuruf — oder einmal die Woche".
 Aufgerufen wird **Claude Code headless** als Unterprozess, nicht die API mit
 Token-Abrechnung: Das Abo war da, und ein Aufruf am Tag kostet darüber nichts

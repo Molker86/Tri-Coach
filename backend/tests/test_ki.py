@@ -631,7 +631,9 @@ def stelle_planungszeit(auth, *, tag: int | None = None, stunde=0, minute=0) -> 
 def bestellt(client, auth, monkeypatch) -> int:
     """Fragebogen, Antwort und eingeschaltete Automatik — der Normalfall."""
     lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    # Die Automatik fordert `AUTO_PLAN_TAGE` Tage an — der Stub muss so viele
+    # liefern, sonst warnt `validate_coverage` und der Block bleibt kürzer.
+    ki_antwortet(monkeypatch, antwort_json(HEUTE, ki_automatik.AUTO_PLAN_TAGE))
     client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
     return stelle_planungszeit(auth)
 
@@ -642,6 +644,28 @@ def test_am_planungstag_entsteht_ein_block(client, auth, monkeypatch):
 
     assert ki_automatik.plane(user_id) is not None
     assert client.get("/api/plans/active", headers=auth).json() is not None
+
+
+def test_der_automatikblock_reicht_bis_zum_planungstag(client, auth, monkeypatch):
+    """Acht Tage, nicht sieben: Der Block endet auf dem nächsten Planungstag.
+
+    Mit sieben endete er am Vortag — bis der nächste Lauf durch war, stand für
+    den Neuplanungstag keine Einheit auf der Uhr.
+    """
+    user_id = bestellt(client, auth, monkeypatch)
+    assert ki_automatik.plane(user_id) is not None
+
+    plan = client.get("/api/plans/active", headers=auth).json()
+    tage = {s["date"] for s in plan["sessions"]}
+    assert len(tage) == ki_automatik.AUTO_PLAN_TAGE == 8
+
+    start = date.fromisoformat(plan["start_date"])
+    ende = date.fromisoformat(plan["end_date"])
+    assert start == HEUTE
+    assert ende == HEUTE + timedelta(days=7)
+    # Derselbe Wochentag wie der Start — also genau der Tag, an dem der
+    # nächste automatische Lauf diesen Block ablöst.
+    assert ende.weekday() == start.weekday()
 
 
 def test_ohne_schalter_entsteht_nichts(client, auth, monkeypatch):
@@ -766,7 +790,7 @@ def test_die_automatik_nimmt_den_aktuellsten_fragebogen(client, auth, monkeypatc
     from app.models import KiJob
 
     alter = lege_fragebogen_an(client, auth)
-    ki_antwortet(monkeypatch, antwort_json(HEUTE))
+    ki_antwortet(monkeypatch, antwort_json(HEUTE, ki_automatik.AUTO_PLAN_TAGE))
     client.put("/api/ki/settings", json={"auto_plan_enabled": True}, headers=auth)
 
     # Ein Block am älteren Fragebogen …

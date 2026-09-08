@@ -620,9 +620,20 @@ verbraucht, schaltet der Nutzer selbst ein (Einstellungen → KI-Planung). Die
 Riegel stehen in `ist_faellig()` und daneben: `auto_plan_enabled` muss stehen,
 Wochentag und Uhrzeit erreicht sein, ein Fragebogen vorliegen (sonst scheiterte
 der Lauf sicher und kostete trotzdem), und der Zugang tragen. Geplant wird dann
-**ab heute** mit `PLAN_DAYS_DEFAULT` — der laufende Block wird ersetzt, wie bei
+**ab heute** mit `AUTO_PLAN_TAGE` — der laufende Block wird ersetzt, wie bei
 „Neu planen ab heute". Ein Fehlschlag wird protokolliert und verschluckt: Der
 Aufrufer ist eine Schleife, die weiterlaufen muss.
+
+**Acht Tage, nicht sieben.** `AUTO_PLAN_TAGE` ist einen Tag länger als der
+manuelle `PLAN_DAYS_DEFAULT` (7) — und einen Tag länger als der Abstand der
+Wochensperre. Startet die Automatik am Sonntag, deckte ein Sieben-Tage-Block
+Sonntag bis Samstag ab; der nächste Lauf ist aber erst am folgenden Sonntag,
+und dieser Sonntag stand bis zu seinem erfolgreichen Ende ohne Plan da — lief
+er zu spät oder scheiterte er, hatte der Athlet an dem Morgen keine Einheit auf
+der Uhr. Mit acht Tagen reicht der Block bis auf den Neuplanungstag: Der
+Nachfolger löst den achten Tag als Überlappung ohnehin ab, aber bis dahin steht
+etwas da. Der manuelle Export bleibt bei sieben — dort wählt der Nutzer Start
+und Länge selbst, ein Loch entsteht nicht.
 
 **Die Wochensperre zählt Tage, nicht Wochentage.** `(heute - last).days >= 7`
 statt „an diesem Wochentag noch nicht gelaufen": Sonst liefe ein zweiter Block
@@ -636,7 +647,8 @@ verbraucht, ohne dass ein Block entstanden wäre. Die Reihenfolge bleibt
 trotzdem, weil sie den häufigeren Fall trägt.
 
 `plan_days` bleibt Altlast an `KiSettings` (NOT NULL in bestehenden
-Datenbanken); die Blocklänge kommt aus `ai_export.PLAN_DAYS_DEFAULT`.
+Datenbanken); die Blocklänge der Automatik kommt aus
+`ki/automatik.AUTO_PLAN_TAGE`.
 
 **Die alte Zustimmung zählt nicht.** `auto_plan_enabled` stand in echten
 Datenbanken auf 1 — von damals. Die Spalte wieder zu lesen hätte die Planung
