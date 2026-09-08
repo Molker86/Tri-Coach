@@ -633,6 +633,16 @@ function PlanAnsicht({ plan, heute }: { plan: Ernaehrungsplan; heute: string }) 
       {plan.supplemente.length > 0 && (
         <div className="card mt-2">
           <div className="card-title">Supplemente</div>
+          {/* Die Karte bleibt das Nachschlagewerk: Präparat, Dosierung, wofür.
+              Wann genommen wird, steht seit der Tagesplanung dort, wo es
+              gebraucht wird — im jeweiligen Tag. Der Verweis nur dann: Ältere
+              Pläne und eine KI, die die Gaben ausgelassen hat, schickten den
+              Athleten sonst zu einer Angabe, die es nicht gibt. */}
+          {tage.some((t) => t.einnahmen.length > 0) && (
+            <p className="small muted">
+              Wann was fällig ist, steht beim jeweiligen Tag.
+            </p>
+          )}
           <ul className="mb-0">
             {plan.supplemente.map((s) => (
               <li key={s.id}>
@@ -710,6 +720,29 @@ function TagesZelle({ tag, istHeute }: { tag: ErnaehrungsTag; istHeute: boolean 
           )}
         </div>
       ))}
+
+      {/* Unter den Mahlzeiten und nicht dazwischen: Die Gaben hängen an der
+          Uhrzeit, nicht am Teller — Kreatin ist keine Mahlzeit, und dazwischen
+          gestellt läse sich der Tag als eine Abfolge von acht Essen. */}
+      {tag.einnahmen.length > 0 && (
+        <div className="ern-einnahmen">
+          <div className="ern-einnahmen-titel">Supplemente</div>
+          {tag.einnahmen.map((e) => (
+            <div
+              key={e.id}
+              className={`ern-einnahme${e.bezug ? ` bezug-${e.bezug}` : ''}`}
+            >
+              {e.zeitpunkt && (
+                <span className="ern-einnahme-zeit">{e.zeitpunkt}</span>
+              )}{' '}
+              {e.name}
+              {e.dosierung && (
+                <span className="ern-einnahme-dosis"> · {e.dosierung}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {tag.notiz && <div className="ern-notiz">{tag.notiz}</div>}
     </div>

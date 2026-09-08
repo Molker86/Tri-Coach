@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from .einkaufsliste import normalisiere
 from .models import (
     Ernaehrungsplan,
+    ErnaehrungsEinnahme,
     ErnaehrungsProfil,
     ErnaehrungsMahlzeit,
     ErnaehrungsSupplement,
@@ -265,6 +266,35 @@ def pruefe_ernaehrungsplan(
             "aber nicht auf die Einkaufsliste übertragen."
         )
 
+    # Supplemente ohne Tagesplanung sind eine Liste, keine Anleitung: Der
+    # Athlet wüsste, *was* zu nehmen ist, und müsste sich selbst
+    # zusammensuchen, an welchem Tag und wann. Wie bei den Zutaten wird das
+    # gemeldet und nicht abgelehnt.
+    if body.supplemente and not any(t.einnahmen for t in tage):
+        warnings.append(
+            f"{len(body.supplemente)} Supplement(e) sind genannt, aber an "
+            "keinem Tag ist eine Einnahme eingeplant. Wann was zu nehmen ist, "
+            "steht damit nur im Fließtext der Supplementliste."
+        )
+
+    # Der umgekehrte Fall: eine Gabe, zu der die Liste kein Präparat kennt.
+    # Meist ein Schreibfehler im Namen — die Ansicht zeigt dann eine Zeile
+    # ohne Dosierungsbegründung daneben.
+    bekannt = {supp.name.strip().casefold() for supp in body.supplemente}
+    unbekannt = sorted(
+        {
+            e.name
+            for t in tage
+            for e in t.einnahmen
+            if e.name.strip().casefold() not in bekannt
+        }
+    )
+    if unbekannt:
+        warnings.append(
+            "An einzelnen Tagen steht eine Einnahme, die in der Supplementliste "
+            f"fehlt: {_gekuerzt(unbekannt)}."
+        )
+
     if schief := [m for t in tage if (m := _makros_passen_nicht(t))]:
         warnings.append(
             "Kalorien und Makronährstoffe passen nicht zusammen: "
@@ -278,7 +308,10 @@ def pruefe_ernaehrungsplan(
 def baue_ernaehrungsplan(
     body: AIErnaehrungBody, user_id: int, trainingsplan: Plan | None
 ) -> Ernaehrungsplan:
-    """Baut den Plan samt Tagen, Mahlzeiten und Supplementen — ohne zu committen."""
+    """Baut den Plan samt Tagen, Mahlzeiten, Einnahmen und Supplementen.
+
+    Ohne zu committen.
+    """
     daten = sorted(t.datum for t in body.tage)
     plan = Ernaehrungsplan(
         user_id=user_id,
@@ -325,6 +358,16 @@ def baue_ernaehrungsplan(
                     )
                 )
             tag.mahlzeiten.append(eintragung)
+        for i, einnahme in enumerate(eintrag.einnahmen):
+            tag.einnahmen.append(
+                ErnaehrungsEinnahme(
+                    order_in_day=i,
+                    zeitpunkt=einnahme.zeitpunkt[:48],
+                    name=einnahme.name[:120],
+                    dosierung=einnahme.dosierung,
+                    bezug=einnahme.bezug,
+                )
+            )
         plan.tage.append(tag)
 
     for i, supplement in enumerate(body.supplemente):

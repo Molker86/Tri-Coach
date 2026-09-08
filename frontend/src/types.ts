@@ -645,6 +645,18 @@ export interface ErnaehrungsMahlzeit {
   zutaten: ErnaehrungsZutat[]
 }
 
+/** Eine Supplementgabe an einem Tag — wann, was, wie viel. */
+export interface ErnaehrungsEinnahme {
+  id: number
+  order_in_day: number
+  /** Uhrzeit („07:00") oder Abstand zur Einheit („direkt nach der Einheit"). */
+  zeitpunkt: string
+  /** Wortgleich zum Eintrag unter `supplemente` — dort steht das Wofür. */
+  name: string
+  dosierung: string | null
+  bezug: ErnaehrungsBezug | null
+}
+
 export interface ErnaehrungsTag {
   id: number
   date: string
@@ -657,6 +669,8 @@ export interface ErnaehrungsTag {
   fluessigkeit_ml: number | null
   notiz: string | null
   mahlzeiten: ErnaehrungsMahlzeit[]
+  /** Leer bei Plänen aus der Zeit vor der Tagesplanung der Supplemente. */
+  einnahmen: ErnaehrungsEinnahme[]
 }
 
 export interface ErnaehrungsSupplement {

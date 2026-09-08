@@ -2549,6 +2549,18 @@ MAHLZEIT_SCHEMA: dict[str, Any] = {
 }
 
 
+# Die Tagesplanung der Supplemente. Steht am Tag und nicht bei `supplemente`:
+# Dort erklärt ein Satz, *wofür* ein Präparat gut ist, hier steht, *wann* es an
+# diesem Tag genommen wird — und das ist die Angabe, nach der jemand morgens
+# sucht.
+EINNAHME_SCHEMA: dict[str, Any] = {
+    "zeitpunkt": "07:00 | „direkt nach der Einheit\" — Uhrzeit oder Abstand zur Einheit",
+    "name": "Name des Präparats, wortgleich zum Eintrag unter `supplemente`",
+    "dosierung": "Menge für **diese** Gabe, z. B. „5 g\" oder „2 Kapseln\"",
+    "bezug": "vor | waehrend | nach — nur, wenn die Gabe an der Einheit des Tages hängt",
+}
+
+
 ERNAEHRUNG_RESPONSE_SCHEMA: dict[str, Any] = {
     "schema_version": "1.0",
     "ernaehrungsplan": {
@@ -2568,6 +2580,7 @@ ERNAEHRUNG_RESPONSE_SCHEMA: dict[str, Any] = {
                 "fluessigkeit_ml": "int",
                 "notiz": "optional: was an diesem Tag besonders zu beachten ist",
                 "mahlzeiten": [MAHLZEIT_SCHEMA],
+                "einnahmen": [EINNAHME_SCHEMA],
             }
         ],
         "supplemente": [
@@ -2666,12 +2679,26 @@ nicht hierher.
    - Was du nicht sinnvoll beziffern kannst, bekommt **keine** `menge` — eine \
 geschrätzte Zahl ginge in die Summe ein.
    - **Weglassen**, was niemand einkauft: Leitungswasser, Salz, Pfeffer, Gewürze.
-   - Supplemente gehören **nicht** unter `zutaten`, sondern nur unter `supplemente`.
-7. **Supplemente nur, wo sie etwas tragen.** Nenne unter `supplemente`, was für \
-**diesen** Athleten und **diesen** Block einen belegten Nutzen hat — mit Dosierung, \
-Zeitpunkt und einem Satz wofür. Eine Liste aus Gewohnheit ist schlechter als eine \
-leere Liste; wenn nichts nötig ist, gib `[]` zurück. Was über die Ernährung \
-abzudecken ist, wird nicht supplementiert.
+   - Supplemente gehören **nicht** unter `zutaten`, sondern unter \
+`supplemente` und, terminiert, unter `einnahmen` des jeweiligen Tages.
+7. **Supplemente nur, wo sie etwas tragen — und dann terminiert.** Nenne unter \
+`supplemente`, was für **diesen** Athleten und **diesen** Block einen belegten \
+Nutzen hat — mit Dosierung, Zeitpunkt und einem Satz wofür. Eine Liste aus \
+Gewohnheit ist schlechter als eine leere Liste; wenn nichts nötig ist, gib `[]` \
+zurück. Was über die Ernährung abzudecken ist, wird nicht supplementiert. \
+Jedes genannte Präparat trägst du **zusätzlich** an jedem Tag, an dem es genommen \
+wird, unter `einnahmen` ein — mit der Uhrzeit bzw. dem Abstand zur Einheit, unter \
+der es an **diesem** Tag fällig ist, und der Menge dieser einen Gabe. Dabei gilt:
+   - Ein Präparat, das durchgehend läuft (Kreatin, Vitamin D), steht an **jedem** \
+Tag des Zeitraums — nicht nur am ersten.
+   - Was an eine Einheit gebunden ist (Koffein vor der Schlüsseleinheit, \
+Elektrolyte während der langen Ausfahrt), steht nur an den Tagen, an denen diese \
+Einheit im Trainingsblock tatsächlich ansteht, und bekommt `bezug`.
+   - Wird mehrmals am Tag genommen, steht jede Gabe einzeln.
+   - `name` ist an jedem Tag **wortgleich** zum Eintrag unter `supplemente`, sonst \
+lässt sich die Gabe der Begründung nicht zuordnen. Die Begründung selbst wird \
+hier nicht wiederholt.
+   - Nahrungsmittel gehören nicht unter `einnahmen` — sie stehen als Mahlzeit.
 8. **Realistisch bleiben.** Der Plan wird gegessen oder er wirkt nicht. Halte dich \
 an den Alltag des Athleten, wie ihn `trainingswunsch` und die persönlichen Vorgaben \
 beschreiben — Zeitbudget, Trainingszeiten, was er sich zubereiten kann.

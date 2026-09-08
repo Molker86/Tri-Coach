@@ -981,6 +981,11 @@ class ErnaehrungsTag(Base):
         cascade="all, delete-orphan",
         order_by="ErnaehrungsMahlzeit.order_in_day",
     )
+    einnahmen: Mapped[list["ErnaehrungsEinnahme"]] = relationship(
+        back_populates="tag",
+        cascade="all, delete-orphan",
+        order_by="ErnaehrungsEinnahme.order_in_day",
+    )
 
 
 class ErnaehrungsMahlzeit(Base):
@@ -1046,11 +1051,54 @@ class ErnaehrungsZutat(Base):
     mahlzeit: Mapped[ErnaehrungsMahlzeit] = relationship(back_populates="zutaten")
 
 
+class ErnaehrungsEinnahme(Base):
+    """Eine Supplementgabe an einem bestimmten Tag zu einer bestimmten Zeit.
+
+    Neben `ErnaehrungsSupplement` und nicht an dessen Stelle: Die Planliste
+    sagt **was und wofür** — Präparat, Dosierung, Begründung — und gilt für den
+    ganzen Block. Diese Zeile sagt **wann**, und zwar an dem Tag, an dem die
+    Ansicht sie zeigt. „45 min vor der Schlüsseleinheit" ist als Satz in der
+    Planliste richtig und als Tagesplanung wertlos: Der Athlet müsste selbst
+    heraussuchen, welcher Tag die Schlüsseleinheit trägt und wann sie beginnt.
+
+    Geschrieben wird sie von der KI, nicht aus `zeitpunkt` geparst — dieselbe
+    Entscheidung wie bei `ErnaehrungsZutat` gegen die Prosa der Beschreibung.
+    Nur die KI weiß beim Schreiben, ob ein Präparat täglich läuft (Kreatin) oder
+    an einem einzigen Tag zu einer einzigen Einheit gehört (Koffein).
+
+    `name` ist deshalb der Name aus der Planliste, wortgleich — die Ansicht
+    zeigt beides nebeneinander, und zwei Schreibweisen läsen sich wie zwei
+    Präparate.
+    """
+
+    __tablename__ = "ernaehrungs_einnahmen"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("ernaehrungs_tage.id"), index=True)
+    order_in_day: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Wie bei der Mahlzeit als Text: Die Hälfte der Angaben ist relativ zur
+    # Einheit („direkt nach der Einheit"), und eine feste Uhrzeit dafür wäre
+    # erfunden.
+    zeitpunkt: Mapped[str] = mapped_column(String(48), default="")
+    name: Mapped[str] = mapped_column(String(120))
+    dosierung: Mapped[str | None] = mapped_column(String(120))
+
+    # vor | waehrend | nach — derselbe Bezug wie bei der Mahlzeit, sofern die
+    # Gabe an der Einheit des Tages hängt.
+    bezug: Mapped[str | None] = mapped_column(String(16))
+
+    tag: Mapped[ErnaehrungsTag] = relationship(back_populates="einnahmen")
+
+
 class ErnaehrungsSupplement(Base):
     """Ein Nahrungsergänzungsmittel mit Dosierung, Zeitpunkt und Begründung.
 
-    Am Plan und nicht am Tag: Das meiste läuft durchgehend (Kreatin, Vitamin D);
-    was an einen Tag gebunden ist, sagt `zeitpunkt` im Wortlaut.
+    Am Plan, weil das meiste durchgehend läuft (Kreatin, Vitamin D) und die
+    Begründung sich nicht je Tag ändert. **Wann** genommen wird, steht seit der
+    Tagesplanung nicht mehr nur hier: `zeitpunkt` bleibt der Satz für die
+    Übersicht, die einzelnen Gaben stehen als `ErnaehrungsEinnahme` an dem Tag,
+    an dem sie anfallen.
     """
 
     __tablename__ = "ernaehrungs_supplemente"

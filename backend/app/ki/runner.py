@@ -847,7 +847,10 @@ def _ernaehrung_meldung(ergebnis, modell: str | None) -> str:
         meldung += f" (geschrieben von {modell})"
     meldung += "."
     if ergebnis.plan.supplemente:
-        meldung += f" Dazu {len(ergebnis.plan.supplemente)} Supplement(e)."
+        gaben = sum(len(tag.einnahmen) for tag in ergebnis.plan.tage)
+        meldung += f" Dazu {len(ergebnis.plan.supplemente)} Supplement(e)"
+        # Ob die Gaben terminiert wurden, sieht man sonst erst in der Ansicht.
+        meldung += f" mit {gaben} Einnahme(n)." if gaben else "."
     if ergebnis.warnings:
         meldung += " Hinweis: " + " ".join(ergebnis.warnings[:3])
     return meldung

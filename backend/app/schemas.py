@@ -1445,6 +1445,31 @@ class AIMahlzeitIn(BaseModel):
         return [z for z in v if z.name]
 
 
+class AIEinnahmeIn(BaseModel):
+    """Eine Supplementgabe an einem Tag — wann, was und wie viel.
+
+    `name` bindet sie an einen Eintrag aus `supplemente`; die Begründung steht
+    dort und wird hier nicht wiederholt.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    zeitpunkt: str = ""
+    name: str = ""
+    dosierung: str | None = None
+    bezug: str | None = None
+
+    @field_validator("name", "zeitpunkt", mode="before")
+    @classmethod
+    def _trimme(cls, v: Any) -> str:
+        return str(v or "").strip()
+
+    @field_validator("bezug", mode="before")
+    @classmethod
+    def _norm_bezug(cls, v: Any) -> str | None:
+        return normalize_bezug(v if isinstance(v, str) else None)
+
+
 class AIErnaehrungsTagIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -1459,6 +1484,13 @@ class AIErnaehrungsTagIn(BaseModel):
 
     notiz: str | None = None
     mahlzeiten: list[AIMahlzeitIn] = []
+    einnahmen: list[AIEinnahmeIn] = []
+
+    @field_validator("einnahmen", mode="after")
+    @classmethod
+    def _ohne_namenlose(cls, v: list[AIEinnahmeIn]) -> list[AIEinnahmeIn]:
+        # Eine Gabe ohne Präparat wäre eine Uhrzeit ohne Inhalt.
+        return [e for e in v if e.name]
 
 
 class AISupplementIn(BaseModel):
@@ -1523,6 +1555,17 @@ class ErnaehrungsMahlzeitOut(BaseModel):
     zutaten: list[ErnaehrungsZutatOut] = []
 
 
+class ErnaehrungsEinnahmeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_in_day: int
+    zeitpunkt: str
+    name: str
+    dosierung: str | None = None
+    bezug: str | None = None
+
+
 class ErnaehrungsTagOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1536,6 +1579,8 @@ class ErnaehrungsTagOut(BaseModel):
     fluessigkeit_ml: int | None = None
     notiz: str | None = None
     mahlzeiten: list[ErnaehrungsMahlzeitOut] = []
+    # Leer bei Plänen aus der Zeit vor der Tagesplanung der Supplemente.
+    einnahmen: list[ErnaehrungsEinnahmeOut] = []
 
 
 class ErnaehrungsSupplementOut(BaseModel):

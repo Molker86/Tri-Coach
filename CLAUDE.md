@@ -83,7 +83,15 @@ Trainingsblock hat, bekommt auf Knopfdruck den Ernährungsplan dazu — Tag für
 Tag, Mahlzeit für Mahlzeit, in Mo–So-Spalten, mit Supplementempfehlung, wo eine
 trägt. Die KI bekommt dafür den geplanten Block Tag für Tag, das Ziel aus dem
 Fragebogen und die Körperdaten, und antwortet als Fachmann für die gewählte
-Disziplin — „Experte für Laufernährung", „für Triathlonernährung". Ein Freitext
+Disziplin — „Experte für Laufernährung", „für Triathlonernährung".
+**Und die Supplemente stehen dort, wo sie genommen werden.** „45 min vor der
+Schlüsseleinheit" ist als Begründung richtig und als Tagesplanung wertlos —
+deshalb steht jede Gabe zusätzlich an ihrem Tag: mit der Uhrzeit dieses Tages,
+der Menge dieser einen Gabe und, wo sie an der Einheit hängt, in deren Farbe.
+Was durchgehend läuft, steht an jedem Tag; was zur Schlüsseleinheit gehört, nur
+an ihrem. Die Liste darunter bleibt das Nachschlagewerk fürs Wofür. Erst ab dem
+nächsten geplanten Ernährungsplan: Ältere kennen keine Gaben. Siehe
+„Supplemente stehen zweimal: als Liste und als Gabe am Tag". Ein Freitext
 im Profil sagt ihr einmal und dauerhaft, was einschränkt: Unverträglichkeiten,
 Kantine, Schichtdienst. Siehe „Ernährung wird geplant wie Training".
 **Und der Einkauf dazu geht auf die Bring-Liste.** Jede Mahlzeit nennt ihre
@@ -136,7 +144,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 725 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 730 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 

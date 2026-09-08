@@ -128,6 +128,15 @@ def ernaehrungsantwort(*, ab: date = HEUTE, tage: int = 4, **abweichend) -> dict
                         "bezug": "post-workout",
                     },
                 ],
+                "einnahmen": [
+                    {
+                        "zeitpunkt": "45 min vor der Einheit",
+                        "name": "Koffein",
+                        "dosierung": "200 mg",
+                        "bezug": "pre-workout",
+                    },
+                    {"zeitpunkt": "08:00", "name": "Kreatin", "dosierung": "5 g"},
+                ],
             }
             for i in range(tage)
         ],
@@ -137,7 +146,13 @@ def ernaehrungsantwort(*, ab: date = HEUTE, tage: int = 4, **abweichend) -> dict
                 "dosierung": "3 mg/kg",
                 "zeitpunkt": "45 min vor der Schlüsseleinheit",
                 "begruendung": "Belegt für Ausdauerleistung",
-            }
+            },
+            {
+                "name": "Kreatin",
+                "dosierung": "5 g täglich",
+                "zeitpunkt": "morgens",
+                "begruendung": "Durchgehend, unabhängig vom Trainingstag",
+            },
         ],
     }
     plan.update(abweichend)
@@ -214,6 +229,83 @@ def test_die_zutaten_kommen_mit_durch(client, auth, monkeypatch):
     assert mahlzeit["beschreibung"].startswith("120 g Haferflocken")
     # Eine Mahlzeit ohne Zutaten kippt nichts.
     assert plan["tage"][0]["mahlzeiten"][1]["zutaten"] == []
+
+
+def test_die_supplemente_stehen_am_tag_mit_uhrzeit(client, auth, monkeypatch):
+    """Wann was zu nehmen ist, gehört an den Tag — nicht in einen Satz daneben.
+
+    „45 min vor der Schlüsseleinheit" ist als Begründung richtig und als
+    Tagesplanung wertlos: Der Athlet müsste selbst heraussuchen, welcher Tag die
+    Schlüsseleinheit trägt.
+    """
+    lege_block_an(client, auth)
+    stelle_antwort(monkeypatch, ernaehrungsantwort())
+
+    client.post("/api/ki/ernaehrung", json={}, headers=auth)
+    plan = client.get("/api/ernaehrung/aktiv", headers=auth).json()
+
+    for tag in plan["tage"]:
+        assert [
+            (e["zeitpunkt"], e["name"], e["dosierung"], e["bezug"])
+            for e in tag["einnahmen"]
+        ] == [
+            ("45 min vor der Einheit", "Koffein", "200 mg", "vor"),
+            ("08:00", "Kreatin", "5 g", None),
+        ]
+
+    # Die Planliste bleibt daneben stehen: Sie sagt das Wofür, die Gabe das Wann.
+    assert {s["name"] for s in plan["supplemente"]} == {"Koffein", "Kreatin"}
+
+
+def test_supplemente_ohne_tagesplanung_werden_gemeldet(client, auth):
+    """Warnen, nicht ablehnen — wie bei den fehlenden Zutaten."""
+    nutzlast = ernaehrungsantwort(tage=1)
+    for tag in nutzlast["ernaehrungsplan"]["tage"]:
+        tag.pop("einnahmen")
+    lege_block_an(client, auth)
+
+    antwort = uebernimm(client, auth, json.dumps(nutzlast))
+    assert antwort.status_code == 201
+    warnungen = " ".join(antwort.json()["warnings"])
+    assert "keinem Tag ist eine Einnahme eingeplant" in warnungen
+
+
+def test_eine_einnahme_ohne_eintrag_in_der_liste_wird_gemeldet(client, auth):
+    """Sonst steht am Tag ein Präparat, zu dem nirgends ein Wofür steht."""
+    nutzlast = ernaehrungsantwort(tage=1)
+    nutzlast["ernaehrungsplan"]["tage"][0]["einnahmen"].append(
+        {"zeitpunkt": "22:00", "name": "Magnesium", "dosierung": "300 mg"}
+    )
+    lege_block_an(client, auth)
+
+    antwort = uebernimm(client, auth, json.dumps(nutzlast))
+    assert antwort.status_code == 201
+    assert "Magnesium" in " ".join(antwort.json()["warnings"])
+
+
+def test_eine_gabe_ohne_praeparat_faellt_weg(client, auth):
+    """Eine Uhrzeit ohne Inhalt wäre eine leere Zeile im Tag."""
+    nutzlast = ernaehrungsantwort(tage=1)
+    nutzlast["ernaehrungsplan"]["tage"][0]["einnahmen"].append(
+        {"zeitpunkt": "22:00", "name": "  "}
+    )
+    lege_block_an(client, auth)
+
+    antwort = uebernimm(client, auth, json.dumps(nutzlast))
+    assert antwort.status_code == 201
+    assert len(antwort.json()["plan"]["tage"][0]["einnahmen"]) == 2
+
+
+def test_der_prompt_verlangt_die_tagesplanung(client, auth, monkeypatch):
+    lege_block_an(client, auth)
+    aufzeichnung = stelle_antwort(monkeypatch, ernaehrungsantwort())
+
+    client.post("/api/ki/ernaehrung", json={}, headers=auth)
+    prompt = aufzeichnung["prompt"]
+    # Im Antwortschema und als Regel — eine Struktur ohne Anweisung wird
+    # zuverlässig übersehen.
+    assert '"einnahmen"' in prompt
+    assert "unter `einnahmen` ein" in prompt
 
 
 def test_kilo_und_liter_werden_schon_beim_import_umgerechnet(

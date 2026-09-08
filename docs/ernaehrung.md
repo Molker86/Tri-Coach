@@ -76,6 +76,41 @@ anderen zu parsen wäre geraten; warum, steht in
 weiterhin übernommen und nur **gemeldet** — dieselbe Linie wie beim ganzen
 Import: warnen, nicht ablehnen.
 
+**Supplemente stehen zweimal: als Liste und als Gabe am Tag**
+(`ErnaehrungsEinnahme`, `EINNAHME_SCHEMA`, Punkt 7 des Prompts). Die Planliste
+gab es zuerst und sie bleibt: Präparat, Dosierung, ein Satz wofür — das ändert
+sich über den Block nicht und gehört deshalb an den Plan. Ihr `zeitpunkt` war
+aber ein **Satz** („45 min vor der Schlüsseleinheit", „morgens"), und als
+Tagesplanung ist ein Satz wertlos: Der Athlet müsste selbst heraussuchen, welcher
+Tag die Schlüsseleinheit trägt und wann sie beginnt. `einnahmen` steht deshalb an
+dem Tag, an dem die Gabe anfällt, mit der Uhrzeit dieses Tages und der Menge
+dieser einen Gabe — dort, wo morgens hingesehen wird.
+
+**Die Gaben schreibt die KI, sie werden nicht aus `zeitpunkt` geparst** —
+dieselbe Entscheidung wie bei `ErnaehrungsZutat` gegen die Prosa der
+Beschreibung, siehe [einkaufsliste.md](einkaufsliste.md). Aus „morgens" ließe
+sich noch eine Zeile je Tag bauen, aus „vor der Schlüsseleinheit" nicht: Welcher
+Tag das ist, weiß nur, wer den Block gelesen hat, und die Gabe auf **jeden** Tag
+zu verteilen wäre Koffein an sieben Tagen. Nur die KI weiß beim Schreiben, ob ein
+Präparat durchgehend läuft oder an einer einzigen Einheit hängt. Der Prompt sagt
+beide Fälle ausdrücklich an.
+
+**Verbunden wird über den Namen, nicht über eine Kennung.** Die Gabe wiederholt
+die Begründung nicht — sie steht in der Planliste, und `name` zeigt darauf.
+Wortgleich, sagt der Prompt; weicht ein Name ab, wird das **gemeldet**
+(`pruefe_ernaehrungsplan`), nicht abgelehnt: Die Ansicht zeigt die Zeile dann
+ohne ihr Wofür, was schlechter ist als mit und besser als ein verworfener Lauf.
+Eine echte Fremdschlüsselbeziehung hätte den Import zum Auflösen gezwungen und
+jeden Tippfehler des Modells zum Abbruch gemacht. Umgekehrt wird gemeldet, wenn
+Supplemente genannt sind, an denen kein einziger Tag hängt — sonst fällt eine KI
+still auf die alte Form zurück und niemand merkt es.
+
+**Die Ansicht zeigt sie unter den Mahlzeiten des Tages**, abgesetzt und nicht
+dazwischen (`ern-einnahmen`): Kreatin ist keine Mahlzeit, und eingereiht läse
+sich der Tag als Abfolge von acht Essen. Die Farbe des Bezugs ist dieselbe wie
+bei der Mahlzeit davor, dabei oder danach — zwei Farbsysteme in einer Spalte
+sucht niemand auseinander.
+
 **Der Zeitraum ist auf den Trainingsblock gedeckelt**
 (`routers.ernaehrung.ernaehrungsrahmen`, `pruefe_zeitraum`). Weiter zu planen,
 als der Block reicht, hieße für Tage zu decken, deren Belastung niemand kennt.

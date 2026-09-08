@@ -1016,6 +1016,44 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   color: var(--text);
 }
 
+/* Die Supplementgaben des Tages. Abgesetzt von den Mahlzeiten, weil sie keine
+   sind — dieselbe Spalte, aber eine eigene Zeile im Tagesablauf. */
+.ern-einnahmen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-top: 0.3rem;
+  border-top: 1px dashed var(--border);
+}
+
+.ern-einnahmen-titel {
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ern-einnahme {
+  border-left: 3px dotted var(--border-strong);
+  padding: 0.05rem 0 0.05rem 0.45rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+/* Hängt die Gabe an der Einheit, trägt sie dieselbe Farbe wie die Mahlzeit
+   davor, dabei oder danach — sonst suchte der Blick zwei Systeme. */
+.ern-einnahme.bezug-vor { border-left-color: var(--accent); }
+.ern-einnahme.bezug-waehrend { border-left-color: var(--warning, var(--accent)); }
+.ern-einnahme.bezug-nach { border-left-color: var(--success); }
+
+.ern-einnahme-zeit {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.ern-einnahme-dosis { color: var(--text-faint); }
+
 .ern-notiz {
   font-size: 0.7rem;
   color: var(--text-muted);
@@ -1030,7 +1068,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   .ern-fueller, .ern-tag.is-leer { display: none; }
   .ern-tag { min-height: 0; padding: 0.7rem; }
   .ern-tag-name { display: inline; }
-  .ern-mahlzeit { font-size: 0.88rem; }
+  .ern-mahlzeit, .ern-einnahme { font-size: 0.88rem; }
   .ern-summen, .ern-training { font-size: 0.8rem; }
 }
 
