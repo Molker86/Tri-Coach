@@ -20,7 +20,7 @@ Detail im Modal, Historie im Verlauf. Nur manuell, kein Automatik-Zweig.
 |---|---|---|---|
 | 1 | FIT-Pipeline | Aus einer Beispiel-ZIP entsteht der fertige Aktivitäts-Abschnitt fürs Datenpaket: Download-Wrapper, Entpacken, Parsen, Verdichten, Tabellenrendering | ✅ fertig (18.09.2026) |
 | 2 | Analyse-Lauf über die API | `POST /api/ki/analysieren` → Job → Garmin-Abruf → Paket → Claude → gespeicherte `TrainingsAnalyse`; Liste/Detail/Löschen unter `/api/analysen` | ✅ fertig (18.09.2026) |
-| 3 | Frontend + Doku | AnalyseKarte auf der Übersicht, Bericht-Modal mit DOMPurify, Rubrik im Verlauf; `docs/analyse.md`, CLAUDE.md, README | ⏳ offen |
+| 3 | Frontend + Doku | AnalyseKarte auf der Übersicht, Bericht-Modal mit DOMPurify, Rubrik im Verlauf; `docs/analyse.md`, CLAUDE.md, README | ✅ fertig (18.09.2026) |
 
 ## Reihenfolge und Begründung
 
@@ -191,11 +191,11 @@ Neue Testdatei `backend/tests/test_fitdaten.py`; neues Modul
 
 ### Manueller Verifikationsschritt (Spec-Checkpoint 2, Nutzerumgebung)
 
-Rauch-Test gegen das echte Konto: eine Aktivität per
-`download_activity(…ORIGINAL)` laden, entpacken, parsen. Aus der
-Sandbox heraus nicht möglich (kein Garmin-Zugang) — wird als kurzes
-Python-Snippet vorbereitet und vom Nutzer nach Slice 1 (spätestens mit
-Slice 2) ausgeführt; Ergebnis hier vermerken.
+**Erledigt (18.09.2026), anders als geplant direkt aus der Sandbox:** Nach
+Freischaltung der Garmin-Domain in der Netzwerk-Policy lief der Rauch-Test
+gegen das echte Konto — Token aus der Datenbank, `get_activities_by_date`
+(27 Aktivitäten über 60 Tage), `download_activity(…ORIGINAL)`, entpacken,
+parsen. Nebenprodukt ist das Fixture selbst (Aktivität 24040558837).
 
 ---
 
@@ -230,8 +230,25 @@ Slice 2) ausgeführt; Ergebnis hier vermerken.
 
 ## Slice 3: Frontend + Doku
 
-- **Status:** ⏳ offen
-- **Detailplan:** [folgt in Plan-Iteration 3]
+- **Status:** ✅ fertig (18.09.2026) — `npm run build` (Typecheck + Build) grün
+- **Umsetzung:** wie im Umriss unten, dazu drei Notizen:
+  - **DOMPurify-Konfiguration:** `USE_PROFILES` html+svg (nimmt Script und
+    Event-Handler heraus), zusätzlich `FORBID_TAGS` für alle Wege zu externen
+    Ressourcen (a, img, audio, video, link, style, form, input, use) und
+    `ALLOWED_URI_REGEXP: /^#/` — nur Anker im Dokument bleiben. Das
+    `style`-Attribut bleibt erlaubt (Farben über `var(--…)`).
+  - **AnalyseKarte nur mit verbundenem Garmin-Konto** (die Übersicht kennt den
+    Kontostand ohnehin) — ohne Konto liefe jeder Knopf in dieselbe 400.
+  - **README:** Feature-Zeile und Doku-Tabellenzeile ergänzt; auf einen neuen
+    Pfeil im C4-Diagramm wurde verzichtet — die Beziehung „Tri-Coach ↔ Garmin
+    in beide Richtungen" steht dort schon, die Analyse fügt keinen neuen
+    Nachbarn hinzu.
+- **Abweichung (Umgebung, nicht Inhalt):** `dompurify` wurde über
+  `npm install --package-lock-only` nur in `package.json`/`package-lock.json`
+  aufgenommen; das `node_modules` im Repo stammt vom macOS-Host und wurde aus
+  der Linux-Sandbox bewusst nicht angefasst (Typecheck + Build liefen in einer
+  Kopie). **Auf dem Host einmal `npm install` ausführen**, bevor `npm run
+  dev`/`build` läuft.
 - **Umriss:** `AnalyseKarte.tsx` (Muster `TagesformKarte`, Zahlenfeld 1–7 mit
   klärendem Label, Jobverfolgung über `pollJob`), `AnalyseBericht.tsx`
   (`ui.Modal` + DOMPurify, erlaubte Tags/Attribute laut Spec), Rubrik

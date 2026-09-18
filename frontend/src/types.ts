@@ -472,6 +472,24 @@ export interface GarminDublette {
 // --------------------------------------------------------------------------
 
 /** Dieselben Zustände wie beim Garmin-Job — die Abfrageschleife gilt für beide. */
+/** Eine Trainingsanalyse in der Liste — der Bericht kommt nur im Detail. */
+export interface Analyse {
+  id: number
+  created_at: string
+  zeitraum_von: string
+  zeitraum_bis: string
+  aktivitaeten_anzahl: number
+  /** 2–3 Sätze Klartext, ohne HTML. */
+  kurzfazit: string
+  model_used: string | null
+}
+
+export interface AnalyseDetail extends Analyse {
+  /** Der Bericht, wie ihn die KI geschrieben hat — wird erst beim Rendern
+   *  bereinigt (DOMPurify in `AnalyseBericht`). */
+  bericht_html: string
+}
+
 export type KiJobState =
   | 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
 
@@ -484,7 +502,7 @@ export interface KiJob {
    * Einheiten von heute gegen die Werte von heute Morgen — angezeigt wird der
    * nicht über den Job, sondern über `TagesformBefund`.
    */
-  kind: 'manual' | 'auto' | 'einheit' | 'ernaehrung' | 'tagesform'
+  kind: 'manual' | 'auto' | 'einheit' | 'ernaehrung' | 'tagesform' | 'analyse'
   state: KiJobState
   started_at: string
   finished_at: string | null
@@ -497,6 +515,8 @@ export interface KiJob {
   wunsch: string | null
   /** Nur bei kind === 'ernaehrung': der entstandene Ernährungsplan. */
   ernaehrungsplan_id: number | null
+  /** Nur bei kind === 'analyse': die entstandene Trainingsanalyse. */
+  analyse_id: number | null
   progress_pct: number
   /** Welches Modell tatsächlich geantwortet hat — es gibt keinen stillen Rückfall. */
   model_used: string | null

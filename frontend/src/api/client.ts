@@ -1,5 +1,7 @@
 import type {
   AiExport,
+  Analyse,
+  AnalyseDetail,
   AuthResponse,
   BringSettingsIn,
   BringStatus,
@@ -306,6 +308,17 @@ export const api = {
       },
     }),
   kiJob: (id: number) => request<KiJob>(`/ki/jobs/${id}`),
+  /**
+   * Die absolvierten Trainings der letzten Tage bewerten lassen. Läuft als
+   * Job wie die Blockplanung; das Ergebnis hängt danach als `analyse_id` am
+   * Job und liegt unter `/analysen`.
+   */
+  startAnalyse: (tage: number) =>
+    request<KiJob>('/ki/analysieren', { method: 'POST', body: { tage } }),
+  listAnalysen: () => request<Analyse[]>('/analysen'),
+  getAnalyse: (id: number) => request<AnalyseDetail>(`/analysen/${id}`),
+  deleteAnalyse: (id: number) =>
+    request<void>(`/analysen/${id}`, { method: 'DELETE' }),
   kiAbbrechen: (id: number) =>
     request<KiJob>(`/ki/jobs/${id}/abbrechen`, { method: 'POST' }),
   /**

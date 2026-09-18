@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { AnalyseKarte } from '../components/AnalyseKarte'
 import { AnpassungsKarte } from '../components/AnpassungsKarte'
 import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
@@ -587,6 +588,11 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Nur mit verbundenem Garmin-Konto: Die Analyse liest die
+          Original-Aufzeichnungen direkt aus Garmin Connect — ohne Konto liefe
+          jeder Knopfdruck in dieselbe Fehlermeldung. */}
+      {garminKonto && <AnalyseKarte />}
 
       {stats && stats.weekly.some((w) => w.sessions > 0) && (
         <div className="card">

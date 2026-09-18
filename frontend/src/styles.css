@@ -1753,3 +1753,32 @@ textarea.paste-area {
 @media (prefers-reduced-motion: reduce) {
   .modal { animation: none; }
 }
+
+/* Der KI-Analysebericht: fremdes HTML (DOMPurify-bereinigt) in engen Grenzen.
+   Die Regeln sind Leitplanken, keine Gestaltung — was der Bericht mitbringt,
+   soll gelten, aber nichts darf aus dem Modal ausbrechen. */
+.analyse-bericht { line-height: 1.55; }
+.analyse-bericht h2,
+.analyse-bericht h3,
+.analyse-bericht h4 { margin: 1.1rem 0 0.4rem; }
+.analyse-bericht > :first-child { margin-top: 0; }
+.analyse-bericht p { margin: 0.4rem 0; }
+.analyse-bericht ul,
+.analyse-bericht ol { margin: 0.4rem 0 0.6rem; padding-left: 1.4rem; }
+.analyse-bericht table {
+  width: 100%;
+  margin: 0.6rem 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.analyse-bericht th,
+.analyse-bericht td {
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+/* Diagramme kommen als Inline-SVG mit fester Zeichenfläche — ohne die Bremse
+   liefe ein 800er-Diagramm am Telefon aus dem Dialog. */
+.analyse-bericht svg { max-width: 100%; height: auto; }
+.analyse-bericht figure { margin: 0.75rem 0; overflow-x: auto; }
+.analyse-bericht figcaption { font-size: 0.85rem; color: var(--text-muted); }

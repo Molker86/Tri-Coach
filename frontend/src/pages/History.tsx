@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import { AnalyseBericht, analyseZeitraum } from '../components/AnalyseBericht'
 import { Alert, EmptyState, Loading, Modal } from '../components/ui'
 import { paceFormat, schlafdauer, sportIcon, sportLabel } from '../constants'
-import type { SessionLog, WellnessDay } from '../types'
+import type { Analyse, SessionLog, WellnessDay } from '../types'
 
 const STATUS_LABEL: Record<SessionLog['status'], string> = {
   completed: 'Absolviert',
@@ -35,9 +36,13 @@ function befindenText(wert: number): string {
 export default function History() {
   const [logs, setLogs] = useState<SessionLog[] | null>(null)
   const [wellness, setWellness] = useState<WellnessDay[]>([])
-  const [ansicht, setAnsicht] = useState<'trainings' | 'fitness'>('trainings')
+  const [analysen, setAnalysen] = useState<Analyse[]>([])
+  const [ansicht, setAnsicht] = useState<'trainings' | 'fitness' | 'analysen'>(
+    'trainings',
+  )
   const [weeks, setWeeks] = useState(4)
   const [selected, setSelected] = useState<SessionLog | null>(null)
+  const [selectedAnalyse, setSelectedAnalyse] = useState<Analyse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -46,6 +51,9 @@ export default function History() {
     // Ohne verbundenes Garmin-Konto bleibt die Liste leer, und der Umschalter
     // erscheint gar nicht erst.
     api.garminWellness(weeks).then(setWellness).catch(() => setWellness([]))
+    // Die Analysen hängen nicht am Wochenfenster: Es sind wenige, und jede
+    // fasst ihren Zeitraum selbst zusammen.
+    api.listAnalysen().then(setAnalysen).catch(() => setAnalysen([]))
   }, [weeks])
 
   async function remove(log: SessionLog) {
@@ -73,7 +81,7 @@ export default function History() {
           </p>
         </div>
         <div className="row">
-          {wellness.length > 0 && (
+          {(wellness.length > 0 || analysen.length > 0) && (
             <div className="chip-group">
               <button
                 className={`chip${ansicht === 'trainings' ? ' selected' : ''}`}
@@ -81,12 +89,22 @@ export default function History() {
               >
                 Trainings
               </button>
-              <button
-                className={`chip${ansicht === 'fitness' ? ' selected' : ''}`}
-                onClick={() => setAnsicht('fitness')}
-              >
-                Fitnessdaten
-              </button>
+              {wellness.length > 0 && (
+                <button
+                  className={`chip${ansicht === 'fitness' ? ' selected' : ''}`}
+                  onClick={() => setAnsicht('fitness')}
+                >
+                  Fitnessdaten
+                </button>
+              )}
+              {analysen.length > 0 && (
+                <button
+                  className={`chip${ansicht === 'analysen' ? ' selected' : ''}`}
+                  onClick={() => setAnsicht('analysen')}
+                >
+                  Analysen
+                </button>
+              )}
             </div>
           )}
           <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
@@ -100,7 +118,9 @@ export default function History() {
         </div>
       </div>
 
-      {ansicht === 'fitness' ? (
+      {ansicht === 'analysen' ? (
+        <AnalysenTabelle analysen={analysen} onOeffnen={setSelectedAnalyse} />
+      ) : ansicht === 'fitness' ? (
         <FitnessTabelle tage={wellness} />
       ) : logs.length === 0 ? (
         <EmptyState icon="⌚" title="Noch keine Trainings">
@@ -187,6 +207,17 @@ export default function History() {
         </div>
       )}
 
+      {selectedAnalyse && (
+        <AnalyseBericht
+          analyse={selectedAnalyse}
+          onClose={() => setSelectedAnalyse(null)}
+          onGeloescht={() => {
+            setAnalysen((liste) => liste.filter((a) => a.id !== selectedAnalyse.id))
+            setSelectedAnalyse(null)
+          }}
+        />
+      )}
+
       {selected && (
         <Modal
           title={`${sportLabel(selected.sport)} am ${new Date(
@@ -263,6 +294,59 @@ export default function History() {
         </Modal>
       )}
     </>
+  )
+}
+
+/** Die gespeicherten Trainingsanalysen — Kurzfazit hier, Bericht im Modal. */
+function AnalysenTabelle({
+  analysen,
+  onOeffnen,
+}: {
+  analysen: Analyse[]
+  onOeffnen: (analyse: Analyse) => void
+}) {
+  return (
+    <div className="card">
+      <div className="table-wrap">
+        <table className="table-cards">
+          <thead>
+            <tr>
+              <th>Erstellt</th>
+              <th>Zeitraum</th>
+              <th>Aktivitäten</th>
+              <th>Kurzfazit</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {analysen.map((analyse) => (
+              <tr key={analyse.id}>
+                <td className="nowrap cell-title" data-label="Erstellt">
+                  {new Date(analyse.created_at).toLocaleDateString('de-DE', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                </td>
+                <td className="nowrap" data-label="Zeitraum">
+                  {analyseZeitraum(analyse)}
+                </td>
+                <td data-label="Aktivitäten">{analyse.aktivitaeten_anzahl}</td>
+                <td data-label="Kurzfazit">{analyse.kurzfazit}</td>
+                <td className="nowrap cell-actions">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onOeffnen(analyse)}
+                  >
+                    Bericht
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 

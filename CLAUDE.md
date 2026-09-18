@@ -108,6 +108,16 @@ lässt. Ein Vorschaudialog zeigt vorher, was übertragen wird. Ein Riegel je Tag
 verhindert, dass ein zweiter Knopfdruck die Mengen verdoppelt. Erst ab dem
 nächsten geplanten Block: Ältere Ernährungspläne haben keine Zutaten. Siehe
 „Die Zutaten kommen von der KI, nicht aus der Prosa".
+**Und absolvierte Trainings lassen sich kritisch bewerten.** Ein Knopf auf
+der Übersicht holt die Original-Aufzeichnungen (FIT) der letzten 1–7 Tage
+**live von Garmin** — mit den geplanten Workout-Schritten neben den gefahrenen
+Runden in derselben Datei — und lässt Claude als kritischen Analysten einen
+persönlichen Bericht schreiben: Ausführung gegen Soll, Pacing, Zonen, Belastung
+gegen Erholung. Kurzfazit auf der Übersicht, Bericht als Modal (HTML samt
+Inline-SVG, beim Rendern per DOMPurify bereinigt), Historie im Verlauf. **Nur
+manuell** — jeder Lauf kostet Kontingent, einen Automatik-Zweig gibt es
+bewusst nicht. Siehe „Die Analyse liest die Original-Aufzeichnungen".
+
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
 Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
 der Garmin-Seite, die Schalter dazu schon hier; jetzt liegt beides beieinander,
@@ -148,7 +158,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 733 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 767 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -222,6 +232,13 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Unterprozess, Jobs und ein Lauf je Konto, wöchentliche Planung, Tagesanpassung am
   Abgleich, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
+- [docs/analyse.md](docs/analyse.md) — Original-FIT statt `SessionLog`,
+  `garmin-fit-sdk`, Verdichtung auf ~150 Stützpunkte, eigener Systemprompt,
+  Zweifelder-Schema ohne Reparaturlauf, DOMPurify beim Rendern, nur manuell,
+  Grenzen der Fixture-Abdeckung.
+  *Bei `garmin/fitdaten.py`, `ai_export.ANALYSE_PROMPT_TEMPLATE`,
+  `ki/runner._analyse_lauf`, `routers/analysen.py`,
+  `frontend/src/components/AnalyseKarte.tsx`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten
   neben der Beschreibung.
