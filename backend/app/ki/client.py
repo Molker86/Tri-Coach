@@ -193,6 +193,15 @@ def ist_angemeldet(token: str | None = None, erzwinge: bool = False) -> bool:
     try:
         lauf = subprocess.run(
             [KI_CLI, "auth", "status"],
+            # Kein Terminal, unter keinen Umständen: Erbt die CLI das Terminal
+            # des Backends und stellt es um, hält der Kernel die ganze
+            # Prozessgruppe an, sobald das Backend nicht im Vordergrund läuft
+            # (`source start.sh`, IDE-Task) — „suspended (tty output)", und die
+            # Anfrage steht mitten in der Bearbeitung still. /dev/null als
+            # stdin nimmt ihr das Terminal, die eigene Sitzung auch den Weg
+            # über /dev/tty.
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
             capture_output=True,
             text=True,
             timeout=30,
@@ -361,6 +370,10 @@ def _ein_lauf(
                 text=True,
                 cwd=leeres_verzeichnis,
                 env=_umgebung(token),
+                # Eigene Sitzung, kein Steuerterminal — dieselbe Regel wie bei
+                # `ist_angemeldet`. Strg-C aus dem Terminal erreicht den Lauf
+                # damit nicht mehr; das Abbrechen übernimmt ohnehin der Runner.
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise KiCliFehlt() from exc
