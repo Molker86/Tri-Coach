@@ -843,8 +843,8 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # manual | einheit | ernaehrung | tagesform — „auto" steht an den Läufen der
-    # wöchentlichen Planung.
+    # manual | einheit | ernaehrung | tagesform | analyse — „auto" steht an den
+    # Läufen der wöchentlichen Planung.
     kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
     # queued | running | done | failed | cancelled | interrupted
@@ -869,6 +869,9 @@ class KiJob(Base):
     # geglückten Lauf auf `/plan/{plan_id}`, und dort läge dann die Kennung
     # eines Ernährungsplans — ein Trainingsblock, den es nicht gibt.
     ernaehrungsplan_id: Mapped[int | None] = mapped_column(Integer)
+    # Nur bei `kind == "analyse"` belegt: die entstandene Trainingsanalyse.
+    # Eigene Spalte aus demselben Grund wie `ernaehrungsplan_id`.
+    analyse_id: Mapped[int | None] = mapped_column(Integer)
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
 
     # Welches Modell tatsächlich geantwortet hat. Steht hier, weil kein stiller
@@ -890,6 +893,32 @@ class KiJob(Base):
 
     message: Mapped[str | None] = mapped_column(Text)  # deutscher Klartext
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class TrainingsAnalyse(Base):
+    """Ein KI-Analysebericht über die absolvierten Trainings weniger Tage.
+
+    Flach und abgeschlossen: Anders als ein Plan wird eine Analyse nie
+    fortgeschrieben oder verlängert — sie ist das Urteil über einen Zeitraum,
+    zum Nachlesen und Löschen. Der Bericht (`bericht_html`) wird **unverändert**
+    gespeichert, wie ihn die KI geschrieben hat; bereinigt wird erst beim
+    Rendern (DOMPurify) — deckungsgleich mit der `roh_antwort`-Philosophie.
+    """
+
+    __tablename__ = "trainings_analysen"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    zeitraum_von: Mapped[date] = mapped_column(Date)
+    zeitraum_bis: Mapped[date] = mapped_column(Date)
+    aktivitaeten_anzahl: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 2–3 Sätze Klartext für das Widget — ohne HTML.
+    kurzfazit: Mapped[str] = mapped_column(Text, default="")
+    bericht_html: Mapped[str] = mapped_column(Text, default="")
+    model_used: Mapped[str | None] = mapped_column(String(64))
 
 
 # --------------------------------------------------------------------------

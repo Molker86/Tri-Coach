@@ -1166,6 +1166,8 @@ class KiJobOut(BaseModel):
     wunsch: str | None = None
     # Nur bei `kind == "ernaehrung"`: der entstandene Ernährungsplan.
     ernaehrungsplan_id: int | None = None
+    # Nur bei `kind == "analyse"`: die entstandene Trainingsanalyse.
+    analyse_id: int | None = None
     progress_pct: int
     model_used: str | None = None
     cost_usd: float | None = None
@@ -1345,6 +1347,40 @@ class KiErnaehrungIn(BaseModel):
 
     start_date: date | None = None
     days: int | None = Field(None, ge=1, le=31)
+
+
+class KiAnalysierenIn(BaseModel):
+    """Absolvierte Trainings kritisch bewerten lassen.
+
+    `tage` zählt vom heutigen Ortsdatum rückwärts: 1 heißt nur heute, 7 heißt
+    heute und die sechs Tage davor. Höchstens 7 — die Original-Aufzeichnungen
+    sind groß, und ein längerer Rückblick gehört in die Planung, nicht in die
+    Kritik einzelner Einheiten.
+    """
+
+    tage: int = Field(1, ge=1, le=7)
+
+
+class AnalyseOut(BaseModel):
+    """Eine Trainingsanalyse in der Liste — bewusst ohne den Bericht.
+
+    `bericht_html` ist beliebig groß und gehört nicht in eine Liste, die der
+    Verlauf am Stück lädt. Wer ihn lesen will, holt das Detail.
+    """
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    created_at: UtcDatetime
+    zeitraum_von: date
+    zeitraum_bis: date
+    aktivitaeten_anzahl: int
+    kurzfazit: str
+    model_used: str | None = None
+
+
+class AnalyseDetailOut(AnalyseOut):
+    bericht_html: str
 
 
 class EinheitAnpassenIn(BaseModel):

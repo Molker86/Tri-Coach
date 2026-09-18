@@ -19,7 +19,7 @@ Detail im Modal, Historie im Verlauf. Nur manuell, kein Automatik-Zweig.
 | # | Slice | Ergebnis (end-to-end) | Status |
 |---|---|---|---|
 | 1 | FIT-Pipeline | Aus einer Beispiel-ZIP entsteht der fertige Aktivitäts-Abschnitt fürs Datenpaket: Download-Wrapper, Entpacken, Parsen, Verdichten, Tabellenrendering | ✅ fertig (18.09.2026) |
-| 2 | Analyse-Lauf über die API | `POST /api/ki/analysieren` → Job → Garmin-Abruf → Paket → Claude → gespeicherte `TrainingsAnalyse`; Liste/Detail/Löschen unter `/api/analysen` | ⏳ offen |
+| 2 | Analyse-Lauf über die API | `POST /api/ki/analysieren` → Job → Garmin-Abruf → Paket → Claude → gespeicherte `TrainingsAnalyse`; Liste/Detail/Löschen unter `/api/analysen` | ✅ fertig (18.09.2026) |
 | 3 | Frontend + Doku | AnalyseKarte auf der Übersicht, Bericht-Modal mit DOMPurify, Rubrik im Verlauf; `docs/analyse.md`, CLAUDE.md, README | ⏳ offen |
 
 ## Reihenfolge und Begründung
@@ -201,8 +201,20 @@ Slice 2) ausgeführt; Ergebnis hier vermerken.
 
 ## Slice 2: Analyse-Lauf über die API
 
-- **Status:** ⏳ offen
-- **Detailplan:** [folgt in Plan-Iteration 2]
+- **Status:** ✅ fertig (18.09.2026) — 12 Tests in `test_analyse.py`, Suite 767 grün
+- **Umsetzung:** wie im Umriss unten, dazu drei Festlegungen aus der
+  Implementierung:
+  - Der Garmin-Client kommt im Runner über `verbindung.garmin_sitzung()` —
+    dieselbe Stelle wie Kalender und Einzelaufrufe: Kontozustand prüfen, Token
+    entschlüsseln, erneuertes Token zurückschreiben, Fehlschlag am Konto
+    vermerken.
+  - Ein `GarminFehler` im Lauf lässt `KiSettings.status` unberührt (neuer
+    Zweig in `_notiere_fehler`): Am Claude-Zugang liegt es nicht, und die
+    Warnung stünde sonst an jedem KI-Knopf.
+  - Kein Reparaturlauf für die Analyse: Bei zwei Feldern gibt es nichts
+    auszubessern, das ein zweiter Lauf besser wüsste — der Rückfall liest das
+    Text-JSON tolerant (`runner._analyse_daten`), Unbrauchbares wird
+    `KiAntwortUnbrauchbar`.
 - **Umriss (aus dem Design, zur Orientierung):** Tabelle `TrainingsAnalyse` +
   `KiJob.analyse_id` über den Migrationshelfer in `database.py`; Job-`kind`
   `analyse`; `rufe_claude` bekommt optionalen Parameter `systemprompt`

@@ -29,7 +29,12 @@ from datetime import date, datetime, timezone
 
 from ..database import SessionLocal
 from ..models import KiJob, KiSettings, User
-from .errors import KiFehler, KiKontingentErschoepft, KiTokenUngueltig
+from .errors import (
+    KiAntwortUnbrauchbar,
+    KiFehler,
+    KiKontingentErschoepft,
+    KiTokenUngueltig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +48,10 @@ EINHEIT = "einheit"
 # Die Jobart, die den Ernährungsplan zum aktiven Trainingsblock schreibt.
 ERNAEHRUNG = "ernaehrung"
 
+# Die Jobart, die absolvierte Trainings kritisch bewerten lässt. Nur manuell —
+# es gibt bewusst keinen Automatik-Zweig (siehe docs/analyse.md).
+ANALYSE = "analyse"
+
 # Die Jobart, die den heutigen Tag an die Tagesverfassung anpasst. Wird nicht
 # von einem Knopf gestartet, sondern nach jedem automatischen Garmin-Abgleich —
 # siehe `ki/tagesform.py`.
@@ -54,6 +63,7 @@ _STARTMELDUNG = {
     EINHEIT: "Die Anpassung wird vorbereitet …",
     ERNAEHRUNG: "Der Ernährungsplan wird vorbereitet …",
     TAGESFORM: "Der heutige Tag wird geprüft …",
+    ANALYSE: "Die Analyse wird vorbereitet …",
 }
 _STARTMELDUNG_VORGABE = "Der Planungslauf wird vorbereitet …"
 
@@ -244,6 +254,8 @@ class KiRunner:
                 self._ernaehrung_lauf(db, job, user, einstellungen)
             elif job.kind == TAGESFORM:
                 self._tagesform_lauf(db, job, user, einstellungen)
+            elif job.kind == ANALYSE:
+                self._analyse_lauf(db, job, user, einstellungen)
             else:
                 # Der Auffangfall ist die Blockplanung („manual" und das alte
                 # „auto"). Eine neue Jobart gehört deshalb **davor** als `elif`
@@ -592,6 +604,81 @@ class KiRunner:
         job.ernaehrungsplan_id = ergebnis.plan.id
         _fertig(job, _ernaehrung_meldung(ergebnis, antwort.modell))
 
+    def _analyse_lauf(
+        self, db, job: KiJob, user: User, einstellungen: KiSettings
+    ) -> None:
+        """Absolvierte Trainings kritisch bewerten lassen — nur auf Knopfdruck.
+
+        Anders als die Planungsläufe holt dieser seine Daten **live von
+        Garmin**: Die ORIGINAL-FIT-Dateien tragen die geplanten Workout-Schritte
+        neben den gefahrenen Runden, und wer mittags trainiert und nachmittags
+        auswertet, hätte über die Datenbank eine Lücke (der Abgleich lief
+        längst). Ein Garmin-Fehler beendet den Lauf mit dessen deutscher
+        Meldung, **bevor** Claude Kontingent kostet — und ein leerer Zeitraum
+        genauso.
+        """
+        from datetime import timedelta
+
+        from .. import ai_export
+        from ..garmin import fitdaten
+        from ..garmin.verbindung import garmin_sitzung
+        from ..models import TrainingsAnalyse
+
+        von = job.start_date or date.today() - timedelta(days=job.days - 1)
+        bis = von + timedelta(days=job.days - 1)
+
+        job.progress_pct = 10
+        job.message = "Die Original-Aufzeichnungen werden von Garmin geholt …"
+        db.commit()
+
+        with garmin_sitzung(db, user.id) as api:
+            aktivitaeten = fitdaten.hole_aktivitaeten(api, von, bis)
+
+        if not aktivitaeten:
+            _fertig(
+                job,
+                f"Im Zeitraum {von.isoformat()} bis {bis.isoformat()} liegen "
+                "keine Aktivitäten — es gibt nichts auszuwerten.",
+            )
+            return
+
+        export = ai_export.erzeuge_analyse_export(
+            db,
+            user,
+            aktivitaeten=[a.als_dict() for a in aktivitaeten],
+            von=von,
+            bis=bis,
+        )
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            export.prompt,
+            "Claude bewertet die Trainings — das dauert einige Minuten …",
+            json_schema=export.schema,
+            systemprompt=ai_export.ANALYSE_SYSTEMPROMPT,
+        )
+
+        job.message = "Der Bericht wird gespeichert …"
+        db.commit()
+
+        daten = _analyse_daten(antwort)
+        analyse = TrainingsAnalyse(
+            user_id=user.id,
+            zeitraum_von=von,
+            zeitraum_bis=bis,
+            aktivitaeten_anzahl=len(aktivitaeten),
+            kurzfazit=daten["kurzfazit"],
+            bericht_html=daten["bericht_html"],
+            model_used=antwort.modell,
+        )
+        db.add(analyse)
+        db.flush()
+
+        job.analyse_id = analyse.id
+        _fertig(job, _analyse_meldung(len(aktivitaeten), antwort.modell))
+
     def _frage_claude(
         self,
         db,
@@ -600,6 +687,7 @@ class KiRunner:
         prompt: str,
         meldung: str,
         json_schema: dict | None = None,
+        systemprompt: str | None = None,
     ):
         """Der Aufruf selbst — für beide Aufgaben derselbe.
 
@@ -625,6 +713,7 @@ class KiRunner:
             effort=einstellungen.effort or None,
             token=client.token_aus(einstellungen.token_encrypted),
             json_schema=json_schema,
+            systemprompt=systemprompt,
             bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
         )
 
@@ -736,6 +825,11 @@ def _notiere_fehler(job: KiJob, einstellungen: KiSettings, exc: Exception) -> No
         status = "rate_limited"
     elif isinstance(exc, KiFehler):
         status = "error"
+    elif _ist_garmin_fehler(exc):
+        # Am Zugang zur KI liegt es nicht — Garmin hat nicht geliefert. Der
+        # Status bliebe sonst als Warnung an jedem KI-Knopf hängen, obwohl mit
+        # dem Claude-Zugang alles ist.
+        status = None
     elif isinstance(exc, (_EinheitFehlt, _TrainingsplanFehlt)):
         # Am Zugang zur KI liegt es nicht: Sie hat sauber geantwortet, nur ist
         # der Empfänger der Antwort verschwunden. Den Status stehen zu lassen
@@ -868,6 +962,54 @@ def _erfolgsmeldung(ergebnis, modell: str | None) -> str:
     if ergebnis.garmin_hinweis:
         meldung += f" {ergebnis.garmin_hinweis}"
     return meldung
+
+
+def _ist_garmin_fehler(exc: Exception) -> bool:
+    """Lokaler Import, damit der Runner das Garmin-Paket nicht beim Laden zieht."""
+    from ..garmin.errors import GarminFehler
+
+    return isinstance(exc, GarminFehler)
+
+
+def _analyse_daten(antwort) -> dict[str, str]:
+    """Kurzfazit und Bericht aus der Antwort — mit Rückfall auf den Text.
+
+    Kam die Antwort über das erzwungene Schema, steht beides in `struktur`.
+    Beim Rückfall ohne Schema (`rufe_claude` wiederholt einen abgelehnten
+    Schema-Lauf ohne es) muss der Text gelesen werden — tolerant gegenüber
+    Codefences, aber ohne Reparaturlauf: Bei zwei Feldern gibt es nichts
+    auszubessern, das ein zweiter Lauf besser wüsste.
+    """
+    daten = antwort.struktur
+    if not isinstance(daten, dict):
+        text = (antwort.text or "").strip()
+        anfang, ende = text.find("{"), text.rfind("}")
+        if anfang < 0 or ende <= anfang:
+            raise KiAntwortUnbrauchbar(
+                "Die Antwort der KI enthält kein JSON-Objekt."
+            )
+        try:
+            daten = json.loads(text[anfang : ende + 1])
+        except json.JSONDecodeError as exc:
+            raise KiAntwortUnbrauchbar(
+                "Die Antwort der KI ließ sich nicht als JSON lesen."
+            ) from exc
+
+    kurzfazit = str(daten.get("kurzfazit") or "").strip()
+    bericht = str(daten.get("bericht_html") or "").strip()
+    if not kurzfazit or not bericht:
+        raise KiAntwortUnbrauchbar(
+            "In der Antwort fehlen `kurzfazit` oder `bericht_html`."
+        )
+    return {"kurzfazit": kurzfazit, "bericht_html": bericht}
+
+
+def _analyse_meldung(anzahl: int, modell: str | None) -> str:
+    aktivitaeten = "1 Aktivität" if anzahl == 1 else f"{anzahl} Aktivitäten"
+    meldung = f"Analyse fertig: {aktivitaeten} bewertet"
+    if modell:
+        meldung += f" (geschrieben von {modell})"
+    return meldung + "."
 
 
 runner = KiRunner()

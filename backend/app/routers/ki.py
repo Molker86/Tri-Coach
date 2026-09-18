@@ -1,6 +1,6 @@
 """Die KI plant den nächsten Block — Knopf, Einstellungen und Fortschritt."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from ..deps import CurrentUser, DbSession
 from ..ki import tagesform
 from ..ki.client import ist_angemeldet, token_aus
 from ..ki.runner import (
+    ANALYSE,
     EINHEIT,
     ENDZUSTAENDE,
     ERNAEHRUNG,
@@ -20,6 +21,7 @@ from ..ki.runner import (
 )
 from ..models import GarminAccount, KiJob, KiSettings, TrainingRequest
 from ..schemas import (
+    KiAnalysierenIn,
     KiEinheitIn,
     KiErnaehrungIn,
     KiJobOut,
@@ -424,6 +426,39 @@ def passe_einheit_an(data: KiEinheitIn, user: CurrentUser, db: DbSession) -> KiJ
         EINHEIT,
         plan_session_id=session.id,
         wunsch=data.wunsch,
+    )
+    return db.get(KiJob, job_id)
+
+
+@router.post(
+    "/analysieren", response_model=KiJobOut, status_code=status.HTTP_202_ACCEPTED
+)
+def analysiere_trainings(
+    data: KiAnalysierenIn, user: CurrentUser, db: DbSession
+) -> KiJob:
+    """Lässt Claude die absolvierten Trainings der letzten Tage bewerten.
+
+    Nur manuell — es gibt bewusst keinen Automatik-Zweig. Ohne verbundenes
+    Garmin-Konto endet es hier: Der Lauf holt die Original-Aufzeichnungen live
+    von Garmin, und ein Job, der sicher scheitert, muss gar nicht erst
+    entstehen.
+    """
+    _pruefe_startbar(_einstellungen(db, user.id))
+
+    if db.scalar(select(GarminAccount).where(GarminAccount.user_id == user.id)) is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Es ist kein Garmin-Konto verbunden. Die Analyse liest die "
+            "Original-Aufzeichnungen direkt aus Garmin Connect — verbinde "
+            "zuerst unter Einstellungen dein Konto.",
+        )
+
+    heute = date.today()
+    job_id = _starte(
+        user.id,
+        ANALYSE,
+        start_date=heute - timedelta(days=data.tage - 1),
+        days=data.tage,
     )
     return db.get(KiJob, job_id)
 

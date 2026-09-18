@@ -16,6 +16,7 @@ from .garmin.runner import markiere_unterbrochene_jobs
 from .ki.runner import runner as ki_runner
 from .protokoll import richte_ein as richte_protokoll_ein
 from .routers import (
+    analysen,
     auth,
     bring,
     ernaehrung,
@@ -91,6 +92,7 @@ app.include_router(plans.router)
 app.include_router(logs.router)
 app.include_router(garmin.router)
 app.include_router(ki.router)
+app.include_router(analysen.router)
 app.include_router(ernaehrung.router)
 app.include_router(bring.router)
 

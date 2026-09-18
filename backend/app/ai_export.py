@@ -2980,3 +2980,178 @@ def erzeuge_ernaehrung_export(
     }
 
     return Export(payload=payload, prompt=build_ernaehrung_prompt(payload))
+
+
+# --------------------------------------------------------------------------
+# Trainingsanalyse
+#
+# Vierte Aufgabe an dieselbe KI: kein Plan, sondern ein Urteil. Eigener Prompt
+# und ein eigener **Systemprompt** — hier antwortet kein Planer, sondern ein
+# kritischer Analyst, und der Standardtext („Trainingsplaner") zöge die Antwort
+# in Richtung Empfehlungen statt Bewertung.
+#
+# Das Datenpaket ist bewusst schmaler als beim Planen: Athlet und Fitnessdaten
+# wie dort, aber **keine Trainingshistorie** — Gegenstand sind die
+# Original-Aufzeichnungen (`aktivitaeten`) aus den FIT-Dateien, nicht die
+# Listendaten des Abgleichs. Siehe docs/analyse.md.
+# --------------------------------------------------------------------------
+
+
+ANALYSE_SYSTEMPROMPT = (
+    "Du bist ein kritischer, erfahrener Trainingsanalyst für Ausdauersport. "
+    "Antworte ausschließlich mit dem angeforderten JSON-Objekt, "
+    "ohne Begleittext und ohne Codefence."
+)
+
+
+# Das Antwortgerüst — minimal erzwungen. Genau zwei Felder: Ein Vollschema je
+# Aktivität nähme dem Bericht die gewünschte Dynamik, purer Text ohne Hülle
+# machte das Kurzfazit zum Ratespiel.
+ANALYSE_STRUKTURSCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "kurzfazit": {
+            "type": "string",
+            "description": "2–3 Sätze Klartext für die Übersichtskarte, ohne HTML",
+        },
+        "bericht_html": {
+            "type": "string",
+            "description": "Der vollständige Analysebericht als HTML-Fragment",
+        },
+    },
+    "required": ["kurzfazit", "bericht_html"],
+    "additionalProperties": False,
+}
+
+
+ANALYSE_PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler und ein kritischer, \
+erfahrener Trainingsanalyst. Bewerte die absolvierten Trainings dieses Athleten \
+vom {von} bis {bis} — kritisch, persönlich und aus den Daten begründet.
+
+## Datenlage
+
+- `aktivitaeten.N` sind die **Original-Aufzeichnungen** der Uhr, je Aktivität: \
+Kopfdaten, dazu als Tabellen `soll_schritte` (die geplanten Schritte des \
+Workouts, falls eines gestartet wurde), `runden` (das Gefahrene, mit Rückbezug \
+`soll_schritt`), `stuetzpunkte` (verdichtete Sekundendaten: Puls, Tempo, Watt, \
+Kadenz, Höhe), bei Schwimmen `bahnen`, bei Kraft `saetze`, dazu `pausen`.
+- Eine Aktivität mit dem Vermerk „nur Listendaten" hat keine lesbare \
+Aufzeichnung — bewerte dort nur, was dasteht, und erfinde nichts hinzu.
+- `athlet` und `herzfrequenzzonen` beschreiben, wer da trainiert; \
+`fitnessdaten` den Zustand drumherum (Schlaf, HRV, Ruhepuls, Erholung, \
+Trainingsstatus) samt Garmins gemessenen Grenzen. Fehlt der Block, liegt \
+nichts vor — dann bewerte ohne ihn und behaupte nichts über Erholung.
+
+## Auftrag
+
+- Sprache Deutsch, Anrede **Du**, direkt und persönlich. Kritik klar benennen \
+und aus den Daten begründen; „gut" nur, wo die Daten es tragen.
+- Empfohlene Gliederung, kein starres Schema: je Aktivität eine Einordnung — \
+Ausführung gegen die Soll-Schritte, Pacing, Zonenverteilung —, danach ein \
+Gesamtblick über den Zeitraum: Belastung gegen Erholung. Der Detailgrad folgt \
+der Datenlage: Zu einem 20-Minuten-Lauf gehören drei Sätze, nicht drei Absätze.
+- Sprich aus, was daraus folgt: konkret, nicht als Allgemeinplatz.
+
+## Form des Berichts (`bericht_html`)
+
+- Ein HTML-Fragment, kein vollständiges Dokument. Erlaubt: h2–h4, p, ul/ol/li, \
+table/thead/tbody/tr/th/td, strong/em, figure/figcaption und **Inline-SVG** für \
+Diagramme (z. B. Pulskurve aus den Stützpunkten, Zonenverteilung) — Diagramme \
+nur, wo sie etwas zeigen, das der Text nicht sagt.
+- Farben ausschließlich über die CSS-Variablen der App: var(--text), \
+var(--text-muted), var(--accent), var(--danger), var(--warning), \
+var(--success), var(--border), var(--surface). Keine Hexwerte — sie brächen \
+das dunkle Farbschema.
+- Verboten: script, Event-Handler (on*), iframe/object/embed, style-Blöcke \
+und jede externe Ressource (Bilder, Fonts, Links nach außen).
+
+## Antwortformat
+
+Antworte ausschließlich mit einem JSON-Objekt nach diesem Schema:
+
+{schema}
+
+`kurzfazit` sind 2–3 Sätze Klartext ohne HTML — das Urteil in Kurzform.
+
+## Datenpaket
+
+{payload}"""
+
+
+def build_analyse_prompt(payload: dict[str, Any]) -> str:
+    zeitraum = payload.get("analyse", {}).get("zeitraum", {})
+    return ANALYSE_PROMPT_TEMPLATE.format(
+        von=zeitraum.get("startdatum", ""),
+        bis=zeitraum.get("enddatum", ""),
+        schema=json.dumps(
+            ANALYSE_STRUKTURSCHEMA, separators=(",", ":"), ensure_ascii=False
+        ),
+        payload=paket_als_text(payload),
+    )
+
+
+def erzeuge_analyse_export(
+    db: Session,
+    user: User,
+    *,
+    aktivitaeten: list[dict[str, Any]],
+    von: date,
+    bis: date,
+) -> Export:
+    """Datenpaket und Prompt für die Trainingsanalyse.
+
+    `aktivitaeten` sind die fertigen Blöcke aus `garmin.fitdaten` — sie kommen
+    als Parameter, weil der Garmin-Abruf Sache des Runners ist: Er hält die
+    Sitzung, übersetzt die Fehler und schreibt den Fortschritt.
+
+    Bewusst **nicht** über `_lade_kontext()`/`build_payload()`: Die laden die
+    Trainingshistorie über ein ganzes Jahr, und genau die gehört hier nicht
+    hinein — Gegenstand sind die Original-Aufzeichnungen, nicht der Rückblick.
+    """
+    profile = user.profile
+    heute = date.today()
+
+    zones = hr_zones(
+        profile.max_hr if profile else None,
+        profile.resting_hr if profile else None,
+        calc_age(profile.birth_date) if profile else None,
+    )
+
+    # Dasselbe Fenster wie beim Planungsexport, aus demselben Grund: `aktuell`
+    # nimmt je Feld den jüngsten belegten Wert, und über ein Jahr fände es für
+    # ein lange leeres Feld einen uralten und stellte ihn als heutigen Stand hin.
+    wellness = (
+        db.query(WellnessDay)
+        .filter(
+            WellnessDay.user_id == user.id,
+            WellnessDay.date > heute - timedelta(days=FITNESS_FENSTER_TAGE),
+        )
+        .all()
+    )
+    konto = db.query(GarminAccount).filter(GarminAccount.user_id == user.id).first()
+
+    payload: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "erzeugt_am": datetime.now().isoformat(timespec="minutes"),
+        "analyse": {
+            "zeitraum": {
+                "startdatum": von.isoformat(),
+                "enddatum": bis.isoformat(),
+                "tage": (bis - von).days + 1,
+            },
+            "datenstand": _datenstand(konto),
+        },
+        "athlet": _athlete_block(profile),
+        "herzfrequenzzonen": zones,
+        "aktivitaeten": aktivitaeten,
+    }
+
+    fitness = _fitness_block(wellness, heute)
+    if fitness is not None:
+        payload["fitnessdaten"] = fitness
+
+    return Export(
+        payload=payload,
+        prompt=build_analyse_prompt(payload),
+        schema=ANALYSE_STRUKTURSCHEMA,
+    )
