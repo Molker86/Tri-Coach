@@ -271,6 +271,9 @@ export interface AiExportWunsch {
 
 export interface AiExportPayload {
   trainingswunsch?: AiExportWunsch
+  /** Nur im Analyse-Export: eine Zeile je Aktivität — die Länge geht als
+   *  `aktivitaeten_anzahl` mit in den Import. */
+  aktivitaeten?: unknown[]
   planungszeitraum?: {
     startdatum: string
     tage: number

@@ -116,7 +116,10 @@ persönlichen Bericht schreiben: Ausführung gegen Soll, Pacing, Zonen, Belastun
 gegen Erholung. Kurzfazit auf der Übersicht, Bericht als Modal (HTML samt
 Inline-SVG, beim Rendern per DOMPurify bereinigt), Historie im Verlauf. **Nur
 manuell** — jeder Lauf kostet Kontingent, einen Automatik-Zweig gibt es
-bewusst nicht. Siehe „Die Analyse liest die Original-Aufzeichnungen".
+bewusst nicht. Der Weg über die Zwischenablage besteht wie überall auch hier;
+ohne Claude-Zugang sind die KI-Knöpfe gesperrt (mit Grund als Tooltip), und
+der Runner prüft den Zugang vor **jedem** Lauf selbst noch einmal. Siehe „Die
+Analyse liest die Original-Aufzeichnungen".
 
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
 Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
@@ -158,7 +161,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 768 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 776 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -234,8 +237,8 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
 - [docs/analyse.md](docs/analyse.md) — Original-FIT statt `SessionLog`,
   `garmin-fit-sdk`, Verdichtung auf ~150 Stützpunkte, eigener Systemprompt,
-  Zweifelder-Schema ohne Reparaturlauf, DOMPurify beim Rendern, nur manuell,
-  Grenzen der Fixture-Abdeckung.
+  Zweifelder-Schema ohne Reparaturlauf, Zwischenablage-Weg, Zugangs-Riegel im
+  Runner, DOMPurify beim Rendern, nur manuell, Grenzen der Fixture-Abdeckung.
   *Bei `garmin/fitdaten.py`, `ai_export.ANALYSE_PROMPT_TEMPLATE`,
   `ki/runner._analyse_lauf`, `routers/analysen.py`,
   `frontend/src/components/AnalyseKarte.tsx`.*

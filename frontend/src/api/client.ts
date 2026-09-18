@@ -316,6 +316,15 @@ export const api = {
   startAnalyse: (tage: number) =>
     request<KiJob>('/ki/analysieren', { method: 'POST', body: { tage } }),
   listAnalysen: () => request<Analyse[]>('/analysen'),
+  /** Der Weg über die Zwischenablage — holt live von Garmin und dauert deshalb
+   *  ein paar Sekunden je Aktivität. */
+  analyseExport: (tage: number) =>
+    request<AiExport>(`/analysen/export?tage=${tage}`),
+  importAnalyse: (raw: string, tage: number, aktivitaetenAnzahl?: number) =>
+    request<AnalyseDetail>('/analysen/import', {
+      method: 'POST',
+      body: { raw, tage, aktivitaeten_anzahl: aktivitaetenAnzahl ?? null },
+    }),
   getAnalyse: (id: number) => request<AnalyseDetail>(`/analysen/${id}`),
   deleteAnalyse: (id: number) =>
     request<void>(`/analysen/${id}`, { method: 'DELETE' }),

@@ -67,6 +67,30 @@ Claude-Zugang liegt es nicht, und die Warnung stünde sonst an jedem KI-Knopf.
 Lauf kostet Kontingent, und anders als Planung oder Tagesanpassung hat eine
 Kritik keinen Termin, an dem sie von selbst fällig würde.
 
+**Der Weg über die Zwischenablage besteht auch hier**
+(`GET /api/analysen/export`, `POST /api/analysen/import` — das Muster von Plan
+und Ernährung, `routers/analysen.py`). Der Export ist anders als dort kein
+reiner Datenbankgriff: Die Original-Aufzeichnungen kommen live von Garmin, der
+Aufruf dauert ein paar Sekunden je Aktivität, und ein leerer Zeitraum ist eine
+409 statt eines leeren Prompts. Der Import rechnet den Zeitraum beim Einfügen
+(heute − (tage−1) bis heute) — dieselbe Lesart wie beim Start eines Laufs und
+die einzige ohne gemerkten Zustand; `aktivitaeten_anzahl` reicht das Frontend
+aus dem Export durch, `model_used` bleibt leer, denn welche KI geantwortet
+hat, weiß beim Handweg niemand. Knopf und Handweg teilen **einen** Leser
+(`analyse_import.lese_analyse_antwort`, tolerant gegen Codefences und
+Begleittext) — zwei Parser liefen beim ersten Sonderfall auseinander.
+
+**Der Runner prüft den Zugang selbst, bevor er den Unterprozess startet**
+(`_frage_claude`, gilt für **alle** Jobarten). Der Router prüft nur
+freundlich; zwischen Knopfdruck und Lauf können Minuten liegen, und die
+Automatiken kommen ganz ohne Router. Ohne den Riegel hing ein Lauf ohne
+Zugang bis zur Zeitüberschreitung — der Unterprozess kann ohne Terminal
+niemanden nach der Anmeldung fragen, eine Viertelstunde Fortschrittsbalken
+für einen Fehler, der in Millisekunden feststeht (`ist_angemeldet` ist 60 s
+gecacht, der doppelte Blick kostet nichts). Im Frontend sind die KI-Knöpfe
+ohne Zugang **gesperrt statt versteckt**, mit dem Grund als Tooltip und Satz
+daneben — und der Handweg steht dann aufgeklappt da.
+
 **Gespeichert wird ungefiltert, bereinigt wird beim Rendern**
 (`TrainingsAnalyse.bericht_html`, DOMPurify in
 `frontend/src/components/AnalyseBericht.tsx`). Ein Eigenbau-Sanitizer im
@@ -80,7 +104,11 @@ ist die erste Frontend-Abhängigkeit neben React — bewusst in Kauf genommen.
 **Anzeige ohne neue Route:** Widget auf der Übersicht (`AnalyseKarte`, nur mit
 verbundenem Garmin-Konto), Bericht als Modal (`AnalyseBericht`, Muster
 `SessionDetail`), Historie als dritte Rubrik im Verlauf. Ein Bericht wird nur
-angesehen oder gelöscht — kein Nachbearbeiten, kein Neu-Bewerten.
+angesehen oder gelöscht — kein Nachbearbeiten, kein Neu-Bewerten. Ein
+laufender Lauf ist abbrechbar (derselbe `kiAbbrechen`-Weg wie überall), ein
+vor dem Seitenwechsel gestarteter wird beim Öffnen wieder aufgenommen
+(`kiStatus.aktiver_job`), und Fehler der Abfrageschleife landen sichtbar an
+der Karte statt in einem still stehenden Balken.
 
 ## Grenzen
 

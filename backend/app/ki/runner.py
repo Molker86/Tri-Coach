@@ -29,12 +29,7 @@ from datetime import date, datetime, timezone
 
 from ..database import SessionLocal
 from ..models import KiJob, KiSettings, User
-from .errors import (
-    KiAntwortUnbrauchbar,
-    KiFehler,
-    KiKontingentErschoepft,
-    KiTokenUngueltig,
-)
+from .errors import KiFehler, KiKontingentErschoepft, KiTokenUngueltig
 
 logger = logging.getLogger(__name__)
 
@@ -707,11 +702,26 @@ class KiRunner:
         if job.id in self._abgebrochen:
             raise _Abgebrochen()
 
+        # Verbindlich hier, nicht nur freundlich im Router: Zwischen Knopfdruck
+        # und diesem Punkt können Minuten liegen, und die Automatiken kommen
+        # ohne Router. Ein Unterprozess ohne Zugang kann ohne Terminal
+        # niemanden nach der Anmeldung fragen — er hinge bis zur
+        # Zeitüberschreitung, eine Viertelstunde Balken für einen Fehler, der
+        # in Millisekunden feststeht (der Anmeldestatus ist 60 s gecacht).
+        token = client.token_aus(einstellungen.token_encrypted)
+        if not client.ist_angemeldet(token):
+            raise KiTokenUngueltig(
+                "Es ist kein nutzbarer Claude-Zugang vorhanden. Trage unter "
+                "Einstellungen → KI-Planung ein mit `claude setup-token` "
+                "erzeugtes Token ein — oder nutze den Weg über die "
+                "Zwischenablage."
+            )
+
         antwort = client.rufe_claude(
             prompt,
             modell=einstellungen.model or None,
             effort=einstellungen.effort or None,
-            token=client.token_aus(einstellungen.token_encrypted),
+            token=token,
             json_schema=json_schema,
             systemprompt=systemprompt,
             bei_start=lambda prozess: self._prozesse.__setitem__(job.id, prozess),
@@ -972,36 +982,18 @@ def _ist_garmin_fehler(exc: Exception) -> bool:
 
 
 def _analyse_daten(antwort) -> dict[str, str]:
-    """Kurzfazit und Bericht aus der Antwort — mit Rückfall auf den Text.
+    """Kurzfazit und Bericht aus der Antwort — derselbe Leser wie beim Handweg.
 
-    Kam die Antwort über das erzwungene Schema, steht beides in `struktur`.
-    Beim Rückfall ohne Schema (`rufe_claude` wiederholt einen abgelehnten
-    Schema-Lauf ohne es) muss der Text gelesen werden — tolerant gegenüber
-    Codefences, aber ohne Reparaturlauf: Bei zwei Feldern gibt es nichts
-    auszubessern, das ein zweiter Lauf besser wüsste.
+    Kam die Antwort über das erzwungene Schema, steht beides in `struktur`;
+    beim Rückfall ohne Schema wird der Text gelesen. Bewusst ohne
+    Reparaturlauf: Bei zwei Feldern gibt es nichts auszubessern, das ein
+    zweiter Lauf besser wüsste — der `PlanImportError` des Lesers beendet den
+    Lauf mit seiner Meldung, und die Rohantwort bleibt am Job zum Retten über
+    den Einfügeweg.
     """
-    daten = antwort.struktur
-    if not isinstance(daten, dict):
-        text = (antwort.text or "").strip()
-        anfang, ende = text.find("{"), text.rfind("}")
-        if anfang < 0 or ende <= anfang:
-            raise KiAntwortUnbrauchbar(
-                "Die Antwort der KI enthält kein JSON-Objekt."
-            )
-        try:
-            daten = json.loads(text[anfang : ende + 1])
-        except json.JSONDecodeError as exc:
-            raise KiAntwortUnbrauchbar(
-                "Die Antwort der KI ließ sich nicht als JSON lesen."
-            ) from exc
+    from ..analyse_import import lese_analyse_antwort
 
-    kurzfazit = str(daten.get("kurzfazit") or "").strip()
-    bericht = str(daten.get("bericht_html") or "").strip()
-    if not kurzfazit or not bericht:
-        raise KiAntwortUnbrauchbar(
-            "In der Antwort fehlen `kurzfazit` oder `bericht_html`."
-        )
-    return {"kurzfazit": kurzfazit, "bericht_html": bericht}
+    return lese_analyse_antwort(antwort.text, antwort.struktur)
 
 
 def _analyse_meldung(anzahl: int, modell: str | None) -> str:

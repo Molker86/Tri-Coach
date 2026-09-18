@@ -484,6 +484,7 @@ export default function Dashboard() {
               befund={tagesform.befund}
               angepasst={tagesanpassung ?? null}
               busy={einLaufAktiv}
+              kiVerfuegbar={anpassungLauf.kiVerfuegbar}
               onPruefen={() => {
                 setError(null)
                 void tagesform.pruefeJetzt().catch((err) => setError(err.message))

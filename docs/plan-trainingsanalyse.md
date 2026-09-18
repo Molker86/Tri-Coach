@@ -234,6 +234,33 @@ parsen. Nebenprodukt ist das Fixture selbst (Aktivität 24040558837).
 - **Abweichungen:** —
 - **Auswirkungen auf andere Slices:** —
 
+## Nachforderung: Zugangs-Riegel, Zwischenablage-Weg, Abbruch (19.09.2026)
+
+- **Status:** ✅ fertig
+- **Anlass:** Ohne Claude-Token hing ein Lauf bis zur 15-Minuten-
+  Zeitüberschreitung — der Unterprozess kann ohne Terminal niemanden nach der
+  Anmeldung fragen. Außerdem fehlte der Trainingsanalyse als einziger
+  KI-Aufgabe der Weg über die Zwischenablage, und der Fortschrittsbalken der
+  AnalyseKarte kannte weder Abbruch noch Fehler.
+- **Umsetzung:**
+  1. `KiRunner._frage_claude` prüft `ist_angemeldet` verbindlich vor jedem
+     Unterprozess (alle Jobarten, auch die Automatiken) → sofortiges
+     `KiTokenUngueltig` statt Viertelstunden-Hänger. Im Frontend sind alle
+     KI-Job-Knöpfe ohne Zugang deaktiviert, mit Grund als Tooltip und Satz
+     daneben (AnalyseKarte, TagesformKarte „Jetzt prüfen", Ernährung;
+     SessionDetail und PlanExchange blenden nach Bestandsmuster um).
+  2. Zwischenablage-Weg: `GET /api/analysen/export?tage=1–7` (ExportOut,
+     live von Garmin, leerer Zeitraum → 409) und `POST /api/analysen/import`
+     (Zeitraum beim Einfügen gerechnet, `aktivitaeten_anzahl` aus dem Export,
+     `model_used` leer). Gemeinsamer Antwort-Leser
+     `analyse_import.lese_analyse_antwort` für Knopf und Handweg; UI in der
+     AnalyseKarte nach dem Muster der Einzelanpassung (Details-Klappe, ohne
+     Zugang aufgeklappt).
+  3. AnalyseKarte: Abbrechen-Knopf am laufenden Balken (`kiAbbrechen`),
+     Fehler der Abfrageschleife sichtbar, `cancelled` als stiller Satz,
+     Wiederaufnahme eines laufenden Analyse-Jobs beim Öffnen der Seite
+     (`kiStatus.aktiver_job`).
+
 ## Slice 3: Frontend + Doku
 
 - **Status:** ✅ fertig (18.09.2026) — `npm run build` (Typecheck + Build) grün

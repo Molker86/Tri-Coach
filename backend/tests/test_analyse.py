@@ -235,3 +235,119 @@ def test_loeschen_entfernt_die_analyse(client, mit_analyse):
     auth, analyse_id = mit_analyse
     assert client.delete(f"/api/analysen/{analyse_id}", headers=auth).status_code == 204
     assert client.get(f"/api/analysen/{analyse_id}", headers=auth).status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Der Riegel vor dem Lauf: Ohne Zugang stirbt der Job sofort, nicht nach
+# 15 Minuten Zeitüberschreitung.
+# --------------------------------------------------------------------------
+
+
+def test_ohne_zugang_stirbt_der_lauf_sofort(client, verbunden, fake, monkeypatch):
+    """Der Router prüft freundlich; verbindlich prüft der Runner selbst.
+
+    Zwischen Knopfdruck und Lauf können Minuten liegen (Automatik, Warteliste)
+    — und ein Unterprozess ohne Zugang hing bis zur Zeitüberschreitung, weil
+    er ohne Terminal niemanden nach der Anmeldung fragen kann.
+    """
+    fake.originale["1001"] = FIXTURE.read_bytes()
+    # Der Router lässt durch (eigener Stub bleibt True), der Runner sieht die
+    # Wahrheit: kein Zugang.
+    monkeypatch.setattr(
+        ki_client, "ist_angemeldet", lambda token=None, erzwinge=False: False
+    )
+
+    def _duerfte_nie_laufen(prompt, **kwargs):
+        raise AssertionError("rufe_claude darf ohne Zugang nicht gestartet werden")
+
+    monkeypatch.setattr(ki_client, "rufe_claude", _duerfte_nie_laufen)
+
+    job = starte_analyse(client, verbunden, tage=7).json()
+    assert job["state"] == "failed"
+    assert "Claude" in (job["message"] or "")
+    status = client.get("/api/ki/status", headers=verbunden).json()
+    assert status["einstellungen"]["status"] == "token_expired"
+
+
+# --------------------------------------------------------------------------
+# Der Weg über die Zwischenablage
+# --------------------------------------------------------------------------
+
+
+def test_export_liefert_prompt_und_paket(client, verbunden, fake):
+    fake.originale["1001"] = FIXTURE.read_bytes()
+    antwort = client.get("/api/analysen/export?tage=7", headers=verbunden)
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert "kurzfazit" in daten["prompt"]
+    assert ".soll_schritte" in daten["prompt"]
+    assert len(daten["payload"]["aktivitaeten"]) == 4
+    # `combined` ist der Text zum Kopieren — wie bei Plan und Ernährung.
+    assert daten["combined"] == daten["prompt"]
+
+
+def test_export_ohne_aktivitaeten_ist_eine_klare_absage(client, verbunden, fake):
+    antwort = client.get("/api/analysen/export?tage=1", headers=verbunden)
+    assert antwort.status_code == 409
+    assert "keine Aktivitäten" in antwort.json()["detail"]
+
+
+def test_export_ohne_garmin_konto_wird_abgewiesen(client, registriere):
+    auth = registriere("analyse-export-ohne@example.com", "analyseexportohne")
+    antwort = client.get("/api/analysen/export?tage=7", headers=auth)
+    assert antwort.status_code == 409
+
+
+def test_export_prueft_die_tage(client, verbunden):
+    assert client.get("/api/analysen/export?tage=0", headers=verbunden).status_code == 422
+    assert client.get("/api/analysen/export?tage=8", headers=verbunden).status_code == 422
+
+
+def test_import_uebernimmt_die_eingefuegte_antwort(client, verbunden):
+    antwort = client.post(
+        "/api/analysen/import",
+        headers=verbunden,
+        json={
+            "raw": '{"kurzfazit": "Eingefügt.", "bericht_html": "<p>ok</p>"}',
+            "tage": 3,
+            "aktivitaeten_anzahl": 5,
+        },
+    )
+    assert antwort.status_code == 201, antwort.text
+    daten = antwort.json()
+    assert daten["kurzfazit"] == "Eingefügt."
+    assert daten["bericht_html"] == "<p>ok</p>"
+    assert daten["zeitraum_von"] == (HEUTE - timedelta(days=2)).isoformat()
+    assert daten["zeitraum_bis"] == HEUTE.isoformat()
+    assert daten["aktivitaeten_anzahl"] == 5
+    # Ohne Lauf gibt es kein Modell — der Handweg kennt es nicht.
+    assert daten["model_used"] is None
+
+    liste = client.get("/api/analysen", headers=verbunden).json()
+    assert any(a["id"] == daten["id"] for a in liste)
+
+
+def test_import_toleriert_codefence_und_begleittext(client, verbunden):
+    antwort = client.post(
+        "/api/analysen/import",
+        headers=verbunden,
+        json={
+            "raw": 'Gerne! ```json\n{"kurzfazit": "Mit Fence.", "bericht_html": "<p>x</p>"}\n```',
+        },
+    )
+    assert antwort.status_code == 201, antwort.text
+    assert antwort.json()["kurzfazit"] == "Mit Fence."
+
+
+def test_import_weist_unlesbares_ab(client, verbunden):
+    kaputt = client.post(
+        "/api/analysen/import", headers=verbunden, json={"raw": "kein json"}
+    )
+    assert kaputt.status_code == 422
+    unvollstaendig = client.post(
+        "/api/analysen/import",
+        headers=verbunden,
+        json={"raw": '{"kurzfazit": "nur die Hälfte"}'},
+    )
+    assert unvollstaendig.status_code == 422
+    assert "bericht_html" in unvollstaendig.json()["detail"]

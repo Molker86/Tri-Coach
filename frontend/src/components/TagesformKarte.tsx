@@ -42,12 +42,15 @@ export function TagesformKarte({
   angepasst,
   onPruefen,
   busy,
+  kiVerfuegbar,
 }: {
   befund: TagesformBefund | null
   /** Eine Einheit von heute, die die Anpassung tatsächlich umgeschrieben hat. */
   angepasst: PlanSession | null
   onPruefen: () => void
   busy: boolean
+  /** Ohne Claude-Zugang ist „Jetzt prüfen" gesperrt statt zum Scheitern verurteilt. */
+  kiVerfuegbar: boolean
 }) {
   // Die geänderte Einheit hat Vorrang vor allem anderen: Sie ist der einzige
   // Fall, in dem der Tag *anders aussieht* als gestern Abend geplant, und das
@@ -89,7 +92,7 @@ export function TagesformKarte({
         ton="ok"
         titel="✓ Heute früh geprüft — dein Tag bleibt, wie er geplant war."
         text={befund.text}
-        aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} />}
+        aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} kiVerfuegbar={kiVerfuegbar} />}
       />
     )
   }
@@ -100,7 +103,7 @@ export function TagesformKarte({
         ton="warn"
         titel="⚠ Die tägliche Prüfung ist heute gescheitert."
         text={befund.text || 'Näheres steht unter Einstellungen → KI-Planung.'}
-        aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} />}
+        aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} kiVerfuegbar={kiVerfuegbar} />}
         offen
       />
     )
@@ -113,7 +116,7 @@ export function TagesformKarte({
       ton="neutral"
       titel="Der heutige Tag ist noch nicht geprüft."
       text={befund.text || 'Die tägliche Prüfung ist heute nicht gelaufen.'}
-      aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} />}
+      aktion={<Pruefknopf onPruefen={onPruefen} busy={busy} kiVerfuegbar={kiVerfuegbar} />}
       offen
     />
   )
@@ -159,12 +162,30 @@ function Zeile({
  *
  * Er kostet einen Lauf aus dem Claude-Kontingent, und das steht dabei: Es ist
  * derselbe Fünf-Stunden-Topf, aus dem der Athlet daneben selbst arbeitet.
+ * Ohne Zugang ist er gesperrt und der Satz daneben sagt, warum — ein Knopf,
+ * der sicher scheitert, wäre nur ein Umweg zu derselben Auskunft.
  */
-function Pruefknopf({ onPruefen, busy }: { onPruefen: () => void; busy: boolean }) {
+function Pruefknopf({
+  onPruefen,
+  busy,
+  kiVerfuegbar,
+}: {
+  onPruefen: () => void
+  busy: boolean
+  kiVerfuegbar: boolean
+}) {
+  const hinweis = kiVerfuegbar
+    ? 'Kostet einen Lauf aus deinem Claude-Kontingent.'
+    : 'Kein Claude-Zugang hinterlegt — eintragen unter Einstellungen → KI-Planung.'
   return (
     <div className="row row-end mt-1">
-      <span className="small faint">Kostet einen Lauf aus deinem Claude-Kontingent.</span>
-      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onPruefen}>
+      <span className="small faint">{hinweis}</span>
+      <button
+        className="btn btn-ghost btn-sm"
+        disabled={busy || !kiVerfuegbar}
+        title={kiVerfuegbar ? undefined : hinweis}
+        onClick={onPruefen}
+      >
         Jetzt prüfen
       </button>
     </div>

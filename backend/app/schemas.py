@@ -1361,6 +1361,19 @@ class KiAnalysierenIn(BaseModel):
     tage: int = Field(1, ge=1, le=7)
 
 
+class AnalyseImportIn(BaseModel):
+    """Der Handweg: die Antwort der KI zur Trainingsanalyse, eingefügt.
+
+    `tage` bestimmt den Zeitraum rückwärts vom heutigen Tag — dieselbe Lesart
+    wie beim Start eines Laufs. `aktivitaeten_anzahl` kommt aus dem Export
+    (die eingefügte Antwort selbst trägt keine Zahl); ohne Angabe bleibt sie 0.
+    """
+
+    raw: str
+    tage: int = Field(1, ge=1, le=7)
+    aktivitaeten_anzahl: int | None = Field(None, ge=0)
+
+
 class AnalyseOut(BaseModel):
     """Eine Trainingsanalyse in der Liste — bewusst ohne den Bericht.
 
