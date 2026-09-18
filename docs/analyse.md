@@ -84,13 +84,14 @@ angesehen oder gelöscht — kein Nachbearbeiten, kein Neu-Bewerten.
 
 ## Grenzen
 
-- **Nur der Lauf-Parserpfad ist an echten Daten getestet.** Als Fixture liegt
-  eine einzige ORIGINAL-ZIP vor (`backend/tests/fixtures/fit/lauf_workout.zip`,
-  Lauf aus strukturiertem Workout). Schwimmen (`length_mesgs`), Kraft
-  (`set_mesgs`) und Multisport (mehrere Sessions je Datei) sind defensiv
-  mitgeschrieben, aber nur ihr Leerverhalten ist getestet — Fixtures können
-  nachgereicht werden (Exportweg: Aktivität → Zahnrad → „Datei exportieren",
-  Ablage unter `backend/tests/fixtures/fit/`).
+- **Lauf und Kraft sind an echten Daten getestet, Schwimmen und Multisport
+  nicht.** Als Fixtures liegen zwei ORIGINAL-ZIPs vor
+  (`backend/tests/fixtures/fit/lauf_workout.zip` — Lauf aus strukturiertem
+  Workout — und `kraft.zip` mit `set_mesgs`). Schwimmen (`length_mesgs`) und
+  Multisport (mehrere Sessions je Datei) sind defensiv mitgeschrieben, aber
+  nur ihr Leerverhalten ist getestet — Fixtures können nachgereicht werden
+  (Exportweg: Aktivität → Zahnrad → „Datei exportieren", Ablage unter
+  `backend/tests/fixtures/fit/`).
 - **Der Zielkorridor der Soll-Schritte** (Puls/Watt samt FIT-Kodierung
   „über 100 = Schläge + 100", „über 1000 = Watt + 1000") ist implementiert,
   aber ungetestet: Das Fixture hat `target_type=open` ohne Korridor.

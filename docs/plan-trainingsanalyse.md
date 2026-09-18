@@ -96,6 +96,12 @@ fester Bestandteil von Slice 3.
   Eintrag. Der Zielkorridor (Puls/Watt) ist implementiert, aber nur sein
   Leerverhalten getestet: Das Fixture hat `target_type=open` ohne Korridor
   (in `docs/analyse.md` unter „Grenzen" vermerkt).
+- **Nachtrag (19.09.2026):** Der Kraft-Parserpfad ist inzwischen doch an
+  echten Daten getestet — beim abschließenden End-to-End-Rauchtest kam eine
+  Krafteinheit mit 6 `set_mesgs` herein; ihre ZIP liegt als zweites Fixture
+  (`kraft.zip`), offen bleiben Schwimmen und Multisport. Derselbe Rauchtest
+  bestätigte die ganze Kette Abruf → Parsen → Paket → Prompt am echten Konto
+  (ohne Claude-Aufruf; Prompt bei einer Aktivität ≈ 1.900 Token).
 - **Auswirkungen auf andere Slices:** Fällt `garmin-fit-sdk` durch und
   `fitdecode` übernimmt, ändert sich nur das Innere von `parse_fit`; die
   öffentliche Struktur (`AktivitaetsDaten`) bleibt, Slice 2/3 sind nicht

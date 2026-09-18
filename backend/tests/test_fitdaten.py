@@ -294,3 +294,29 @@ def test_unlesbare_zip_wird_wie_fehlender_download_behandelt():
     aktivitaeten = hole_aktivitaeten(stand, HEUTE - timedelta(days=6), HEUTE)
     assert len(aktivitaeten) == 1
     assert aktivitaeten[0].fit_fehlt is True
+
+
+# --------------------------------------------------------------------------
+# Kraft — zweites echtes Fixture (Krafttraining vom 18.09.2026)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def kraft() -> AktivitaetsDaten:
+    fit = entpacke_fit((FIXTURE.parent / "kraft.zip").read_bytes())
+    aktivitaeten = parse_fit(fit)
+    assert len(aktivitaeten) == 1
+    return aktivitaeten[0]
+
+
+def test_kraft_saetze_aus_der_fixture(kraft):
+    assert kraft.kopf["sportart"] == "training"
+    saetze = kraft.saetze
+    assert len(saetze) == 6
+    # Aktive Sätze und Pausen wechseln sich ab; die Pause hat keine Übung.
+    assert [s["typ"] for s in saetze] == ["active", "rest"] * 3
+    assert saetze[0]["wiederholungen"] == 11
+    # `category` kommt als Liste von Kandidaten — es zählt der erste belegte.
+    assert saetze[0]["uebung"] == "bench_press"
+    assert saetze[1]["uebung"] is None
+    assert kraft.bahnen == []
