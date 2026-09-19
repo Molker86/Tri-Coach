@@ -21,6 +21,7 @@ Detail im Modal, Historie im Verlauf. Nur manuell, kein Automatik-Zweig.
 | 1 | FIT-Pipeline | Aus einer Beispiel-ZIP entsteht der fertige Aktivitäts-Abschnitt fürs Datenpaket: Download-Wrapper, Entpacken, Parsen, Verdichten, Tabellenrendering | ✅ fertig (18.09.2026) |
 | 2 | Analyse-Lauf über die API | `POST /api/ki/analysieren` → Job → Garmin-Abruf → Paket → Claude → gespeicherte `TrainingsAnalyse`; Liste/Detail/Löschen unter `/api/analysen` | ✅ fertig (18.09.2026) |
 | 3 | Frontend + Doku | AnalyseKarte auf der Übersicht, Bericht-Modal mit DOMPurify, Rubrik im Verlauf; `docs/analyse.md`, CLAUDE.md, README | ✅ fertig (18.09.2026) |
+| 4 | Nachforderung: eine Analyse je Training | Analyse hängt am `SessionLog`; zweiter Knopf je Zeile im Verlauf, dieselbe Liste als Vorschau auf der Startseite; Zeitraum-Analyse entfällt | ✅ fertig (19.09.2026) |
 
 ## Reihenfolge und Begründung
 
@@ -291,3 +292,56 @@ parsen. Nebenprodukt ist das Fixture selbst (Aktivität 24040558837).
   (Kopfabsatz + Übersichtsliste), README gemäß Nutzerentscheidung.
 - **Abweichungen:** —
 - **Auswirkungen auf andere Slices:** —
+
+## Nachforderung: eine Analyse je Training (19.09.2026)
+
+- **Status:** ✅ fertig — Suite 786 grün, `tsc --noEmit` + `vite build` grün
+- **Anlass (Rückmeldung des Nutzers):** Die Analyse war an kein Training
+  gekoppelt. Eine Prüfung gegen `backend/data/tricoach.db` bestätigte es:
+  `trainings_analysen` hatte nur `user_id` und `zeitraum_von/bis`, keinen
+  Fremdschlüssel auf `session_logs` — die Berichte lagen als eigene Liste
+  neben den Einheiten, und an keiner Einheit war zu sehen, ob sie schon
+  bewertet war.
+- **Entscheidungen (mit dem Nutzer abgestimmt, 19.09.2026):**
+  1. Die Zeitraum-Analyse (Feld „Tage" 1–7) entfällt **ersatzlos**; eine
+     Analyse gehört zu genau einem Training.
+  2. Ein zweiter Lauf über dasselbe Training **ersetzt** den Bericht
+     (`uq_analyse_session_log`), statt einen zweiten anzulegen.
+  3. Die zwei bestehenden Zeitraum-Berichte werden beim Update **gelöscht** —
+     eine Zuordnung ist nicht zu erraten.
+- **Umsetzung:**
+  1. **Datenmodell:** `TrainingsAnalyse.session_log_id` (Fremdschlüssel,
+     eindeutig) statt `zeitraum_von`/`zeitraum_bis`/`aktivitaeten_anzahl`;
+     `SessionLog.analyse` mit `delete-orphan`, damit ein gelöschtes Training
+     seinen Bericht mitnimmt; `KiJob.session_log_id`, damit auch ein
+     gescheiterter Lauf seiner Zeile zuzuordnen ist. Migration über die
+     bestehenden Helfer in `database.py` (neue Spalte, entfallene Spalten,
+     Altbestand über `_ZURUECKZUSETZENDE_ALTWERTE`, Unique-Index über
+     `_TABELLENABHAENGIGE_INDIZES`).
+  2. **Abruf:** `fitdaten.hole_aktivitaet(api, activity_id)` an der Kennung des
+     `SessionLog`; `hole_aktivitaeten` (Zeitraum) und das Flag `fit_fehlt`
+     sind entfallen, weil nichts sie mehr liest.
+  3. **Paket:** `erzeuge_analyse_export(db, user, log=…, aktivitaeten=…)` mit
+     drei Blöcken statt einem — `training` (Garmins Listendaten, über das aus
+     `_history_block` herausgelöste `_session_eintrag`), `geplante_einheit`
+     (falls zugeordnet) und `aktivitaeten` (die Aufzeichnung). Neuer Renderer
+     `paketformat._training`. Ohne ladbare Datei wird aus den Listendaten
+     bewertet statt abgebrochen.
+  4. **API:** `POST /api/ki/analysieren {session_log_id}`,
+     `GET /api/analysen/export?session_log_id=…`, `POST /api/analysen/import`
+     mit `session_log_id`; `AnalyseOut` trägt `session_log_id` statt Zeitraum
+     und Anzahl.
+  5. **Frontend:** vier gemeinsame Bausteine für Verlauf **und** Übersicht —
+     `useAnalysen` (Zuordnung, Zugang, Lauf, Fortschritt), `TrainingsTabelle`
+     (Zeile mit zwei Knöpfen und Kurzfazit bzw. „noch nicht bewertet"),
+     `TrainingDetail` (aus `History` herausgezogen) und `AnalyseBericht` (ein
+     Dialog für Bericht, Auslösen samt Zwischenablage-Weg und Fortschritt).
+     `AnalyseKarte` und die Rubrik „Analysen" im Verlauf sind entfallen; die
+     Übersicht zeigt die letzten drei Trainings unter „Als Nächstes".
+- **Abweichungen:** Das Antwortformat der KI (`kurzfazit` + `bericht_html`)
+  blieb unverändert — die Nachforderung betraf die Zuordnung und die Bedienung,
+  nicht den Bericht. Der Prompt wurde auf eine einzelne Einheit umgeschrieben.
+- **Tests:** `test_analyse.py` neu (26 Tests: Lauf, Ersetzen, Fremdzugriff,
+  Kaskade beim Löschen des Trainings, geplante Einheit als Soll, Handweg, Zugangs-Riegel, Garmin-Fehler,
+  Migration des Altbestands); `test_fitdaten.py` auf `hole_aktivitaet`
+  umgestellt.
