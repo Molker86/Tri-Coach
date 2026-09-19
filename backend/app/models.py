@@ -479,6 +479,20 @@ class SessionLog(Base):
     # Unterschied hergäbe.
     temperatur_c: Mapped[float | None] = mapped_column(Float)
 
+    # --- Aus der Original-Aufzeichnung (FIT), einmal je Training geholt
+    # (`sync.importiere_aufzeichnungen`). Eine FIT-Datei ändert sich nie, also
+    # wird sie auch nie ein zweites Mal geladen — `fit_ausgewertet_am` ist die
+    # Marke dafür und steht auch dort, wo es gar keine Datei gab.
+    #
+    # Sekunden je Pulsschlag. Daraus zählt der Export die Zeit in den Zonen
+    # **dieser App**: `hr_zone_seconds` zählt nach den Zonen der Uhr, und die
+    # verschieben eine planmäßige Z2-Einheit um eine ganze Zone nach oben.
+    puls_histogramm: Mapped[dict | None] = mapped_column(JSON)
+    # Die besten Werte über feste Spannen (`fitdaten.BESTWERT_DAUERN_S`,
+    # `BESTWERT_STRECKEN_M`), je Sportart. Trainingswerte, keine Tests.
+    fit_bestwerte: Mapped[dict | None] = mapped_column(JSON)
+    fit_ausgewertet_am: Mapped[datetime | None] = mapped_column(DateTime)
+
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
     # für intensive Einheiten für die meisten Einheiten aus. Die Quelle geht in
     # den KI-Export, damit die KI die Belastbarkeit der Zahl einordnen kann:

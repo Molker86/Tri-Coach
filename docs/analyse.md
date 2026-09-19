@@ -47,7 +47,17 @@ leere Listen) — dieselbe Vorsicht wie `mapping.hole()` beim Connect-JSON.
 Zwei Eigenheiten des SDK stecken in eigenen Helfern: `local_timestamp` kommt
 als rohe Sekunden seit FIT-Epoche (`_ortszeit_versatz`), und mehrteilige
 Notizen kommen als Liste mit Speicherresten dahinter (`_notiz` nimmt nur den
-ersten Eintrag).
+ersten Eintrag). Eine dritte Eigenheit ist die von Zwift: Zwift schreibt
+`local_timestamp = 0`, und daraus wurde ein Versatz von minus 36 Jahren, also
+eine Fahrt mit Start am 30.12.1989. Ein Versatz außerhalb der echten Zeitzonen
+(UTC−12 bis UTC+14) gilt deshalb als keiner.
+
+**`fitdaten.py` dient inzwischen auch dem Abgleich** (`kennwerte_aus_fit`).
+Die Planung bekommt aus jeder Aufzeichnung einmal ein Pulshistogramm und die
+Bestwerte (siehe „Die Aufzeichnung wird einmal je Training geholt" in
+[garmin-abgleich.md](garmin-abgleich.md)). Dekodieren und die Zuordnung zu
+den Sessions teilen sich beide Wege (`_dekodiere`, `_fensterpruefung`), damit
+eine Multisport-Datei in Analyse und Planung gleich zerfällt.
 
 **Sekundendaten werden auf ~150 Stützpunkte verdichtet**
 (`verdichte_stuetzpunkte`). Roh sind es mehrere tausend Records je Stunde;
@@ -183,14 +193,19 @@ er gescheitert ist.
 
 ## Grenzen
 
-- **Lauf und Kraft sind an echten Daten getestet, Schwimmen und Multisport
-  nicht.** Als Fixtures liegen zwei ORIGINAL-ZIPs vor
-  (`backend/tests/fixtures/fit/lauf_workout.zip` — Lauf aus strukturiertem
-  Workout — und `kraft.zip` mit `set_mesgs`). Schwimmen (`length_mesgs`) und
-  Multisport (mehrere Sessions je Datei) sind defensiv mitgeschrieben, aber
-  nur ihr Leerverhalten ist getestet — Fixtures können nachgereicht werden
-  (Exportweg: Aktivität → Zahnrad → „Datei exportieren", Ablage unter
-  `backend/tests/fixtures/fit/`).
+- **Lauf, Kraft, Becken und Zwift sind an echten Daten getestet, Multisport
+  nicht.** Als Fixtures liegen fünf ORIGINAL-ZIPs vor
+  (`backend/tests/fixtures/fit/`): `lauf_workout.zip` (Lauf aus strukturiertem
+  Workout), `kraft.zip` mit `set_mesgs`, dazu `schwimmen_becken.zip`,
+  `rad_indoor_watt.zip` und `lauf_lang.zip`. Die drei neuen sind über die
+  bestehende Verbindung geholt und vor dem Ablegen anonymisiert. Positionen,
+  Seriennummern und die Texte des Nutzerprofils stehen in den Rohbytes auf dem
+  FIT-Wert „ungültig", die Prüfsumme ist neu gerechnet, alles andere ist Byte
+  für Byte das Original. Die beiden älteren sind nicht anonymisiert: Beide
+  tragen den Profilnamen, der Einstufungslauf dazu seine GPS-Spur. Multisport (mehrere Sessions je Datei) ist defensiv
+  mitgeschrieben, aber nur im Leerverhalten getestet. Ein Fixture kann
+  nachgereicht werden (Exportweg: Aktivität → Zahnrad → „Datei exportieren",
+  Ablage unter `backend/tests/fixtures/fit/`).
 - **Der Zielkorridor der Soll-Schritte** (Puls/Watt samt FIT-Kodierung
   „über 100 = Schläge + 100", „über 1000 = Watt + 1000") ist implementiert,
   aber ungetestet: Das Fixture hat `target_type=open` ohne Korridor.

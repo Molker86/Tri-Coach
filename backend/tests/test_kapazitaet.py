@@ -30,7 +30,16 @@ def montag() -> date:
 
 @pytest.fixture(scope="module")
 def historie(client, athlet, erfasse, montag):
-    """Eine volle Woche mit Zonenzeiten, einer langen Einheit und Watt."""
+    """Eine volle Woche mit Zonenzeiten, einer langen Einheit und Watt.
+
+    Profil 190/50: Die Karvonen-Zonen beginnen bei 120, 134, 148, 162 und
+    176 bpm. Gezählt wird aus dem Pulshistogramm der Aufzeichnung — Garmins
+    `hr_zone_seconds` meint die Zonen der Uhr und geht nicht in den Export.
+    """
+    antwort = client.put(
+        "/api/profile", headers=athlet, json={"max_hr": 190, "resting_hr": 50}
+    )
+    assert antwort.status_code == 200, antwort.text
     erfasse(
         athlet,
         date=montag,
@@ -40,6 +49,7 @@ def historie(client, athlet, erfasse, montag):
         avg_hr=140,
         rpe=5,
         hr_zone_seconds={"1": 600, "2": 2400, "3": 600},
+        puls_histogramm={"125": 600, "140": 2400, "150": 600},
         netto_dauer_min=55,
         gap_pace="5:39",
         avg_pace="6:00",
@@ -54,6 +64,7 @@ def historie(client, athlet, erfasse, montag):
         avg_hr=168,
         rpe=8,
         hr_zone_seconds={"2": 600, "4": 1500, "5": 600},
+        puls_histogramm={"140": 600, "170": 1500, "180": 600},
     )
     erfasse(
         athlet,
@@ -100,6 +111,8 @@ def test_die_woche_nennt_zonen_und_intensitaetsverteilung(client, historie, mont
     verteilung = woche["intensitaetsverteilung_pct"]
     assert sum(verteilung.values()) == 100
     assert verteilung["niedrig"] > verteilung["hoch"]
+    # Die Radfahrt hat keine ausgewertete Aufzeichnung: 105 von 255 Minuten.
+    assert woche["zonen_abdeckung_pct"] == 41
 
 
 def test_die_woche_nennt_die_laengste_einheit(client, historie, montag):
@@ -142,9 +155,11 @@ def test_die_einheit_nennt_die_neuen_messgroessen(client, historie, montag):
 
     assert lauf["netto_dauer_min"] == 55
     assert lauf["pace_hoehenkorrigiert"] == "5:39 min/km"
-    assert lauf["temperatur_c"] == 31.5
-    # Tempo je Herzschlag: 12 km in 60 min bei HF 140.
-    assert lauf["effizienz"] == pytest.approx(1.43, abs=0.01)
+    # Der Höchstwert des Fühlers am Gerät, nicht die Lufttemperatur.
+    assert lauf["temperatur_max_c"] == 31.5
+    # Tempo je Herzschlag über die Bewegungszeit: 12 km in 55 min bei HF 140 —
+    # dieselbe Zeit, auf die sich `pace` bezieht.
+    assert lauf["effizienz"] == pytest.approx(1.558, abs=0.01)
 
     rad = _einheit(payload, montag + timedelta(days=5))
     assert rad["normalisierte_leistung"] == 205
@@ -159,7 +174,7 @@ def test_unbelegte_messgroessen_fehlen_ganz(client, historie, montag):
     payload = client.get("/api/plans/export", headers=historie).json()["payload"]
     intervall = _einheit(payload, montag + timedelta(days=2))
 
-    for feld in ("netto_dauer_min", "pace_hoehenkorrigiert", "temperatur_c",
+    for feld in ("netto_dauer_min", "pace_hoehenkorrigiert", "temperatur_max_c",
                  "normalisierte_leistung", "swolf", "zuege_je_bahn"):
         assert feld not in intervall, feld
 
@@ -252,8 +267,12 @@ def test_der_prompt_nennt_die_neuen_felder(client, historie):
     anweisung = prompt.split("## Ausgabeformat")[0]
 
     for feld in ("intensitaetsverteilung_pct", "laengste_einheit_min", "monotonie",
-                 "effizienz", "athlet.verlauf", "schwellenpace_gemessen_garmin"):
+                 "effizienz", "athlet.verlauf", "zonen_abdeckung_pct",
+                 "ist_vollstaendig"):
         assert feld in anweisung, feld
+    # Der Schwellensatz steht nur, wo seine Felder dastehen — dieses Profil hat
+    # weder Schwellenpace noch Bestwerte.
+    assert "schwellenpace_gemessen_garmin" not in anweisung
 
     # Aber keine Vorgabe dazu.
     assert "80" not in anweisung
@@ -282,11 +301,17 @@ def test_die_historie_steht_in_drei_aufloesungen(client, historie):
     payload = client.get("/api/plans/export", headers=historie).json()["payload"]
     block = payload["trainingshistorie"]
 
-    # Ebene 1 reicht sechs Wochen, Ebene 2 ein halbes Jahr.
-    aeltester_montag = min(w["week_start"] for w in block["wochenuebersicht"])
+    # Ebene 1 reicht sechs Wochen, Ebene 2 ein halbes Jahr — in ganzen Wochen:
+    # Die älteste, die vor das Fenster ragte, trug nur dessen letzte Tage und
+    # stand mit `sessions: 0` da, obwohl in ihr trainiert worden war.
+    wochen = block["wochenuebersicht"]
     grenze = date.today() - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)
-    assert aeltester_montag <= grenze.isoformat()
-    assert len(block["wochenuebersicht"]) >= WOCHENUEBERSICHT_WOCHEN
+    aeltester_montag = date.fromisoformat(min(w["week_start"] for w in wochen))
+    assert grenze <= aeltester_montag < grenze + timedelta(days=7)
+    assert len(wochen) >= WOCHENUEBERSICHT_WOCHEN
+    # Unvollständig ist nur noch die laufende Woche.
+    assert [w["ist_vollstaendig"] for w in wochen].count(False) == 1
+    assert wochen[-1]["ist_vollstaendig"] is False
 
     # Und die Ebenen überlappen: Die Wochen der Einzeleinheiten stehen auch in
     # der Übersicht — sonst verlöre `letzte_volle_woche` seine Grundlage.

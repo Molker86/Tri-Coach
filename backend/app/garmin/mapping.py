@@ -15,7 +15,7 @@ Wer das später „vereinheitlicht", verschiebt entweder alle Trainings oder all
 Schlafwerte um einen Tag.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 # --------------------------------------------------------------------------
@@ -350,6 +350,38 @@ def _hms(sekunden: float) -> str:
     return f"{minuten}:{sek:02d}"
 
 
+# Wo das Datum eines Rekords stehen kann — Ortszeit zuerst. An einem echten
+# Konto kam aus den ersten drei nie ein Datum: Garmin führt sie dort als
+# Epoch-Millisekunden, die lesbare Form steht unter `…Formatted`.
+_REKORDDATUM_FELDER = (
+    "activityStartDateTimeLocal",
+    "activityStartDateTimeLocalFormatted",
+    "prStartTimeLocalFormatted",
+    "prStartTimeLocal",
+    "activityStartDateTimeInGMT",
+    "actStartDateTimeInGMTFormatted",
+    "prStartTimeGmtFormatted",
+    "prStartTimeGmt",
+)
+
+
+def _rekorddatum(eintrag: dict[str, Any]) -> date | None:
+    """Das Datum eines Rekords, aus Text oder aus Epoch-Millisekunden.
+
+    Ohne Datum stand jede Bestzeit gleich alt im Paket — ein 10-km-Rekord von
+    vor Jahren las sich wie der Stand von heute.
+    """
+    for feld in _REKORDDATUM_FELDER:
+        wert = eintrag.get(feld)
+        if (tag := als_datum(wert)) is not None:
+            return tag
+        # Die Ortszeit-Varianten sind als UTC kodiert (Wandzeit ohne Versatz);
+        # als UTC gelesen ergeben sie also das Ortsdatum.
+        if isinstance(wert, (int, float)) and not isinstance(wert, bool) and wert > 1e11:
+            return datetime.fromtimestamp(wert / 1000, tz=timezone.utc).date()
+    return None
+
+
 def bestzeiten(antwort: Any) -> list[dict[str, Any]]:
     """Garmins persönliche Rekorde als Liste, nach Streckenlänge sortiert."""
     beste: dict[int, tuple[float, dict[str, Any]]] = {}
@@ -368,14 +400,7 @@ def bestzeiten(antwort: Any) -> list[dict[str, Any]]:
         ):
             continue
 
-        datum = als_datum(
-            erster_wert(
-                eintrag,
-                ("activityStartDateTimeLocal",),
-                ("activityStartDateTimeInGMT",),
-                ("prStartTimeGmt",),
-            )
-        )
+        datum = _rekorddatum(eintrag)
         # Garmin führt zu einer Kennziffer gelegentlich mehrere Einträge. Die
         # schnellste Zeit ist die Bestzeit.
         if typ not in beste or sekunden < beste[typ][0]:
@@ -404,7 +429,10 @@ def bestzeiten(antwort: Any) -> list[dict[str, Any]]:
 # Mittleres RPE je Herzfrequenzzone (Borg CR10): Zone 1 fühlt sich nach 2 an,
 # Zone 5 nach 10. Die Zonengrenzen kommen von Garmin und nicht aus dem Profil —
 # unschärfer als die Karvonen-Zonen dieser App, aber für eine Größe, die nur
-# relativ gelesen wird (Woche gegen Woche), genau genug.
+# relativ gelesen wird (Woche gegen Woche), genau genug. Die Zonenzeiten im
+# **Export** zählen dagegen nach den Zonen der App
+# (`sportscience.zonensekunden_der_einheit`); die Schätzung hier bleibt bei der
+# Uhr, weil sie sRPE und ACWR über das ganze Jahr trägt.
 ZONEN_RPE: tuple[float, ...] = (2.0, 4.0, 6.0, 8.0, 10.0)
 
 

@@ -167,7 +167,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 786 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 841 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -262,9 +262,10 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
 - [docs/garmin-abgleich.md](docs/garmin-abgleich.md) — Token statt Passwort,
   Netzfehler gegen abgelaufenes Token, `truststore` für den Firmenproxy,
   Bereichsabfragen, Nachlaufzeit, Abgleich im eigenen Thread, Ausführungsdaten,
-  Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme.
+  Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme, Zonen der App
+  statt der Uhr, Aufzeichnung einmal je Training.
   *Bei `garmin/sync.py`, `mapping.py`, `client.py`, `runner.py`, `matching.py`,
-  `profile_sync.py`, `routers/logs.py`.*
+  `profile_sync.py`, `routers/logs.py`, `fitdaten.kennwerte_aus_fit`.*
 - [docs/garmin-workouts.md](docs/garmin-workouts.md) — Bauplan statt Prosa,
   Zerleger als Rückfall, Wiederholungsgruppen, Watt- gegen Pulskorridor,
   Beckenlänge, Übungskennungen und Katalog.
@@ -342,7 +343,12 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
 - **HF-Zonen**: Karvonen (Herzfrequenzreserve), wenn Ruhe- und Maximalpuls
   bekannt sind, sonst % HFmax. Fehlender Maximalpuls wird über
   `211 − 0,64 × Alter` (Nes et al. 2013) geschätzt und im Frontend als Schätzung
-  ausgewiesen.
+  ausgewiesen. **Die Zonenzeiten im Export zählen nach diesen Zonen**, aus dem
+  Pulshistogramm der FIT-Datei — nicht nach Garmins `hrTimeInZone`, das nach
+  den Zonen der Uhr zählt und eine Z2-Einheit des Plans als Z3 meldet. Ohne
+  Histogramm hat eine Einheit im Export **keine** Zonenzeiten — kein Rückfall
+  auf die Uhr; Zeit unter Z1 zählt als Z1 (siehe „Im Export gibt es keinen
+  Rückfall auf Garmins Zählung").
 - **TRIMP** nach Banister, geschlechtsspezifisch gewichtet.
 - **sRPE-Last** nach Foster (Dauer × RPE) — funktioniert ohne Pulsgurt.
 - **ACWR**: Last der letzten Woche gegen den Vier-Wochen-Schnitt. Über 1,3 gilt

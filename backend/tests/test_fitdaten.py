@@ -6,9 +6,11 @@ vom 19.08.2026, aus einem strukturierten Workout gestartet). Synthetische
 FIT-Dateien gibt es bewusst nicht: `garmin-fit-sdk` kann nur dekodieren, und
 eine selbstgebaute Datei prüfte den eigenen Baumeister statt Garmins Format.
 
-Schwimmen, Kraft und Multisport haben kein Fixture — getestet ist dort nur das
-Leerverhalten (fehlende Nachrichtentypen → leere Listen). Die Lücke steht in
-`docs/analyse.md` unter „Grenzen".
+Dazu inzwischen Kraft (`kraft.zip`), ein Beckenschwimmen und eine Zwift-Fahrt
+(`schwimmen_becken.zip`, `rad_indoor_watt.zip`, anonymisiert — siehe
+`test_fit_kennwerte.py`). Multisport hat weiterhin kein Fixture; getestet ist
+dort nur das Leerverhalten. Die Lücke steht in `docs/analyse.md` unter
+„Grenzen".
 """
 
 import io
@@ -308,3 +310,34 @@ def test_kraft_saetze_aus_der_fixture(kraft):
     assert saetze[0]["uebung"] == "bench_press"
     assert saetze[1]["uebung"] is None
     assert kraft.bahnen == []
+
+
+# --------------------------------------------------------------------------
+# Schwimmen und Zwift — echte Fixtures, seit die Planung sie braucht
+# --------------------------------------------------------------------------
+
+
+def test_schwimmbahnen_aus_der_fixture():
+    """Bis hierher war Schwimmen nur im Leerverhalten getestet."""
+    schwimmen = parse_fit(
+        entpacke_fit((FIXTURE.parent / "schwimmen_becken.zip").read_bytes())
+    )[0]
+
+    assert schwimmen.kopf["sub_sportart"] == "lap_swimming"
+    assert len(schwimmen.bahnen) == 71
+    assert schwimmen.bahnen[0] == {
+        "nr": 1, "zeit_s": 19.0, "zuege": 6, "stil": "breaststroke", "kadenz": 19,
+        "art": "active",
+    }
+
+
+def test_zwift_ohne_ortszeit_startet_nicht_1989():
+    """Zwift schreibt `local_timestamp = 0` — das ist keine Zeitzone.
+
+    Ohne Grenze stand die Fahrt vom 16.02.2026 mit Start am 30.12.1989 im
+    Paket; jetzt steht sie in UTC da, wie jede Datei ohne Ortszeit.
+    """
+    rad = parse_fit(entpacke_fit((FIXTURE.parent / "rad_indoor_watt.zip").read_bytes()))[0]
+
+    assert rad.kopf["start_lokal"] == "2026-02-16T18:04:27"
+    assert any(punkt["watt"] for punkt in rad.stuetzpunkte)

@@ -372,6 +372,23 @@ def test_bestzeiten_werden_nach_strecke_sortiert_und_formatiert():
     assert all(b["sportart"] == "run" for b in gefunden)
 
 
+def test_das_rekorddatum_kommt_auch_aus_epoch_millisekunden():
+    """An einem echten Konto stand an keiner Bestzeit ein Datum.
+
+    Garmin führt die Zeitpunkte dort als Epoch-Millisekunden; die lesbare Form
+    steht unter `…Formatted`. Beides muss ein Datum ergeben — Ortszeit zuerst.
+    """
+    # 2026-05-02 08:14 als Wandzeit, als UTC kodiert.
+    ortszeit_ms = 1777709640000
+    gefunden = bestzeiten([
+        {"typeId": 3, "activityId": 1, "value": 1214.0,
+         "activityStartDateTimeLocal": ortszeit_ms},
+        {"typeId": 4, "activityId": 2, "value": 2550.0,
+         "prStartTimeLocalFormatted": "2026-06-14T07:02:00.0"},
+    ])
+    assert [b["datum"] for b in gefunden] == ["2026-05-02", "2026-06-14"]
+
+
 def test_bestzeiten_ohne_deutbare_kennziffer_fallen_heraus():
     """Garmin führt in derselben Liste Rekorde, deren `value` keine Zeit ist."""
     # Schritte an einem Tag: hängt an keiner Aktivität.

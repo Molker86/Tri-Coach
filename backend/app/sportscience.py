@@ -240,17 +240,91 @@ _INTENSITAETSSTUFEN: dict[str, tuple[str, ...]] = {
 }
 
 
-def _zonensumme_minuten(logs: list[Any]) -> dict[str, int] | None:
+def zonensekunden_aus_histogramm(
+    histogramm: dict[str, int] | None, zonen: list[dict[str, Any]] | None
+) -> dict[str, int] | None:
+    """Sekunden je Zone aus Sekunden je Pulsschlag, nach den übergebenen Zonen.
+
+    Dieselbe Grenzregel wie die Uhr: Ein Puls genau auf der Grenze zählt schon
+    zur höheren Zone — so trifft die Nachzählung Garmins eigene Zonenzeiten auf
+    die Sekunde, wenn man ihr dessen Grenzen gibt. Was über der Obergrenze von
+    Z5 liegt, ist Z5.
+
+    Was **unter** Z1 liegt, zählt als Z1. Garmin lässt es weg, aber dessen Z1
+    beginnt bei der halben HFmax und verliert kaum etwas. Die Karvonen-Z1 dieser
+    App beginnt bei der halben Reserve — an einem echten Konto bei 124 bpm —,
+    und dort fielen ein Viertel einer lockeren Rollenfahrt und einer
+    Schwimmeinheit heraus: Die Intensitätsverteilung verlor genau die leichte
+    Zeit und las sich härter, als trainiert wurde.
+    """
+    if not histogramm or not zonen:
+        return None
+    untergrenzen = [(int(z["zone"].lstrip("Z")), z["low_bpm"]) for z in zonen]
+    unterste = min(nummer for nummer, _ in untergrenzen)
+    sekunden: dict[str, int] = {}
+    for puls_text, wert in histogramm.items():
+        try:
+            puls = int(puls_text)
+        except (TypeError, ValueError):
+            continue
+        if not wert:
+            continue
+        treffer = [nummer for nummer, unten in untergrenzen if puls >= unten]
+        zone = str(max(treffer) if treffer else unterste)
+        sekunden[zone] = sekunden.get(zone, 0) + int(wert)
+    return dict(sorted(sekunden.items())) or None
+
+
+# Die Sportarten, deren Pulszeit eine Intensitätsverteilung beschreibt. Kraft
+# und Mobility tragen dort nichts bei: Ihr Puls liegt fast ganz in Z1 und
+# drückte den Anteil der leichten Ausdauerzeit nach oben, ohne dass eine Minute
+# Grundlage gelaufen wäre.
+AUSDAUERSPORTARTEN = ("run", "bike", "swim", "brick")
+
+
+def zonensekunden_der_einheit(
+    log: Any, zonen: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """Die Zonenzeiten einer Einheit — mit `zonen` nach den Zonen dieser App.
+
+    Garmins `hr_zone_seconds` zählt nach den Zonen der **Uhr**, und die sind
+    andere: ab Werk Prozent der HFmax statt Karvonen. Eine Einheit, die genau
+    in der Z2 des Plans gelaufen wurde, stand damit als Z3 im Paket, eine
+    Tempoeinheit mit Schwellenanteil. Mit `zonen` zählt deshalb **nur** das
+    Pulshistogramm der Aufzeichnung, nach denselben Zonen, mit denen die KI
+    plant (`herzfrequenzzonen`) und die als bpm auf die Uhr gehen.
+
+    Ohne Histogramm gibt es dann keine Zonenzeiten — bewusst kein Rückfall auf
+    Garmins Zählung: Zwei Zonenmodelle unter derselben Überschrift sind genau
+    der Fehler, den das Histogramm behebt. Wie viel einer Woche ausgewertet
+    ist, sagt `zonen_abdeckung_pct` in `weekly_summary`.
+
+    Ohne `zonen` bleibt es bei Garmins Zählung — so ruft das Dashboard auf,
+    das die Zonen der Uhr zeigt.
+    """
+    if zonen is None:
+        return getattr(log, "hr_zone_seconds", None)
+    return zonensekunden_aus_histogramm(getattr(log, "puls_histogramm", None), zonen)
+
+
+def _zonensumme_minuten(
+    logs: list[Any], hf_zonen: list[dict[str, Any]] | None = None
+) -> dict[str, int] | None:
     """Die Zonenzeiten mehrerer Einheiten als Minuten je Zone.
 
     Dieselbe Regel wie bei einer einzelnen Einheit (`ai_export._zonenminuten`):
     Minuten statt Sekunden, weil Athlet und KI in Minuten denken, und Zonen
     unter einer Minute fallen heraus. `None`, wo keine Einheit der Woche
     Zonenzeiten trägt — ein Objekt aus Nullen behauptete eine Messung.
+
+    Mit `hf_zonen` zählen nur die `AUSDAUERSPORTARTEN` — die Summe ist die
+    Grundlage der Intensitätsverteilung.
     """
+    if hf_zonen is not None:
+        logs = [lg for lg in logs if getattr(lg, "sport", None) in AUSDAUERSPORTARTEN]
     sekunden: dict[str, float] = {}
     for lg in logs:
-        zonen = getattr(lg, "hr_zone_seconds", None)
+        zonen = zonensekunden_der_einheit(lg, hf_zonen)
         if not zonen:
             continue
         for nummer, wert in zonen.items():
@@ -262,6 +336,27 @@ def _zonensumme_minuten(logs: list[Any]) -> dict[str, int] | None:
         if round(wert / 60) >= 1
     }
     return minuten or None
+
+
+def _zonenabdeckung(logs: list[Any], hf_zonen: list[dict[str, Any]]) -> int | None:
+    """Anteil der Ausdauerminuten, deren Zonenzeiten ausgezählt sind, in Prozent.
+
+    `None` in einer Woche ohne Ausdauereinheit — dort gibt es nichts, das
+    abgedeckt sein könnte.
+    """
+    ausdauer = [
+        lg for lg in logs
+        if getattr(lg, "sport", None) in AUSDAUERSPORTARTEN and (lg.duration_min or 0) > 0
+    ]
+    gesamt = sum(lg.duration_min for lg in ausdauer)
+    if not gesamt:
+        return None
+    erfasst = sum(
+        lg.duration_min
+        for lg in ausdauer
+        if zonensekunden_der_einheit(lg, hf_zonen) is not None
+    )
+    return int(round(100 * erfasst / gesamt))
 
 
 def intensitaetsverteilung(zonenminuten: dict[str, int] | None) -> dict[str, int] | None:
@@ -347,16 +442,32 @@ def effizienz_je_einheit(log: Any) -> float | None:
     Intervalltraining und ein langer Dauerlauf ergeben verschiedene Zahlen,
     ohne dass sich etwas an der Form geändert hätte. Er steht deshalb im Export
     neben Dauer, Zonen und Herzfrequenz und wird nirgends bewertet.
+
+    Auf dem Rad **nur** aus der Leistung (Watt je Schlag). Eine Fahrt ohne
+    Wattmessung bekam früher Tempo je Schlag — eine Größe mit anderer Einheit
+    und rund dreifachem Zahlenwert unter derselben Überschrift. Im Monatsmittel
+    zeigte die Radeffizienz dann nicht die Form, sondern den Anteil der
+    Rollenfahrten. Die Koppeleinheit bleibt aus demselben Grund ohne: Ihre
+    Strecke ist Rad und Lauf zusammen.
+
+    Laufen und Schwimmen in Metern pro Minute je Schlag, über die
+    **Bewegungszeit**, wo es sie gibt: Im Becken läuft der Timer während der
+    Pausen am Rand weiter, und eine Einheit mit halber Pausenzeit erschien
+    sonst als halb so effizient — obwohl `pace` in derselben Zeile schon die
+    Bewegungszeit meint.
     """
     hf = getattr(log, "avg_hr", None)
     if not hf:
         return None
 
-    watt = getattr(log, "avg_power", None)
-    if getattr(log, "sport", None) == "bike" and watt:
-        return round(watt / hf, 3)
+    sport = getattr(log, "sport", None)
+    if sport == "bike":
+        watt = getattr(log, "avg_power", None)
+        return round(watt / hf, 3) if watt else None
+    if sport not in ("run", "swim"):
+        return None
 
-    dauer = getattr(log, "duration_min", None)
+    dauer = getattr(log, "netto_dauer_min", None) or getattr(log, "duration_min", None)
     strecke = getattr(log, "distance_km", None)
     if not dauer or not strecke:
         return None
@@ -364,7 +475,11 @@ def effizienz_je_einheit(log: Any) -> float | None:
 
 
 def weekly_summary(
-    logs: list[Any], weeks: int = 4, *, by_sport_ab: date | None = None
+    logs: list[Any],
+    weeks: int = 4,
+    *,
+    by_sport_ab: date | None = None,
+    hf_zonen: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Aggregiert die Logs kalenderwochenweise über das ganze Rückblickfenster.
 
@@ -387,6 +502,9 @@ def weekly_summary(
     Montag. Sie wird im Prompt als eigene Tabelle ausgerollt und kostet damit
     zwei bis drei Zeilen je Woche — über ein halbes Jahr mehr, als sie trägt.
     Ohne Angabe steht sie wie bisher an jeder Woche; das Dashboard ruft so auf.
+
+    `hf_zonen` sind die Zonen, nach denen die Zonenzeiten gezählt werden
+    (`zonensekunden_der_einheit`). Ohne sie bleibt es bei Garmins Zählung.
     """
     today = date.today()
     current_monday = today - timedelta(days=today.weekday())
@@ -483,10 +601,17 @@ def weekly_summary(
         # Die Zonenzeiten der ganzen Woche. Sie stehen je Einheit schon im
         # Export — hier summiert, weil die Verteilung über die Woche eine
         # Planungsgröße ist und dreißig mal fünf Zahlen zu addieren nicht.
-        if (zonen := _zonensumme_minuten(in_week)) is not None:
+        if (zonen := _zonensumme_minuten(in_week, hf_zonen)) is not None:
             eintrag["zeit_in_hf_zonen_min"] = zonen
             if (verteilung := intensitaetsverteilung(zonen)) is not None:
                 eintrag["intensitaetsverteilung_pct"] = verteilung
+        # Wie viel der Ausdauerzeit überhaupt nach den Zonen der App gezählt
+        # ist. Ohne die Angabe läse sich eine Woche, deren Aufzeichnungen erst
+        # zur Hälfte nachgeholt sind, wie eine Woche mit halbem Umfang in den
+        # Zonen — und eine Verteilung aus einer Einheit von fünf wie die der
+        # ganzen Woche.
+        if hf_zonen is not None and (abdeckung := _zonenabdeckung(in_week, hf_zonen)) is not None:
+            eintrag["zonen_abdeckung_pct"] = abdeckung
 
         # Monotonie und Strain nur an ganzen Wochen: Beide beschreiben die
         # Verteilung über sieben Tage, und an einer angebrochenen Woche zählten
@@ -683,6 +808,10 @@ def monatsverlauf(
         # in **keinem** Monat etwas trägt, streicht `paket_als_text` ohnehin.
         zeile: dict[str, Any] = {
             "monat": f"{jahr:04d}-{nr:02d}",
+            # Der laufende Monat ist angebrochen — dieselbe Markierung wie in der
+            # Wochenübersicht. Ohne sie stand am 19. eines Monats sein halber
+            # Umfang neben dem ganzen Vormonat und las sich wie ein Einbruch.
+            "ist_vollstaendig": (jahr, nr) != (heute.year, heute.month),
             "gewicht_kg": mittel("gewicht_kg"),
             "ruhepuls": mittel("ruhepuls"),
             "hrv_ms": mittel("hrv_ms"),
@@ -760,11 +889,12 @@ def _mittel(werte: list[float]) -> float | None:
     return round(sum(werte) / len(werte), 1) if werte else None
 
 
-def _werte(tage: list[Any], feld: str, seit: date | None = None) -> list[float]:
+def _werte(tage: list[Any], feld: str, nach: date | None = None) -> list[float]:
+    """Die belegten Werte eines Feldes, auf Wunsch nur von Tagen **nach** `nach`."""
     return [
         getattr(tag, feld)
         for tag in tage
-        if getattr(tag, feld, None) is not None and (seit is None or tag.date >= seit)
+        if getattr(tag, feld, None) is not None and (nach is None or tag.date > nach)
     ]
 
 
@@ -773,6 +903,9 @@ def wellness_mittelwerte(tage: list[Any], heute: date) -> dict[str, dict[str, fl
 
     Ohne diese Verdichtung müsste die KI 28 Zahlen im Kopf mitteln, um einen
     Trend von einem schlechten Tag zu unterscheiden — das macht sie unzuverlässig.
+
+    Sieben Tage heißt heute und die sechs davor. Die Grenze stand einmal bei
+    `>= heute - 7`, und „7_tage" mittelte über acht.
     """
     felder = {
         "schlaf_h": ("sleep_seconds", 3600),
@@ -785,8 +918,8 @@ def wellness_mittelwerte(tage: list[Any], heute: date) -> dict[str, dict[str, fl
     }
     ergebnis: dict[str, dict[str, float | None]] = {}
     for name, (feld, teiler) in felder.items():
-        kurz = _werte(tage, feld, heute - timedelta(days=7))
-        lang = _werte(tage, feld, heute - timedelta(days=28))
+        kurz = _werte(tage, feld, nach=heute - timedelta(days=7))
+        lang = _werte(tage, feld, nach=heute - timedelta(days=28))
         ergebnis[name] = {
             "7_tage": _mittel([w / teiler for w in kurz]),
             "28_tage": _mittel([w / teiler for w in lang]),

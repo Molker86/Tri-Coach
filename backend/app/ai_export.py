@@ -19,6 +19,7 @@ dafür genau zur aktuellen Belastungslage passen.
 """
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -40,6 +41,7 @@ from .models import (
     WellnessDay,
 )
 from .paketformat import paket_als_text
+from .zeit import als_utc
 from .schemas import (
     DISCIPLINE_LABEL,
     DISZIPLIN_BLOCKNAME,
@@ -61,6 +63,7 @@ from .sportscience import (
     calc_bmi,
     erholung_stunden,
     estimate_max_hr,
+    format_pace,
     hr_zones,
     letzte_volle_woche,
     pace_zones,
@@ -69,6 +72,7 @@ from .sportscience import (
     weekly_summary,
     wellness_auffaelligkeiten,
     wellness_mittelwerte,
+    zonensekunden_der_einheit,
 )
 
 SCHEMA_VERSION = "2.2"
@@ -127,6 +131,13 @@ WELLNESS_TAGE = 14
 # Wert als "aktuell" hin.
 FITNESS_FENSTER_TAGE = 28
 
+# Wie alt ein Tageswert höchstens sein darf, um in `fitnessdaten.aktuell` zu
+# stehen: der Tag `stand` oder der davor. Ein Tag Spielraum, weil Garmin Schlaf
+# und HRV der letzten Nacht erst nachträgt und der Abgleich morgens sonst ohne
+# sie auskäme. Älteres bleibt in `fitnessdaten.tage` sichtbar — als Verlauf,
+# nicht als heutiger Zustand.
+AKTUELL_TAGESWERT_TAGE = 1
+
 # Ebene 3: Wie weit der Monatsverlauf zurückreicht. Deutlich länger als der
 # Rückblick auf die Einheiten, und das ist der Punkt: Sechs Wochen zeigen die
 # Belastung, nicht die Richtung. Ob VO2max, Gewicht und Ruhepuls sich über die
@@ -134,9 +145,26 @@ FITNESS_FENSTER_TAGE = 28
 # grundsätzlich nicht abzulesen — und ein Monatsstützpunkt kostet eine Zeile.
 VERLAUF_MONATE = 12
 
-# Ab diesem RPE gilt eine Einheit als intensiv — die Schwelle hinter
-# `tage_seit_letzter_intensiver_einheit` im Datenpaket.
+# Wann eine Einheit als intensiv gilt — die Kriterien hinter
+# `tage_seit_letzter_intensiver_einheit` im Datenpaket. Eines genügt.
+#
+# Das RPE allein reichte nicht: Es ist meist aus Garmins Zonen **geschätzt**,
+# und wo der Athlet selbst bewertet, vergibt er für Schwellenintervalle auch
+# einmal eine 4. An einem echten Konto stand die Zahl so bei 31 Tagen, einen Tag
+# nach einer Sweet-Spot-Schlüsseleinheit. Die beiden Messgrößen daneben hängen
+# an keiner Selbstauskunft: die Zeit in Z4–Z5 nach den Zonen dieser App und
+# Garmins anaerober Trainingseffekt.
 HARD_SESSION_RPE = 7
+HARD_SESSION_Z45_MIN = 10
+HARD_SESSION_ANAEROB_TE = 2.0
+
+# Dieselben drei Kriterien als Satz im Paket. Eine Zahl, deren Definition die
+# KI nicht kennt, liest sie nach eigenem Verständnis von „intensiv".
+INTENSIV_HEISST = (
+    f"RPE ab {HARD_SESSION_RPE}, mindestens {HARD_SESSION_Z45_MIN} min in Z4–Z5 "
+    f"nach herzfrequenzzonen oder anaerober Trainingseffekt ab "
+    f"{HARD_SESSION_ANAEROB_TE:.1f}".replace(".", ",")
+)
 
 # Der Wochentag im deutschen Fließtext des Anpassungsprompts. Im Payload
 # bleiben die englischen Schlüssel aus `WEEKDAYS` stehen — sie müssen zu
@@ -283,12 +311,29 @@ def _days_since_by_sport(logs: list[SessionLog], today: date) -> dict[str, int]:
     return {sport: (today - day).days for sport, day in sorted(latest.items())}
 
 
-def _days_since_hard_session(logs: list[SessionLog], today: date) -> int | None:
+def _ist_intensiv(lg: SessionLog, zonen: list[dict[str, Any]] | None) -> bool:
+    """Trifft eines der Kriterien aus `INTENSIV_HEISST` zu?"""
+    if (lg.rpe or 0) >= HARD_SESSION_RPE:
+        return True
+    if (lg.garmin_anaerobic_te or 0) >= HARD_SESSION_ANAEROB_TE:
+        return True
+    sekunden = zonensekunden_der_einheit(lg, zonen) if zonen else None
+    if sekunden:
+        hart = sum(wert or 0 for nummer, wert in sekunden.items() if str(nummer) in ("4", "5"))
+        if hart >= HARD_SESSION_Z45_MIN * 60:
+            return True
+    return False
+
+
+def _days_since_hard_session(
+    logs: list[SessionLog], today: date, zonen: list[dict[str, Any]] | None = None
+) -> int | None:
     """Abstand zur letzten intensiven Einheit.
 
     Wie viel Abstand nötig ist, entscheidet die KI; sie kann es aber nur, wenn
     sie weiß, wie lange der letzte Reiz zurückliegt — die Historie hört nicht
-    am Blockanfang auf.
+    am Blockanfang auf. Was als intensiv zählt, steht in `INTENSIV_HEISST` und
+    geht als Satz mit ins Paket.
 
     Ebenfalls über die ganze Historie: Im Vierwochenfenster hieß `None` sowohl
     "seit über vier Wochen nichts Hartes" als auch "keine Daten", und die ganze
@@ -297,7 +342,7 @@ def _days_since_hard_session(logs: list[SessionLog], today: date) -> int | None:
     hard = [
         lg.date
         for lg in logs
-        if lg.status != "skipped" and (lg.rpe or 0) >= HARD_SESSION_RPE
+        if lg.status != "skipped" and _ist_intensiv(lg, zonen)
     ]
     return (today - max(hard)).days if hard else None
 
@@ -358,11 +403,22 @@ def _datenstand(konto: Any) -> dict[str, str] | None:
     if getattr(konto, "synced_through", None) is not None:
         stand["garmin_daten_bis"] = konto.synced_through.isoformat()
     if getattr(konto, "last_sync_at", None) is not None:
-        stand["letzter_abgleich"] = konto.last_sync_at.isoformat(timespec="minutes")
+        # In Ortszeit wie `erzeugt_am`. Die Spalte steht in UTC, und ohne die
+        # Umrechnung lagen zwei Zeitstempel ohne Zone im selben Paket, die zwei
+        # Stunden auseinander meinten: „letzter_abgleich 17:27" neben
+        # „erzeugt_am 20:15", obwohl der Abgleich erst 48 Minuten her war.
+        stand["letzter_abgleich"] = (
+            als_utc(konto.last_sync_at)
+            .astimezone()
+            .replace(tzinfo=None)
+            .isoformat(timespec="minutes")
+        )
     return stand or None
 
 
-def _session_eintrag(lg: SessionLog) -> dict[str, Any]:
+def _session_eintrag(
+    lg: SessionLog, zonen: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Eine absolvierte Einheit als Payload-Block.
 
     Herausgelöst aus `_history_block`, weil die Trainingsanalyse denselben
@@ -417,8 +473,12 @@ def _session_eintrag(lg: SessionLog) -> dict[str, Any]:
     # Wie die Einheit ausgeführt wurde. Alle vier fehlen, wo sie nicht
     # belegt sind — dieselbe Regel wie bei `befinden_0_10`: Ein `null`
     # wäre keine leere Angabe, sondern eine Behauptung.
-    if (zonen := _zonenminuten(lg.hr_zone_seconds)) is not None:
-        eintrag["zeit_in_hf_zonen_min"] = zonen
+    #
+    # Die Zonenzeiten nach `herzfrequenzzonen`, wo die Aufzeichnung
+    # ausgewertet ist — sonst nach den Zonen der Uhr, die eine Z2-Einheit des
+    # Plans als Z3 zählen (`sportscience.zonensekunden_der_einheit`).
+    if (minuten := _zonenminuten(zonensekunden_der_einheit(lg, zonen))) is not None:
+        eintrag["zeit_in_hf_zonen_min"] = minuten
     if lg.garmin_abschnitte:
         eintrag["absolvierte_abschnitte"] = lg.garmin_abschnitte
     # Das Gegenstück für Kraft und Mobility: Dort beschreibt `structure`
@@ -451,8 +511,11 @@ def _session_eintrag(lg: SessionLog) -> dict[str, Any]:
         eintrag["swolf"] = lg.swolf
     if lg.zuege:
         eintrag["zuege_je_bahn"] = lg.zuege
+    # Der Höchstwert des Fühlers am Gerät, nicht die Lufttemperatur — am
+    # Handgelenk liegt er über ihr. Der Name sagt es, sonst läse die KI „35" als
+    # Hitzetag.
     if lg.temperatur_c is not None:
-        eintrag["temperatur_c"] = lg.temperatur_c
+        eintrag["temperatur_max_c"] = lg.temperatur_c
     # Tempo bzw. Watt je Herzschlag. Die einzige Größe im Paket, die
     # "langsamer geworden" von "müder geworden" trennt — beide senken das
     # Tempo, aber nur die Ermüdung hebt dabei den Puls.
@@ -469,9 +532,88 @@ def _session_eintrag(lg: SessionLog) -> dict[str, Any]:
     return eintrag
 
 
+# Reihenfolge der Bestwerte-Tabelle; eine unbekannte Sportart fällt heraus,
+# statt mit einer Einheit zu erscheinen, die niemand festgelegt hat.
+_BESTWERT_SPORTARTEN = ("run", "bike", "swim")
+
+
+def _bestwert_text(sport: str, spanne: str, wert: float | int) -> str | None:
+    """Ein Bestwert in der Schreibweise, in der auch die Schwelle dasteht.
+
+    Laufen als Pace je km und Schwimmen als Pace je 100 m, weil
+    `schwellenpace_laufen_min_pro_km` und `css_schwimmen_min_pro_100m` so
+    geschrieben sind — ein Vergleich über zwei Schreibweisen hinweg ist genau
+    die Arithmetik, an der ein Sprachmodell scheitert.
+    """
+    if not wert:
+        return None
+    if sport == "run":
+        return _pace_with_unit(sport, format_pace(1000 / wert))
+    if sport == "bike":
+        return f"{int(wert)} W"
+    if sport == "swim":
+        return _pace_with_unit(sport, format_pace(wert * 100 / int(spanne)))
+    return None
+
+
+def _bestwerte_block(logs: list[SessionLog], heute: date) -> list[dict[str, Any]]:
+    """Die besten Trainingswerte der letzten sechs und 26 Wochen.
+
+    Das Gegenstück zu den Schwellenwerten im selben Block: FTP, Schwellenpace
+    und CSS sind Handarbeit, und woran eine veraltete Eingabe zu erkennen
+    wäre, stand bis hierher nur fürs Laufen im Paket
+    (`schwellenpace_gemessen_garmin`). Zwei Fenster, weil erst der Vergleich
+    sagt, ob der Athlet gerade unter seiner Saisonform liegt.
+
+    Hineingerechnet ist nichts — keine FTP aus 95 % der zwanzig Minuten —, und
+    es sind Trainingswerte, keine Tests: Wer nie zwanzig Minuten hart fuhr,
+    hat dort einen niedrigen Wert, und der Prompt sagt das dazu.
+    """
+    fenster = {
+        "6_wochen": heute - timedelta(weeks=HISTORY_WEEKS),
+        "26_wochen": heute - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN),
+    }
+    beste: dict[tuple[str, str], dict[str, tuple[float, date]]] = {}
+    for lg in logs:
+        for sport, werte in (lg.fit_bestwerte or {}).items():
+            if sport not in _BESTWERT_SPORTARTEN:
+                continue
+            for spanne, wert in werte.items():
+                for name, ab in fenster.items():
+                    if lg.date < ab:
+                        continue
+                    je_fenster = beste.setdefault((sport, spanne), {})
+                    bisher = je_fenster.get(name)
+                    # Im Becken ist die kürzere Zeit die bessere.
+                    if bisher is None or (
+                        wert < bisher[0] if sport == "swim" else wert > bisher[0]
+                    ):
+                        je_fenster[name] = (wert, lg.date)
+
+    zeilen: list[dict[str, Any]] = []
+    for (sport, spanne), je_fenster in sorted(
+        beste.items(),
+        key=lambda paar: (_BESTWERT_SPORTARTEN.index(paar[0][0]), int(paar[0][1])),
+    ):
+        zeile: dict[str, Any] = {
+            "sportart": sport,
+            "spanne": (
+                f"{int(spanne) // 60} min" if sport in ("run", "bike") else f"{spanne} m"
+            ),
+        }
+        for name in fenster:
+            if name in je_fenster:
+                wert, tag = je_fenster[name]
+                zeile[f"bester_{name}"] = _bestwert_text(sport, spanne, wert)
+                zeile[f"datum_{name}"] = tag.isoformat()
+        zeilen.append(zeile)
+    return zeilen
+
+
 def _history_block(
     logs: list[SessionLog],
     garmin_konto: Any = None,
+    zonen: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     today = date.today()
     # Zwei Fenster über **derselben** gefilterten Menge: Die Einheiten stehen
@@ -484,17 +626,31 @@ def _history_block(
     weit = [lg for lg in echte if lg.date >= today - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)]
     recent = [lg for lg in weit if lg.date >= today - timedelta(weeks=HISTORY_WEEKS)]
 
-    sessions = [_session_eintrag(lg) for lg in recent]
+    sessions = [_session_eintrag(lg, zonen) for lg in recent]
 
     # Ebene 2. `by_sport_ab` zählt vom aktuellen Montag zurück, nicht von heute:
     # Die Übersicht rechnet in Kalenderwochen, und eine Grenze mitten in einer
     # Woche schnitte die laufende ab.
     montag = today - timedelta(days=today.weekday())
-    weekly = weekly_summary(
-        weit,
-        weeks=WOCHENUEBERSICHT_WOCHEN,
-        by_sport_ab=montag - timedelta(weeks=BY_SPORT_WOCHEN),
-    )
+    fenster_start = today - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)
+    weekly = [
+        # Kilometer über alle Sportarten addiert sind keine Planungsgröße: 48,6 km
+        # hießen in einer echten Woche 47 km Rad und 1,5 km Schwimmen. Je
+        # Sportart stehen sie in `by_sport`; das Dashboard behält die Summe.
+        {k: v for k, v in woche.items() if k != "total_km"}
+        for woche in weekly_summary(
+            weit,
+            weeks=WOCHENUEBERSICHT_WOCHEN,
+            by_sport_ab=montag - timedelta(weeks=BY_SPORT_WOCHEN),
+            hf_zonen=zonen,
+        )
+        # Die älteste Woche ragt vor das Fenster und trägt nur dessen letzte
+        # Tage — die Einheiten davor sind aus `weit` gefiltert. Sie stand mit
+        # `sessions: 0` da, obwohl in ihr trainiert wurde, und der Prompt liest
+        # eine Nullwoche ausdrücklich als Trainingspause. Weg damit: Ihr halbes
+        # Bild sagt nichts, was die übrigen 26 Wochen nicht sagen.
+        if date.fromisoformat(woche["week_start"]) >= fenster_start
+    ]
     volle = letzte_volle_woche(weekly)
 
     block: dict[str, Any] = {
@@ -533,7 +689,10 @@ def _history_block(
             weit, today, weeks=ACWR_CHRONISCH_WOCHEN
         ),
         "tage_seit_letzter_einheit_je_sportart": _days_since_by_sport(echte, today),
-        "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(echte, today),
+        "tage_seit_letzter_intensiver_einheit": _days_since_hard_session(
+            echte, today, zonen
+        ),
+        "intensiv_heisst": INTENSIV_HEISST,
         "einheiten": sessions,
     }
 
@@ -566,6 +725,14 @@ def _einheit_felder(session: Any) -> dict[str, Any]:
         "target_pace": session.target_pace,
         "target_power": session.target_power,
         "rpe_target": session.rpe_target,
+        # Der Bauplan und der Ort gehören zu den Feldern des Antwortformats, und
+        # der Prompt verlangt, **alle** geltenden Felder zurückzugeben. Ohne sie
+        # im Paket musste die KI raten, ob die Radeinheit auf der Rolle stand —
+        # daran hängt, ob Watt oder Puls steuert —, und schrieb den Bauplan
+        # blind neu, statt den bestehenden zu kürzen.
+        "swim_location": getattr(session, "swim_location", None),
+        "bike_location": getattr(session, "bike_location", None),
+        "steps": getattr(session, "steps_json", None),
     }
     return {k: v for k, v in felder.items() if v is not None}
 
@@ -708,6 +875,13 @@ def _tagesform_block(
     }
 
 
+def _statusstufe(phrase: str | None) -> str | None:
+    """`PRODUCTIVE_2` → `PRODUCTIVE`: Garmins Einstufung ohne Textvariante."""
+    if not phrase:
+        return None
+    return re.sub(r"_\d+$", "", str(phrase)) or None
+
+
 def _gerundet(wert: float | None, stellen: int = 1) -> float | None:
     return None if wert is None else round(wert, stellen)
 
@@ -764,64 +938,95 @@ def _fitness_block(
                 return wert, tag.date.isoformat()
         return None, None
 
-    def wert(feld: str) -> Any:
-        return juengster(feld)[0]
+    # `aktuell` heißt: vom Tag `stand`. Was von früher stammt, steht mit seinem
+    # Datum in `werte_vom` — ohne es stellte der Block einen Wert von vor
+    # Wochen als heutigen hin (an einem echten Konto eine Körperbatterie von
+    # 11, die 19 Tage alt war, unter `stand` von heute).
+    stand = sortiert[0].date
+    werte_vom: dict[str, str] = {}
+
+    def wert(feld: str, name: str, *, taeglich: bool = True) -> Any:
+        """Der jüngste Wert eines Feldes, sofern er als aktuell durchgeht.
+
+        Tageswerte — Schlaf, HRV, Ruhepuls, Stress, Erholung, Status — misst
+        Garmin jeden Tag neu; einer, der älter ist als
+        `AKTUELL_TAGESWERT_TAGE`, beschreibt nicht mehr den Zustand von heute
+        und fällt weg. Gewicht, Körperfett und VO2max entstehen nur, wenn
+        gemessen wird, und bleiben mit Datum stehen.
+        """
+        inhalt, datum = juengster(feld)
+        if inhalt is None:
+            return None
+        tag = date.fromisoformat(datum)
+        if taeglich and (stand - tag).days > AKTUELL_TAGESWERT_TAGE:
+            return None
+        if tag != stand:
+            werte_vom[name] = datum
+        return inhalt
 
     aktuell: dict[str, Any] = {
-        "stand": sortiert[0].date.isoformat(),
-        "schlaf_h": _stunden(wert("sleep_seconds")),
-        "schlaf_tiefschlaf_h": _stunden(wert("sleep_deep_seconds")),
-        "schlaf_rem_h": _stunden(wert("sleep_rem_seconds")),
-        "schlafscore_0_100": wert("sleep_score"),
-        "hrv_ms": wert("hrv_last_night_ms"),
+        "stand": stand.isoformat(),
+        "schlaf_h": _stunden(wert("sleep_seconds", "schlaf_h")),
+        "schlaf_tiefschlaf_h": _stunden(
+            wert("sleep_deep_seconds", "schlaf_tiefschlaf_h")
+        ),
+        "schlaf_rem_h": _stunden(wert("sleep_rem_seconds", "schlaf_rem_h")),
+        "schlafscore_0_100": wert("sleep_score", "schlafscore_0_100"),
+        "hrv_ms": wert("hrv_last_night_ms", "hrv_ms"),
         # Garmins eigenes Wochenmittel neben dem Nachtwert. Es steht seit jeher
         # in der Datenbank und ging nie hinaus — dabei entscheidet genau der
         # Vergleich der beiden, ob eine niedrige HRV eine Nacht war oder eine
         # Entwicklung.
-        "hrv_wochenmittel_ms": wert("hrv_weekly_avg_ms"),
-        "hrv_status": wert("hrv_status"),
+        "hrv_wochenmittel_ms": wert("hrv_weekly_avg_ms", "hrv_wochenmittel_ms"),
+        "hrv_status": wert("hrv_status", "hrv_status"),
         "hrv_normalbereich_ms": {
-            "unten": wert("hrv_baseline_low"),
-            "oben": wert("hrv_baseline_high"),
+            "unten": wert("hrv_baseline_low", "hrv_normalbereich_ms"),
+            "oben": wert("hrv_baseline_high", "hrv_normalbereich_ms"),
         },
-        "ruhepuls": wert("resting_hr"),
-        "gewicht_kg": wert("weight_kg"),
-        "koerperfett_pct": wert("body_fat_pct"),
-        "vo2max_laufen": wert("vo2max_run"),
-        "vo2max_rad": wert("vo2max_bike"),
-        "stress_tagesmittel": wert("stress_avg"),
+        "ruhepuls": wert("resting_hr", "ruhepuls"),
+        "gewicht_kg": wert("weight_kg", "gewicht_kg", taeglich=False),
+        "koerperfett_pct": wert("body_fat_pct", "koerperfett_pct", taeglich=False),
+        "vo2max_laufen": wert("vo2max_run", "vo2max_laufen", taeglich=False),
+        "vo2max_rad": wert("vo2max_bike", "vo2max_rad", taeglich=False),
+        "stress_tagesmittel": wert("stress_avg", "stress_tagesmittel"),
         "koerperbatterie": {
-            "hoechstwert": wert("body_battery_high"),
-            "tiefstwert": wert("body_battery_low"),
+            "hoechstwert": wert("body_battery_high", "koerperbatterie"),
+            "tiefstwert": wert("body_battery_low", "koerperbatterie"),
         },
         "training_readiness": {
-            "score_0_100": wert("readiness_score"),
-            "stufe": wert("readiness_level"),
-            "hinweis": wert("readiness_feedback"),
+            "score_0_100": wert("readiness_score", "training_readiness"),
+            "stufe": wert("readiness_level", "training_readiness"),
+            "hinweis": wert("readiness_feedback", "training_readiness"),
             # Garmin liefert Minuten; hier stehen Stunden, weil der Prompt in
             # Stunden argumentiert. Ungerechnet stand dort "911 Stunden".
-            "erholungszeit_h": erholung_stunden(wert("recovery_time_min")),
+            "erholungszeit_h": erholung_stunden(
+                wert("recovery_time_min", "training_readiness")
+            ),
         },
         "training_status": {
-            "status": wert("training_status_feedback"),
             # Garmins Einstufung als Schlüsselwort (PRODUCTIVE, MAINTAINING,
-            # OVERREACHING …). Bis hierher ging nur der Feedbacksatz hinaus,
-            # und der ist eine Formulierung — die Einstufung ist der Messwert.
-            "einstufung": wert("training_status"),
-            "wochenlast": wert("weekly_training_load"),
-            "acwr_garmin": wert("garmin_acwr"),
-            "acwr_bewertung": wert("garmin_acwr_status"),
-            "akutlast": wert("garmin_load_acute"),
-            "chronische_last": wert("garmin_load_chronic"),
+            # STRAINED …). Die Spalte `training_status` trägt dafür nur einen
+            # Zahlencode — im Paket stand `"einstufung": "7"`, das kein Leser
+            # deuten kann. Das Wort steckt im Feedbacksatz (`PRODUCTIVE_2`), die
+            # Nummer dahinter ist nur Garmins Textvariante.
+            "einstufung": _statusstufe(
+                wert("training_status_feedback", "training_status")
+            ),
+            "wochenlast": wert("weekly_training_load", "training_status"),
+            "acwr_garmin": wert("garmin_acwr", "training_status"),
+            "acwr_bewertung": wert("garmin_acwr_status", "training_status"),
+            "akutlast": wert("garmin_load_acute", "training_status"),
+            "chronische_last": wert("garmin_load_chronic", "training_status"),
             # Garmins optimales Lastfenster zur Akutlast. Eine **gemessene**
             # Grenze dieses Athleten, keine Regel dieser App — deshalb steht sie
             # im Paket, während die selbstgesetzten Schwellen aus dem Prompt
             # verschwunden sind.
             "lastfenster": {
-                "min": wert("garmin_load_min"),
-                "max": wert("garmin_load_max"),
+                "min": wert("garmin_load_min", "training_status"),
+                "max": wert("garmin_load_max", "training_status"),
             },
         },
+        "werte_vom": werte_vom,
     }
 
     # Auch innerhalb von `training_status`: Ein Lastfenster aus zwei `null`
@@ -917,7 +1122,7 @@ def build_payload(
     fort, statt aus dem Verlauf neu zu entscheiden. Maßstab ist allein, was
     stattgefunden hat; das steht in `trainingshistorie.einheiten`.
 
-    `naechste_neuplanung` nennt den Wochentag, an dem von selbst ein frischer
+    `naechste_neuplanung` nennt das Datum, an dem von selbst ein frischer
     Block entsteht (`None`, wenn die Automatik aus ist). Das hängt am Schalter
     (`KiSettings.auto_plan_enabled`) und nicht am Auslöser: Auch ein von Hand
     angestoßener Block wird dann ersetzt.
@@ -993,9 +1198,16 @@ def build_payload(
         "athlet": _athlete_block(profile, verlauf_zeilen),
         "herzfrequenzzonen": zones,
         "trainingswunsch": _request_block(request, date.today()),
-        "trainingshistorie": _history_block(logs, garmin_konto),
+        "trainingshistorie": _history_block(logs, garmin_konto, zones),
         "planungszeitraum": zeitraum,
     }
+
+    # Neben den Schwellenwerten, gegen die sie zu lesen sind. Nur bei einem
+    # Profil: Ohne steht im `athlet`-Block ein Hinweis statt Werten.
+    if profile is not None and (
+        bestwerte := _bestwerte_block([lg for lg in logs if _ist_einheit(lg)], heute)
+    ):
+        payload["athlet"]["bestwerte_training"] = bestwerte
 
     # Nur aufnehmen, wenn wirklich Daten vorliegen: Sonst stünden im Prompt
     # Regeln zu einem Block, der leer ist — und die KI erfände sich Werte dazu.
@@ -1059,7 +1271,7 @@ SESSION_SCHEMA = {
     "description": "string – was gemacht wird",
     "structure": (
         "string – konkreter Aufbau, z.B. "
-        "'15 min Einlaufen Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen'. "
+        "'15 min Einlaufen Z1-Z2 / 5x1000 m Z4 (Trabpause 2 min) / 10 min Auslaufen Z1'. "
         "Bei strength und mobility stattdessen eine Übungsliste, "
         "eine Übung je Abschnitt, getrennt durch ' / ', z.B. "
         "'3x12 Liegestütze (Push-up) / 3x40 s Seitstütz (Side Plank) je Seite'"
@@ -1510,11 +1722,11 @@ def tagesform_strukturschema(disziplin: str) -> dict[str, Any]:
 
 
 PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler, Sportphysiologe, Sportmediziner und Trainer und \
-planst die nächsten {tage} Trainingstage: {start} bis {ende}.
+planst {zeitraum}.
 
 ## Aufgabe
 Plane genau diesen kurzen Block — nicht mehr. Lies aus den Athletendaten unten ab, wo \
-der Athlet steht, und setze diese {tage} Tage dort an.
+der Athlet steht, und setze {diese_tage} dort an.
 
 **Der Verlauf steht in drei Auflösungen, nicht in drei Zeiträumen.** \
 `trainingshistorie.einheiten` führt die letzten {historie_wochen} Wochen einzeln auf, \
@@ -1534,12 +1746,13 @@ Entscheidung abgelesen hast.{wettkampfhinweis}
 Leicht zu übersehen, weil sie nicht die Tagesform beschreiben, sondern **Kapazität und \
 Richtung**: in `wochenuebersicht` je Woche `zeit_in_hf_zonen_min`, \
 `intensitaetsverteilung_pct`, `laengste_einheit_min` sowie `monotonie` und `strain` nach \
-Foster; an den Einheiten `effizienz` (Tempo bzw. Leistung je Herzschlag, vergleichbar nur \
-zwischen ähnlichen Einheiten); in `athlet.verlauf` je Monat `stunden_je_sportart` und \
-`effizienz_je_sportart` — dort steht, ob eine Sportart über die Saison zu- oder \
-abgenommen hat und ob die Effizienz mitging. Weicht \
-`schwellenpace_gemessen_garmin` von `schwellenpace_laufen_min_pro_km` ab, ist die Eingabe \
-vermutlich veraltet; die Zonen rechnen weiter mit ihr.
+Foster; an den Einheiten `effizienz` (Rad: Watt, Laufen und Schwimmen: m/min je \
+Herzschlag; vergleichbar nur zwischen ähnlichen Einheiten); in `athlet.verlauf` je Monat \
+`stunden_je_sportart` und `effizienz_je_sportart` — dort steht, ob eine Sportart über die \
+Saison zu- oder abgenommen hat und ob die Effizienz mitging. `ist_vollstaendig: false` ist \
+die laufende Woche bzw. der laufende Monat. `zeit_in_hf_zonen_min` zählt nach \
+`herzfrequenzzonen`, Zeit unter Z1 als Z1, je Woche nur Ausdauer; `zonen_abdeckung_pct` \
+sagt, welcher Anteil davon ausgezählt ist.{schwellenhinweis}
 
 {fitnessregeln}
 
@@ -1555,14 +1768,15 @@ auf welche Wochentage die Blocktage fallen. Ist ein Tag nicht verfügbar, plane 
 3. {prinzip_ergaenzung}
 4. {prinzip_steuergroessen}
 5. **Beschwerden und Einschränkungen**: `athlet.verletzungen_einschraenkungen` ist der \
-Freitext des Athleten über seinen Körper — die einzige Angabe im Paket, die kein Gerät \
-gemessen hat. Steht dort etwas, wirkt es in **zwei** Richtungen, und die zweite wird \
+Freitext des Athleten über seinen Körper — keine Messung, sondern seine eigene \
+Beschreibung. Steht dort etwas, wirkt es in **zwei** Richtungen, und die zweite wird \
 leicht übersehen:
     - **Als Bremse** auf die betroffene Belastung: Umfang, Intensität, Untergrund und \
 Bewegungsform so wählen, dass die Beschwerde nicht provoziert wird. {ausweichhinweis}
     - **Als Auftrag** an das Ergänzungstraining aus Punkt 3: Eine Beschwerde, die sich \
-behandeln lässt, gehört in Kraft und Mobility **hinein**, nicht darum herum. Leite die wahrscheinliche Ursache ab (typisch \
-ist eine abgeschwächte oder verkürzte Muskelgruppe oberhalb des schmerzenden Gelenks) und \
+behandeln lässt, gehört in das Ergänzungstraining **hinein**, nicht darum herum. Leite die \
+wahrscheinliche Ursache ab (typisch ist eine abgeschwächte oder verkürzte Muskelgruppe in \
+der Bewegungskette ober- oder unterhalb des schmerzenden Gelenks) und \
 plane die Übungen, die sie angehen; hängen mehrere Beschwerden zusammen, behandle die \
 gemeinsame Ursache. Die betroffene Region **auszusparen, ist die falsche Antwort**. Ist \
 sie akut gereizt, plane sie schmerzfrei — isometrisch statt dynamisch, kleinerer \
@@ -1577,8 +1791,8 @@ oder danach, keine Markdown-Codefences, keine Kommentare im JSON.
 Struktur:
 {schema}
 
-ABSOLUT verbindliche Regeln für die Ausgabe (Zwingend)!!:
-- Genau {tage} Tage, lückenlos von {start} bis {ende}, jedes Datum genau einmal.
+Verbindliche Regeln für die Ausgabe:
+- {tage_regel}
 - Ruhetage als Tag mit einer Session `"sport": "rest"`, `"type": "rest"`.
 - Mehrere Einheiten pro Tag sind erlaubt (Array `sessions`).
 - `duration_min` immer angeben. `distance_km` nur, wenn sinnvoll planbar.
@@ -1604,16 +1818,16 @@ ABSOLUT verbindliche Regeln für die Ausgabe (Zwingend)!!:
 # den dreizehn Prinzipien.
 #
 # Achtung beim Ändern: `.format()` setzt Werte ein, ohne sie erneut zu
-# formatieren. `{tage}` in `PRINZIP_TRIATHLON` füllt deshalb
+# formatieren. `{in_tagen}` in `PRINZIP_TRIATHLON` füllt deshalb
 # `_prinzip_disziplin()` selbst, bevor der Text in die Vorlage geht — dieselbe
 # Falle wie bei `FITNESSREGELN_*` und `PRINZIP_ERGAENZUNG`.
 # --------------------------------------------------------------------------
 
 PRINZIP_TRIATHLON = """**Drei Disziplinen**: Der Athlet hat Triathlon gewählt \
 (`trainingswunsch.disziplin`) — Laufen, Radfahren, Schwimmen und Koppeleinheiten \
-(`brick`) stehen alle offen. In {tage} Tagen müssen nicht alle vorkommen; welche \
+(`brick`) stehen alle offen. {in_tagen} müssen nicht alle vorkommen; welche \
 drankommt, entscheidest du. `tage_seit_letzter_einheit_je_sportart` sagt dir, wie lange \
-jede zurückliegt und du kennst die Belastungen aus den vorherigen Einheiten."""
+jede zurückliegt, und du kennst die Belastungen aus den vorherigen Einheiten."""
 
 PRINZIP_EINDISZIPLIN = """**Eine Disziplin**: Der Athlet hat im Fragebogen ausschließlich {disziplin} gewählt \
 (`trainingswunsch.disziplin`) — dieser Block ist ein reiner {blockname}. Jede \
@@ -1675,7 +1889,9 @@ def _prinzip_disziplin(disziplin: str, tage: Any) -> str:
     """Punkt 1, in der Fassung, die zur gewählten Disziplin passt."""
     sportarten = DISZIPLIN_SPORTARTEN.get(disziplin, [])
     if len(sportarten) != 1:
-        return PRINZIP_TRIATHLON.format(tage=tage)
+        return PRINZIP_TRIATHLON.format(
+            in_tagen="An einem Tag" if tage == 1 else f"In {tage} Tagen"
+        )
     return PRINZIP_EINDISZIPLIN.format(
         disziplin=DISCIPLINE_LABEL.get(disziplin, disziplin),
         blockname=DISZIPLIN_BLOCKNAME.get(disziplin, "Block"),
@@ -1707,12 +1923,7 @@ def _ausweichhinweis(disziplin: str) -> str:
 # der Platzhalter muss also gefüllt sein, bevor der Text in die Vorlage geht —
 # dieselbe Falle wie bei `FITNESSREGELN_*`. Geschweifte Klammern, die stehen
 # bleiben sollen, müssten verdoppelt werden.
-PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: Kraft und Mobility stehen gleichrangig; was davon \
-überhaupt in den Block gehört, sagt `trainingswunsch.zusatztraining`. Welche der beiden \
-Formen eine Einheit trägt und wie lang sie ist, entscheidest du — es gibt keine Vorgabe, \
-sie kurz zu halten. Kraft legst du nicht unmittelbar vor eine Schlüsseleinheit; passt sie \
-an einem Tag nicht, steht sie an einem anderen des Blocks, statt durch eine \
-Mobility-Einheit ersetzt zu werden. Regelmäßig heißt **nicht dasselbe noch einmal**: Sieh \
+PRINZIP_ERGAENZUNG = """**Ergänzungstraining**: {ergaenzung_kopf} Regelmäßig heißt **nicht dasselbe noch einmal**: Sieh \
 in `trainingshistorie.einheiten` nach, was die letzte Kraft- oder Mobility-Einheit \
 enthielt — in `absolvierte_uebungen` (was die Uhr gezählt hat, mit `kategorie` als \
 Bewegungsgruppe), sonst in `notiz` —, schreibe von dort fort und wechsle Übungsauswahl und \
@@ -1730,6 +1941,30 @@ erscheint. Dieselbe Übungsliste gehört zusätzlich als Bauplan in `steps`, und
 zahlenmäßig zusammenpassen; die Satzpause gehört in `steps`, auch wenn `structure` sie \
 nicht nennt."""
 
+# Der Anfang von `PRINZIP_ERGAENZUNG`, je nachdem, was gewählt ist. Mit nur
+# einer der beiden Formen stand dort trotzdem „Kraft und Mobility stehen
+# gleichrangig", samt der Regel, wohin eine Krafteinheit gehört — und die KI
+# plante Krafteinheiten in Blöcke eines Athleten, der nur Mobility gewählt
+# hatte.
+ERGAENZUNG_BEIDE = """Kraft und Mobility stehen gleichrangig; was davon \
+überhaupt in den Block gehört, sagt `trainingswunsch.zusatztraining`. Welche der beiden \
+Formen eine Einheit trägt und wie lang sie ist, entscheidest du — es gibt keine Vorgabe, \
+sie kurz zu halten. Kraft legst du nicht unmittelbar vor eine Schlüsseleinheit; passt sie \
+an einem Tag nicht, steht sie an einem anderen des Blocks, statt durch eine \
+Mobility-Einheit ersetzt zu werden."""
+
+ERGAENZUNG_NUR_MOBILITY = """Der Athlet hat nur Mobility gewählt \
+(`trainingswunsch.zusatztraining`). Der Block enthält deshalb **keine** Einheit mit \
+`"sport": "strength"`. Wie lang eine Mobility-Einheit ist, entscheidest du — es gibt \
+keine Vorgabe, sie kurz zu halten."""
+
+ERGAENZUNG_NUR_KRAFT = """Der Athlet hat nur Kraft gewählt \
+(`trainingswunsch.zusatztraining`). Der Block enthält deshalb **keine** Einheit mit \
+`"sport": "mobility"`. Wie lang eine Krafteinheit ist, entscheidest du — es gibt keine \
+Vorgabe, sie kurz zu halten. Kraft legst du nicht unmittelbar vor eine Schlüsseleinheit; \
+passt sie an einem Tag nicht, steht sie an einem anderen des Blocks."""
+
+
 # Die Gegenfassung — kein Begründungsfeld darin, deshalb auch kein `.format()`.
 # Der lange Absatz oben ist gegenstandslos, wenn der Athlet nichts davon will,
 # und stand trotzdem im Prompt: Er verwies auf `trainingswunsch.zusatztraining`,
@@ -1742,7 +1977,9 @@ ausdrücklich weder Kraft- noch Mobilitytraining gewählt \
 `"sport": "strength"` oder `"sport": "mobility"` — auch nicht als Ausgleich, als \
 Regenerationseinheit, als Ersatz für eine ausgefallene Ausdauereinheit oder als Zugabe zu \
 einem kurzen Tag. Kräftigungs- oder Dehnanteile gehören dann allenfalls in die \
-Beschreibung einer Ausdauereinheit, nicht in eine eigene."""
+Beschreibung einer Ausdauereinheit, nicht in eine eigene — das gilt auch für eine \
+Beschwerde unter `athlet.verletzungen_einschraenkungen`: Was sie angeht, steht als kurzer \
+Teil in einer Ausdauereinheit."""
 
 
 # Punkt 4, aus vier Stücken. Der Ort einer Einheit gehört zu ihrer Sportart:
@@ -1751,10 +1988,11 @@ Beschreibung einer Ausdauereinheit, nicht in eine eigene."""
 # Basis und Bauplan gelten überall und bleiben wörtlich, wie sie waren.
 _STEUER_BASIS = """**Steuerungsgrößen**: Gib zu jeder Einheit konkrete Zielbereiche an (Herzfrequenz \
 aus `herzfrequenzzonen`, Watt aus `leistungszonen`, Pace aus `tempozonen_laufen` bzw. \
-`tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Diese Zonen sind aus den \
-gemessenen Schwellenwerten des Athleten gerechnet — nimm sie, statt eigene Anteile \
-anzusetzen: Aus denselben Korridoren baut die App das Workout für die Uhr. Fehlt ein \
-Zonenblock, ist der Schwellenwert nicht hinterlegt; leite die Vorgabe dann aus Pace und \
+`tempozonen_schwimmen`, und/oder RPE). Keine vagen Angaben. Die App rechnet diese Zonen \
+aus den hinterlegten Werten des Athleten (Puls aus `maximalpuls` und `ruhepuls`, Watt aus \
+`ftp_watt`, Pace aus Schwellenpace bzw. CSS) — nimm sie, statt eigene Anteile anzusetzen: \
+Aus denselben Korridoren baut die App das Workout für die Uhr. Fehlt ein Zonenblock, ist \
+der Wert dazu nicht hinterlegt; leite die Vorgabe dann aus Pace und \
 `hf_schnitt` vergleichbarer Einheiten der Historie ab und **erfinde keinen \
 Schwellenwert**. Eine 0 ist nie ein gültiger Wert — gilt eine Größe für die Einheit \
 nicht, lass das Feld lieber weg."""
@@ -1767,7 +2005,7 @@ Beckentraining auf der Uhr landet, zählt Bahnen statt Strecke."""
 
 _STEUER_RADORT = """
 
-Bei `bike` gehört ebenso `bike_location` dazu — `indoor` (auf der Rolle) oder \
+   Bei `bike` gehört ebenso `bike_location` dazu — `indoor` (auf der Rolle) oder \
 `outdoor` —, und daran hängt die **Steuergröße der ganzen Einheit**: Watt steuert nur, \
 wo die Leistung gemessen wird. Das ist der Fall auf der Rolle (`smart_trainer` unter \
 `trainingswunsch.equipment`) und mit Wattmessung am Rad (`powermeter`). Steht \
@@ -1784,7 +2022,7 @@ Minuten hinterherzieht."""
 # KI sie beim Ausfüllen liest.
 _STEUER_BAUPLAN = """
 
-**Der Bauplan für die Uhr**: Gib zu jeder Einheit außer `rest` \
+   **Der Bauplan für die Uhr**: Gib zu jeder Einheit außer `rest` \
 zusätzlich zu `structure` das Feld `steps` an — denselben Aufbau als Liste von \
 Abschnitten. `structure` liest der Athlet; aus `steps` baut die App das Workout für die \
 Uhr, und zwar **wörtlich**: Sie rechnet nichts nach, ergänzt keine Pause und rät keinen \
@@ -1884,14 +2122,8 @@ Folgetag steht. Ob der Abstand zum letzten und zum nächsten harten Reiz trägt,
 entscheidest du — hier mit dem Vorteil, dass beide Nachbarn schon feststehen und du \
 sie nachlesen kannst. Ändert der Wunsch die Intensität nach oben, ist das die erste \
 Prüfung.
-{fitnessregeln}
-3. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt denselben Verlauf in \
-drei Auflösungen — die letzten {historie_wochen} Wochen einzeln, die letzten \
-{uebersicht_wochen} Wochen je Kalenderwoche, {verlauf_monate} Monate je Monat in \
-`athlet.verlauf`. Die jüngsten Wochen stehen in mehreren davon; zähle sie nicht doppelt. \
-Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: nicht mehr, sondern \
-weniger. `tage_seit_letzter_intensiver_einheit` und \
-`tage_seit_letzter_einheit_je_sportart` gelten unverändert.
+2. **Erholungslage**: {fitnessregeln}
+3. **Einordnung in den Verlauf**: {verlaufsregeln}
 4. **Spezifität**: Die Einheit behält ihre Rolle im Block, soweit der Wunsch sie nicht \
 gerade aufhebt. Wer „kürzer" sagt, will keine andere Trainingswirkung, sondern \
 dieselbe in weniger Zeit — kürze dann zuerst den lockeren Teil und erhalte den Reiz.
@@ -1906,7 +2138,7 @@ keine Aussage über sie — leite aus ihrem Fehlen nichts ab.
 Freitext des Athleten über seinen Körper. Steht dort etwas, gilt es auch für diese \
 Einheit — unabhängig davon, ob der Wunsch sie erwähnt: Umfang, Intensität, Untergrund \
 und Bewegungsform so wählen, dass die Beschwerde nicht provoziert wird. Und wird die \
-Einheit zu Kraft oder Mobility, ist die betroffene Region das Erste, was **hinein**\
+Einheit zu Kraft oder Mobility, ist die betroffene Region das Erste, was **hinein** \
 gehört, nicht das Erste, was ausgelassen wird — eine behandelbare Beschwerde wird dort \
 angegangen, nicht umgangen.
 
@@ -1930,6 +2162,36 @@ an der der Athlet es erfährt.
 ## Athletendaten
 {payload}
 """
+
+
+# Punkt „Einordnung in den Verlauf" der Einzel- und der Tagesanpassung. Eine
+# Fassung für beide, weil sie dieselben Felder erklärt.
+#
+# Hier stand einmal „Eine `acute_chronic_workload_ratio` über 1.3 heißt auch
+# hier: nicht mehr, sondern weniger" — eine Schwelle aus diesem Dokument, die im
+# Blockprompt längst gestrichen war („auch hier" verwies auf nichts mehr), über
+# eine von zwei ACWR im Paket, ohne zu sagen, welche. Und „`tage_seit_…` gelten
+# unverändert" ließ offen, gegenüber was. Jetzt steht, was die Felder messen;
+# den Schluss zieht das Modell, wie beim Block.
+VERLAUFSREGELN = """Der Verlauf steht in drei Auflösungen — \
+`trainingshistorie.einheiten` die letzten {historie_wochen} Wochen einzeln, \
+`trainingshistorie.wochenuebersicht` {uebersicht_wochen} Wochen je Kalenderwoche, \
+`athlet.verlauf` {verlauf_monate} Monate je Monat. Die jüngsten Wochen stehen in mehreren \
+davon; zähle sie nicht doppelt. `acute_chronic_workload_ratio` stellt die Last der letzten \
+7 Tage gegen den Schnitt der letzten 28, gerechnet aus Dauer × RPE (das RPE ist meist \
+geschätzt) — nicht zu verwechseln mit Garmins gemessenem `acwr_garmin`. Den Abstand zum \
+letzten harten Reiz nennt `tage_seit_letzter_intensiver_einheit` (was als intensiv zählt, \
+steht in `intensiv_heisst`), den zu jeder Sportart \
+`tage_seit_letzter_einheit_je_sportart`."""
+
+
+def _verlaufsregeln() -> str:
+    """`VERLAUFSREGELN`, gefüllt — `.format()` formatiert eingesetzte Werte nicht erneut."""
+    return VERLAUFSREGELN.format(
+        historie_wochen=HISTORY_WEEKS,
+        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
+        verlauf_monate=VERLAUF_MONATE,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1987,9 +2249,7 @@ Ruhetage macht diese Aufgabe nicht zu Training.
 1. **Die Werte von heute sind der Anlass.** {fitnessregeln}
 2. **Der Platz im Block**: Sieh in `tagesform.block` nach, was gestern stand und was \
 morgen kommt. Nimmst du heute zurück, entscheidest du damit auch über den Reiz von \
-morgen; hebst du an, prüfe zuerst den Abstand zum letzten harten Tag. \
-`tage_seit_letzter_intensiver_einheit` und `tage_seit_letzter_einheit_je_sportart` \
-gelten unverändert.
+morgen; hebst du an, prüfe zuerst den Abstand zum letzten harten Tag.
 3. **Nach oben ist nicht die Gegenrichtung von nach unten.** Zurücknehmen kostet einen \
 Reiz, Anheben kostet Erholung. Hebe nur an, wenn die Werte das *und* der Platz im Block \
 es hergeben — und dann in Maßen: Ein Tag mit guter Erholung ist kein Nachholtermin für \
@@ -1997,11 +2257,7 @@ das, was in den Wochen davor fehlte.
 4. **Stehen mehrere Einheiten am Tag, entscheide sie zusammen.** Sie teilen sich \
 denselben Tag und denselben Athleten; die Mobility neben einem zurückgenommenen \
 Intervalltraining ist eine andere Frage als die neben dem geplanten.
-5. **Einordnung in den Verlauf**: `trainingshistorie` beschreibt denselben Verlauf in \
-drei Auflösungen — die letzten {historie_wochen} Wochen einzeln, die letzten \
-{uebersicht_wochen} Wochen je Kalenderwoche, {verlauf_monate} Monate je Monat in \
-`athlet.verlauf`. Die jüngsten Wochen stehen in mehreren davon; zähle sie nicht doppelt. \
-Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier: nicht mehr, sondern weniger.
+5. **Einordnung in den Verlauf**: {verlaufsregeln}
 6. **Selbstauskunft des Athleten**: Das RPE in der Historie ist in aller Regel \
 **geschätzt** — `rpe_quelle` nennt, woraus. Steht dort „athlet", hat er die Einheit in \
 Garmin Connect selbst bewertet; das wiegt schwerer als jede Schätzung. Dasselbe gilt für \
@@ -2052,9 +2308,9 @@ Stunden später, ohne dass jemand nachfragen kann.
 # Planungstag läge, ist weg.
 NEUPLANUNGSHINWEIS = """
 
-**Dieser Block wird am kommenden {wochentag} automatisch neu geplant.** Was darüber \
-hinausreicht, wird dabei verworfen und durch einen frischen Block aus den dann aktuellen \
-Daten ersetzt. Plane die {tage} Tage trotzdem stimmig; entscheide aber bei allem, was \
+**Dieser Block wird am {wochentag}, {datum} automatisch neu geplant.** Was ab dann \
+geplant ist, wird dabei verworfen und durch einen frischen Block aus den dann aktuellen \
+Daten ersetzt. Plane den ganzen Block trotzdem stimmig; entscheide aber bei allem, was \
 früher genauso gut möglich ist, im Zweifel für den früheren Tag."""
 
 
@@ -2127,9 +2383,121 @@ def _prinzip_ergaenzung(payload: dict[str, Any], begruendungsfeld: str) -> str:
     der Disziplin, die ohne Fragebogen alles offen lässt.
     """
     wunsch = payload.get("trainingswunsch") or {}
-    if wunsch.get("zusatztraining") == KEIN_ZUSATZTRAINING:
+    gewaehlt = wunsch.get("zusatztraining")
+    if gewaehlt == KEIN_ZUSATZTRAINING:
         return PRINZIP_KEIN_ERGAENZUNG
-    return PRINZIP_ERGAENZUNG.format(begruendungsfeld=begruendungsfeld)
+    # Ohne Fragebogen ist nichts gewählt und nichts abgewählt — dann bleibt
+    # beides offen, wie bei der Disziplin.
+    auswahl = set(gewaehlt) if isinstance(gewaehlt, list) else set()
+    if auswahl == {"mobility"}:
+        kopf = ERGAENZUNG_NUR_MOBILITY
+    elif auswahl == {"strength"}:
+        kopf = ERGAENZUNG_NUR_KRAFT
+    else:
+        kopf = ERGAENZUNG_BEIDE
+    return PRINZIP_ERGAENZUNG.format(
+        begruendungsfeld=begruendungsfeld, ergaenzung_kopf=kopf
+    )
+
+
+def _neuplanungshinweis(period: dict[str, Any]) -> str:
+    """Der Absatz zur automatischen Neuplanung — nur, wenn sie in den Block fällt.
+
+    Mit Datum und nicht als „am kommenden Sonntag": Am Planungstag selbst hieß
+    das je nach Uhrzeit heute oder in einer Woche. Liegt der Termin hinter dem
+    letzten Blocktag, wird nichts verworfen, und der Absatz entfällt.
+    """
+    datum_text = period.get("naechste_neuplanung")
+    if not datum_text:
+        return ""
+    datum = date.fromisoformat(datum_text)
+    ende = period.get("enddatum")
+    if ende and datum > date.fromisoformat(ende):
+        return ""
+    # `.format()` formatiert eingesetzte Werte nicht erneut — der Absatz wird
+    # hier gefüllt, bevor er in die Vorlage geht.
+    return NEUPLANUNGSHINWEIS.format(
+        wochentag=WOCHENTAG_DEUTSCH[WEEKDAYS[datum.weekday()]],
+        datum=datum.isoformat(),
+    )
+
+
+def _zeitraumtexte(tage: Any, start: str, ende: str) -> dict[str, str]:
+    """Die drei Stellen, an denen der Prompt die Blocklänge nennt.
+
+    Für einen einzelnen Tag in der Einzahl: „die nächsten 1 Trainingstage" und
+    „Genau 1 Tage" sind die Sätze, an denen ein Leser merkt, dass niemand
+    hingesehen hat.
+    """
+    if tage == 1:
+        return {
+            "zeitraum": f"einen einzelnen Tag: {start}",
+            "diese_tage": "diesen Tag",
+            "tage_regel": f"Genau ein Tag: {start}.",
+        }
+    return {
+        "zeitraum": f"die nächsten {tage} Tage: {start} bis {ende}",
+        "diese_tage": f"diese {tage} Tage",
+        "tage_regel": (
+            f"Genau {tage} Tage, lückenlos von {start} bis {ende}, jedes Datum "
+            "genau einmal."
+        ),
+    }
+
+
+def _schwellenhinweis(payload: dict[str, Any]) -> str:
+    """Die Sätze zu einer vermutlich veralteten Schwelle — nur mit den Feldern dazu.
+
+    Beide Vergleiche brauchen zwei Werte im Paket; fehlt einer, verwiese der
+    Satz auf ein Feld, das nicht dasteht. Und beide sagen, was zu tun ist: Die
+    Zonen bleiben die Grundlage, weil die Uhr mit ihnen rechnet — geändert wird
+    die Schwelle vom Athleten, nicht still vom Modell.
+    """
+    athlet = payload.get("athlet") or {}
+    saetze: list[str] = []
+    veraltet = False
+
+    if athlet.get("schwellenpace_gemessen_garmin") and athlet.get(
+        "schwellenpace_laufen_min_pro_km"
+    ):
+        saetze.append(
+            "Weicht `schwellenpace_gemessen_garmin` deutlich von "
+            "`schwellenpace_laufen_min_pro_km` ab, ist die hinterlegte Schwellenpace "
+            "vermutlich veraltet."
+        )
+        veraltet = True
+
+    bestwerte = athlet.get("bestwerte_training") or []
+    if bestwerte:
+        mit_stunde = {
+            zeile.get("sportart") for zeile in bestwerte if zeile.get("spanne") == "60 min"
+        }
+        vergleiche = []
+        if "bike" in mit_stunde and athlet.get("ftp_watt"):
+            vergleiche.append("der Radwert über `ftp_watt`")
+        if "run" in mit_stunde and athlet.get("schwellenpace_laufen_min_pro_km"):
+            vergleiche.append(
+                "der Laufwert schneller als `schwellenpace_laufen_min_pro_km`"
+            )
+        satz = (
+            "`athlet.bestwerte_training` sind die besten **Trainingswerte** über "
+            "feste Dauern bzw. Strecken, keine Tests"
+        )
+        if vergleiche:
+            satz += (
+                "; liegt über 60 min " + " bzw. ".join(vergleiche)
+                + ", ist die hinterlegte Schwelle vermutlich veraltet"
+            )
+            veraltet = True
+        saetze.append(satz + ".")
+
+    if veraltet:
+        saetze.append(
+            "Plane dann trotzdem mit den Zonenblöcken — die Uhr rechnet mit ihnen — "
+            "und nenne die vermutlich veraltete Schwelle in `coaching_notes`, damit "
+            "der Athlet sie nachträgt."
+        )
+    return "".join(" " + satz for satz in saetze)
 
 
 def build_prompt(payload: dict[str, Any]) -> str:
@@ -2138,21 +2506,15 @@ def build_prompt(payload: dict[str, Any]) -> str:
     # Auslöser sie ohne Zutun — der Knopf wie der Weg über die Zwischenablage.
     disziplin = _disziplin(payload)
     tage = period.get("tage", PLAN_DAYS_DEFAULT)
+    start = period.get("startdatum", "")
+    ende = period.get("enddatum", "")
     return PROMPT_TEMPLATE.format(
-        tage=tage,
-        start=period.get("startdatum", ""),
-        ende=period.get("enddatum", ""),
+        **_zeitraumtexte(tage, start, ende),
         historie_wochen=HISTORY_WEEKS,
         uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
         verlauf_monate=VERLAUF_MONATE,
-        # `{tage}` darin wird hier gefüllt: `.format()` formatiert eingesetzte
-        # Werte nicht erneut, der Platzhalter bliebe sonst wörtlich stehen —
-        # dieselbe Falle wie bei `PRINZIP_TRIATHLON` und `FITNESSREGELN_*`.
-        neuplanungshinweis=(
-            NEUPLANUNGSHINWEIS.format(tage=tage, wochentag=wochentag)
-            if (wochentag := period.get("naechste_neuplanung"))
-            else ""
-        ),
+        neuplanungshinweis=_neuplanungshinweis(period),
+        schwellenhinweis=_schwellenhinweis(payload),
         fitnessregeln=_fitnessregeln(payload, "summary"),
         wettkampfhinweis=_wettkampfhinweis(payload),
         # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
@@ -2183,9 +2545,7 @@ def build_einheit_prompt(payload: dict[str, Any]) -> str:
         # `.format()` setzt Werte ein, ohne sie erneut zu formatieren — ein
         # Wunsch mit geschweiften Klammern kann hier also nichts anrichten.
         wunsch=anpassung.get("wunsch_des_athleten", ""),
-        historie_wochen=HISTORY_WEEKS,
-        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
-        verlauf_monate=VERLAUF_MONATE,
+        verlaufsregeln=_verlaufsregeln(),
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
         sportartwechsel=_sportartwechsel(disziplin),
         prinzip_ergaenzung=_prinzip_ergaenzung(payload, "begruendung"),
@@ -2214,9 +2574,7 @@ def build_tagesform_prompt(payload: dict[str, Any]) -> str:
         einheiten_zahl=(
             "eine Einheit" if anzahl == 1 else f"{anzahl} Einheiten"
         ),
-        historie_wochen=HISTORY_WEEKS,
-        uebersicht_wochen=WOCHENUEBERSICHT_WOCHEN,
-        verlauf_monate=VERLAUF_MONATE,
+        verlaufsregeln=_verlaufsregeln(),
         # Alle drei gehen als fertiger Text hinein: `.format()` formatiert
         # eingesetzte Werte nicht erneut, ein Platzhalter darin bliebe stehen.
         fitnessregeln=_fitnessregeln(payload, "begruendung"),
@@ -2264,7 +2622,7 @@ class _Kontext:
     # `wellness` — siehe `VERLAUF_MONATE`.
     verlauf: list[ProfileHistory]
     garmin: Any
-    # An welchem Wochentag von selbst neu geplant wird, `None` bei
+    # An welchem Tag (ISO-Datum) von selbst neu geplant wird, `None` bei
     # abgeschalteter Automatik. Steht hier und nicht in der Signatur des
     # Exports: Beide Auslöser — Knopf wie Zwischenablage — erben ihn damit ohne
     # Zutun, wie die Disziplin auch.
@@ -2355,16 +2713,28 @@ def _lade_kontext(db: Session, user: User, request_id: int | None) -> _Kontext:
         wellness=wellness,
         verlauf=verlauf,
         garmin=konto,
-        naechste_planung=(
-            # `auto_plan_weekday` zählt wie `date.weekday()`; über `WEEKDAYS`
-            # wird daraus der englische Schlüssel und daraus der deutsche Name.
-            WOCHENTAG_DEUTSCH[WEEKDAYS[ki.auto_plan_weekday]]
-            if ki is not None
-            and ki.auto_plan_enabled
-            and 0 <= ki.auto_plan_weekday < len(WEEKDAYS)
-            else None
-        ),
+        naechste_planung=_naechste_neuplanung(ki, datetime.now()),
     )
+
+
+def _naechste_neuplanung(ki: KiSettings | None, jetzt: datetime) -> str | None:
+    """Der Tag, an dem die Automatik als Nächstes plant — als ISO-Datum.
+
+    Ein Datum und kein Wochentag: Am Planungstag selbst hieß „am kommenden
+    Sonntag" vor der eingestellten Uhrzeit heute und danach in einer Woche.
+    `auto_plan_weekday` zählt wie `date.weekday()`. `None` bei abgeschalteter
+    Automatik.
+    """
+    if ki is None or not ki.auto_plan_enabled:
+        return None
+    if not 0 <= ki.auto_plan_weekday < len(WEEKDAYS):
+        return None
+    heute = jetzt.date()
+    abstand = (ki.auto_plan_weekday - heute.weekday()) % 7
+    uhrzeit = (ki.auto_plan_hour or 0, ki.auto_plan_minute or 0)
+    if abstand == 0 and (jetzt.hour, jetzt.minute) >= uhrzeit:
+        abstand = 7
+    return (heute + timedelta(days=abstand)).isoformat()
 
 
 REPARATUR_PROMPT = """Die folgende JSON-Antwort ist fast richtig, wird von der \
@@ -2977,6 +3347,9 @@ def erzeuge_ernaehrung_export(
         payload["trainingshistorie"] = _ernaehrungshistorie(
             payload["trainingshistorie"]
         )
+    # Der Energiebedarf von morgen hängt am geplanten Block, nicht an der besten
+    # 20-Minuten-Leistung des Sommers.
+    payload["athlet"].pop("bestwerte_training", None)
 
     payload["ernaehrung"] = {
         "zeitraum": {
@@ -3177,7 +3550,7 @@ def erzeuge_analyse_export(
         # ihrer Historie sieht. Er trägt, was in der FIT-Datei nicht steht: das
         # selbst vergebene Befinden, Garmins Trainingslast, die gezählten
         # Übungen einer Krafteinheit.
-        "training": _session_eintrag(log),
+        "training": _session_eintrag(log, zones),
         "aktivitaeten": aktivitaeten or [{"hinweis": HINWEIS_OHNE_FIT}],
     }
 

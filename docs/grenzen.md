@@ -200,15 +200,53 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   geändert hat. Die App prüft nichts davon nach: Sie weiß nicht, ob zwei
   Einheiten vergleichbar sind, und rechnet den Wert an jeder Einheit mit
   Herzfrequenz und Bezugsgröße aus. Der Prompt sagt die Einschränkung, die
-  Einordnung bleibt bei der KI. Wärme, Untergrund und Höhenmeter verschieben
+  Einordnung bleibt bei der KI. Auf dem Rad gibt es sie nur mit Wattmessung —
+  Tempo je Schlag stand früher unter derselben Überschrift, mit rund dreifachem
+  Zahlenwert, und das Monatsmittel zeigte den Anteil der Rollenfahrten statt der
+  Form. Wärme, Untergrund und Höhenmeter verschieben
   ihn ebenfalls — die Temperatur steht seither wenigstens daneben, Untergrund
   nirgends.
-- **Es gibt kein aerobes Decoupling und keine Powerkurve.** Beides bräuchte die
-  Sekunden-Zeitreihe der Aktivität (`get_activity_details`), und die kostet
-  **eine Anfrage je Einheit** — bei dreißig Einheiten im Rückblickfenster eine
-  ganz andere Größenordnung als alles, was der Abgleich sonst tut. Die
-  Ableitung wäre wertvoll (sie sagt, ob der Athlet in der zweiten Hälfte
-  wegbricht); der Preis ist es bisher nicht.
+- **Aerobe Entkopplung und der Verlauf über die Wiederholungen fehlen noch —
+  aber nicht mehr wegen des Preises.** Hier stand einmal, beides bräuchte die
+  Sekunden-Zeitreihe, und die koste eine Anfrage je Einheit. Seit der Abgleich
+  jede Original-Aufzeichnung ohnehin **einmal** holt (siehe „Die Aufzeichnung
+  wird einmal je Training geholt" in
+  [garmin-abgleich.md](garmin-abgleich.md)), fehlt nur noch die Rechnung. Was
+  fehlt, sind Einheiten, an denen sie etwas aussagt: gleichmäßig, ab etwa
+  45 min, mit Watt oder in der Ebene. Am echten Konto waren das in 26 Wochen
+  rund fünf Läufe und sechs Indoor-Fahrten, gemessen am Handgelenk. Die
+  Straßenfahrten haben keine Watt, und Tempo gegen Puls ist dort Wind und
+  Gelände. Wächst der Umfang, ist das der nächste Schritt.
+- **Nicht jede Einheit hat Zonenzeiten.** Ohne Pulshistogramm stehen im
+  Export keine — älter als 26 Wochen, in Connect von Hand angelegt, ohne Puls
+  oder noch nicht nachgeholt. Garmins Zählung nach den Zonen der Uhr springt
+  bewusst nicht ein (siehe „Im Export gibt es keinen Rückfall auf Garmins
+  Zählung" in [garmin-abgleich.md](garmin-abgleich.md)). In den ersten Tagen
+  nach dem Update ist die Wochenübersicht deshalb lückenhaft; wie sehr, sagt
+  `zonen_abdeckung_pct`. Der Abgleich holt je Lauf höchstens 40 Aufzeichnungen,
+  die jüngsten zuerst; nach etwa fünf Abgleichen ist das halbe Jahr
+  ausgezählt.
+- **Die RPE-Schätzung zählt weiter nach den Zonen der Uhr**
+  (`mapping.schaetze_rpe`). Sie trägt sRPE, ACWR und Monotonie über das ganze
+  Jahr, und Einheiten vor 26 Wochen bekommen nie ein Histogramm. Ein Wechsel
+  mitten in der Historie verschöbe die Skala; die Unschärfe ist das kleinere
+  Übel.
+- **Bestwerte sind Trainingswerte, keine Tests.** Wer nie zwanzig Minuten hart
+  fuhr, hat dort einen niedrigen Wert: Die Zwift-Fahrt vom 16.02.2026 ergab
+  125 W über 20 min bei hinterlegter FTP 198 W. Umgerechnet wird nichts. Watt
+  gibt es nur, wo gemessen wird (am echten Konto nur drinnen). Freiwasser und
+  Laufband haben keine Bestwerte, weil die Strecke dort geschätzt ist. Im
+  Becken zählt nur Freistil am Stück, und das waren im echten Training selten
+  mehr als vier Bahnen — deshalb gibt es auch 50 m.
+- **Ein GPS-Sprung kann einen Laufbestwert heben.** Geprüft wird nur das
+  Mittel eines ganzen Fensters gegen 7,1 m/s (`fitdaten._MAX_LAUF_M_S`), nicht
+  jeder Abschnitt darin. 500 m Sprung in fünf Minuten höben eine 3,0-m/s-Pace
+  auf 4,7 m/s — unter der Grenze. Die Uhr glättet ihre Strecke selbst, und der
+  60-min-Wert, an dem der Prompt eine veraltete Schwelle festmacht, verdünnt
+  einen Sprung auf ein Zwölftel.
+- **Multisport ist für die Kennwerte ungetestet.** Pulshistogramm und
+  Bestwerte ordnen Records und Bahnen über das Zeitfenster der Session zu,
+  wie die Einzelanalyse. Ein Fixture mit mehreren Sessions gibt es nicht.
 - **Monotonie und Strain gibt es nur an ganzen Wochen** und nur, wo es
   überhaupt eine Streuung gibt. Sieben identische Tage haben keine, und die
   Division wäre dort nicht groß, sondern undefiniert — dort fehlen die

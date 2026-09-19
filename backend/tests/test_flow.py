@@ -9,6 +9,9 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.ai_export import WOCHENTAG_DEUTSCH
+from app.schemas import WEEKDAYS
+
 # `client` und `auth` kommen aus `tests/conftest.py` — dort steht auch die
 # Vorbereitung der Umgebung, die vor dem Import von `app.main` laufen muss.
 
@@ -188,7 +191,7 @@ def test_ai_export_contains_context(client, auth):
     assert date.fromisoformat(wochen[-1]["week_end"]) >= date.today()
 
     # Der Prompt muss Auftrag, Daten und Formatvorgabe enthalten
-    assert "nächsten 7 Trainingstage" in data["prompt"]
+    assert "die nächsten 7 Tage" in data["prompt"]
     assert '"days"' in data["prompt"]
     assert "Olympische Distanz" in data["prompt"]
 
@@ -295,32 +298,69 @@ def test_ergaenzung_stellt_kraft_und_mobility_gleich(client, auth):
 def test_der_prompt_nennt_den_tag_der_naechsten_neuplanung(client, auth):
     """Bei aktiver Automatik ist der Block nur bis zum Planungstag sicher.
 
-    Der Hinweis nennt den **eingestellten Wochentag**. „Morgen früh" stand hier
-    einmal fest im Text und stimmte, solange täglich geplant wurde — seit es
-    wöchentlich geschieht, wäre es schlicht falsch.
+    Der Hinweis nennt den **eingestellten Wochentag samt Datum**. „Morgen früh"
+    stand hier einmal fest im Text und stimmte, solange täglich geplant wurde;
+    danach „am kommenden Mittwoch" — und das hieß am Mittwoch selbst je nach
+    Uhrzeit heute oder in einer Woche.
     """
-    ohne = client.get("/api/plans/export", headers=auth).json()["prompt"]
-    assert "automatisch neu geplant" not in ohne
+    ohne = client.get("/api/plans/export", headers=auth).json()
+    assert "automatisch neu geplant" not in ohne["prompt"]
+    assert "naechste_neuplanung" not in ohne["payload"]["planungszeitraum"]
 
+    # Morgen: liegt immer im Siebentageblock und hängt nicht an der Uhrzeit.
+    morgen = date.today() + timedelta(days=1)
     client.put(
         "/api/ki/settings",
         headers=auth,
-        # Mittwoch: ein Tag, der nicht die Vorgabe ist — sonst bestünde der Test
-        # auch, wenn der Wochentag gar nicht durchgereicht würde.
-        json={"auto_plan_enabled": True, "auto_plan_weekday": 2},
+        json={"auto_plan_enabled": True, "auto_plan_weekday": morgen.weekday()},
     )
     try:
-        mit = client.get("/api/plans/export", headers=auth).json()["prompt"]
-        assert "**Dieser Block wird am kommenden Mittwoch automatisch neu geplant.**" in mit
-        # Beide Platzhalter müssen gefüllt sein — `.format()` formatiert
+        mit = client.get("/api/plans/export", headers=auth).json()
+        assert mit["payload"]["planungszeitraum"]["naechste_neuplanung"] == (
+            morgen.isoformat()
+        )
+        tag = WOCHENTAG_DEUTSCH[WEEKDAYS[morgen.weekday()]]
+        assert (
+            f"**Dieser Block wird am {tag}, {morgen.isoformat()} automatisch neu "
+            "geplant.**"
+        ) in mit["prompt"]
+        # Die Platzhalter müssen gefüllt sein — `.format()` formatiert
         # eingesetzte Werte nicht erneut.
-        assert "{tage}" not in mit
-        assert "{wochentag}" not in mit
-        assert "Plane die 7 Tage trotzdem stimmig" in mit
+        assert "{wochentag}" not in mit["prompt"]
+        assert "{datum}" not in mit["prompt"]
+        assert "Plane den ganzen Block trotzdem stimmig" in mit["prompt"]
     finally:
         client.put(
             "/api/ki/settings", headers=auth, json={"auto_plan_enabled": False}
         )
+
+
+def test_die_naechste_neuplanung_haengt_an_der_uhrzeit():
+    """Am Planungstag selbst: vor der Uhrzeit heute, danach in einer Woche."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from app.ai_export import _naechste_neuplanung
+
+    sonntag = datetime(2026, 9, 20, 8, 59)
+    ki = SimpleNamespace(
+        auto_plan_enabled=True, auto_plan_weekday=6, auto_plan_hour=9, auto_plan_minute=0
+    )
+    assert _naechste_neuplanung(ki, sonntag) == "2026-09-20"
+    assert _naechste_neuplanung(ki, sonntag.replace(hour=9)) == "2026-09-27"
+    assert _naechste_neuplanung(ki, datetime(2026, 9, 19, 20, 15)) == "2026-09-20"
+    ki.auto_plan_enabled = False
+    assert _naechste_neuplanung(ki, sonntag) is None
+
+
+def test_ein_neuplanungstermin_hinter_dem_block_entfaellt():
+    """Was nach dem letzten Blocktag liegt, wird nicht verworfen — kein Absatz."""
+    from app.ai_export import _neuplanungshinweis
+
+    zeitraum = {"enddatum": "2026-09-21", "naechste_neuplanung": "2026-09-27"}
+    assert _neuplanungshinweis(zeitraum) == ""
+    zeitraum["naechste_neuplanung"] = "2026-09-20"
+    assert "am Sonntag, 2026-09-20" in _neuplanungshinweis(zeitraum)
 
 
 def anweisungsteil(prompt: str) -> str:

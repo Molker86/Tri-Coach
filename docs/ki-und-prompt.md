@@ -287,6 +287,18 @@ Wochen. Für einen Block über wenige Tage entscheidet die jüngste Entwicklung,
 und die Vierwochensicht steht als `mittelwerte.28_tage` daneben. Über den vollen
 Rückblick waren die Tageswerte ein Fünftel des gesamten Prompts.
 
+**`aktuell` heißt: vom Tag `stand`** (`AKTUELL_TAGESWERT_TAGE`, `werte_vom`).
+Der Block nahm je Feld den jüngsten belegten Wert der letzten 28 Tage und
+stellte ihn unter `stand` von heute — an einem echten Konto eine Körperbatterie
+von 11, die 19 Tage alt war. Tageswerte (Schlaf, HRV, Ruhepuls, Stress,
+Körperbatterie, Readiness, Status) zählen jetzt nur vom Tag `stand` oder vom
+Vortag; Gewicht, Körperfett und VO2max entstehen nur, wenn gemessen wird, und
+bleiben stehen. Was nicht vom Tag `stand` stammt, nennt `werte_vom` mit Datum.
+`training_status.einstufung` ist das Wort aus Garmins Feedbacksatz
+(`PRODUCTIVE_2` → `PRODUCTIVE`); die Spalte `training_status` trägt nur einen
+Zahlencode, und im Paket stand `"einstufung": "7"`. Der 7-Tage-Schnitt in
+`mittelwerte` mittelte außerdem über acht Tage (`>= heute − 7`).
+
 **Kapazität und Richtung stehen neben der Erholungslage.** Das Paket beschrieb
 sehr genau, wie *erholt* der Athlet ist — HRV samt gemessenem Normalbereich,
 Schlafphasen, Readiness, Trainingsstatus mit Lastfenster — und sehr wenig
@@ -339,6 +351,64 @@ Anfrage, und eine veraltete Handeingabe ist im Paket durch nichts anderes zu
 erkennen. Ein Gegenstück für die FTP gibt es nicht — siehe „Die FTP kommt aus
 keiner dieser Antworten" in `docs/garmin-abgleich.md`.
 
+**Die Bestwerte aus dem Training stehen neben den Schwellenwerten**
+(`athlet.bestwerte_training`, `ai_export._bestwerte_block`,
+`fitdaten.kennwerte_aus_fit`). Sie sind das Gegenstück, das für FTP und CSS
+fehlte: Beide sind Handarbeit, und ob sie veraltet sind, stand nirgends. Aus
+jeder Aufzeichnung der letzten 26 Wochen kommen:
+- beim Laufen die beste Pace über 5, 20 und 60 min,
+- auf dem Rad die beste Leistung über dieselben Dauern,
+- im Becken die beste Zeit über 50, 100, 200 und 400 m Freistil am Stück.
+
+Jede Zeile nennt den besten Wert der letzten sechs und der letzten 26 Wochen,
+mit Datum. Zwei Fenster, weil erst der Vergleich sagt, ob der Athlet unter
+seiner Saisonform liegt. Geschrieben sind die Werte wie die Schwelle daneben
+(min/km, W, min/100m); ein Vergleich über zwei Schreibweisen hinweg wäre
+Arithmetik, und an der scheitert ein Sprachmodell.
+
+Umgerechnet wird **nichts**: keine FTP aus 95 % der zwanzig Minuten, keine CSS
+aus 400 und 200 m. Das wären Faustregeln, und genau die sind mit den dreizehn
+Prinzipien geflogen. Der Prompt sagt zwei Dinge dazu. Erstens: Es sind
+Trainingswerte, keine Tests. Die Zwift-Fahrt vom 16.02.2026 ergab 125 W über
+zwanzig Minuten bei hinterlegten 198 W FTP, und das sagt über die FTP nichts.
+Zweitens: Eindeutig ist **nur** der 60-Minuten-Wert. Die FTP ist die Leistung,
+die sich etwa eine Stunde halten lässt; übertrifft ein gefahrener Stundenwert
+sie, ist die Eingabe veraltet. Ein Satz wie „liegen die Bestwerte über der FTP"
+wäre falsch gewesen, denn ein Fünfminutenwert liegt immer darüber. Die
+Ernährung bekommt die Tabelle nicht.
+
+**Die Sätze zur veralteten Schwelle stehen nur mit ihren Feldern**
+(`_schwellenhinweis()`). Sie standen einmal fest im Anweisungsteil — auch bei
+einem Athleten ohne Schwellenpace und ohne ausgewertete Aufzeichnung, also mit
+Verweisen auf Felder, die im Paket gar nicht stehen. Jetzt erscheint der Satz
+zur Garmin-Schwellenpace nur, wenn beide Paces dastehen, der Bestwerte-Satz nur
+mit `bestwerte_training`, und der Vergleich nur mit einem 60-min-Wert *und* der
+Schwelle, gegen die er zu lesen ist. Und beide sagen jetzt, was zu tun ist:
+Früher stand dort „die Eingabe ist vermutlich veraltet" ohne Folge, zwei Punkte
+weiter „nimm die Zonen". Jetzt heißt es: mit den Zonen weiterplanen — die Uhr
+rechnet mit ihnen (`workouts._leistung_aus_zone`) — und die Schwelle in
+`coaching_notes` nennen, damit der Athlet sie nachträgt.
+
+Im selben Absatz steht: `zeit_in_hf_zonen_min` zählt nach `herzfrequenzzonen`,
+Zeit unter Z1 als Z1, je Woche nur Ausdauer, und `zonen_abdeckung_pct` sagt, wie
+viel davon ausgezählt ist. Bis hierher stimmte schon der erste Teil nicht — die
+Zahlen kamen ausnahmslos aus Garmins Zonen der Uhr (siehe „Die Zonenzeiten
+zählen nach den Zonen der App" in `docs/garmin-abgleich.md`). Dazu die Einheiten
+der `effizienz` (Rad Watt, Laufen und Schwimmen m/min je Herzschlag) und was
+`ist_vollstaendig: false` heißt: die laufende Woche bzw. der laufende Monat.
+Unerklärt las die KI den halben September neben dem ganzen August als Einbruch.
+
+**Intensiv heißt nicht nur RPE ≥ 7** (`INTENSIV_HEISST`, `_ist_intensiv()`).
+`tage_seit_letzter_intensiver_einheit` hing allein am RPE, und das ist meist aus
+Garmins Zonen geschätzt oder eine Selbstauskunft, die bei Schwellenintervallen
+auch einmal 4 lautet. An einem echten Konto stand die Zahl bei 31 Tagen, einen
+Tag nach einer Sweet-Spot-Schlüsseleinheit. Jetzt genügt eines von dreien: RPE
+ab 7, mindestens 10 min in Z4–Z5 nach `herzfrequenzzonen` oder Garmins
+anaerober Trainingseffekt ab 2,0. Das ist eine Definition, keine
+Trainingsregel, und sie steht als Satz daneben im Paket (`intensiv_heisst`) —
+eine Zahl, deren Bedeutung die KI nicht kennt, liest sie nach eigenem
+Verständnis.
+
 Punkt 3 verlangt bei `strength` und `mobility` eine **Übungsliste** in
 `structure` und hinter jeder deutschen Bezeichnung den geläufigen englischen
 Namen in Klammern („Seitstütz (Side Plank) 3x40 s je Seite"). Das ist kein
@@ -373,6 +443,14 @@ der Einzelanpassung hat keins. `PRINZIP_ERGAENZUNG` geht deshalb wie
 `FITNESSREGELN_*` durch ein eigenes `.format()` (`_prinzip_ergaenzung()`) —
 `.format()` formatiert eingesetzte Werte **nicht** erneut, der Platzhalter muss
 also gefüllt sein, bevor der Text in die Vorlage geht.
+
+**Das Ergänzungstraining folgt der Auswahl, nicht nur ihrem Fehlen**
+(`ERGAENZUNG_BEIDE`, `_NUR_MOBILITY`, `_NUR_KRAFT`). Punkt 3 begann immer mit
+„Kraft und Mobility stehen gleichrangig" und erklärte, wohin eine Krafteinheit
+im Block gehört — auch bei einem Athleten, der nur Mobility gewählt hatte. Sein
+Block enthielt danach laufend Krafteinheiten. Bei nur einer Form sagt der Kopf
+jetzt, welche Sportart **nicht** vorkommt, und die Kraftregel steht nur, wo
+Kraft gewählt ist. Ohne Fragebogen bleibt beides offen.
 
 **Der Verzicht ist eine Angabe, kein Fehlen** — und das war ein echter Fehler.
 `paketformat._ohne_leere()` wirft `None`, `{}` und `[]` aus den JSON-Köpfen; bei
@@ -624,6 +702,13 @@ der Lauf sicher und kostete trotzdem), und der Zugang tragen. Geplant wird dann
 „Neu planen ab heute". Ein Fehlschlag wird protokolliert und verschluckt: Der
 Aufrufer ist eine Schleife, die weiterlaufen muss.
 
+**Der Neuplanungstermin steht als Datum** (`_naechste_neuplanung()`,
+`_neuplanungshinweis()`). „Am kommenden Sonntag" hieß am Sonntag selbst vor der
+eingestellten Uhrzeit heute und danach in einer Woche. Jetzt steht das Datum
+im Paket (`planungszeitraum.naechste_neuplanung`) und Wochentag samt Datum im
+Satz; liegt der Termin hinter dem letzten Blocktag, entfällt der Absatz, denn
+dann wird nichts verworfen.
+
 **Acht Tage, nicht sieben.** `AUTO_PLAN_TAGE` ist einen Tag länger als der
 manuelle `PLAN_DAYS_DEFAULT` (7) — und einen Tag länger als der Abstand der
 Wochensperre. Startet die Automatik am Sonntag, deckte ein Sieben-Tage-Block
@@ -686,6 +771,23 @@ umgeschrieben bekommen. Dass der Lauf **erfolgreich** war, wird nicht
 durchgereicht, sondern an `konto.last_sync_at` abgelesen — den setzt nur ein
 geglückter Abgleich, und dieselbe Frage („sind die Daten von heute da?")
 beantwortet damit denselben Ausdruck.
+
+**Einzel- und Tagesanpassung setzen keine ACWR-Schwelle** (`VERLAUFSREGELN`).
+Beide trugen noch „Eine `acute_chronic_workload_ratio` über 1.3 heißt auch hier:
+nicht mehr, sondern weniger" — eine Schwelle, die im Blockprompt längst
+gestrichen war („auch hier" verwies auf nichts mehr), über eine von zwei ACWR im
+Paket, ohne zu sagen, welche. Und „`tage_seit_…` gelten unverändert" ließ
+offen, gegenüber was. Der gemeinsame Punkt sagt jetzt, was die Felder messen:
+die ACWR der App aus Dauer × RPE (meist geschätzt), daneben Garmins gemessene
+`acwr_garmin`, der Abstand zum letzten harten Reiz samt `intensiv_heisst`.
+Nebenbei fehlte in der Einzelanpassung Punkt 2 — die Fitnessregeln trugen die
+Nummer früher selbst.
+
+**Die bisherige Einheit kommt mit Ort und Bauplan** (`_einheit_felder()`).
+Beide Prompts verlangen, **alle** geltenden Felder zurückzugeben — gezeigt
+wurden aber weder `bike_location`/`swim_location` noch `steps`. Die KI musste
+raten, ob die Fahrt auf der Rolle stand (daran hängt, ob Watt oder Puls
+steuert), und schrieb den Bauplan blind neu, statt den bestehenden zu kürzen.
 
 **Ein vierter Jobtyp, kein aufgebohrter dritter.** Naheliegend wäre gewesen,
 `kind="einheit"` mit einem erfundenen Wunsch zu starten — zehn Zeilen. Aber der

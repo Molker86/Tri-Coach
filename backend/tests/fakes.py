@@ -405,6 +405,10 @@ class FakeGarmin:
                             "dailyAcuteChronicWorkloadRatio": 0.92,
                             "dailyTrainingLoadAcute": 745,
                             "dailyTrainingLoadChronic": 810,
+                            # Das optimale Fenster der Akutlast: 0,8- bis
+                            # 1,5-mal die chronische Last.
+                            "minTrainingLoadChronic": 648.0,
+                            "maxTrainingLoadChronic": 1215.0,
                         },
                     },
                     "9999999999": {

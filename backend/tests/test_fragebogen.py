@@ -301,11 +301,38 @@ def test_abgewaehltes_ergaenzungstraining_steht_im_prompt(client, auth):
 
 
 def test_gewaehltes_ergaenzungstraining_behaelt_die_anleitung(client, auth):
-    _lege_an(client, auth, supplemental=["strength"])
+    _lege_an(client, auth, supplemental=["strength", "mobility"])
     prompt = _prompt(client, auth)["prompt"]
 
     assert "Kraft und Mobility stehen gleichrangig" in prompt
     assert "**Kein Ergänzungstraining**" not in prompt
+    # Die Übungsliste gilt unabhängig von der Auswahl.
+    assert "`structure` eine **Übungsliste**" in prompt
+
+
+def test_nur_mobility_schliesst_kraft_aus(client, auth):
+    """„Gleichrangig" stand auch da, wo nur Mobility gewählt war.
+
+    Samt der Regel, wohin eine Krafteinheit im Block gehört — und die KI plante
+    Krafteinheiten für einen Athleten, der sie abgewählt hatte.
+    """
+    _lege_an(client, auth, supplemental=["mobility"])
+    prompt = _prompt(client, auth)["prompt"]
+
+    assert "gleichrangig" not in prompt
+    assert "nur Mobility gewählt" in prompt
+    assert '`"sport": "strength"`' in prompt
+    assert "Kraft legst du nicht unmittelbar vor eine Schlüsseleinheit" not in prompt
+
+
+def test_nur_kraft_schliesst_mobility_aus(client, auth):
+    _lege_an(client, auth, supplemental=["strength"])
+    prompt = _prompt(client, auth)["prompt"]
+
+    assert "gleichrangig" not in prompt
+    assert "nur Kraft gewählt" in prompt
+    assert '`"sport": "mobility"`' in prompt
+    assert "Kraft legst du nicht unmittelbar vor eine Schlüsseleinheit" in prompt
 
 
 def test_ohne_fragebogen_bleibt_alles_offen(client, auth):

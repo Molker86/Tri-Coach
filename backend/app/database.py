@@ -90,6 +90,14 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "swolf": "INTEGER",
         "zuege": "INTEGER",
         "temperatur_c": "FLOAT",
+        # Aus der Original-Aufzeichnung. Anders als die Spalten darüber füllen
+        # sie sich für bestehende Einheiten **von selbst**: Der Abgleich holt je
+        # Lauf die jüngsten noch nicht ausgewerteten Trainings der letzten
+        # 26 Wochen nach (`sync.importiere_aufzeichnungen`), ein Rückblick ist
+        # nicht nötig.
+        "puls_histogramm": "JSON",
+        "fit_bestwerte": "JSON",
+        "fit_ausgewertet_am": "DATETIME",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",

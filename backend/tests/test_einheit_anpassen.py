@@ -762,3 +762,85 @@ def test_ein_garmin_fehlschlag_nimmt_dem_athleten_nicht_seine_anpassung(
         client.get("/api/plans/active", headers=verbunden).json(), HEUTE
     )["duration_min"] == 40
     assert "fehlgeschlagen" in job["message"]
+
+
+# --------------------------------------------------------------------------
+# Was die KI von der bisherigen Einheit sieht — und wie der Prompt aussieht
+# --------------------------------------------------------------------------
+
+
+def test_die_bisherige_einheit_traegt_ort_und_bauplan(client, auth):
+    """Der Prompt verlangt **alle** geltenden Felder zurück.
+
+    Ohne Ort und Bauplan im Paket musste die KI raten, ob die Radeinheit auf
+    der Rolle stand — daran hängt, ob Watt oder Puls steuert — und schrieb den
+    Bauplan blind neu, statt den bestehenden zu kürzen.
+    """
+    plan = {
+        "plan": {
+            "title": "Rolle",
+            "summary": "Ruhig",
+            "coaching_notes": "Bei Bedarf kürzen",
+            "start_date": HEUTE.isoformat(),
+            "days": [{
+                "date": HEUTE.isoformat(),
+                "sessions": [{
+                    "sport": "bike",
+                    "type": "endurance",
+                    "title": "Rolle locker",
+                    "duration_min": 60,
+                    "structure": "60 min Z2",
+                    "bike_location": "indoor",
+                    "steps": [
+                        {"kind": "interval", "duration_s": 3600, "zone": "Z2",
+                         "text": "locker"},
+                    ],
+                }],
+            }],
+        }
+    }
+    antwort = client.post(
+        "/api/plans/import", json={"raw": json.dumps(plan), "days": 1}, headers=auth
+    )
+    assert antwort.status_code == 201, antwort.text
+    einheit = einheit_am(antwort.json()["plan"], HEUTE)
+
+    export = client.get(
+        f"/api/plans/sessions/{einheit['id']}/anpassung-export",
+        params={"wunsch": "Bitte kürzer."},
+        headers=auth,
+    ).json()
+    bisher = export["payload"]["einheit_anpassen"]["bisherige_einheit"]
+
+    assert bisher["bike_location"] == "indoor"
+    assert [schritt["duration_s"] for schritt in bisher["steps"]] == [3600]
+    # Im Prompt ohne die leeren Felder des Bauplans.
+    assert '"bike_location":"indoor"' in export["prompt"]
+    assert '"reps":null' not in export["prompt"]
+
+
+def test_der_prompt_ist_sauber_nummeriert_und_setzt_keine_schwelle(
+    client, auth, monkeypatch
+):
+    """Drei Fehler, die an einem echten Prompt aufgefallen sind.
+
+    Punkt 2 fehlte (die Fitnessregeln trugen die Nummer früher selbst), vor
+    „gehört" fehlte ein Leerzeichen, und „ACWR über 1.3 heißt auch hier" verwies
+    auf eine Schwelle, die im Blockprompt längst gestrichen war.
+    """
+    plan = lege_block_an(client, auth)
+    einheit = einheit_am(plan, HEUTE)
+    prompts = ki_antwortet(monkeypatch, antwort_json())
+    passe_an(client, auth, einheit["id"], "Bitte kürzer.")
+
+    anweisung = prompts[0].split("## Ausgabeformat")[0]
+    nummern = re.findall(r"^(\d)\. \*\*", anweisung, flags=re.MULTILINE)
+    assert nummern == [str(n) for n in range(1, 9)]
+    assert "2. **Erholungslage**" in anweisung
+    assert "**hinein**gehört" not in anweisung
+    assert "1.3" not in anweisung
+    assert "auch hier" not in anweisung
+    assert "gelten unverändert" not in anweisung
+    # Stattdessen steht, was die Felder messen.
+    assert "`intensiv_heisst`" in anweisung
+    assert "`acwr_garmin`" in anweisung

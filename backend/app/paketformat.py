@@ -306,6 +306,7 @@ def _kopf(name: str, block: dict[str, Any]) -> list[str]:
 def _athlet(block: dict[str, Any]) -> list[str]:
     verlauf = block.pop("verlauf", None) or []
     bestzeiten = block.pop("bestzeiten_aus_garmin", None) or []
+    bestwerte = block.pop("bestwerte_training", None) or []
     teile = _kopf("athlet", block)
     teile += _tabellenblock(
         "athlet.verlauf",
@@ -317,6 +318,7 @@ def _athlet(block: dict[str, Any]) -> list[str]:
         auffaechern=("stunden_je_sportart", "effizienz_je_sportart"),
     )
     teile += _tabellenblock("athlet.bestzeiten_aus_garmin", bestzeiten)
+    teile += _tabellenblock("athlet.bestwerte_training", bestwerte)
     return teile
 
 

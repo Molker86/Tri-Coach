@@ -25,8 +25,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import AthleteProfile, SessionLog, WellnessDay
+from ..zeit import jetzt_utc
 from . import katalog
 from .errors import GarminRateLimit
+from .fitdaten import FitDatenFehler, FitKennwerte, kennwerte_der_aktivitaet
 from .mapping import (
     aktivitaet_zu_log,
     als_ganzzahl,
@@ -47,6 +49,7 @@ from .mapping import (
     uebungen_aus_saetzen,
 )
 from .matching import finde_planeinheit
+from .verbindung import verschwunden
 from .workouts import UEBUNGSSPORTARTEN
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,19 @@ BEWERTUNGSFENSTER_TAGE = 42
 # aber ein knappes Dutzend; hier können es bei einem Rückblick vierzig am Stück
 # werden. Derselbe Wert wie bei der Übertragung nach Garmin.
 BEWERTUNG_PAUSE_SEKUNDEN = 1.0
+
+# Wie weit zurück die Original-Aufzeichnungen ausgewertet werden: so weit, wie
+# die Wochenübersicht im Export reicht (`ai_export.WOCHENUEBERSICHT_WOCHEN`,
+# ein Test hält beide gleich). Zählte nur ein Teil der Wochen nach den Zonen der
+# App, stünde an der Grenze ein Sprung in der Intensitätsverteilung, den es im
+# Training nie gab.
+AUFZEICHNUNG_WOCHEN = 26
+
+# Höchstens so viele Downloads je Abgleich, jüngste Trainings zuerst. Beim
+# ersten Mal liegen rund zweihundert offen; so sind die sechs Wochen der
+# Einzelebene nach dem ersten Lauf vollständig und der Rest nach wenigen Tagen,
+# ohne dass ein einzelner Abgleich zweihundert Anfragen am Stück schickt.
+AUFZEICHNUNGEN_JE_LAUF = 40
 
 # Überlappung beim laufenden Abgleich: die Tage, die *jeder* Lauf erneut holt.
 # Garmin trägt Schlaf-, Erholungs- und Trainingswerte teils Stunden später nach,
@@ -136,6 +152,7 @@ class SyncErgebnis:
         self.aktivitaeten_neu = 0
         self.aktivitaeten_aktualisiert = 0
         self.fitness_tage = 0
+        self.aufzeichnungen = 0
         self.hinweise: list[str] = []
         self.letzter_tag: date | None = None
         # Schwellenpuls und Bestzeiten. Sie werden hier nur eingesammelt und
@@ -322,6 +339,79 @@ def _hole_uebungssaetze(api: Any, aktivitaets_id: str, ergebnis: SyncErgebnis) -
             lambda: api.get_activity_exercise_sets(aktivitaets_id),
             melde=False,
         )
+    finally:
+        if BEWERTUNG_PAUSE_SEKUNDEN:
+            time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
+
+
+def importiere_aufzeichnungen(
+    db: Session,
+    api: Any,
+    user_id: int,
+    ergebnis: SyncErgebnis,
+    heute: date | None = None,
+) -> None:
+    """Wertet die Original-Aufzeichnungen noch offener Trainings aus.
+
+    Unabhängig vom Zeitraum des Laufs: Eine FIT-Datei ändert sich nie, also wird
+    jede genau einmal geholt — und was noch fehlt, holt der nächste Abgleich
+    nach, ganz ohne Rückblick. Dass es früher hieß, das koste „eine Anfrage je
+    Einheit" und sei den Preis nicht wert (`docs/grenzen.md`), galt für einen
+    Abruf bei jedem Lauf.
+    """
+    heute = heute or date.today()
+    offen = db.scalars(
+        select(SessionLog)
+        .where(
+            SessionLog.user_id == user_id,
+            SessionLog.garmin_activity_id.is_not(None),
+            SessionLog.fit_ausgewertet_am.is_(None),
+            SessionLog.date >= heute - timedelta(weeks=AUFZEICHNUNG_WOCHEN),
+        )
+        .order_by(SessionLog.date.desc(), SessionLog.id.desc())
+        .limit(AUFZEICHNUNGEN_JE_LAUF)
+    ).all()
+
+    for log in offen:
+        fertig, kennwerte = _hole_kennwerte(api, log.garmin_activity_id)
+        if not fertig:
+            # Ein Netzfehler trifft den nächsten Download genauso. Weiter
+            # bleibt alles offen, und der nächste Abgleich setzt dort an.
+            ergebnis.hinweise.append("Aufzeichnungen konnten nicht geladen werden.")
+            return
+        log.puls_histogramm = kennwerte.puls_histogramm if kennwerte else None
+        log.fit_bestwerte = kennwerte.bestwerte if kennwerte else None
+        log.fit_ausgewertet_am = jetzt_utc()
+        # Je Training festschreiben: Eine Sperre beim nächsten Download soll
+        # die schon geholten nicht mitnehmen.
+        db.commit()
+        if kennwerte is not None:
+            ergebnis.aufzeichnungen += 1
+
+
+def _hole_kennwerte(api: Any, aktivitaets_id: str) -> tuple[bool, FitKennwerte | None]:
+    """Lädt und verdichtet eine Aufzeichnung.
+
+    Gibt zurück, ob die Einheit damit erledigt ist, und die Kennwerte. Erledigt
+    ist sie auch ohne Kennwerte, wenn es keine lesbare Datei gibt — eine in
+    Connect von Hand angelegte Aktivität hat keine, und daran ändert kein
+    zweiter Versuch etwas. Nicht erledigt ist sie nach einem Netzfehler.
+
+    Die Anfragesperre beendet den Lauf wie überall (`_hole_geschuetzt`), und
+    die Pause steht im `finally`.
+    """
+    try:
+        return True, kennwerte_der_aktivitaet(api, aktivitaets_id)
+    except (GarminRateLimit, GarminConnectTooManyRequestsError) as exc:
+        raise GarminRateLimit() from exc
+    except FitDatenFehler as exc:
+        logger.info("Aufzeichnung %s nicht lesbar: %s", aktivitaets_id, exc)
+        return True, None
+    except Exception as exc:  # noqa: BLE001 — undokumentierte Gegenstelle
+        if verschwunden(exc):
+            return True, None
+        logger.warning("Aufzeichnung %s nicht geladen: %s", aktivitaets_id, exc)
+        return False, None
     finally:
         if BEWERTUNG_PAUSE_SEKUNDEN:
             time.sleep(BEWERTUNG_PAUSE_SEKUNDEN)
@@ -611,6 +701,53 @@ def _juengste_bereitschaft(eintraege: list[Any]) -> dict[str, Any] | None:
     return max(kandidaten, key=lambda e: str(e.get("timestamp") or ""))
 
 
+def _lastfenster(status: dict[str, Any]) -> tuple[float, float] | None:
+    """Garmins optimales Fenster für die Akutlast, als (min, max).
+
+    Mehrere Namen, weil der Endpunkt es je nach Gerätegeneration anders nennt
+    und die API undokumentiert ist. An einem echten Konto war keiner der drei
+    ersten je belegt. `min/maxTrainingLoadChronic` sind vermutlich die Namen,
+    unter denen Garmin den grünen Bereich der Akutlast-Grafik führt — die
+    chronische Last mal 0,8 bis mal 1,5, daher der Name. Belegt ist das an
+    keiner echten Antwort; `sync` protokolliert die Schlüssel auf DEBUG, wo
+    keiner passt.
+
+    Weil sich die Bedeutung nicht aus einer Dokumentation belegen lässt, muss
+    das Fenster zu dem passen, was es beschreibt: Unten kleiner als oben, und
+    die chronische Last liegt darin (ein Verhältnis von 1,0 ist nie außerhalb
+    des optimalen Bereichs). Sonst lieber kein Fenster als ein falsch
+    gedeutetes, das die KI als gemessene Grenze liest.
+    """
+    unten = als_zahl(
+        erster_wert(
+            status,
+            ("acuteTrainingLoadDTO", "minTrainingLoadAcute"),
+            ("acuteTrainingLoadDTO", "minLoadAcute"),
+            ("acuteTrainingLoadDTO", "loadTunnelMin"),
+            ("acuteTrainingLoadDTO", "minTrainingLoadChronic"),
+            ("minTrainingLoadAcute",),
+            ("loadTunnelMin",),
+        )
+    )
+    oben = als_zahl(
+        erster_wert(
+            status,
+            ("acuteTrainingLoadDTO", "maxTrainingLoadAcute"),
+            ("acuteTrainingLoadDTO", "maxLoadAcute"),
+            ("acuteTrainingLoadDTO", "loadTunnelMax"),
+            ("acuteTrainingLoadDTO", "maxTrainingLoadChronic"),
+            ("maxTrainingLoadAcute",),
+            ("loadTunnelMax",),
+        )
+    )
+    if unten is None or oben is None or not 0 < unten < oben:
+        return None
+    chronisch = als_zahl(hole(status, "acuteTrainingLoadDTO", "dailyTrainingLoadChronic"))
+    if chronisch is not None and not unten <= chronisch <= oben:
+        return None
+    return unten, oben
+
+
 def _juengster_trainingsstatus(daten: dict[str, Any]) -> dict[str, Any] | None:
     """Wählt aus den Geräteeinträgen den maßgeblichen aus.
 
@@ -721,30 +858,18 @@ def importiere_tageswerte(
                     hole(status, "acuteTrainingLoadDTO", "dailyTrainingLoadChronic")
                 ),
                 garmin_acwr_status=hole(status, "acuteTrainingLoadDTO", "acwrStatus"),
-                # Garmins optimales Lastfenster. Mehrere Namen, weil der
-                # Endpunkt es je nach Gerätegeneration anders nennt und die API
-                # undokumentiert ist — belegt ist der erste, der etwas liefert.
-                garmin_load_min=als_zahl(
-                    erster_wert(
-                        status,
-                        ("acuteTrainingLoadDTO", "minTrainingLoadAcute"),
-                        ("acuteTrainingLoadDTO", "minLoadAcute"),
-                        ("acuteTrainingLoadDTO", "loadTunnelMin"),
-                        ("minTrainingLoadAcute",),
-                        ("loadTunnelMin",),
-                    )
-                ),
-                garmin_load_max=als_zahl(
-                    erster_wert(
-                        status,
-                        ("acuteTrainingLoadDTO", "maxTrainingLoadAcute"),
-                        ("acuteTrainingLoadDTO", "maxLoadAcute"),
-                        ("acuteTrainingLoadDTO", "loadTunnelMax"),
-                        ("maxTrainingLoadAcute",),
-                        ("loadTunnelMax",),
-                    )
-                ),
             )
+            fenster = _lastfenster(status)
+            if fenster is not None:
+                _setze(zeile, garmin_load_min=fenster[0], garmin_load_max=fenster[1])
+            elif isinstance(hole(status, "acuteTrainingLoadDTO"), dict):
+                # Das Fenster stand an einem echten Konto nie in der Datenbank.
+                # Die Schlüssel sind undokumentiert — so lässt sich im Protokoll
+                # nachsehen, wie Garmin es diesmal nennt.
+                logger.debug(
+                    "Kein Lastfenster im Trainingsstatus, Schlüssel: %s",
+                    sorted(hole(status, "acuteTrainingLoadDTO")),
+                )
 
         stress = _hole_geschuetzt(
             "Stress", ergebnis, lambda: api.get_all_day_stress(datum)
@@ -865,8 +990,8 @@ def fuehre_sync_aus(
     )
 
     # Trainings + 6 Bereichsabfragen + Tagesschleife (+ Leistungswerte)
-    # + Übungskatalog
-    schritte_gesamt = (9 if mit_leistungswerten else 8) + 1
+    # + Aufzeichnungen + Übungskatalog
+    schritte_gesamt = (9 if mit_leistungswerten else 8) + 2
 
     fortschritt.schritt("Trainings", 1, schritte_gesamt)
     importiere_aktivitaeten(db, api, user_id, profil, von, bis, ergebnis)
@@ -894,8 +1019,15 @@ def fuehre_sync_aus(
     # Schritt, wenn die Profil-Nachführung abgeschaltet ist — die Werte hätten
     # dann keinen Empfänger.
     if mit_leistungswerten:
-        fortschritt.schritt("Leistungswerte", schritte_gesamt - 1, schritte_gesamt)
+        fortschritt.schritt("Leistungswerte", schritte_gesamt - 2, schritte_gesamt)
         ergebnis.leistungswerte = hole_leistungswerte(api, ergebnis)
+
+    # Nach allem, was der Tag braucht: Das hier holt vor allem **nach** — beim
+    # ersten Mal ein halbes Jahr, danach die ein, zwei neuen Trainings. Gerät
+    # es in die Anfragesperre, sind Trainings, Fitnessdaten und Schwellenwerte
+    # schon gesichert.
+    fortschritt.schritt("Aufzeichnungen", schritte_gesamt - 1, schritte_gesamt)
+    importiere_aufzeichnungen(db, api, user_id, ergebnis)
 
     # Ganz zum Schluss und als einziger Schritt **nicht** gegen Garmins API:
     # zwei öffentliche JSON-Dateien mit dem Übungskatalog. Sie hängen hier dran,

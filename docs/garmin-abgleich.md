@@ -510,6 +510,72 @@ alle Übungen laufen mit Körpergewicht —, und damit ist die Einheit (Gramm od
 Kilogramm) nicht belegt. Dieselbe Regel wie bei den Kalenderdauern: Eine um
 Faktor 1000 falsche Zahl ist schlechter als eine fehlende.
 
+**Die Zonenzeiten zählen nach den Zonen der App, nicht nach denen der Uhr**
+(`sportscience.zonensekunden_der_einheit`, `SessionLog.puls_histogramm`).
+`hrTimeInZone_1..5` zählt nach den Zonen, die auf der Uhr eingestellt sind: ab
+Werk Prozent der HFmax, am echten Konto mit den Grenzen 95/114/133/152/171. Der
+Plan gibt Zonen dagegen nach Karvonen vor und schickt sie als absolute bpm auf
+die Uhr (`workouts.zonen_aus_profil`). Beide Zählweisen liegen etwa eine Zone
+auseinander. Der lange Lauf vom 05.07.2026 stand mit 84 min Z4 und knapp vier
+Minuten Z5 im Paket; nach den Zonen des Profils (189/58) sind es 44 min Z4 und
+keine Z5. Eine Grundlageneinheit, genau nach Plan gelaufen, stand als Z3 da.
+Die KI liest die Intensitätsverteilung aus `zeit_in_hf_zonen_min` und
+`intensitaetsverteilung_pct` und sah einen Athleten, der seine lockeren
+Einheiten zu hart läuft.
+
+Gespeichert wird deshalb die Sekundenreihe der FIT-Datei als **Histogramm**
+(Sekunden je Pulsschlag), nicht als fertige Zonenzeit. Ruhe- und Maximalpuls
+ändern sich; gezählt wird erst beim Export, nach den Zonen, die dann in
+`herzfrequenzzonen` stehen. Geeicht ist die Zählung an Garmin selbst: Nach den
+Grenzen der Uhr ergibt das Histogramm an allen vier Uhr-Fixtures dieselben
+Zonenzeiten wie die Uhr — beim Laufen und bei der Krafteinheit auf die Sekunde,
+im Becken auf ein Prozent. Zwei Regeln tragen das. Ein Puls genau auf der Grenze
+zählt zur höheren Zone. Und Pausen kommen aus den Timer-Ereignissen, nicht aus
+einer Lückenschwelle, denn Smart Recording schreibt in einer ruhigen
+Krafteinheit bis zu zwölf Sekunden lang nichts, und das ist Trainingszeit.
+
+**Im Export gibt es keinen Rückfall auf Garmins Zählung.** Ohne Histogramm hat
+eine Einheit dort keine Zonenzeiten (`sportscience.zonensekunden_der_einheit`
+mit Zonen). Der Rückfall stand zuerst drin — und griff an echten Daten für
+*jede* Einheit, weil noch keine Aufzeichnung ausgewertet war, während der
+Prompt sagte, gezählt werde nach `herzfrequenzzonen`. Er griff außerdem still,
+wo das Histogramm nichts in Z1–Z5 fand, also bei jeder Krafteinheit. Wie viel
+einer Woche ausgezählt ist, sagt `zonen_abdeckung_pct`. `hr_zone_seconds` bleibt
+für das Dashboard (dort ohne Zonen aufgerufen, also die Zonen der Uhr) und für
+die RPE-Schätzung (siehe [grenzen.md](grenzen.md)).
+
+**Zeit unter Z1 zählt als Z1, und die Woche zählt nur Ausdauer.** Garmin lässt
+die Zeit unter seiner Z1 weg, und die beginnt bei der halben HFmax — dort fehlt
+kaum etwas. Die Karvonen-Z1 beginnt bei der halben Reserve, am echten Konto bei
+124 bpm: Einer lockeren Rollenfahrt fehlte so ein Viertel, einer Schwimmeinheit
+ebenso, einer Krafteinheit alles, und die Intensitätsverteilung las sich härter,
+als trainiert wurde. In der Wochensumme und damit in `intensitaetsverteilung_pct`
+stehen nur Laufen, Rad, Schwimmen und Koppel (`AUSDAUERSPORTARTEN`): Der
+Mobility-Puls liegt ganz in Z1 und hob den leichten Anteil, ohne dass eine
+Minute Grundlage gelaufen war.
+
+**Die Aufzeichnung wird einmal je Training geholt**
+(`sync.importiere_aufzeichnungen`, `SessionLog.fit_ausgewertet_am`). Es ist
+derselbe Download wie bei der Trainingsanalyse (ORIGINAL-ZIP), aber im Abgleich
+und nur ein einziges Mal: Eine FIT-Datei ändert sich nicht. Daraus entstehen
+Histogramm und Bestwerte (`fitdaten.kennwerte_aus_fit`); die Datei selbst wird
+nicht gespeichert. Der Schritt hängt nicht am Zeitraum des Laufs. Er nimmt die
+jüngsten noch offenen Trainings der letzten `AUFZEICHNUNG_WOCHEN` = 26 (so weit
+wie die Wochenübersicht; ein Test hält beide gleich), höchstens
+`AUFZEICHNUNGEN_JE_LAUF` = 40 je Lauf. Beim ersten Mal liegen rund zweihundert
+offen. Die sechs Wochen der Einzelebene sind nach dem ersten Lauf da, das halbe
+Jahr nach etwa fünf, ohne Rückblick und ohne zweihundert Anfragen am Stück.
+
+Er steht **nach** den Leistungswerten. Er holt vor allem nach, und gerät er in
+die Anfragesperre, sind Trainings, Fitnessdaten und Schwellenwerte schon
+gesichert. Drei Ausgänge je Training:
+- **Gelesen:** Werte speichern und markieren.
+- **Keine Datei oder unlesbar:** markieren ohne Werte. Eine in Connect von Hand
+  angelegte Aktivität hat keine Datei (404), und ein zweiter Versuch änderte
+  daran nichts.
+- **Netzfehler:** offen lassen und den Schritt beenden, denn der nächste Download
+  liefe in denselben Fehler.
+
 **Zugeordnet wird über die Workout-Kennung, nicht über den Tag**
 (`garmin/matching.py`). Die Regel hieß einmal „gleicher Tag, gleiche Sportart,
 noch nicht erfasst" und war als das Strenge gedacht — sie war das Gegenteil: Am
@@ -707,10 +773,18 @@ gemessene Grenzen**: `hrv_normalbereich_ms` (aus `baseline.balancedLow` /
 bekommt eine stark gekürzte Historie und keine Einzeleinheiten.
 
 Das Lastfenster wird über `erster_wert()` mit mehreren Namensvarianten gelesen
-(`minTrainingLoadAcute`, `minLoadAcute`, `loadTunnelMin` …). Die API ist
-undokumentiert, und die Felder heißen je nach Gerätegeneration anders; liefert
-keine davon etwas, bleiben die Spalten leer und der Schlüssel fällt aus dem
-Export — wie bei jedem anderen unbelegten Garmin-Wert.
+(`sync._lastfenster`: `minTrainingLoadAcute`, `minLoadAcute`, `loadTunnelMin`,
+`minTrainingLoadChronic` …). Die API ist undokumentiert, und die Felder heißen
+je nach Gerätegeneration anders. An einem echten Konto war keiner der drei
+ersten Namen je belegt — das Fenster stand an keinem Tag in der Datenbank.
+`min/maxTrainingLoadChronic` sind vermutlich die Namen des grünen Bereichs der
+Akutlast-Grafik (chronische Last mal 0,8 bis mal 1,5); belegt ist das an keiner
+echten Antwort. Deshalb zwei Vorkehrungen: Ein Fenster zählt nur, wenn unten
+kleiner als oben ist und die chronische Last darin liegt (ein Verhältnis von
+1,0 ist nie außerhalb des optimalen Bereichs). Und wo keiner der Namen passt,
+schreibt der Abgleich die Schlüssel des `acuteTrainingLoadDTO` auf DEBUG ins
+Protokoll. Liefert keiner etwas, bleiben die Spalten leer und der Schlüssel
+fällt aus dem Export — wie bei jedem anderen unbelegten Garmin-Wert.
 
 **Profilwerte kommen automatisch nach — außer dem Maximalpuls**
 (`profile_sync.py`). Gewicht, Körperfett, Ruhepuls, HRV und VO2max werden
@@ -787,7 +861,8 @@ trägt und die App etwa zwanzig davon liest. Fünf weitere stehen in der
 **Listen**antwort, aus der die Einheit ohnehin entsteht — `movingDuration` als
 `netto_dauer_min`, `avgGradeAdjustedSpeed` als `gap_pace` (nur Laufen),
 `averageSwolf` und `avgStrokes` als `swolf`/`zuege` (nur Schwimmen) und
-`maxTemperature` als `temperatur_c`. Die sechste, die normalisierte Leistung,
+`maxTemperature` als `temperatur_c` (im Export `temperatur_max_c`: der Fühler am
+Gerät, nicht die Luft). Die sechste, die normalisierte Leistung,
 steht im **Detail**, das für 42 Tage ohnehin geholt wird
 (`BEWERTUNGSFENSTER_TAGE`), und wird in `detail_zu_feldern()` gelesen. Keine
 kostet eine zusätzliche Anfrage.

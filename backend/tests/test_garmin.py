@@ -1131,9 +1131,10 @@ def test_zonenverteilung_und_abschnitte_kommen_in_den_export(
     payload = client.get("/api/plans/export", headers=verbunden).json()["payload"]
     einheiten = payload["trainingshistorie"]["einheiten"]
 
-    # Die Nachbildung gibt jeder Aktivität dieselbe Zonenverteilung mit.
-    assert all("zeit_in_hf_zonen_min" in e for e in einheiten)
-    assert einheiten[0]["zeit_in_hf_zonen_min"] == {"z1": 4, "z2": 24, "z3": 25, "z4": 5}
+    # Die Nachbildung gibt jeder Aktivität Garmins Zonenverteilung mit — die
+    # meint aber die Zonen der Uhr und geht deshalb nicht in den Export.
+    # Gezählt wird dort nur aus der Aufzeichnung (`test_aufzeichnungen.py`).
+    assert not any("zeit_in_hf_zonen_min" in e for e in einheiten)
 
     mit_abschnitten = [e for e in einheiten if "absolvierte_abschnitte" in e]
     assert len(mit_abschnitten) == 1
@@ -1614,6 +1615,10 @@ def test_der_prompt_nennt_garmins_gemessene_grenzen(client, verbunden):
 
     grenzen = export["payload"]["fitnessdaten"]["aktuell"]["hrv_normalbereich_ms"]
     assert grenzen["unten"] == 52 and grenzen["oben"] == 71
+    # Das Lastfenster stand an einem echten Konto nie im Paket — die gesuchten
+    # Schlüssel gab es dort nicht.
+    status = export["payload"]["fitnessdaten"]["aktuell"]["training_status"]
+    assert status["lastfenster"] == {"min": 648.0, "max": 1215.0}
 
     assert "`hrv_normalbereich_ms`" in export["prompt"]
     assert "`training_status.lastfenster`" in export["prompt"]
@@ -2244,3 +2249,27 @@ def test_tls_vertraut_dem_systemspeicher(client):
     import ssl
 
     assert ssl.SSLContext.__module__.startswith("truststore")
+
+
+def test_ein_lastfenster_ohne_die_chronische_last_darin_wird_verworfen():
+    """Die Bedeutung der Schlüssel ist undokumentiert — lieber kein Fenster.
+
+    Ein Verhältnis von 1,0 liegt nie außerhalb des optimalen Bereichs. Ein
+    Fenster, das die chronische Last nicht enthält, ist also falsch gedeutet
+    und stünde sonst als gemessene Grenze im Paket.
+    """
+    from app.garmin.sync import _lastfenster
+
+    def status(unten, oben, chronisch=810):
+        return {
+            "acuteTrainingLoadDTO": {
+                "dailyTrainingLoadChronic": chronisch,
+                "minTrainingLoadChronic": unten,
+                "maxTrainingLoadChronic": oben,
+            }
+        }
+
+    assert _lastfenster(status(648, 1215)) == (648.0, 1215.0)
+    assert _lastfenster(status(900, 1400)) is None
+    assert _lastfenster(status(1215, 648)) is None
+    assert _lastfenster({"acuteTrainingLoadDTO": {}}) is None

@@ -860,6 +860,33 @@ def test_kein_platzhalter_bleibt_in_irgendeiner_disziplin_stehen(disziplin):
     assert not re.findall(r"\{[a-z_]+\}", prompt)
 
 
+def test_die_tagesanpassung_setzt_keine_acwr_schwelle():
+    """„ACWR über 1.3 heißt auch hier" verwies auf eine gestrichene Regel.
+
+    Im Blockprompt ist die Schwelle seit dem Umbau auf die fünf handwerklichen
+    Vorgaben weg; hier stand sie noch — über eine von zwei ACWR im Paket, ohne
+    zu sagen, welche. Und „gelten unverändert" ließ offen, gegenüber was.
+    """
+    from app.ai_export import build_tagesform_prompt
+
+    prompt = build_tagesform_prompt(
+        {
+            "fitnessdaten": {"aktuell": {"hrv_ms": 60}},
+            "tagesform": {
+                "datum": HEUTE.isoformat(),
+                "wochentag": "monday",
+                "einheiten_heute": [{"nr": 1, "sport": "run"}],
+                "block": {"titel": "Block", "tage": []},
+            },
+        }
+    )
+    anweisung = prompt.split("## Ausgabeformat")[0]
+    assert "1.3" not in anweisung
+    assert "auch hier" not in anweisung
+    assert "gelten unverändert" not in anweisung
+    assert "`intensiv_heisst`" in anweisung
+
+
 # --------------------------------------------------------------------------
 # Der Anstoß und der Weg zurück auf die Uhr
 # --------------------------------------------------------------------------

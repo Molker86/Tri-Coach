@@ -21,13 +21,14 @@ import io
 import logging
 import math
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from garmin_fit_sdk import Decoder, Stream
 
-from .mapping import hole
+from .mapping import BESTZEIT_PACE_SPANNE, hole
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,41 @@ def _glatt(wert: float, stellen: int = 2) -> float | int:
 # --------------------------------------------------------------------------
 
 
+def _dekodiere(fit_bytes: bytes) -> dict:
+    """Die Nachrichten einer FIT-Datei; wirft, wenn keine Session darin steht."""
+    try:
+        nachrichten, fehler = Decoder(Stream.from_byte_array(fit_bytes)).read()
+    except Exception as exc:  # noqa: BLE001 — das SDK wirft auch RuntimeError
+        raise FitDatenFehler(f"Die FIT-Datei ließ sich nicht lesen: {exc}") from exc
+
+    if not _liste(nachrichten, "session_mesgs"):
+        meldung = "; ".join(str(f) for f in fehler[:2]) or "keine Session enthalten"
+        raise FitDatenFehler(f"Die FIT-Datei ließ sich nicht lesen: {meldung}")
+    if fehler:
+        # Teilweise lesbar ist besser als gar nicht: Das SDK meldet auch bei
+        # brauchbaren Dateien Randfehler. Solange Sessions da sind, geht es weiter.
+        logger.info("FIT-Datei mit Lesefehlern, Sessions vorhanden: %s", fehler[:3])
+    return nachrichten
+
+
+def _fensterpruefung(session: dict, einzige: bool) -> Callable[[Any], bool]:
+    """Ob ein Zeitstempel in das Zeitfenster dieser Session fällt.
+
+    Bei nur einer Session gehört alles zu ihr — auch, was die Uhr eine Sekunde
+    vor dem Start oder nach dem Ende schreibt.
+    """
+    von = hole(session, "start_time")
+    dauer = hole(session, "total_elapsed_time") or 0
+    bis = von + timedelta(seconds=float(dauer) + 1) if von else None
+
+    def im_fenster(zeit: Any) -> bool:
+        if einzige or von is None or bis is None:
+            return True
+        return zeit is not None and von - timedelta(seconds=1) <= zeit <= bis
+
+    return im_fenster
+
+
 def parse_fit(fit_bytes: bytes) -> list[AktivitaetsDaten]:
     """Alle Sessions einer FIT-Datei — eine Liste, weil Multisport mehrere trägt.
 
@@ -163,33 +199,15 @@ def parse_fit(fit_bytes: bytes) -> list[AktivitaetsDaten]:
     `session_mesgs` in **einer** Datei; Runden, Records, Bahnen und Sätze
     werden ihnen über ihr Zeitfenster zugeordnet.
     """
-    try:
-        nachrichten, fehler = Decoder(Stream.from_byte_array(fit_bytes)).read()
-    except Exception as exc:  # noqa: BLE001 — das SDK wirft auch RuntimeError
-        raise FitDatenFehler(f"Die FIT-Datei ließ sich nicht lesen: {exc}") from exc
-
+    nachrichten = _dekodiere(fit_bytes)
     sessions = _liste(nachrichten, "session_mesgs")
-    if not sessions:
-        meldung = "; ".join(str(f) for f in fehler[:2]) or "keine Session enthalten"
-        raise FitDatenFehler(f"Die FIT-Datei ließ sich nicht lesen: {meldung}")
-    if fehler:
-        # Teilweise lesbar ist besser als gar nicht: Das SDK meldet auch bei
-        # brauchbaren Dateien Randfehler. Solange Sessions da sind, geht es weiter.
-        logger.info("FIT-Datei mit Lesefehlern, Sessions vorhanden: %s", fehler[:3])
-
     versatz = _ortszeit_versatz(nachrichten)
     schritte = _soll_schritte(nachrichten)
 
     aktivitaeten: list[AktivitaetsDaten] = []
     for session in sessions:
         von = hole(session, "start_time")
-        dauer = hole(session, "total_elapsed_time") or 0
-        bis = von + timedelta(seconds=float(dauer) + 1) if von else None
-
-        def im_fenster(zeit: Any) -> bool:
-            if len(sessions) == 1 or von is None or bis is None:
-                return True
-            return zeit is not None and von - timedelta(seconds=1) <= zeit <= bis
+        im_fenster = _fensterpruefung(session, len(sessions) == 1)
 
         runden = [
             _runde(nr, lap)
@@ -272,6 +290,11 @@ def _ortszeit_versatz(nachrichten: dict) -> timedelta:
     # Auf ganze Minuten gerundet: Beide Stempel entstehen nacheinander, und
     # eine Zeitzone mit 13 Sekunden Versatz gibt es nicht.
     sekunden = (lokal - aktivitaet).total_seconds()
+    # Zwift schreibt `local_timestamp = 0` — ohne diese Grenze stand eine
+    # Fahrt vom 16.02.2026 mit Start am 30.12.1989 im Paket. Echte Zeitzonen
+    # liegen zwischen UTC−12 und UTC+14; alles andere ist keine Ortszeit.
+    if not -12 * 3600 <= sekunden <= 14 * 3600:
+        return timedelta(0)
     return timedelta(minutes=round(sekunden / 60))
 
 
@@ -453,6 +476,287 @@ def _satz(nr: int, satz: dict) -> dict[str, Any]:
         "gewicht_kg": hole(satz, "weight"),
         "zeit_s": hole(satz, "duration"),
     }
+
+
+# --------------------------------------------------------------------------
+# Kennwerte für die Planung
+# --------------------------------------------------------------------------
+
+# Die Spannen der Bestwerte: Dauern bei Lauf und Rad, Strecken im Becken. Fünf
+# Minuten liegen nahe der maximalen Sauerstoffaufnahme, zwanzig nahe der
+# Schwelle, sechzig beschreiben die Ausdauer.
+# Umgerechnet wird daraus **nichts** — keine FTP aus 95 % der zwanzig Minuten:
+# Das wäre eine Faustregel, und die Schwellenwerte bleiben Handarbeit.
+BESTWERT_DAUERN_S: tuple[int, ...] = (300, 1200, 3600)
+# 50 m, weil im echten Beckentraining Freistil selten länger am Stück steht als
+# ein paar Bahnen: Am 15.09.2026 waren es höchstens vier.
+BESTWERT_STRECKEN_M: tuple[int, ...] = (50, 100, 200, 400)
+
+_SPORTART = {"running": "run", "cycling": "bike", "swimming": "swim"}
+# Auf dem Laufband schätzt die Uhr die Strecke aus dem Armschwung. Eine Pace
+# daraus als Bestwert wäre eine Behauptung über das Tempo, keine Messung.
+_OHNE_TEMPO = {"treadmill", "indoor_running", "virtual_activity"}
+# Was schneller ist als das, ist kein Rekord, sondern ein Messfehler — ein
+# GPS-Sprung beim Laufen, eine erfundene Wende im Becken.
+_MAX_LAUF_M_S = 1000 / BESTZEIT_PACE_SPANNE[0]
+_MAX_SCHWIMM_M_S = 2.5
+
+# Timer-Ereignisse, ab denen die Uhr pausiert. Das Gegenstück ist `start`.
+_PAUSE_BEGINNT = {"stop", "stop_all", "stop_disable", "stop_disable_all"}
+
+
+@dataclass(slots=True)
+class FitKennwerte:
+    """Was der Abgleich aus der Aufzeichnung für die Planung behält.
+
+    Wenige Zahlen statt der Datei: Die Rohdaten braucht nur die Einzelanalyse,
+    und die holt sie live.
+    """
+
+    # Sekunden je Pulsschlag, `{"142": 35}`. Ein Histogramm und keine
+    # fertigen Zonensekunden: Gezählt wird erst beim Export, nach den Zonen,
+    # die dann im Profil stehen — ändern sich Ruhe- oder Maximalpuls, stimmen
+    # gespeicherte Zonenzeiten nicht mehr.
+    puls_histogramm: dict[str, int] | None = None
+    # Je Sportart die besten Werte über die festen Spannen: Laufen in m/s und
+    # Rad in Watt je Dauer in Sekunden, Schwimmen in Sekunden je Strecke in m.
+    bestwerte: dict[str, dict[str, float | int]] | None = None
+
+
+def kennwerte_aus_fit(fit_bytes: bytes) -> FitKennwerte:
+    """Pulshistogramm und Bestwerte einer Aufzeichnung."""
+    nachrichten = _dekodiere(fit_bytes)
+    records = [
+        r for r in _liste(nachrichten, "record_mesgs")
+        if isinstance(hole(r, "timestamp"), datetime)
+    ]
+    dauern = _wirksame_dauern(records, _timerpausen(nachrichten))
+
+    sessions = _liste(nachrichten, "session_mesgs")
+    bestwerte: dict[str, dict[str, float | int]] = {}
+    for session in sessions:
+        sportart = _SPORTART.get(hole(session, "sport"))
+        im_fenster = _fensterpruefung(session, len(sessions) == 1)
+        auswahl = [
+            (r, d) for r, d in zip(records, dauern) if im_fenster(hole(r, "timestamp"))
+        ]
+        if sportart == "run" and hole(session, "sub_sport") not in _OHNE_TEMPO:
+            werte = _beste_geschwindigkeit(auswahl)
+        elif sportart == "bike":
+            werte = _beste_leistung(auswahl)
+        elif sportart == "swim":
+            bahnen = [
+                b for b in _liste(nachrichten, "length_mesgs")
+                if im_fenster(hole(b, "start_time"))
+            ]
+            werte = _beste_bahnzeiten(bahnen, hole(session, "pool_length"))
+        else:
+            werte = {}
+        if werte:
+            _merke_bestwerte(bestwerte.setdefault(sportart, {}), werte, sportart)
+
+    return FitKennwerte(
+        puls_histogramm=_pulshistogramm(records, dauern) or None,
+        bestwerte=bestwerte or None,
+    )
+
+
+def _timerpausen(nachrichten: dict) -> list[tuple[datetime, datetime]]:
+    """Die Zeiträume, in denen der Timer stand.
+
+    Genauer als jede Lückenschwelle zwischen zwei Records: Mit Smart Recording
+    schreibt die Uhr in einer ruhigen Krafteinheit auch mal zwölf Sekunden
+    lang nichts, und das ist Trainingszeit. Eine Pause dagegen stünde ohne
+    diese Liste mit dem letzten Puls davor im Histogramm.
+    """
+    ereignisse = sorted(
+        (
+            (zeit, hole(e, "event_type"))
+            for e in _liste(nachrichten, "event_mesgs")
+            if hole(e, "event") == "timer"
+            and isinstance(zeit := hole(e, "timestamp"), datetime)
+        ),
+        key=lambda paar: paar[0],
+    )
+    pausen: list[tuple[datetime, datetime]] = []
+    angehalten: datetime | None = None
+    for zeit, typ in ereignisse:
+        if typ in _PAUSE_BEGINNT and angehalten is None:
+            angehalten = zeit
+        elif typ == "start" and angehalten is not None:
+            pausen.append((angehalten, zeit))
+            angehalten = None
+    return pausen
+
+
+def _wirksame_dauern(
+    records: list[dict], pausen: list[tuple[datetime, datetime]]
+) -> list[float]:
+    """Wie lange jeder Record gilt: bis zum nächsten, ohne Timerpausen."""
+    dauern: list[float] = []
+    for jetzt, danach in zip(records, records[1:]):
+        von, bis = hole(jetzt, "timestamp"), hole(danach, "timestamp")
+        sekunden = (bis - von).total_seconds()
+        for pause_von, pause_bis in pausen:
+            ueberlappung = (min(bis, pause_bis) - max(von, pause_von)).total_seconds()
+            if ueberlappung > 0:
+                sekunden -= ueberlappung
+        dauern.append(max(sekunden, 0.0))
+    # Der letzte Record hat keinen Nachfolger; ihm eine Dauer zu geben, hieße
+    # sie zu erfinden.
+    if records:
+        dauern.append(0.0)
+    return dauern
+
+
+def _pulshistogramm(records: list[dict], dauern: list[float]) -> dict[str, int]:
+    sekunden: dict[int, float] = {}
+    for record, dauer in zip(records, dauern):
+        puls = hole(record, "heart_rate")
+        if isinstance(puls, int) and 0 < puls < 255 and dauer > 0:
+            sekunden[puls] = sekunden.get(puls, 0.0) + dauer
+    return {
+        str(puls): round(wert)
+        for puls, wert in sorted(sekunden.items())
+        if round(wert) >= 1
+    }
+
+
+def _beste_mittel(punkte: list[tuple[float, float]]) -> dict[str, float]:
+    """Das höchste Mittel einer aufsummierten Größe je Dauer.
+
+    `punkte` sind (Sekunden seit Start, Summe bis dahin) — Strecke beim Laufen,
+    Arbeit auf dem Rad. Gemittelt wird über die **verstrichene** Zeit: Ein
+    Fenster über eine Pause fällt dadurch niedriger aus und nie höher.
+    """
+    ergebnis: dict[str, float] = {}
+    if len(punkte) < 2:
+        return ergebnis
+    for fenster in BESTWERT_DAUERN_S:
+        if punkte[-1][0] - punkte[0][0] < fenster:
+            continue
+        bester: float | None = None
+        ende = 0
+        for anfang in range(len(punkte)):
+            while ende < len(punkte) and punkte[ende][0] - punkte[anfang][0] < fenster:
+                ende += 1
+            if ende == len(punkte):
+                break
+            spanne = punkte[ende][0] - punkte[anfang][0]
+            wert = (punkte[ende][1] - punkte[anfang][1]) / spanne
+            if bester is None or wert > bester:
+                bester = wert
+        if bester is not None:
+            ergebnis[str(fenster)] = bester
+    return ergebnis
+
+
+def _beste_geschwindigkeit(auswahl: list[tuple[dict, float]]) -> dict[str, float]:
+    if not auswahl:
+        return {}
+    start = hole(auswahl[0][0], "timestamp")
+    punkte = [
+        ((hole(r, "timestamp") - start).total_seconds(), float(strecke))
+        for r, _ in auswahl
+        if isinstance(strecke := hole(r, "distance"), (int, float))
+    ]
+    return {
+        dauer: round(wert, 3)
+        for dauer, wert in _beste_mittel(punkte).items()
+        if 0 < wert <= _MAX_LAUF_M_S
+    }
+
+
+def _beste_leistung(auswahl: list[tuple[dict, float]]) -> dict[str, int]:
+    """Die beste mittlere Leistung aus Watt mal wirksamer Dauer.
+
+    Nicht aus `accumulated_power`: Eine Zwift-Datei führt es nicht, eine von
+    der Uhr schon — eine Rechnung für beide ist die, die überall geht.
+    """
+    if not auswahl or not any(
+        isinstance(hole(r, "power"), (int, float)) and hole(r, "power") > 0
+        for r, _ in auswahl
+    ):
+        return {}
+    start = hole(auswahl[0][0], "timestamp")
+    punkte: list[tuple[float, float]] = []
+    arbeit = 0.0
+    for record, dauer in auswahl:
+        punkte.append(((hole(record, "timestamp") - start).total_seconds(), arbeit))
+        watt = hole(record, "power")
+        if isinstance(watt, (int, float)) and 0 < watt < 3000:
+            arbeit += watt * dauer
+    return {dauer: round(wert) for dauer, wert in _beste_mittel(punkte).items() if wert > 0}
+
+
+def _beste_bahnzeiten(bahnen: list[dict], beckenlaenge: Any) -> dict[str, float]:
+    """Die kürzeste Zeit über eine Strecke aus Freistilbahnen am Stück.
+
+    Nur Freistil, weil die Schwellenwerte im Becken (CSS) Kraulwerte sind,
+    und nur ohne Pause dazwischen: Zwei 50er mit Pause sind kein 100er. Eine
+    Bahn, die schneller wäre als menschenmöglich, ist eine falsch erkannte
+    Wende und unterbricht die Folge.
+    """
+    if not isinstance(beckenlaenge, (int, float)) or beckenlaenge <= 0:
+        return {}
+    folgen: list[list[float]] = []
+    folge: list[float] = []
+    for bahn in bahnen:
+        zeit = hole(bahn, "total_timer_time")
+        if (
+            hole(bahn, "length_type") == "active"
+            and hole(bahn, "swim_stroke") == "freestyle"
+            and isinstance(zeit, (int, float))
+            and zeit >= beckenlaenge / _MAX_SCHWIMM_M_S
+        ):
+            folge.append(float(zeit))
+        elif folge:
+            folgen.append(folge)
+            folge = []
+    if folge:
+        folgen.append(folge)
+
+    ergebnis: dict[str, float] = {}
+    for strecke in BESTWERT_STRECKEN_M:
+        anzahl = strecke / beckenlaenge
+        # Im 25-Yard-Becken (22,86 m) geht keine dieser Strecken in ganzen
+        # Bahnen auf; eine angebrochene Bahn wäre geschätzt.
+        if anzahl < 1 or abs(anzahl - round(anzahl)) > 1e-6:
+            continue
+        n = round(anzahl)
+        beste = min(
+            (sum(f[i : i + n]) for f in folgen for i in range(len(f) - n + 1)),
+            default=None,
+        )
+        if beste is not None:
+            ergebnis[str(strecke)] = round(beste, 1)
+    return ergebnis
+
+
+def _merke_bestwerte(
+    bisher: dict[str, float | int], neu: dict[str, float | int], sportart: str
+) -> None:
+    """Zwei Läufe in einer Multisport-Datei: Der bessere Wert gewinnt."""
+    for spanne, wert in neu.items():
+        alt = bisher.get(spanne)
+        if alt is None:
+            bisher[spanne] = wert
+        elif sportart == "swim":
+            bisher[spanne] = min(alt, wert)
+        else:
+            bisher[spanne] = max(alt, wert)
+
+
+def kennwerte_der_aktivitaet(api: Any, activity_id: Any) -> FitKennwerte:
+    """Holt die Aufzeichnung einer Aktivität und verdichtet sie für die Planung.
+
+    Derselbe Download wie `hole_aktivitaet`; Fehler fliegen, der Abgleich
+    entscheidet, ob er es später noch einmal versucht.
+    """
+    zip_bytes = api.download_activity(
+        activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL
+    )
+    return kennwerte_aus_fit(entpacke_fit(zip_bytes))
 
 
 # --------------------------------------------------------------------------

@@ -496,6 +496,26 @@ def test_der_trainingsprompt_behaelt_seine_einheiten(client, auth):
     assert "einheiten" in paket["payload"]["trainingshistorie"]
 
 
+def test_die_bestwerte_bleiben_beim_training(client, auth, erfasse):
+    """Der Energiebedarf hängt am geplanten Block, nicht an der besten 20 Minuten."""
+    client.put("/api/profile", headers=auth, json={"max_hr": 189, "resting_hr": 58})
+    erfasse(
+        auth,
+        date=HEUTE - timedelta(days=2),
+        sport="run",
+        duration_min=40,
+        distance_km=8.0,
+        fit_bestwerte={"run": {"300": 3.3}},
+    )
+    lege_block_an(client, auth)
+
+    training = client.get("/api/plans/export", headers=auth).json()
+    ernaehrung = client.get("/api/ernaehrung/export", headers=auth).json()
+
+    assert "bestwerte_training" in training["payload"]["athlet"]
+    assert "bestwerte_training" not in ernaehrung["payload"]["athlet"]
+
+
 def test_der_freitext_ueberlebt_das_loeschen_des_plans(client, auth, monkeypatch):
     lege_block_an(client, auth)
     client.put(

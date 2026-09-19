@@ -737,6 +737,12 @@ def _erfolgsmeldung(ergebnis) -> str:
         teile.append(f"{ergebnis.aktivitaeten_aktualisiert} aktualisiert")
     if ergebnis.fitness_tage:
         teile.append(f"{ergebnis.fitness_tage} Tage Fitnessdaten")
+    if ergebnis.aufzeichnungen:
+        teile.append(
+            "1 Aufzeichnung ausgewertet"
+            if ergebnis.aufzeichnungen == 1
+            else f"{ergebnis.aufzeichnungen} Aufzeichnungen ausgewertet"
+        )
 
     meldung = "Abgleich abgeschlossen: " + ", ".join(teile) if teile else (
         "Abgleich abgeschlossen — es gab nichts Neues."

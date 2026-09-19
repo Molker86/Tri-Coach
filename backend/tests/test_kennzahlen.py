@@ -298,7 +298,7 @@ def test_eine_zone_unter_einer_minute_faellt_heraus():
 
 def test_datenstand_fehlt_ohne_verbundenes_konto():
     """Ein leerer Stand behauptete eine Quelle, die es nicht gibt."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from app.ai_export import _datenstand
 
@@ -306,12 +306,20 @@ def test_datenstand_fehlt_ohne_verbundenes_konto():
 
     konto = SimpleNamespace(
         synced_through=date(2026, 8, 19),
+        # So steht es in der Datenbank: UTC, ohne Zeitzone.
         last_sync_at=datetime(2026, 8, 19, 20, 39, 51),
+    )
+    # In Ortszeit wie `erzeugt_am` — sonst meinten zwei Zeitstempel ohne Zone im
+    # selben Paket zwei verschiedene Uhren.
+    ortszeit = (
+        datetime(2026, 8, 19, 20, 39, 51, tzinfo=timezone.utc)
+        .astimezone()
+        .strftime("%Y-%m-%dT%H:%M")
     )
     assert _datenstand(konto) == {
         "garmin_daten_bis": "2026-08-19",
         # Auf Minuten gekürzt: Die Sekunde entscheidet hier nichts.
-        "letzter_abgleich": "2026-08-19T20:39",
+        "letzter_abgleich": ortszeit,
     }
 
 
@@ -643,3 +651,218 @@ def test_ftp_und_maximalpuls_kommen_weiter_aus_der_profilhistorie():
 
     assert zeile["ftp_watt"] == 250
     assert zeile["maximalpuls"] == 185
+
+
+# --------------------------------------------------------------------------
+# Prüfung des Trainingsexports: Werte, die im Paket stimmen müssen
+# --------------------------------------------------------------------------
+
+
+def _einheit(**felder):
+    """Eine Einheit mit allen Feldern, die die Rechnungen lesen."""
+    grund = dict(
+        date=date.today(), sport="run", status="completed", duration_min=60,
+        netto_dauer_min=None, distance_km=None, avg_hr=None, avg_power=None,
+        rpe=None, garmin_training_load=None, garmin_anaerobic_te=None,
+        hr_zone_seconds=None, puls_histogramm=None,
+    )
+    grund.update(felder)
+    return SimpleNamespace(**grund)
+
+
+def _zonen():
+    from app.sportscience import hr_zones
+
+    return hr_zones(189, 58)  # Z1 ab 124, Z2 137, Z3 150, Z4 163, Z5 176
+
+
+def test_mit_zonen_gibt_es_keinen_rueckfall_auf_garmins_zaehlung():
+    """Garmins `hr_zone_seconds` meint die Zonen der Uhr (Garmin-Z3 ≈ App-Z2)."""
+    from app.sportscience import zonensekunden_der_einheit
+
+    ohne_aufzeichnung = _einheit(hr_zone_seconds={"3": 600})
+    assert zonensekunden_der_einheit(ohne_aufzeichnung, _zonen()) is None
+    # Das Dashboard ruft ohne Zonen auf und zeigt weiter die der Uhr.
+    assert zonensekunden_der_einheit(ohne_aufzeichnung, None) == {"3": 600}
+
+
+def test_eine_einheit_ganz_unter_z1_bleibt_in_den_zonen_der_app():
+    """Früher: Histogramm ergab nichts, und der Export nahm still Garmins Zonen."""
+    from app.sportscience import zonensekunden_der_einheit
+
+    kraft = _einheit(
+        sport="strength", hr_zone_seconds={"1": 416, "2": 28},
+        puls_histogramm={"95": 1000, "110": 445},
+    )
+    assert zonensekunden_der_einheit(kraft, _zonen()) == {"1": 1445}
+
+
+def test_die_wochenverteilung_zaehlt_nur_ausdauer():
+    """Der Mobility-Puls liegt fast ganz in Z1 und schönte den leichten Anteil."""
+    from app.sportscience import weekly_summary
+
+    heute = date.today()
+    montag = heute - timedelta(days=heute.weekday())
+    logs = [
+        _einheit(date=montag, sport="run", duration_min=30,
+                 puls_histogramm={"165": 1800}),
+        _einheit(date=montag, sport="mobility", duration_min=30,
+                 puls_histogramm={"90": 1800}),
+        _einheit(date=montag, sport="bike", duration_min=30),
+    ]
+    woche = weekly_summary(logs, weeks=1, hf_zonen=_zonen())[-1]
+
+    assert woche["zeit_in_hf_zonen_min"] == {"z4": 30}
+    assert woche["intensitaetsverteilung_pct"]["hoch"] == 100
+    # 30 von 60 Ausdauerminuten sind ausgezählt; Mobility zählt nicht mit.
+    assert woche["zonen_abdeckung_pct"] == 50
+
+
+def test_die_radeffizienz_mischt_keine_zwei_groessen():
+    """Watt je Schlag ≈ 1, Tempo je Schlag ≈ 2,6 — im Monatsmittel ein Artefakt."""
+    from app.sportscience import effizienz_je_einheit
+
+    rolle = _einheit(sport="bike", avg_hr=140, avg_power=140, distance_km=25.0)
+    draussen = _einheit(sport="bike", avg_hr=138, distance_km=22.0)
+    koppel = _einheit(sport="brick", avg_hr=140, distance_km=30.0)
+
+    assert effizienz_je_einheit(rolle) == 1.0
+    assert effizienz_je_einheit(draussen) is None
+    assert effizienz_je_einheit(koppel) is None
+
+
+def test_die_schwimmeffizienz_rechnet_mit_der_bewegungszeit():
+    """Im Becken läuft der Timer in den Pausen weiter — `pace` meint die Bewegung."""
+    from app.sportscience import effizienz_je_einheit
+
+    becken = _einheit(sport="swim", avg_hr=136, distance_km=1.25,
+                      duration_min=59, netto_dauer_min=29)
+    assert effizienz_je_einheit(becken) == round(1250 / 29 / 136, 3)
+
+
+def test_der_siebentageschnitt_mittelt_ueber_sieben_tage():
+    from app.sportscience import wellness_mittelwerte
+
+    heute = date.today()
+    tage = [SimpleNamespace(date=heute - timedelta(days=i), resting_hr=50 + i,
+                            sleep_seconds=None, sleep_score=None,
+                            hrv_last_night_ms=None, stress_avg=None,
+                            readiness_score=None, body_battery_high=None)
+            for i in range(0, 30)]
+    mittel = wellness_mittelwerte(tage, heute)
+
+    # heute bis heute-6: 50 … 56 → 53,0. Mit dem achten Tag wären es 53,5.
+    assert mittel["ruhepuls"]["7_tage"] == 53.0
+    assert mittel["ruhepuls"]["28_tage"] == round(sum(range(50, 78)) / 28, 1)
+
+
+def test_der_laufende_monat_ist_als_unvollstaendig_markiert():
+    from app.sportscience import monatsverlauf
+
+    heute = date(2026, 9, 19)
+    logs = [_einheit(date=date(2026, 8, 10)), _einheit(date=date(2026, 9, 10))]
+    zeilen = {z["monat"]: z for z in monatsverlauf([], logs, heute=heute)}
+
+    assert zeilen["2026-08"]["ist_vollstaendig"] is True
+    assert zeilen["2026-09"]["ist_vollstaendig"] is False
+
+
+def test_intensiv_ist_nicht_nur_eine_frage_des_rpe():
+    """An einem echten Konto: 31 Tage, einen Tag nach einer Schlüsseleinheit."""
+    from app.ai_export import INTENSIV_HEISST, _days_since_hard_session
+
+    heute = date.today()
+    locker = _einheit(date=heute - timedelta(days=1), rpe=3)
+    assert _days_since_hard_session([locker], heute, _zonen()) is None
+
+    anaerob = _einheit(date=heute - timedelta(days=4), rpe=4, garmin_anaerobic_te=2.1)
+    schwelle = _einheit(date=heute - timedelta(days=2), rpe=4,
+                        puls_histogramm={"165": 660})
+    kurz_hart = _einheit(date=heute - timedelta(days=1), rpe=4,
+                         puls_histogramm={"165": 540})
+    assert _days_since_hard_session([anaerob], heute, _zonen()) == 4
+    assert _days_since_hard_session([anaerob, schwelle], heute, _zonen()) == 2
+    # Neun Minuten in Z4 reichen nicht.
+    assert _days_since_hard_session([anaerob, kurz_hart], heute, _zonen()) == 4
+    assert "anaerober Trainingseffekt ab 2,0" in INTENSIV_HEISST
+
+
+def _wellness(tag: date, **felder):
+    from app.models import WellnessDay
+
+    return WellnessDay(user_id=1, date=tag, **felder)
+
+
+def test_aktuell_stellt_keinen_alten_wert_als_heutigen_hin():
+    """Eine Körperbatterie von vor 19 Tagen stand unter `stand` von heute."""
+    from app.ai_export import _fitness_block
+
+    heute = date.today()
+    tage = [
+        _wellness(heute, resting_hr=62, hrv_last_night_ms=32.0),
+        _wellness(heute - timedelta(days=1), sleep_seconds=27000, weight_kg=90.2),
+        _wellness(heute - timedelta(days=19), body_battery_high=11,
+                  body_battery_low=5, vo2max_run=44.4),
+    ]
+    aktuell = _fitness_block(tage, heute)["aktuell"]
+
+    assert aktuell["stand"] == heute.isoformat()
+    assert "koerperbatterie" not in aktuell
+    assert aktuell["schlaf_h"] == 7.5
+    assert aktuell["gewicht_kg"] == 90.2
+    assert aktuell["vo2max_laufen"] == 44.4
+    gestern = (heute - timedelta(days=1)).isoformat()
+    assert aktuell["werte_vom"] == {
+        "schlaf_h": gestern,
+        "gewicht_kg": gestern,
+        "vo2max_laufen": (heute - timedelta(days=19)).isoformat(),
+    }
+
+
+def test_die_einstufung_ist_ein_wort_und_kein_zahlencode():
+    from app.ai_export import _fitness_block
+
+    heute = date.today()
+    tage = [_wellness(heute, training_status="7",
+                      training_status_feedback="PRODUCTIVE_2", garmin_acwr=1.2)]
+    status = _fitness_block(tage, heute)["aktuell"]["training_status"]
+
+    assert status["einstufung"] == "PRODUCTIVE"
+    assert "status" not in status
+    assert "7" not in status.values()
+
+
+def test_der_schwellenhinweis_steht_nur_mit_seinen_feldern():
+    """Sonst verwies der Prompt auf Felder, die im Paket gar nicht stehen."""
+    from app.ai_export import _schwellenhinweis
+
+    assert _schwellenhinweis({"athlet": {"ftp_watt": 198}}) == ""
+
+    mit_bestwerten = {"athlet": {
+        "ftp_watt": 198,
+        "bestwerte_training": [{"sportart": "bike", "spanne": "60 min"}],
+    }}
+    text = _schwellenhinweis(mit_bestwerten)
+    assert "der Radwert über `ftp_watt`" in text
+    assert "`coaching_notes`" in text
+    assert "schwellenpace_laufen_min_pro_km" not in text
+
+    # Bestwerte ohne vergleichbare Schwelle: erklärt, aber ohne „veraltet".
+    ohne_schwelle = {"athlet": {
+        "bestwerte_training": [{"sportart": "run", "spanne": "20 min"}],
+    }}
+    text = _schwellenhinweis(ohne_schwelle)
+    assert "keine Tests" in text
+    assert "veraltet" not in text
+
+
+def test_ein_einzelner_tag_steht_in_der_einzahl():
+    from app.ai_export import build_prompt
+
+    prompt = build_prompt({"planungszeitraum": {
+        "startdatum": "2026-09-19", "enddatum": "2026-09-19", "tage": 1,
+    }})
+    assert "planst einen einzelnen Tag: 2026-09-19." in prompt
+    assert "Genau ein Tag: 2026-09-19." in prompt
+    assert "An einem Tag müssen nicht alle vorkommen" in prompt
+    assert "1 Tage" not in prompt
