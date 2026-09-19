@@ -98,6 +98,9 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         "puls_histogramm": "JSON",
         "fit_bestwerte": "JSON",
         "fit_ausgewertet_am": "DATETIME",
+        # Kommt später als die drei darüber: Bereits ausgewertete Fahrten
+        # stehen dafür einmal wieder offen (`_ZURUECKZUSETZENDE_ALTWERTE`).
+        "leistung_geschaetzt": "JSON",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
@@ -309,6 +312,19 @@ _ZURUECKZUSETZENDE_ALTWERTE: tuple[tuple[str, str, str], ...] = (
         "trainings_analysen",
         "session_log_id",
         "DELETE FROM trainings_analysen",
+    ),
+    # Die Leistungsschätzung entsteht beim Auswerten der Aufzeichnung, und die
+    # wird je Training nur einmal geholt. Ohne das Zurücksetzen bekämen nur
+    # Fahrten ab dem Update eine Schätzung. Alle Radfahrten ohne gemessene
+    # Leistung, nicht nur die schätzbaren Typen — die Liste steht in
+    # `leistungsschaetzung.RADTYPEN`, und ein paar Rollenfahrten ohne Watt
+    # einmal mehr zu laden ist billiger als zwei Listen, die auseinanderlaufen.
+    # Histogramm und Bestwerte entstehen dabei unverändert neu.
+    (
+        "session_logs",
+        "leistung_geschaetzt",
+        "UPDATE session_logs SET fit_ausgewertet_am = NULL "
+        "WHERE sport = 'bike' AND (avg_power IS NULL OR avg_power = 0)",
     ),
 )
 

@@ -28,6 +28,7 @@ from typing import Any
 
 from garmin_fit_sdk import Decoder, Stream
 
+from .leistungsschaetzung import RADTYPEN, Probe, schaetze_leistung
 from .mapping import BESTZEIT_PACE_SPANNE, hole
 
 logger = logging.getLogger(__name__)
@@ -521,16 +522,31 @@ class FitKennwerte:
     # Je Sportart die besten Werte über die festen Spannen: Laufen in m/s und
     # Rad in Watt je Dauer in Sekunden, Schwimmen in Sekunden je Strecke in m.
     bestwerte: dict[str, dict[str, float | int]] | None = None
+    # Nur an Radfahrten ohne Wattmessung: `schnitt_w`, `normalisiert_w`,
+    # `beste_minute_w` aus Tempo, Steigung und Gewicht (`leistungsschaetzung`).
+    # Nie in `bestwerte` — die rechnen nur mit gemessener Leistung.
+    leistung_geschaetzt: dict[str, int] | None = None
 
 
-def kennwerte_aus_fit(fit_bytes: bytes) -> FitKennwerte:
-    """Pulshistogramm und Bestwerte einer Aufzeichnung."""
+def kennwerte_aus_fit(
+    fit_bytes: bytes,
+    *,
+    radtyp: str | None = None,
+    gewicht_kg: float | None = None,
+) -> FitKennwerte:
+    """Pulshistogramm, Bestwerte und — draußen ohne Watt — geschätzte Leistung.
+
+    `radtyp` ist Garmins Aktivitätstyp (`SessionLog.garmin_activity_type`),
+    `gewicht_kg` das Profilgewicht als Rückfall, falls die Datei keines trägt.
+    Ohne Radtyp oder ohne jedes Gewicht wird nichts geschätzt.
+    """
     nachrichten = _dekodiere(fit_bytes)
     records = [
         r for r in _liste(nachrichten, "record_mesgs")
         if isinstance(hole(r, "timestamp"), datetime)
     ]
-    dauern = _wirksame_dauern(records, _timerpausen(nachrichten))
+    pausen = _timerpausen(nachrichten)
+    dauern = _wirksame_dauern(records, pausen)
 
     sessions = _liste(nachrichten, "session_mesgs")
     bestwerte: dict[str, dict[str, float | int]] = {}
@@ -555,10 +571,87 @@ def kennwerte_aus_fit(fit_bytes: bytes) -> FitKennwerte:
         if werte:
             _merke_bestwerte(bestwerte.setdefault(sportart, {}), werte, sportart)
 
+    # Multisport bleibt außen vor: Die Radsession einer Triathlon-Datei ist
+    # nicht das ganze Training, an dem der Wert stünde.
+    leistung = None
+    if len(sessions) == 1 and hole(sessions[0], "sport") == "cycling":
+        leistung = _geschaetzte_leistung(nachrichten, records, pausen, radtyp, gewicht_kg)
+
     return FitKennwerte(
         puls_histogramm=_pulshistogramm(records, dauern) or None,
         bestwerte=bestwerte or None,
+        leistung_geschaetzt=leistung,
     )
+
+
+# Unter diesem Anteil an Records mit Strecke und Höhe fehlt zu viel vom Weg.
+_MINDESTANTEIL_MIT_HOEHE = 0.8
+# Was darunter oder darüber im Nutzerprofil der Uhr steht, ist kein Gewicht.
+_GEWICHT_SPANNE_KG = (30.0, 250.0)
+
+
+def _geschaetzte_leistung(
+    nachrichten: dict,
+    records: list[dict],
+    pausen: list[tuple[datetime, datetime]],
+    radtyp: str | None,
+    gewicht_kg: float | None,
+) -> dict[str, int] | None:
+    """Die Leistung einer Fahrt, die niemand gemessen hat.
+
+    Gemessene Leistung gewinnt immer: Trägt auch nur ein Record Watt, fährt
+    ein Powermeter oder ein Smart Trainer mit, und eine Schätzung daneben
+    wäre eine zweite, schlechtere Zahl für dieselbe Fahrt.
+    """
+    parameter = RADTYPEN.get(radtyp or "")
+    if parameter is None:
+        return None
+    if any(
+        isinstance(watt := hole(r, "power"), (int, float)) and watt > 0 for r in records
+    ):
+        return None
+    fahrer = _fahrergewicht(nachrichten) or _plausibles_gewicht(gewicht_kg)
+    if fahrer is None:
+        return None
+
+    mit_weg = [
+        r for r in records
+        if isinstance(hole(r, "distance"), (int, float))
+        and isinstance(_hoehe(r), (int, float))
+    ]
+    if len(mit_weg) < 2 or len(mit_weg) < _MINDESTANTEIL_MIT_HOEHE * len(records):
+        return None
+    start = hole(mit_weg[0], "timestamp")
+    proben = [
+        Probe(
+            zeit_s=(hole(r, "timestamp") - start).total_seconds(),
+            dauer_s=dauer,
+            strecke_m=float(hole(r, "distance")),
+            hoehe_m=float(_hoehe(r)),
+        )
+        for r, dauer in zip(mit_weg, _wirksame_dauern(mit_weg, pausen))
+    ]
+    return schaetze_leistung(proben, fahrer + parameter.rad_kg, parameter)
+
+
+def _hoehe(record: dict) -> Any:
+    hoehe = hole(record, "enhanced_altitude")
+    return hoehe if hoehe is not None else hole(record, "altitude")
+
+
+def _fahrergewicht(nachrichten: dict) -> float | None:
+    """Das Gewicht aus dem Nutzerprofil der Uhr — das vom Tag der Fahrt.
+
+    Vorrang vor dem Profil der App, weil das Nachholen ein halbes Jahr
+    zurückreicht und das Profil nur den heutigen Stand kennt.
+    """
+    return _plausibles_gewicht(hole(_liste(nachrichten, "user_profile_mesgs"), 0, "weight"))
+
+
+def _plausibles_gewicht(wert: Any) -> float | None:
+    if isinstance(wert, (int, float)) and _GEWICHT_SPANNE_KG[0] <= wert <= _GEWICHT_SPANNE_KG[1]:
+        return float(wert)
+    return None
 
 
 def _timerpausen(nachrichten: dict) -> list[tuple[datetime, datetime]]:
@@ -747,7 +840,13 @@ def _merke_bestwerte(
             bisher[spanne] = max(alt, wert)
 
 
-def kennwerte_der_aktivitaet(api: Any, activity_id: Any) -> FitKennwerte:
+def kennwerte_der_aktivitaet(
+    api: Any,
+    activity_id: Any,
+    *,
+    radtyp: str | None = None,
+    gewicht_kg: float | None = None,
+) -> FitKennwerte:
     """Holt die Aufzeichnung einer Aktivität und verdichtet sie für die Planung.
 
     Derselbe Download wie `hole_aktivitaet`; Fehler fliegen, der Abgleich
@@ -756,7 +855,7 @@ def kennwerte_der_aktivitaet(api: Any, activity_id: Any) -> FitKennwerte:
     zip_bytes = api.download_activity(
         activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL
     )
-    return kennwerte_aus_fit(entpacke_fit(zip_bytes))
+    return kennwerte_aus_fit(entpacke_fit(zip_bytes), radtyp=radtyp, gewicht_kg=gewicht_kg)
 
 
 # --------------------------------------------------------------------------

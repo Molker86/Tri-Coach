@@ -350,6 +350,7 @@ def importiere_aufzeichnungen(
     user_id: int,
     ergebnis: SyncErgebnis,
     heute: date | None = None,
+    profil: AthleteProfile | None = None,
 ) -> None:
     """Wertet die Original-Aufzeichnungen noch offener Trainings aus.
 
@@ -373,7 +374,14 @@ def importiere_aufzeichnungen(
     ).all()
 
     for log in offen:
-        fertig, kennwerte = _hole_kennwerte(api, log.garmin_activity_id)
+        fertig, kennwerte = _hole_kennwerte(
+            api,
+            log.garmin_activity_id,
+            # Nur für die Leistungsschätzung: Welches Rad, und das
+            # Profilgewicht, falls die Uhr keines in die Datei schreibt.
+            radtyp=log.garmin_activity_type,
+            gewicht_kg=profil.weight_kg if profil else None,
+        )
         if not fertig:
             # Ein Netzfehler trifft den nächsten Download genauso. Weiter
             # bleibt alles offen, und der nächste Abgleich setzt dort an.
@@ -381,6 +389,7 @@ def importiere_aufzeichnungen(
             return
         log.puls_histogramm = kennwerte.puls_histogramm if kennwerte else None
         log.fit_bestwerte = kennwerte.bestwerte if kennwerte else None
+        log.leistung_geschaetzt = kennwerte.leistung_geschaetzt if kennwerte else None
         log.fit_ausgewertet_am = jetzt_utc()
         # Je Training festschreiben: Eine Sperre beim nächsten Download soll
         # die schon geholten nicht mitnehmen.
@@ -389,7 +398,12 @@ def importiere_aufzeichnungen(
             ergebnis.aufzeichnungen += 1
 
 
-def _hole_kennwerte(api: Any, aktivitaets_id: str) -> tuple[bool, FitKennwerte | None]:
+def _hole_kennwerte(
+    api: Any,
+    aktivitaets_id: str,
+    radtyp: str | None = None,
+    gewicht_kg: float | None = None,
+) -> tuple[bool, FitKennwerte | None]:
     """Lädt und verdichtet eine Aufzeichnung.
 
     Gibt zurück, ob die Einheit damit erledigt ist, und die Kennwerte. Erledigt
@@ -401,7 +415,9 @@ def _hole_kennwerte(api: Any, aktivitaets_id: str) -> tuple[bool, FitKennwerte |
     die Pause steht im `finally`.
     """
     try:
-        return True, kennwerte_der_aktivitaet(api, aktivitaets_id)
+        return True, kennwerte_der_aktivitaet(
+            api, aktivitaets_id, radtyp=radtyp, gewicht_kg=gewicht_kg
+        )
     except (GarminRateLimit, GarminConnectTooManyRequestsError) as exc:
         raise GarminRateLimit() from exc
     except FitDatenFehler as exc:
@@ -1027,7 +1043,7 @@ def fuehre_sync_aus(
     # es in die Anfragesperre, sind Trainings, Fitnessdaten und Schwellenwerte
     # schon gesichert.
     fortschritt.schritt("Aufzeichnungen", schritte_gesamt - 1, schritte_gesamt)
-    importiere_aufzeichnungen(db, api, user_id, ergebnis)
+    importiere_aufzeichnungen(db, api, user_id, ergebnis, profil=profil)
 
     # Ganz zum Schluss und als einziger Schritt **nicht** gegen Garmins API:
     # zwei öffentliche JSON-Dateien mit dem Übungskatalog. Sie hängen hier dran,

@@ -215,6 +215,13 @@ export interface SessionLog {
   /** Woher `rpe` stammt. `athlet` ist seine eigene Bewertung aus Garmin
    *  Connect, alles außer `manual` (Altwert) sonst geschätzt. */
   rpe_source: 'athlet' | 'manual' | 'hf_zonen' | 'trainingseffekt' | 'hf_schnitt'
+  /** Gerechnete Leistung einer Außenfahrt ohne Wattmessung — aus Tempo,
+   *  Steigung und Gewicht, ohne Wind. Nie neben einer gemessenen `avg_power`. */
+  leistung_geschaetzt: {
+    schnitt_w: number
+    normalisiert_w: number | null
+    beste_minute_w: number | null
+  } | null
 }
 
 export interface WeeklyBucket {

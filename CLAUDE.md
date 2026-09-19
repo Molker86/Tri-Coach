@@ -167,7 +167,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 841 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 868 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -265,7 +265,8 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme, Zonen der App
   statt der Uhr, Aufzeichnung einmal je Training.
   *Bei `garmin/sync.py`, `mapping.py`, `client.py`, `runner.py`, `matching.py`,
-  `profile_sync.py`, `routers/logs.py`, `fitdaten.kennwerte_aus_fit`.*
+  `profile_sync.py`, `routers/logs.py`, `fitdaten.kennwerte_aus_fit`,
+  `leistungsschaetzung.py`.*
 - [docs/garmin-workouts.md](docs/garmin-workouts.md) — Bauplan statt Prosa,
   Zerleger als Rückfall, Wiederholungsgruppen, Watt- gegen Pulskorridor,
   Beckenlänge, Übungskennungen und Katalog.
@@ -349,6 +350,12 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Histogramm hat eine Einheit im Export **keine** Zonenzeiten — kein Rückfall
   auf die Uhr; Zeit unter Z1 zählt als Z1 (siehe „Im Export gibt es keinen
   Rückfall auf Garmins Zählung").
+- **Geschätzte Radleistung** (`garmin/leistungsschaetzung.py`): Außenfahrten
+  ohne Wattmessung bekommen Ø, NP und beste Minute aus Tempo, Steigung,
+  Gewicht (aus der FIT, Rückfall Profil) und festen Werten je Garmin-Radtyp —
+  ohne Wind. Eigene Spalte `SessionLog.leistung_geschaetzt`, **nie**
+  `avg_power`: Effizienz und Rad-Bestwerte rechnen nur mit Messung (siehe
+  „Draußen ohne Wattmessung wird die Leistung geschätzt").
 - **TRIMP** nach Banister, geschlechtsspezifisch gewichtet.
 - **sRPE-Last** nach Foster (Dauer × RPE) — funktioniert ohne Pulsgurt.
 - **ACWR**: Last der letzten Woche gegen den Vier-Wochen-Schnitt. Über 1,3 gilt

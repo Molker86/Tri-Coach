@@ -201,7 +201,8 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Einheiten vergleichbar sind, und rechnet den Wert an jeder Einheit mit
   Herzfrequenz und Bezugsgröße aus. Der Prompt sagt die Einschränkung, die
   Einordnung bleibt bei der KI. Auf dem Rad gibt es sie nur mit Wattmessung —
-  Tempo je Schlag stand früher unter derselben Überschrift, mit rund dreifachem
+  auch die geschätzte Leistung der Außenfahrten zählt nicht, aus demselben
+  Grund. Tempo je Schlag stand früher unter derselben Überschrift, mit rund dreifachem
   Zahlenwert, und das Monatsmittel zeigte den Anteil der Rollenfahrten statt der
   Form. Wärme, Untergrund und Höhenmeter verschieben
   ihn ebenfalls — die Temperatur steht seither wenigstens daneben, Untergrund
@@ -215,8 +216,8 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   fehlt, sind Einheiten, an denen sie etwas aussagt: gleichmäßig, ab etwa
   45 min, mit Watt oder in der Ebene. Am echten Konto waren das in 26 Wochen
   rund fünf Läufe und sechs Indoor-Fahrten, gemessen am Handgelenk. Die
-  Straßenfahrten haben keine Watt, und Tempo gegen Puls ist dort Wind und
-  Gelände. Wächst der Umfang, ist das der nächste Schritt.
+  Straßenfahrten haben keine gemessenen Watt, die geschätzten kennen keinen
+  Wind, und Tempo gegen Puls ist dort Wind und Gelände. Wächst der Umfang, ist das der nächste Schritt.
 - **Nicht jede Einheit hat Zonenzeiten.** Ohne Pulshistogramm stehen im
   Export keine — älter als 26 Wochen, in Connect von Hand angelegt, ohne Puls
   oder noch nicht nachgeholt. Garmins Zählung nach den Zonen der Uhr springt
@@ -234,10 +235,24 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
 - **Bestwerte sind Trainingswerte, keine Tests.** Wer nie zwanzig Minuten hart
   fuhr, hat dort einen niedrigen Wert: Die Zwift-Fahrt vom 16.02.2026 ergab
   125 W über 20 min bei hinterlegter FTP 198 W. Umgerechnet wird nichts. Watt
-  gibt es nur, wo gemessen wird (am echten Konto nur drinnen). Freiwasser und
+  gibt es nur, wo gemessen wird (am echten Konto nur drinnen); die geschätzte
+  Leistung der Außenfahrten geht bewusst nicht ein. Freiwasser und
   Laufband haben keine Bestwerte, weil die Strecke dort geschätzt ist. Im
   Becken zählt nur Freistil am Stück, und das waren im echten Training selten
   mehr als vier Bahnen — deshalb gibt es auch 50 m.
+- **Die geschätzte Radleistung kennt keinen Wind**
+  (`garmin/leistungsschaetzung.py`). Gegenwind hebt die wahre Leistung,
+  Rückenwind und der Windschatten einer Gruppe senken sie, und keine
+  Aufzeichnung verrät, was davon war — der Fehler liegt grob bei ±15–25 %,
+  an einer einzelnen windigen Fahrt auch darüber. Dazu kommen die festen
+  Werte je Radtyp: Wer auf dem Aeroaufsatz fährt, liegt unter dem
+  angenommenen Luftwiderstand, die Schätzung also zu hoch. Auf Gravel und im
+  Wald wechselt der Rollwiderstand mit dem Untergrund, und wer bergab bremst,
+  vernichtet Energie, die das Modell nicht sieht. Eine Multisport-Datei
+  bekommt keine Schätzung, ein E-Bike auch nicht. Geprüft ist die Rechnung
+  an nachgerechneten Fällen, **nicht an einer Fahrt mit Powermeter** — am
+  echten Konto gibt es keine Außenfahrt mit Messung, gegen die sie zu halten
+  wäre.
 - **Ein GPS-Sprung kann einen Laufbestwert heben.** Geprüft wird nur das
   Mittel eines ganzen Fensters gegen 7,1 m/s (`fitdaten._MAX_LAUF_M_S`), nicht
   jeder Abschnitt darin. 500 m Sprung in fünf Minuten höben eine 3,0-m/s-Pace

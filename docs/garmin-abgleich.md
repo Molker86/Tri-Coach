@@ -576,6 +576,44 @@ gesichert. Drei Ausgänge je Training:
 - **Netzfehler:** offen lassen und den Schritt beenden, denn der nächste Download
   liefe in denselben Fehler.
 
+**Draußen ohne Wattmessung wird die Leistung geschätzt**
+(`garmin/leistungsschaetzung.py`, `SessionLog.leistung_geschaetzt`). Am echten
+Konto hatte keine einzige Außenfahrt Watt — 62 Gravel-, 22 Rennrad-, 19
+allgemeine Radfahrten —, und die KI sah dort nur Tempo und Puls. Was das Tempo
+gekostet hat, lässt sich aber rechnen, und die Sekundenreihe liegt beim Auswerten
+der Aufzeichnung ohnehin auf dem Tisch: Hangabtrieb, Rollwiderstand,
+Luftwiderstand und Beschleunigung, geteilt durch den Wirkungsgrad des Antriebs.
+Die Geschwindigkeit ist über fünf Sekunden geglättet, die Steigung über ±50 m
+Strecke — Barometerrauschen machte sonst jede Kuppe zur Rampe. Bergab und beim
+Rollen zählt 0 W, wie in Garmins Schnitt. Gespeichert werden `schnitt_w`,
+`normalisiert_w` (NP nach Coggan) und `beste_minute_w`; eine Spitze über fünf
+Sekunden wäre bei GPS-Tempo vor allem Rauschen.
+
+Luft- und Rollwiderstand und das Radgewicht stehen **fest je Garmin-Typ**
+(`RADTYPEN`: Rennrad, Gravel/Cross, MTB, allgemein), nicht im Profil. Es ist eine
+Positivliste: E-Bikes schiebt ein Motor, auf der Rolle und in Zwift misst ein
+Gerät. Das Fahrergewicht kommt aus dem Nutzerprofil **der Uhr in der FIT-Datei**,
+also vom Tag der Fahrt — das Nachholen reicht ein halbes Jahr zurück, das Profil
+der App kennt nur den heutigen Stand. Es ist der Rückfall, wenn die Datei keines
+trägt; ohne Gewicht wird nichts geschätzt. Und gemessene Leistung gewinnt immer:
+Trägt auch nur ein Record Watt, entsteht keine Schätzung daneben.
+
+**Eine eigene Spalte, nicht `avg_power`.** Effizienz und Rad-Bestwerte rechnen
+bewusst nur mit gemessener Leistung (siehe „Die Effizienz ist nur zwischen
+ähnlichen Einheiten vergleichbar" in [grenzen.md](grenzen.md)). Eine Schätzung
+ohne Wind darin verschöbe die Effizienz je Monat mit dem Anteil der
+Außenfahrten, und ein zu hoher Stundenwert meldete eine veraltete FTP. Im Export
+steht sie deshalb unter eigenen Namen (`leistung_watt_geschaetzt`,
+`normalisierte_leistung_geschaetzt`, `beste_minute_watt_geschaetzt`) und nur, wo
+nichts gemessen ist; ein Satz im Prompt sagt, woraus sie stammt
+(`ai_export._schaetzhinweis`). In den Trainingsdetails steht sie als
+„~152 (geschätzt)".
+
+Die Spalte kam später als Histogramm und Bestwerte, und die Aufzeichnung wird
+je Training nur einmal geholt. Beim Anlegen der Spalte stehen deshalb alle
+Radfahrten ohne Messung einmal wieder offen (`database._ZURUECKZUSETZENDE_ALTWERTE`)
+und werden über die nächsten Abgleiche nachgeholt, jüngste zuerst.
+
 **Zugeordnet wird über die Workout-Kennung, nicht über den Tag**
 (`garmin/matching.py`). Die Regel hieß einmal „gleicher Tag, gleiche Sportart,
 noch nicht erfasst" und war als das Strenge gedacht — sie war das Gegenteil: Am

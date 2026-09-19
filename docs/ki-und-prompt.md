@@ -389,6 +389,19 @@ weiter „nimm die Zonen". Jetzt heißt es: mit den Zonen weiterplanen — die U
 rechnet mit ihnen (`workouts._leistung_aus_zone`) — und die Schwelle in
 `coaching_notes` nennen, damit der Athlet sie nachträgt.
 
+**Der Satz zur geschätzten Radleistung steht ebenso nur mit seinen Feldern**
+(`_schaetzhinweis()`). Außenfahrten ohne Wattmessung tragen
+`leistung_watt_geschaetzt`, `normalisierte_leistung_geschaetzt` und
+`beste_minute_watt_geschaetzt` (siehe „Draußen ohne Wattmessung wird die
+Leistung geschätzt" in `docs/garmin-abgleich.md`). Ohne Satz läse die KI die
+Zahl wie eine Messung; mit Satz, aber ohne geschätzte Einheit, verwiese er auf
+Felder, die nicht dastehen. Er sagt, woraus die Werte gerechnet sind und was
+fehlt — Wind und Windschatten —, und dass `effizienz` dort leer bleibt. Was die
+Zahl für die Planung bedeutet, sagt er nicht. Planungs- und Analyseprompt
+bekommen denselben Satz, weil beide denselben Einheitenblock lesen
+(`_session_eintrag`); der Ernährung fehlen die Felder schon in ihrer
+Positivliste.
+
 Im selben Absatz steht: `zeit_in_hf_zonen_min` zählt nach `herzfrequenzzonen`,
 Zeit unter Z1 als Z1, je Woche nur Ausdauer, und `zonen_abdeckung_pct` sagt, wie
 viel davon ausgezählt ist. Bis hierher stimmte schon der erste Teil nicht — die

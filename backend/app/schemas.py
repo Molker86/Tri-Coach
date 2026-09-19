@@ -866,6 +866,14 @@ class PlanDeleteOut(BaseModel):
 # --------------------------------------------------------------------------
 
 
+class LeistungGeschaetztOut(BaseModel):
+    """Die gerechnete Leistung einer Außenfahrt ohne Wattmessung, in Watt."""
+
+    schnitt_w: int
+    normalisiert_w: int | None = None
+    beste_minute_w: int | None = None
+
+
 class SessionLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -903,6 +911,10 @@ class SessionLogOut(BaseModel):
     garmin_aerobic_te: float | None = None
     garmin_anaerobic_te: float | None = None
     rpe_source: str = "manual"
+    # Nur an Radfahrten ohne Wattmessung (`garmin/leistungsschaetzung.py`).
+    # Anders als die übrigen Aufzeichnungswerte steht sie hier, weil die
+    # Trainingsdetails sie zeigen — als Schätzung gekennzeichnet.
+    leistung_geschaetzt: LeistungGeschaetztOut | None = None
 
     @field_validator("sport")
     @classmethod

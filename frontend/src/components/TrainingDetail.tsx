@@ -63,6 +63,27 @@ export function TrainingDetail({
             <DetailRow label="Durchschnittspuls" value={log.avg_hr} unit="bpm" />
             <DetailRow label="Maximalpuls" value={log.max_hr} unit="bpm" />
             <DetailRow label="Leistung" value={log.avg_power} unit="Watt" />
+            {/* Nur ohne Messung: Die Schätzung kennt keinen Wind und steht
+                deshalb nie neben einer gemessenen Leistung. */}
+            {log.avg_power === null && log.leistung_geschaetzt && (
+              <>
+                <DetailRow
+                  label="Leistung"
+                  value={geschaetzt(log.leistung_geschaetzt.schnitt_w)}
+                  unit="Watt"
+                />
+                <DetailRow
+                  label="Normalisierte Leistung"
+                  value={geschaetzt(log.leistung_geschaetzt.normalisiert_w)}
+                  unit="Watt"
+                />
+                <DetailRow
+                  label="Beste Minute"
+                  value={geschaetzt(log.leistung_geschaetzt.beste_minute_w)}
+                  unit="Watt"
+                />
+              </>
+            )}
             <DetailRow label="Frequenz" value={log.avg_cadence} unit="1/min" />
             <DetailRow label="Höhenmeter" value={log.elevation_gain_m} unit="m" />
             <DetailRow label="Kalorien" value={log.calories} unit="kcal" />
@@ -117,6 +138,10 @@ export function TrainingDetail({
       </div>
     </Modal>
   )
+}
+
+function geschaetzt(watt: number | null): string | null {
+  return watt === null ? null : `~${watt} (geschätzt)`
 }
 
 function DetailRow({

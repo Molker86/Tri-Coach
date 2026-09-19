@@ -507,6 +507,13 @@ def _session_eintrag(
         eintrag["pace_hoehenkorrigiert"] = _pace_with_unit(lg.sport, lg.gap_pace)
     if lg.normalisierte_leistung:
         eintrag["normalisierte_leistung"] = lg.normalisierte_leistung
+    # Draußen ohne Wattmessung die gerechnete Leistung — unter eigenen
+    # Namen, damit sie niemand für gemessen hält. Wo gemessen wurde, gewinnt
+    # die Messung; `_schaetzhinweis()` sagt der KI, woraus die Zahlen stammen.
+    if lg.leistung_geschaetzt and not lg.avg_power:
+        for feld, schluessel in _GESCHAETZTE_LEISTUNG:
+            if (wert := lg.leistung_geschaetzt.get(schluessel)) is not None:
+                eintrag[feld] = wert
     if lg.swolf:
         eintrag["swolf"] = lg.swolf
     if lg.zuege:
@@ -530,6 +537,14 @@ def _session_eintrag(
     if lg.rpe is not None:
         eintrag["rpe_quelle"] = lg.rpe_source
     return eintrag
+
+
+# Exportname ← Schlüssel in `SessionLog.leistung_geschaetzt`.
+_GESCHAETZTE_LEISTUNG = (
+    ("leistung_watt_geschaetzt", "schnitt_w"),
+    ("normalisierte_leistung_geschaetzt", "normalisiert_w"),
+    ("beste_minute_watt_geschaetzt", "beste_minute_w"),
+)
 
 
 # Reihenfolge der Bestwerte-Tabelle; eine unbekannte Sportart fällt heraus,
@@ -1752,7 +1767,7 @@ Herzschlag; vergleichbar nur zwischen ähnlichen Einheiten); in `athlet.verlauf`
 Saison zu- oder abgenommen hat und ob die Effizienz mitging. `ist_vollstaendig: false` ist \
 die laufende Woche bzw. der laufende Monat. `zeit_in_hf_zonen_min` zählt nach \
 `herzfrequenzzonen`, Zeit unter Z1 als Z1, je Woche nur Ausdauer; `zonen_abdeckung_pct` \
-sagt, welcher Anteil davon ausgezählt ist.{schwellenhinweis}
+sagt, welcher Anteil davon ausgezählt ist.{schwellenhinweis}{schaetzhinweis}
 
 {fitnessregeln}
 
@@ -2500,6 +2515,28 @@ def _schwellenhinweis(payload: dict[str, Any]) -> str:
     return "".join(" " + satz for satz in saetze)
 
 
+def _schaetzhinweis(payload: dict[str, Any]) -> str:
+    """Der Satz zur geschätzten Radleistung — nur, wo eine Einheit sie trägt.
+
+    Ohne ihn läse die KI die Zahl wie eine Messung. Mit ihm, aber ohne eine
+    einzige geschätzte Einheit, verwiese er auf Felder, die nicht dastehen.
+    Beschrieben wird die Herkunft, nicht, was die Zahl bedeuten soll.
+    """
+    einheiten = [
+        *((payload.get("trainingshistorie") or {}).get("einheiten") or []),
+        payload.get("training") or {},
+    ]
+    if not any(feld in e for e in einheiten for feld, _ in _GESCHAETZTE_LEISTUNG):
+        return ""
+    return (
+        " An Radeinheiten ohne Wattmessung stehen `leistung_watt_geschaetzt`, "
+        "`normalisierte_leistung_geschaetzt` und `beste_minute_watt_geschaetzt`: "
+        "gerechnet aus Tempo, Steigung, Gewicht und Radtyp, ohne Wind und "
+        "Windschatten — eine Größenordnung, keine Messung. `effizienz` bleibt "
+        "dort leer."
+    )
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
     # Die Disziplin steht im Payload, nicht in der Signatur: So erben beide
@@ -2515,6 +2552,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
         verlauf_monate=VERLAUF_MONATE,
         neuplanungshinweis=_neuplanungshinweis(period),
         schwellenhinweis=_schwellenhinweis(payload),
+        schaetzhinweis=_schaetzhinweis(payload),
         fitnessregeln=_fitnessregeln(payload, "summary"),
         wettkampfhinweis=_wettkampfhinweis(payload),
         # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
@@ -3425,7 +3463,7 @@ Athleten — {sportart} am {datum} — kritisch, persönlich und aus den Daten b
 - `training` ist die Einheit, wie Garmin sie zusammenfasst: Dauer, Distanz, \
 Puls, Pace bzw. Watt, Trainingslast, Trainingseffekt, Zeit in den \
 Herzfrequenzzonen, dazu die absolvierten Abschnitte bzw. Übungen und — wo der \
-Athlet sie selbst vergeben hat — Anstrengung und Befinden.
+Athlet sie selbst vergeben hat — Anstrengung und Befinden.{schaetzhinweis}
 - `aktivitaeten.N` ist dieselbe Einheit als **Original-Aufzeichnung** der Uhr: \
 Kopfdaten, dazu als Tabellen `soll_schritte` (die geplanten Schritte des \
 Workouts, falls eines gestartet wurde), `runden` (das Gefahrene, mit Rückbezug \
@@ -3486,6 +3524,7 @@ def build_analyse_prompt(payload: dict[str, Any]) -> str:
     return ANALYSE_PROMPT_TEMPLATE.format(
         sportart=kopf.get("sportart", "die Einheit"),
         datum=kopf.get("datum", ""),
+        schaetzhinweis=_schaetzhinweis(payload),
         schema=json.dumps(
             ANALYSE_STRUKTURSCHEMA, separators=(",", ":"), ensure_ascii=False
         ),

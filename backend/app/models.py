@@ -491,6 +491,13 @@ class SessionLog(Base):
     # Die besten Werte über feste Spannen (`fitdaten.BESTWERT_DAUERN_S`,
     # `BESTWERT_STRECKEN_M`), je Sportart. Trainingswerte, keine Tests.
     fit_bestwerte: Mapped[dict | None] = mapped_column(JSON)
+    # Draußen ohne Wattmessung: geschätzte Leistung aus Tempo, Steigung und
+    # Gewicht (`garmin/leistungsschaetzung.py`) — `schnitt_w`,
+    # `normalisiert_w`, `beste_minute_w`. Eine eigene Spalte und nicht
+    # `avg_power`, denn Effizienz und Rad-Bestwerte rechnen bewusst nur mit
+    # gemessener Leistung: Eine Schätzung ohne Wind darin verschöbe die
+    # Effizienz je Monat und meldete womöglich eine veraltete FTP.
+    leistung_geschaetzt: Mapped[dict | None] = mapped_column(JSON)
     fit_ausgewertet_am: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
