@@ -22,7 +22,7 @@ from app.garmin.fitdaten import (
     AktivitaetsDaten,
     FitDatenFehler,
     entpacke_fit,
-    hole_aktivitaeten,
+    hole_aktivitaet,
     parse_fit,
     verdichte_stuetzpunkte,
 )
@@ -181,7 +181,6 @@ def test_pausen_ereignisse(lauf):
 def test_lauf_ohne_schwimm_und_kraftdaten_hat_leere_listen(lauf):
     assert lauf.bahnen == []
     assert lauf.saetze == []
-    assert lauf.fit_fehlt is False
 
 
 def test_unlesbare_fit_ist_ein_definierter_fehler():
@@ -218,13 +217,15 @@ def test_paketabschnitt_traegt_kopf_und_tabellen(lauf):
 
 
 def test_paketabschnitt_vermerkt_fehlende_fit():
+    """Ohne ladbare Aufzeichnung steht nur der Vermerk im Abschnitt.
+
+    Den Block baut nicht `fitdaten`, sondern `ai_export` — hier zählt, dass
+    `paket_als_text` ihn ohne Tabellen durchlässt.
+    """
+    from app.ai_export import HINWEIS_OHNE_FIT
     from app.paketformat import paket_als_text
 
-    ohne = AktivitaetsDaten(
-        kopf={"sportart": "walking", "name": "Spaziergang", "dauer_min": 30},
-        fit_fehlt=True,
-    )
-    text = paket_als_text({"aktivitaeten": [ohne.als_dict()]})
+    text = paket_als_text({"aktivitaeten": [{"hinweis": HINWEIS_OHNE_FIT}]})
     assert "nur Listendaten" in text
     assert "### aktivitaeten.1." not in text  # keine Tabellen ohne Daten
 
@@ -242,58 +243,45 @@ def test_zwei_aktivitaeten_werden_durchnummeriert(lauf):
 # --------------------------------------------------------------------------
 
 
-from datetime import date, timedelta  # noqa: E402
+from datetime import date  # noqa: E402
 
 from fakes import FakeGarmin, baue_aktivitaet  # noqa: E402
 
 HEUTE = date.today()
 
 
-def test_abruf_laedt_und_parst_die_originale():
+def test_abruf_laedt_und_parst_das_original():
     stand = FakeGarmin(aktivitaeten=[baue_aktivitaet(24040558837, HEUTE)])
     stand.originale["24040558837"] = FIXTURE.read_bytes()
 
-    aktivitaeten = hole_aktivitaeten(stand, HEUTE - timedelta(days=6), HEUTE)
+    aktivitaeten = hole_aktivitaet(stand, "24040558837")
     assert len(aktivitaeten) == 1
     assert aktivitaeten[0].kopf["sportart"] == "running"
     assert len(aktivitaeten[0].soll_schritte) == 3
-    assert aktivitaeten[0].fit_fehlt is False
+    # ORIGINAL und nichts anderes — TCX trüge die Soll-Schritte nicht.
+    assert stand.aufrufe == ["download_activity"]
 
 
-def test_leerer_zeitraum_gibt_leere_liste():
-    stand = FakeGarmin(aktivitaeten=[])
-    assert hole_aktivitaeten(stand, HEUTE - timedelta(days=6), HEUTE) == []
+def test_gescheiterter_download_fliegt():
+    """Anders als beim alten Zeitraumabruf wird hier nichts übersprungen.
 
-
-def test_gescheiterter_download_wird_vermerkt_und_der_rest_kommt_durch():
-    gestern = HEUTE - timedelta(days=1)
-    stand = FakeGarmin(
-        aktivitaeten=[
-            baue_aktivitaet(1001, gestern),
-            baue_aktivitaet(1002, HEUTE, typkey="walking"),
-        ]
-    )
-    stand.originale["1001"] = FIXTURE.read_bytes()
+    Es gibt nur diese eine Datei; wer sie nicht bekommt, hat nichts. Ob
+    trotzdem aus den Listendaten bewertet wird, entscheidet der Aufrufer
+    (`runner._aufzeichnung`), nicht der Abruf.
+    """
+    stand = FakeGarmin(aktivitaeten=[baue_aktivitaet(1002, HEUTE)])
     stand.download_fehler.add("1002")
 
-    aktivitaeten = hole_aktivitaeten(stand, HEUTE - timedelta(days=6), HEUTE)
-    assert len(aktivitaeten) == 2
-    # Chronologisch: der gestrige Lauf zuerst.
-    mit_fit, ohne_fit = aktivitaeten
-    assert mit_fit.fit_fehlt is False
-    assert ohne_fit.fit_fehlt is True
-    assert ohne_fit.kopf["sportart"] == "walking"
-    assert ohne_fit.kopf["dauer_min"] == 60
-    assert ohne_fit.runden == []
+    with pytest.raises(RuntimeError):
+        hole_aktivitaet(stand, "1002")
 
 
-def test_unlesbare_zip_wird_wie_fehlender_download_behandelt():
+def test_unlesbare_zip_ist_ein_fitdatenfehler():
     stand = FakeGarmin(aktivitaeten=[baue_aktivitaet(1001, HEUTE)])
     stand.originale["1001"] = b"kein zip"
 
-    aktivitaeten = hole_aktivitaeten(stand, HEUTE - timedelta(days=6), HEUTE)
-    assert len(aktivitaeten) == 1
-    assert aktivitaeten[0].fit_fehlt is True
+    with pytest.raises(FitDatenFehler):
+        hole_aktivitaet(stand, "1001")
 
 
 # --------------------------------------------------------------------------
