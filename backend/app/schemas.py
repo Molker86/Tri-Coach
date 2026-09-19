@@ -1166,7 +1166,11 @@ class KiJobOut(BaseModel):
     wunsch: str | None = None
     # Nur bei `kind == "ernaehrung"`: der entstandene Ernährungsplan.
     ernaehrungsplan_id: int | None = None
-    # Nur bei `kind == "analyse"`: die entstandene Trainingsanalyse.
+    # Nur bei `kind == "analyse"`: welches Training bewertet wird und die
+    # entstandene Analyse. Das Training steht auch an einem **gescheiterten**
+    # Lauf — daran erkennt die Oberfläche, an welcher Zeile der Fortschritt
+    # hängt, und nimmt ihn beim Öffnen der Seite dort wieder auf.
+    session_log_id: int | None = None
     analyse_id: int | None = None
     progress_pct: int
     model_used: str | None = None
@@ -1350,28 +1354,27 @@ class KiErnaehrungIn(BaseModel):
 
 
 class KiAnalysierenIn(BaseModel):
-    """Absolvierte Trainings kritisch bewerten lassen.
+    """Ein absolviertes Training kritisch bewerten lassen.
 
-    `tage` zählt vom heutigen Ortsdatum rückwärts: 1 heißt nur heute, 7 heißt
-    heute und die sechs Tage davor. Höchstens 7 — die Original-Aufzeichnungen
-    sind groß, und ein längerer Rückblick gehört in die Planung, nicht in die
-    Kritik einzelner Einheiten.
+    Genau eines: Die erste Fassung nahm einen Zeitraum von 1–7 Tagen und
+    erzeugte daraus einen Bericht, der zu keiner Einheit gehörte. Welche
+    bewertet wird, sagt `session_log_id` — dieselbe Kennung, an der die Liste
+    im Verlauf und die Vorschau auf der Übersicht hängen.
     """
 
-    tage: int = Field(1, ge=1, le=7)
+    session_log_id: int
 
 
 class AnalyseImportIn(BaseModel):
     """Der Handweg: die Antwort der KI zur Trainingsanalyse, eingefügt.
 
-    `tage` bestimmt den Zeitraum rückwärts vom heutigen Tag — dieselbe Lesart
-    wie beim Start eines Laufs. `aktivitaeten_anzahl` kommt aus dem Export
-    (die eingefügte Antwort selbst trägt keine Zahl); ohne Angabe bleibt sie 0.
+    `session_log_id` nennt dasselbe Training wie der Export davor. Es steht
+    hier und wird nicht aus dem Text gelesen: Was die KI zurückgibt, sind zwei
+    Textfelder — welche Einheit gemeint war, weiß nur die Oberfläche.
     """
 
     raw: str
-    tage: int = Field(1, ge=1, le=7)
-    aktivitaeten_anzahl: int | None = Field(None, ge=0)
+    session_log_id: int
 
 
 class AnalyseOut(BaseModel):
@@ -1379,15 +1382,16 @@ class AnalyseOut(BaseModel):
 
     `bericht_html` ist beliebig groß und gehört nicht in eine Liste, die der
     Verlauf am Stück lädt. Wer ihn lesen will, holt das Detail.
+
+    Datum und Sportart stehen nicht darin: Die Liste wird im Frontend über
+    `session_log_id` an die Trainings geheftet, und die tragen beides schon.
     """
 
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: int
+    session_log_id: int
     created_at: UtcDatetime
-    zeitraum_von: date
-    zeitraum_bis: date
-    aktivitaeten_anzahl: int
     kurzfazit: str
     model_used: str | None = None
 

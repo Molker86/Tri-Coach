@@ -1,6 +1,6 @@
 """Die KI plant den nächsten Block — Knopf, Einstellungen und Fortschritt."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
@@ -19,7 +19,13 @@ from ..ki.runner import (
     LaeuftBereits,
     runner,
 )
-from ..models import GarminAccount, KiJob, KiSettings, TrainingRequest
+from ..models import (
+    GarminAccount,
+    KiJob,
+    KiSettings,
+    SessionLog,
+    TrainingRequest,
+)
 from ..schemas import (
     KiAnalysierenIn,
     KiEinheitIn,
@@ -436,29 +442,35 @@ def passe_einheit_an(data: KiEinheitIn, user: CurrentUser, db: DbSession) -> KiJ
 def analysiere_trainings(
     data: KiAnalysierenIn, user: CurrentUser, db: DbSession
 ) -> KiJob:
-    """Lässt Claude die absolvierten Trainings der letzten Tage bewerten.
+    """Lässt Claude **ein** absolviertes Training kritisch bewerten.
 
     Nur manuell — es gibt bewusst keinen Automatik-Zweig. Ohne verbundenes
-    Garmin-Konto endet es hier: Der Lauf holt die Original-Aufzeichnungen live
-    von Garmin, und ein Job, der sicher scheitert, muss gar nicht erst
-    entstehen.
+    Garmin-Konto endet es hier, sofern das Training eine Aufzeichnung hat: Der
+    Lauf holt sie live aus Connect, und ein Job, der sicher scheitert, muss gar
+    nicht erst entstehen. Ein Eintrag ohne Garmin-Kennung wird dagegen aus
+    seinen Listendaten bewertet und braucht die Verbindung nicht.
     """
     _pruefe_startbar(_einstellungen(db, user.id))
 
-    if db.scalar(select(GarminAccount).where(GarminAccount.user_id == user.id)) is None:
+    log = db.get(SessionLog, data.session_log_id)
+    if log is None or log.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Training nicht gefunden.")
+
+    if log.garmin_activity_id and (
+        db.scalar(select(GarminAccount).where(GarminAccount.user_id == user.id)) is None
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Es ist kein Garmin-Konto verbunden. Die Analyse liest die "
-            "Original-Aufzeichnungen direkt aus Garmin Connect — verbinde "
+            "Original-Aufzeichnung direkt aus Garmin Connect — verbinde "
             "zuerst unter Einstellungen dein Konto.",
         )
 
-    heute = date.today()
     job_id = _starte(
         user.id,
         ANALYSE,
-        start_date=heute - timedelta(days=data.tage - 1),
-        days=data.tage,
+        session_log_id=log.id,
+        start_date=log.date,
     )
     return db.get(KiJob, job_id)
 

@@ -29,7 +29,12 @@ from datetime import date, datetime, timezone
 
 from ..database import SessionLocal
 from ..models import KiJob, KiSettings, User
-from .errors import KiFehler, KiKontingentErschoepft, KiTokenUngueltig
+from .errors import (
+    KiAntwortUnbrauchbar,
+    KiFehler,
+    KiKontingentErschoepft,
+    KiTokenUngueltig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +149,7 @@ class KiRunner:
         start_date: date | None = None,
         days: int = 7,
         plan_session_id: int | None = None,
+        session_log_id: int | None = None,
         wunsch: str | None = None,
         im_hintergrund: bool | None = None,
     ) -> int:
@@ -152,6 +158,8 @@ class KiRunner:
         `kind="einheit"` passt eine einzelne Planeinheit an — dann sind
         `plan_session_id` und `wunsch` belegt und `request_id`/`start_date`
         bedeutungslos, weil Fragebogen und Tag aus der Einheit selbst kommen.
+        `kind="analyse"` bewertet ein absolviertes Training; dort sagt
+        `session_log_id`, welches.
 
         Wirft `LaeuftBereits`, wenn dieses Konto schon einen Lauf hat — gleich
         welcher Jobart. Hier und nicht im Router, weil erst hier Prüfen und
@@ -176,6 +184,7 @@ class KiRunner:
                     start_date=start_date,
                     days=days,
                     plan_session_id=plan_session_id,
+                    session_log_id=session_log_id,
                     wunsch=wunsch,
                     message=_STARTMELDUNG.get(kind, _STARTMELDUNG_VORGABE),
                 )
@@ -602,47 +611,31 @@ class KiRunner:
     def _analyse_lauf(
         self, db, job: KiJob, user: User, einstellungen: KiSettings
     ) -> None:
-        """Absolvierte Trainings kritisch bewerten lassen — nur auf Knopfdruck.
+        """Ein absolviertes Training kritisch bewerten lassen — auf Knopfdruck.
 
         Anders als die Planungsläufe holt dieser seine Daten **live von
-        Garmin**: Die ORIGINAL-FIT-Dateien tragen die geplanten Workout-Schritte
+        Garmin**: Die ORIGINAL-FIT-Datei trägt die geplanten Workout-Schritte
         neben den gefahrenen Runden, und wer mittags trainiert und nachmittags
         auswertet, hätte über die Datenbank eine Lücke (der Abgleich lief
-        längst). Ein Garmin-Fehler beendet den Lauf mit dessen deutscher
-        Meldung, **bevor** Claude Kontingent kostet — und ein leerer Zeitraum
-        genauso.
+        längst). Lässt sich die Aufzeichnung nicht laden, geht der Lauf
+        trotzdem weiter — bewertet wird dann aus Garmins Listendaten, die als
+        `SessionLog` ohnehin vorliegen. Nur ein Fehler an der Verbindung selbst
+        beendet ihn, **bevor** Claude Kontingent kostet.
         """
-        from datetime import timedelta
-
         from .. import ai_export
-        from ..garmin import fitdaten
-        from ..garmin.verbindung import garmin_sitzung
-        from ..models import TrainingsAnalyse
+        from ..models import SessionLog, TrainingsAnalyse
 
-        von = job.start_date or date.today() - timedelta(days=job.days - 1)
-        bis = von + timedelta(days=job.days - 1)
-
-        job.progress_pct = 10
-        job.message = "Die Original-Aufzeichnungen werden von Garmin geholt …"
-        db.commit()
-
-        with garmin_sitzung(db, user.id) as api:
-            aktivitaeten = fitdaten.hole_aktivitaeten(api, von, bis)
-
-        if not aktivitaeten:
-            _fertig(
-                job,
-                f"Im Zeitraum {von.isoformat()} bis {bis.isoformat()} liegen "
-                "keine Aktivitäten — es gibt nichts auszuwerten.",
+        log = db.get(SessionLog, job.session_log_id)
+        if log is None or log.user_id != user.id:
+            raise KiAntwortUnbrauchbar(
+                "Das Training gibt es nicht mehr — es wurde zwischenzeitlich "
+                "gelöscht."
             )
-            return
+
+        bloecke = self._aufzeichnung(db, job, user, log)
 
         export = ai_export.erzeuge_analyse_export(
-            db,
-            user,
-            aktivitaeten=[a.als_dict() for a in aktivitaeten],
-            von=von,
-            bis=bis,
+            db, user, log=log, aktivitaeten=bloecke
         )
 
         antwort = self._frage_claude(
@@ -650,7 +643,7 @@ class KiRunner:
             job,
             einstellungen,
             export.prompt,
-            "Claude bewertet die Trainings — das dauert einige Minuten …",
+            "Claude bewertet das Training — das dauert einige Minuten …",
             json_schema=export.schema,
             systemprompt=ai_export.ANALYSE_SYSTEMPROMPT,
         )
@@ -659,20 +652,57 @@ class KiRunner:
         db.commit()
 
         daten = _analyse_daten(antwort)
-        analyse = TrainingsAnalyse(
-            user_id=user.id,
-            zeitraum_von=von,
-            zeitraum_bis=bis,
-            aktivitaeten_anzahl=len(aktivitaeten),
-            kurzfazit=daten["kurzfazit"],
-            bericht_html=daten["bericht_html"],
-            model_used=antwort.modell,
-        )
+        # Ein zweiter Lauf über dasselbe Training **ersetzt** den Bericht,
+        # statt einen zweiten danebenzustellen: Es ist dasselbe Urteil, neu
+        # gefällt — und `uq_analyse_session_log` ließe den zweiten ohnehin
+        # nicht zu.
+        analyse = log.analyse or TrainingsAnalyse(user_id=user.id, log=log)
+        analyse.kurzfazit = daten["kurzfazit"]
+        analyse.bericht_html = daten["bericht_html"]
+        analyse.model_used = antwort.modell
+        analyse.created_at = _now()
         db.add(analyse)
         db.flush()
 
         job.analyse_id = analyse.id
-        _fertig(job, _analyse_meldung(len(aktivitaeten), antwort.modell))
+        _fertig(job, _analyse_meldung(log, antwort.modell))
+
+    def _aufzeichnung(self, db, job: KiJob, user: User, log) -> list[dict]:
+        """Die Original-Aufzeichnung des Trainings — oder nichts, mit Vermerk.
+
+        Ohne Garmin-Kennung gab es die Datei nie (der Eintrag stammt nicht aus
+        einer Aktivität), und scheitert der Download einer einzelnen Datei, ist
+        das kein Grund, den Lauf zu beenden: Garmins Listendaten stehen im
+        Paket ohnehin. Ein `GarminFehler` dagegen fliegt — an einer toten
+        Verbindung ändert der nächste Versuch nichts, und der Nutzer soll sie
+        reparieren statt einen halbblinden Bericht zu bekommen.
+        """
+        from ..garmin import fitdaten
+        from ..garmin.errors import GarminFehler
+        from ..garmin.verbindung import garmin_sitzung
+
+        if not log.garmin_activity_id:
+            logger.info("Training %s ohne Garmin-Kennung — nur Listendaten", log.id)
+            return []
+
+        job.progress_pct = 10
+        job.message = "Die Original-Aufzeichnung wird von Garmin geholt …"
+        db.commit()
+
+        with garmin_sitzung(db, user.id) as api:
+            try:
+                aufzeichnung = fitdaten.hole_aktivitaet(api, log.garmin_activity_id)
+            except GarminFehler:
+                raise
+            except Exception as exc:  # noqa: BLE001 — eine Datei kippt den Lauf nicht
+                logger.warning(
+                    "Aufzeichnung von Aktivität %s nicht ladbar: %s",
+                    log.garmin_activity_id,
+                    exc,
+                )
+                return []
+
+        return [a.als_dict() for a in aufzeichnung]
 
     def _frage_claude(
         self,
@@ -996,9 +1026,19 @@ def _analyse_daten(antwort) -> dict[str, str]:
     return lese_analyse_antwort(antwort.text, antwort.struktur)
 
 
-def _analyse_meldung(anzahl: int, modell: str | None) -> str:
-    aktivitaeten = "1 Aktivität" if anzahl == 1 else f"{anzahl} Aktivitäten"
-    meldung = f"Analyse fertig: {aktivitaeten} bewertet"
+def _analyse_meldung(log, modell: str | None) -> str:
+    """Was am Ende eines Analyse-Laufs am Job steht — mit dem bewerteten Tag.
+
+    Die Sportart auf Deutsch, über dieselbe Tabelle, aus der auch die
+    Einheiten des Abgleichs ihren Namen bekommen — eine zweite Kopie liefe beim
+    nächsten neuen Sport auseinander. Ein unbekannter Schlüssel steht roh da:
+    besser als gar keine Sportart.
+    """
+    from ..garmin.mapping import SPORT_LABEL
+
+    sportart = SPORT_LABEL.get(log.sport, log.sport)
+    datum = log.date.strftime("%d.%m.%Y")
+    meldung = f"Analyse fertig: {sportart} vom {datum} bewertet"
     if modell:
         meldung += f" (geschrieben von {modell})"
     return meldung + "."

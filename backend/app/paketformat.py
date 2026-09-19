@@ -412,6 +412,25 @@ def _ernaehrung(block: dict[str, Any]) -> list[str]:
     )
 
 
+def _training(block: dict[str, Any]) -> list[str]:
+    """Die bewertete Einheit der Trainingsanalyse — Kopf als JSON, Listen als Tabellen.
+
+    Derselbe Block, den die Historie je Einheit als Tabellenzeile führt, hier
+    aber einzeln: Bei einer Zeile gewinnt eine Tabelle nichts (jede Spalte
+    wäre konstant), also bleibt der Kopf JSON. Seine beiden verschachtelten
+    Listen dagegen kosten in der Zelle dieselben wiederholten Schlüssel wie in
+    der Historie — dort löst sie `_langformat_liste` heraus, hier reicht, dass
+    sie eine eigene Tabelle bekommen.
+    """
+    abschnitte = block.pop("absolvierte_abschnitte", None) or []
+    uebungen = block.pop("absolvierte_uebungen", None) or []
+    return (
+        _kopf("training", block)
+        + _tabellenblock("training.absolvierte_abschnitte", abschnitte)
+        + _tabellenblock("training.absolvierte_uebungen", uebungen)
+    )
+
+
 def _aktivitaeten(liste: list[dict[str, Any]]) -> list[str]:
     """Die Original-Aufzeichnungen der Trainingsanalyse — je Aktivität ein Satz.
 
@@ -489,6 +508,8 @@ def paket_als_text(payload: dict[str, Any]) -> str:
             abschnitte += _tagesform(wert)
         elif name == "ernaehrung":
             abschnitte += _ernaehrung(wert)
+        elif name == "training":
+            abschnitte += _training(wert)
         elif name == "aktivitaeten":
             abschnitte += _aktivitaeten(wert)
         elif isinstance(wert, dict):

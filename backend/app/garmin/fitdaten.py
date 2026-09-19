@@ -54,10 +54,10 @@ class AktivitaetsDaten:
     CSV-Tabellen. Eine Liste, die es für die Sportart nicht gibt, ist leer —
     ein Lauf hat keine Bahnen, eine Krafteinheit keine Runden mit Pace.
 
-    `fit_fehlt` markiert eine Aktivität, deren ORIGINAL-Datei nicht zu laden
-    oder nicht zu lesen war (etwa in Connect von Hand angelegt): Dann steht im
-    Kopf nur, was die Aktivitätenliste hergab, und die KI erfährt über den
-    Vermerk, dass ihr hier die Detaildaten fehlen.
+    Eine Aktivität ohne ladbare Aufzeichnung entsteht hier gar nicht erst: Der
+    Aufrufer bekommt den Fehler und vermerkt ihn im Paket
+    (`ai_export.HINWEIS_OHNE_FIT`) — die Listendaten der Einheit stehen dort
+    ohnehin schon im Block `training`.
     """
 
     kopf: dict[str, Any]
@@ -67,20 +67,10 @@ class AktivitaetsDaten:
     bahnen: list[dict[str, Any]] = field(default_factory=list)
     saetze: list[dict[str, Any]] = field(default_factory=list)
     pausen: list[dict[str, Any]] = field(default_factory=list)
-    fit_fehlt: bool = False
 
     def als_dict(self) -> dict[str, Any]:
-        """Der Payload-Block dieser Aktivität.
-
-        `fit_fehlt` wird zum Klartext-Vermerk statt zum Flag: Ein `false` an
-        jeder gesunden Aktivität wäre Rauschen, und die KI liest den Satz.
-        """
+        """Der Payload-Block dieser Aktivität."""
         block: dict[str, Any] = dict(self.kopf)
-        if self.fit_fehlt:
-            block["hinweis"] = (
-                "nur Listendaten — die Original-Aufzeichnung (FIT) ließ sich "
-                "nicht laden"
-            )
         block["soll_schritte"] = self.soll_schritte
         block["runden"] = self.runden
         block["stuetzpunkte"] = self.stuetzpunkte
@@ -470,56 +460,22 @@ def _satz(nr: int, satz: dict) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def hole_aktivitaeten(api: Any, von: date, bis: date) -> list[AktivitaetsDaten]:
-    """Alle Aktivitäten des Zeitraums, live von Garmin, mit Original-Daten.
+def hole_aktivitaet(api: Any, activity_id: Any) -> list[AktivitaetsDaten]:
+    """Die Original-Aufzeichnung **einer** Aktivität, an ihrer Garmin-Kennung.
 
-    Der Client kommt als Parameter — dieselbe Dependency-Injection wie in
-    `sync.py`, damit die Tests den bestehenden Fake verwenden.
+    Der Weg der Trainingsanalyse, seit sie ein einzelnes Training bewertet: Die
+    Kennung steht am `SessionLog`, ein Umweg über die Aktivitätenliste des Tages
+    kostet eine Anfrage und träfe bei zwei Läufen am selben Tag womöglich den
+    falschen.
 
-    Scheitert Download oder Parsen **einer** Aktivität, geht der Lauf weiter:
-    Sie kommt mit `fit_fehlt=True` und ihren Listendaten ins Paket (der
-    häufigste Grund ist eine in Connect von Hand angelegte Aktivität, zu der es
-    nie eine Datei gab). Scheitert dagegen die Aktivitätenliste selbst, fliegt
-    der Fehler — ohne sie gibt es nichts zu analysieren.
+    Eine Liste, weil eine Multisport-Datei mehrere Sessions trägt — eine
+    Triathlon-Aktivität ist **ein** Training und drei Abschnitte.
+
+    Fehler fliegen: Anders als beim Zeitraumabruf gibt es hier nichts
+    weiterzumachen. Der Aufrufer entscheidet, ob er ohne Aufzeichnung bewerten
+    lässt (dann steht im Paket nur der Vermerk „nur Listendaten").
     """
-    from .mapping import als_liste
-
-    roh = als_liste(api.get_activities_by_date(von.isoformat(), bis.isoformat()))
-
-    aktivitaeten: list[AktivitaetsDaten] = []
-    for eintrag in roh:
-        activity_id = hole(eintrag, "activityId")
-        try:
-            zip_bytes = api.download_activity(
-                activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL
-            )
-            aktivitaeten.extend(parse_fit(entpacke_fit(zip_bytes)))
-        except FitDatenFehler as exc:
-            logger.info("Aktivität %s ohne lesbare FIT: %s", activity_id, exc)
-            aktivitaeten.append(_nur_listendaten(eintrag))
-        except Exception as exc:  # noqa: BLE001 — ein Download darf den Lauf nicht kippen
-            logger.warning("Download von Aktivität %s fehlgeschlagen: %s", activity_id, exc)
-            aktivitaeten.append(_nur_listendaten(eintrag))
-
-    # Chronologisch statt in Garmins Reihenfolge (neueste zuerst): Der Bericht
-    # liest den Zeitraum von vorn nach hinten.
-    aktivitaeten.sort(key=lambda a: a.kopf.get("start_lokal") or "")
-    return aktivitaeten
-
-
-def _nur_listendaten(eintrag: dict) -> AktivitaetsDaten:
-    """Was die Aktivitätenliste über eine Aktivität ohne FIT hergibt."""
-    dauer = hole(eintrag, "duration")
-    distanz = hole(eintrag, "distance")
-    start = hole(eintrag, "startTimeLocal")
-    return AktivitaetsDaten(
-        kopf={
-            "sportart": hole(eintrag, "activityType", "typeKey"),
-            "name": hole(eintrag, "activityName"),
-            "start_lokal": str(start).replace(" ", "T") if start else None,
-            "dauer_min": _glatt(float(dauer) / 60, 1) if dauer is not None else None,
-            "distanz_km": _glatt(float(distanz) / 1000) if distanz is not None else None,
-            "kalorien": hole(eintrag, "calories"),
-        },
-        fit_fehlt=True,
+    zip_bytes = api.download_activity(
+        activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL
     )
+    return parse_fit(entpacke_fit(zip_bytes))
