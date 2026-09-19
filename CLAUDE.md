@@ -161,7 +161,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 776 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 781 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -252,6 +252,7 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   statt Job, warum das Bring-Passwort gespeichert wird.
   *Bei `einkaufsliste.py`, `bring/`, `routers/bring.py`.*
 - [docs/garmin-abgleich.md](docs/garmin-abgleich.md) — Token statt Passwort,
+  Netzfehler gegen abgelaufenes Token, `truststore` für den Firmenproxy,
   Bereichsabfragen, Nachlaufzeit, Abgleich im eigenen Thread, Ausführungsdaten,
   Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme.
   *Bei `garmin/sync.py`, `mapping.py`, `client.py`, `runner.py`, `matching.py`,

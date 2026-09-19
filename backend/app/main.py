@@ -5,6 +5,16 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import truststore
+
+# Vor allem, was je eine TLS-Verbindung aufbaut: Danach vertraut Python
+# zusätzlich dem System-Vertrauensspeicher (macOS-Schlüsselbund, Linux
+# ca-certificates) — certifi gilt weiter. Ohne das scheiterte jede
+# Garmin-Verbindung hinter einem Firmenproxy mit eigener Wurzel-CA an
+# CERTIFICATE_VERIFY_FAILED, obwohl das Proxy-Zertifikat am Rechner längst
+# installiert ist: requests liest den Systemspeicher von sich aus nicht.
+truststore.inject_into_ssl()
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse

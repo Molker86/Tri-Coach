@@ -116,6 +116,33 @@ Garmin-Konto hat oft noch keinen Anzeigenamen, und jeder weitere Versuch führt
 an dieselbe Stelle. Deshalb `erstanmeldung=True` und ein eigener Text, der sagt,
 was zu tun ist — nämlich etwas bei Garmin, nicht hier.
 
+**Ein Netz- oder Zertifikatsfehler ist kein abgelaufenes Token**
+(`client._verbindungsproblem`, `GarminNichtErreichbar`). `garminconnect`
+verpackt einen gescheiterten Profilabruf pauschal als
+`GarminConnectAuthenticationError` — auch dann, wenn darunter ein
+`ssl.SSLCertVerificationError` steckt. Übersetzt wurde das zu „Token
+abgelaufen", und `garmin_sitzung` schrieb daraufhin `status=token_expired` ans
+Konto: Ein einziger TLS-Aussetzer sperrte damit **alle** Garmin-Funktionen bis
+zum Neu-Verbinden — und Neu-Verbinden half nicht, weil der Login an derselben
+Leitung scheitert. Entschieden wird deshalb an der **Ursachenkette**
+(`__cause__`/`__context__`), nicht am Typ des äußersten Fehlers; die
+SSL-Prüfung steht dabei vor der Verbindungsprüfung, weil
+`requests.SSLError` eine Unterklasse von `requests.ConnectionError` ist.
+`GarminNichtErreichbar` geht wie die Anfragesperre unverändert durch
+`client_aus_token` hindurch und lässt den Kontostand in Ruhe.
+
+**Python-TLS vertraut zusätzlich dem Systemspeicher** (`truststore`,
+injiziert ganz oben in `main.py`). Der Auslöser war der Absatz darüber:
+Hinter einem Firmenproxy mit eigener Wurzel-CA scheiterte jede Verbindung an
+`CERTIFICATE_VERIFY_FAILED`, obwohl das Proxy-Zertifikat im
+macOS-Schlüsselbund lag — `requests` prüft von sich aus nur gegen `certifi`
+und liest den Systemspeicher nie. `truststore.inject_into_ssl()` ist
+derselbe Mechanismus, den pip selbst benutzt; certifi gilt weiterhin, es kommt
+nur der Systemspeicher dazu. Die Zeile steht **vor** allen Modulimporten, die
+TLS sprechen könnten, und `test_tls_vertraut_dem_systemspeicher` hält sie
+dort fest. Der Umweg über `REQUESTS_CA_BUNDLE` wäre die Alternative gewesen —
+er verlangt aber, dass jeder Nutzer die Variable setzt und den Pfad pflegt.
+
 **Bereichsabfragen statt Tagesschleife** (`sync.py`). Trainings, Schlaf, HRV,
 Ruhepuls, VO2max, Gewicht und Körperbatterie gibt es je Zeitraum in einer
 Anfrage — ein Jahr kostet damit rund fünfzig statt dreitausend Anfragen. Nur

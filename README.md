@@ -307,7 +307,7 @@ gehört. Vieles darin ist eine teuer bezahlte Lektion.
 | [analyse.md](docs/analyse.md) | Original-FIT statt Datenbank, garmin-fit-sdk, eigener Systemprompt, Zweifelder-Schema, DOMPurify beim Rendern, nur manuell |
 | [ernaehrung.md](docs/ernaehrung.md) | eigener Prompt, gekürzte Historie, genau ein Ernährungsplan, Zutaten neben der Beschreibung |
 | [einkaufsliste.md](docs/einkaufsliste.md) | Zutaten von der KI, Einheiten normalisieren, Aufaddieren gegen Anhängen, Riegel je Tag |
-| [garmin-abgleich.md](docs/garmin-abgleich.md) | Token statt Passwort, Bereichsabfragen, Abgleich im eigenen Thread, Bewertung, Zeitzonen, Profilübernahme |
+| [garmin-abgleich.md](docs/garmin-abgleich.md) | Token statt Passwort, Netzfehler gegen abgelaufenes Token, truststore für den Firmenproxy, Bereichsabfragen, Abgleich im eigenen Thread, Bewertung, Zeitzonen, Profilübernahme |
 | [garmin-workouts.md](docs/garmin-workouts.md) | Bauplan statt Prosa, Wiederholungsgruppen, Watt- gegen Pulskorridor, Übungskennungen und Katalog |
 | [garmin-uebertragung.md](docs/garmin-uebertragung.md) | 15 dauerhafte Vorlagen, Slotkennung im Namen, Termin statt Vorlage löschen, Aufräumen des abgelösten Blocks |
 | [frontend.md](docs/frontend.md) | kein UI-Framework, Themenumschaltung, Einstellungsseite, Navigation am Telefon, „Heute" zur Laufzeit |

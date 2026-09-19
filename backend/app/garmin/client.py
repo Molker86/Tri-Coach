@@ -9,8 +9,11 @@ Dauerhaft gespeichert wird nur das Token — verschlüsselt, siehe `crypto.py`.
 """
 
 import logging
+import ssl
 import time
 from typing import Any
+
+import requests
 
 from garminconnect import (
     Garmin,
@@ -22,6 +25,7 @@ from garminconnect import (
 from .errors import (
     GarminAnmeldungFehlgeschlagen,
     GarminFehler,
+    GarminNichtErreichbar,
     GarminRateLimit,
     GarminTokenUngueltig,
 )
@@ -56,15 +60,52 @@ class _Fehleruebersetzung:
         if isinstance(wert, GarminConnectTooManyRequestsError):
             raise GarminRateLimit() from wert
         if isinstance(wert, GarminConnectAuthenticationError):
+            # Die Bibliothek verpackt einen gescheiterten Profilabruf pauschal
+            # als Anmeldefehler — auch wenn darunter ein Zertifikats- oder
+            # Netzfehler steckt (Firmenproxy, Netz weg). Erst die Ursachenkette
+            # sagt, ob wirklich das Konto das Problem ist.
+            if verbindungsproblem := _verbindungsproblem(wert):
+                raise verbindungsproblem from wert
             raise GarminAnmeldungFehlgeschlagen() from wert
         if isinstance(wert, GarminConnectConnectionError):
-            raise GarminFehler(
-                "Garmin ist gerade nicht erreichbar. Bitte versuche es später erneut."
-            ) from wert
+            raise GarminNichtErreichbar() from wert
         return False
 
 
 uebersetze_fehler = _Fehleruebersetzung
+
+
+def _verbindungsproblem(fehler: BaseException) -> GarminNichtErreichbar | None:
+    """Steckt unter dem Fehler ein Netz- oder Zertifikatsproblem?
+
+    Erst die ganze Kette einsammeln, dann bewerten: `requests.SSLError` ist
+    eine Unterklasse von `requests.ConnectionError` und stünde beim Ablaufen
+    von außen nach innen **vor** dem eigentlichen `ssl.SSLError` — die
+    Zertifikatsmeldung ginge sonst als allgemeines „nicht erreichbar" unter.
+    """
+    kette: list[BaseException] = []
+    gesehen: set[int] = set()
+    aktuell: BaseException | None = fehler
+    while aktuell is not None and id(aktuell) not in gesehen:
+        gesehen.add(id(aktuell))
+        kette.append(aktuell)
+        aktuell = aktuell.__cause__ or aktuell.__context__
+
+    if any(
+        isinstance(e, (ssl.SSLError, requests.exceptions.SSLError)) for e in kette
+    ):
+        return GarminNichtErreichbar(
+            "Die sichere Verbindung zu Garmin scheitert an der "
+            "Zertifikatsprüfung — typisch hinter einem Firmenproxy mit "
+            "eigener Wurzel-CA. Deren Zertifikat muss im "
+            "System-Vertrauensspeicher liegen; am Garmin-Konto liegt es nicht."
+        )
+    if any(
+        isinstance(e, (requests.exceptions.ConnectionError, ConnectionError, TimeoutError))
+        for e in kette
+    ):
+        return GarminNichtErreichbar()
+    return None
 
 
 def _pruefe_sitzung(api: Garmin, erstanmeldung: bool = False) -> None:
@@ -168,7 +209,10 @@ def client_aus_token(token_json: str) -> Garmin:
         with uebersetze_fehler():
             api.login(token_json)
             _pruefe_sitzung(api)
-    except GarminRateLimit:
+    except (GarminRateLimit, GarminNichtErreichbar):
+        # Mit dem Token ist alles — Anfragesperre und Netzprobleme gehen
+        # unverändert hinaus, sonst vermerkte `garmin_sitzung` ein abgelaufenes
+        # Token und sperrte das Konto wegen eines Aussetzers der Leitung.
         raise
     except GarminFehler as exc:
         # Ein abgelehntes Token ist keine gescheiterte Passworteingabe: Der
