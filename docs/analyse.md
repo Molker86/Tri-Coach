@@ -142,8 +142,18 @@ Backend wäre ein bekanntes Sicherheits-Antimuster, und die Regeln, was ein
 Browser gefahrlos darf, gehören dorthin, wo der Browser ist. DOMPurify lässt
 Struktur-HTML und Inline-SVG durch (Diagramme kommen, wenn, von der KI — die
 App zeichnet keine eigenen) und entfernt alles Aktive samt aller Wege zu
-externen Ressourcen (`FORBID_TAGS` + `ALLOWED_URI_REGEXP: /^#/`). DOMPurify
-ist die erste Frontend-Abhängigkeit neben React — bewusst in Kauf genommen.
+externen Ressourcen (`FORBID_TAGS` + ein Hook, der `href` nur als Anker und
+`url()` nur als Verweis ins selbe SVG durchlässt). DOMPurify ist die erste
+Frontend-Abhängigkeit neben React — bewusst in Kauf genommen.
+
+**Nicht `ALLOWED_URI_REGEXP` dafür.** Die erste Fassung schränkte die
+Adressen mit `ALLOWED_URI_REGEXP: /^#/` ein. DOMPurify wendet die Option aber
+auf **jeden** Attributwert an, der nicht auf seiner kurzen Liste
+unbedenklicher Attribute steht (`class`, `id`, `style` …), nicht nur auf
+URL-Attribute. Jedes Diagramm verlor so `viewBox`, `x`, `y`, `fill` und
+`points`, und jeder Text im Diagramm stand schwarz und übereinander in der
+Ecke oben links. Die Adressprüfung sitzt deshalb im Hook
+`uponSanitizeAttribute` einer eigenen DOMPurify-Instanz.
 
 **Anzeige ohne neue Route, und auf beiden Seiten dieselbe.** Der Verlauf zeigt
 alle absolvierten Trainings, die Übersicht die letzten drei direkt unter „Als

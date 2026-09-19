@@ -25,21 +25,46 @@ import { Alert, Loading, Modal } from './ui'
 import { KEIN_ZUGANG, type AnalysenLauf } from './useAnalysen'
 
 /**
+ * Ein Attributwert, der etwas von außen nachladen könnte: jedes `url()`, das
+ * nicht auf eine Definition im selben SVG zeigt (`url(#verlauf)` bleibt),
+ * `image-set()`, das auch eine blanke Zeichenkette als Adresse nimmt, und
+ * jeder CSS-Escape — `\75rl(` liest der Browser als `url(`.
+ */
+const NACH_AUSSEN = /url\((?!\s*['"]?\s*#)|image-set\(|\\/i
+
+// Eigene Instanz, damit der Hook nur hier greift und nicht an jedem
+// anderen Aufruf von DOMPurify in der App.
+const purify = DOMPurify()
+
+// Nicht über `ALLOWED_URI_REGEXP: /^#/`, obwohl das kürzer aussieht: DOMPurify
+// prüft damit nicht nur Attribute, die eine URL tragen, sondern jeden Wert
+// außerhalb einer kurzen Liste (`class`, `id`, `style` …). Jedes SVG verlor so
+// `viewBox`, `x`, `y`, `fill` und `points` und zerfiel zu übereinander
+// gedrucktem schwarzem Text in der Ecke.
+purify.addHook('uponSanitizeAttribute', (_node, data) => {
+  const verweis = data.attrName === 'href' || data.attrName === 'xlink:href'
+  if (verweis ? !data.attrValue.trim().startsWith('#') : NACH_AUSSEN.test(data.attrValue)) {
+    data.keepAttr = false
+  }
+})
+
+/**
  * Struktur-HTML und Inline-SVG bleiben, alles Aktive fliegt.
  *
  * `USE_PROFILES` lässt Script und Event-Handler gar nicht erst zu. Darüber
- * hinaus fallen alle Wege zu externen Ressourcen: Verweise, Bilder, Medien und
- * `use` (das per `href` nachladen könnte) — der Prompt verbietet sie, aber die
- * Antwort eines Sprachmodells ist keine Zusicherung. `ALLOWED_URI_REGEXP`
- * lässt nur Anker innerhalb des Dokuments übrig, damit auch ein Attribut, das
- * eine URL trägt, nirgendwohin zeigen kann. Das `style`-Attribut bleibt
- * erlaubt: Darüber kommen die Farben aus den CSS-Variablen der App.
+ * hinaus fallen alle Wege zu externen Ressourcen: Verweise, Bilder (auch das
+ * SVG-`image`), Medien und `use` — der Prompt verbietet sie, aber die Antwort
+ * eines Sprachmodells ist keine Zusicherung. Der Hook oben lässt `href` nur
+ * als Anker im Dokument und `url()` nur als Verweis ins selbe SVG übrig. Das
+ * `style`-Attribut bleibt erlaubt: Darüber kommen die Farben aus den
+ * CSS-Variablen der App.
  */
 function bereinige(html: string): string {
-  return DOMPurify.sanitize(html, {
+  return purify.sanitize(html, {
     USE_PROFILES: { html: true, svg: true },
-    FORBID_TAGS: ['a', 'img', 'audio', 'video', 'link', 'style', 'form', 'input', 'use'],
-    ALLOWED_URI_REGEXP: /^#/,
+    FORBID_TAGS: [
+      'a', 'img', 'image', 'audio', 'video', 'link', 'style', 'form', 'input', 'use',
+    ],
   })
 }
 
