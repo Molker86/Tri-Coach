@@ -187,6 +187,16 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Die Trainingsanalyse, die ein Lauf erzeugt hat — dieselbe Überlegung.
         # Bestehende Läufe bleiben leer, sie haben nie eine erzeugt.
         "analyse_id": "INTEGER",
+        # Welches absolvierte Training ein Analyse-Lauf bewertet. Bestehende
+        # Läufe bleiben leer: Sie bewerteten einen Zeitraum, kein Training.
+        "session_log_id": "INTEGER",
+    },
+    # Die Analyse gehört jetzt zu genau einem Training statt zu einem Zeitraum.
+    # Bestehende Berichte haben kein Training — sie werden über
+    # `_ZURUECKZUSETZENDE_ALTWERTE` entfernt, weil eine Zuordnung nicht zu
+    # erraten ist und eine Analyse ohne Training nirgends mehr auftaucht.
+    "trainings_analysen": {
+        "session_log_id": "INTEGER REFERENCES session_logs(id)",
     },
     # Der Claude-Zugang je Nutzer, verschlüsselt. Vorher gab es ihn nur als
     # Add-on-Option in der Umgebung; bestehende Datenbanken haben die Spalte
@@ -245,6 +255,11 @@ _ENTFALLENE_SPALTEN: dict[str, tuple[str, ...]] = {
     # Der alte Name behauptete Stunden, gespeichert waren Garmins Minuten.
     # Inhalt geht über `_UMZUZIEHENDE_SPALTEN` nach `recovery_time_min`.
     "wellness_days": ("recovery_time_h",),
+    # Der Zeitraum der ersten Fassung. Eine Analyse bewertet jetzt **ein**
+    # Training; ihr Datum ist dessen Datum, und gezählt werden muss nichts
+    # mehr. Die Zeilen, an denen diese Spalten noch etwas bedeuteten, sind zu
+    # diesem Zeitpunkt schon weg (siehe `_ZURUECKZUSETZENDE_ALTWERTE`).
+    "trainings_analysen": ("zeitraum_von", "zeitraum_bis", "aktivitaeten_anzahl"),
 }
 
 # Umbenennungen: (Tabelle, alt, neu). SQLite kann `ALTER TABLE ... RENAME
@@ -276,6 +291,17 @@ _ZURUECKZUSETZENDE_ALTWERTE: tuple[tuple[str, str, str], ...] = (
         "token_encrypted",
         "UPDATE ki_settings SET auto_plan_enabled = 0, last_auto_plan_on = NULL",
     ),
+    # Die Analysen der ersten Fassung bewerteten einen Zeitraum von 1–7 Tagen
+    # am Stück und tragen deshalb kein Training. Welches Training gemeint war,
+    # ist nicht zu erraten (in einem Zeitraum liegen mehrere), und ohne
+    # Zuordnung erscheinen sie nirgends mehr: Der Verlauf zeigt Analysen an
+    # ihrem Training. Sie stehenzulassen hieße, Gesundheitsdaten aufzubewahren,
+    # die niemand mehr lesen kann — genau die Linie von `_ENTFALLENE_SPALTEN`.
+    (
+        "trainings_analysen",
+        "session_log_id",
+        "DELETE FROM trainings_analysen",
+    ),
 )
 
 _KANN_SPALTEN_LOESCHEN = sqlite3.sqlite_version_info >= (3, 35)
@@ -304,6 +330,16 @@ _NACHGEREICHTE_INDIZES: tuple[str, ...] = (
 )
 
 _TABELLENABHAENGIGE_INDIZES: dict[str, tuple[str, ...]] = {
+    # Genau eine Analyse je Training. Eine frisch angelegte Tabelle bekommt die
+    # Bedingung schon aus dem Modell (`uq_analyse_session_log`); eine
+    # nachgerüstete Spalte kann sie nicht mitbringen — SQLite kann einer
+    # bestehenden Tabelle keine Bedingung hinzufügen, wohl aber einen Index.
+    # Anderer Name als die Modellbedingung, damit im Schema erkennbar bleibt,
+    # welcher der beiden Wege die Tabelle gebaut hat.
+    "trainings_analysen": (
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_analyse_session_log "
+        "ON trainings_analysen (session_log_id)",
+    ),
     "garmin_workout_links": (
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_garmin_workout_pool_slot_link "
         "ON garmin_workout_links (pool_slot_id) "

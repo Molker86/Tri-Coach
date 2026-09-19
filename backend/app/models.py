@@ -490,6 +490,13 @@ class SessionLog(Base):
 
     user: Mapped[User] = relationship(back_populates="logs")
     plan_session: Mapped["PlanSession | None"] = relationship(back_populates="log")
+    # Die KI-Kritik zu genau diesem Training. `delete-orphan`, weil ein Urteil
+    # ohne sein Training gegenstandslos ist: Wer den Eintrag löscht, nimmt den
+    # Bericht mit — sonst bliebe eine Analyse über ein Training zurück, das
+    # niemand mehr aufrufen kann.
+    analyse: Mapped["TrainingsAnalyse | None"] = relationship(
+        back_populates="log", cascade="all, delete-orphan"
+    )
 
 
 class GarminAccount(Base):
@@ -869,8 +876,12 @@ class KiJob(Base):
     # geglückten Lauf auf `/plan/{plan_id}`, und dort läge dann die Kennung
     # eines Ernährungsplans — ein Trainingsblock, den es nicht gibt.
     ernaehrungsplan_id: Mapped[int | None] = mapped_column(Integer)
-    # Nur bei `kind == "analyse"` belegt: die entstandene Trainingsanalyse.
-    # Eigene Spalte aus demselben Grund wie `ernaehrungsplan_id`.
+    # Nur bei `kind == "analyse"` belegt: das Training, das bewertet wird, und
+    # die entstandene Trainingsanalyse. Eigene Spalte aus demselben Grund wie
+    # `ernaehrungsplan_id`. Das Training steht **am Job** und nicht nur am
+    # Ergebnis, weil ein gescheiterter Lauf kein Ergebnis hat — und das
+    # Frontend sonst nicht wüsste, an welcher Zeile der Fortschritt hängt.
+    session_log_id: Mapped[int | None] = mapped_column(Integer)
     analyse_id: Mapped[int | None] = mapped_column(Integer)
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -896,29 +907,43 @@ class KiJob(Base):
 
 
 class TrainingsAnalyse(Base):
-    """Ein KI-Analysebericht über die absolvierten Trainings weniger Tage.
+    """Ein KI-Analysebericht über **ein** absolviertes Training.
+
+    Hängt am `SessionLog` und an nichts sonst. Die erste Fassung bewertete
+    einen Zeitraum von 1–7 Tagen am Stück — das Ergebnis war ein Bericht, der
+    zu keinem Training gehörte: Im Verlauf stand er neben den Einheiten statt
+    an ihnen, und ob eine Einheit schon bewertet war, ließ sich nicht sagen.
+    Der Zeitraum steckt jetzt im Training selbst (`log.date`), gezählt werden
+    muss nichts mehr (es ist immer genau eines).
+
+    `uq_analyse_session_log` macht die Beziehung eindeutig: Ein zweiter Lauf
+    über dasselbe Training **ersetzt** den Bericht, statt einen zweiten
+    danebenzustellen — es ist dasselbe Urteil, neu gefällt.
 
     Flach und abgeschlossen: Anders als ein Plan wird eine Analyse nie
-    fortgeschrieben oder verlängert — sie ist das Urteil über einen Zeitraum,
-    zum Nachlesen und Löschen. Der Bericht (`bericht_html`) wird **unverändert**
+    fortgeschrieben. Der Bericht (`bericht_html`) wird **unverändert**
     gespeichert, wie ihn die KI geschrieben hat; bereinigt wird erst beim
     Rendern (DOMPurify) — deckungsgleich mit der `roh_antwort`-Philosophie.
     """
 
     __tablename__ = "trainings_analysen"
+    __table_args__ = (
+        UniqueConstraint("session_log_id", name="uq_analyse_session_log"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    session_log_id: Mapped[int] = mapped_column(
+        ForeignKey("session_logs.id"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
-    zeitraum_von: Mapped[date] = mapped_column(Date)
-    zeitraum_bis: Mapped[date] = mapped_column(Date)
-    aktivitaeten_anzahl: Mapped[int] = mapped_column(Integer, default=0)
-
-    # 2–3 Sätze Klartext für das Widget — ohne HTML.
+    # 2–3 Sätze Klartext für die Liste — ohne HTML.
     kurzfazit: Mapped[str] = mapped_column(Text, default="")
     bericht_html: Mapped[str] = mapped_column(Text, default="")
     model_used: Mapped[str | None] = mapped_column(String(64))
+
+    log: Mapped["SessionLog"] = relationship(back_populates="analyse")
 
 
 # --------------------------------------------------------------------------
