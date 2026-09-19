@@ -17,6 +17,20 @@ cryptography>=44
 # importieren und eine transitive Abhängigkeit dafür kein Versprechen ist.
 certifi
 
+# Lässt Python-TLS zusätzlich dem System-Vertrauensspeicher vertrauen
+# (macOS-Schlüsselbund, Linux ca-certificates) — derselbe Mechanismus, den pip
+# selbst benutzt. Ohne das scheiterte jede Garmin-Verbindung hinter einem
+# Firmenproxy mit eigener Wurzel-CA an der Zertifikatsprüfung, denn requests
+# prüft sonst nur gegen certifi. Aktiviert in main.py, ganz am Anfang.
+truststore>=0.10
+
+# Liest die ORIGINAL-FIT-Dateien für die Trainingsanalyse (garmin/fitdaten.py).
+# Garmins offizielles, aus dem FIT-Profil generiertes Paket — am echten
+# Lauf-Fixture verifiziert (liefert workout_step_mesgs, session-, lap- und
+# record_mesgs). Der in der Spec genannte Rückfall fitdecode wurde nicht
+# gebraucht.
+garmin-fit-sdk==21.214.0
+
 # Bring-Einkaufsliste. Dieselbe Bibliothek, die Home Assistant benutzt — die
 # Bring-API ist undokumentiert, und den Anmeldeablauf samt API-Schlüsseln und
 # Token-Erneuerung selbst nachzubauen wäre Pflegeaufwand ohne Gegenwert.

@@ -193,6 +193,15 @@ def ist_angemeldet(token: str | None = None, erzwinge: bool = False) -> bool:
     try:
         lauf = subprocess.run(
             [KI_CLI, "auth", "status"],
+            # Kein Terminal, unter keinen Umständen: Erbt die CLI das Terminal
+            # des Backends und stellt es um, hält der Kernel die ganze
+            # Prozessgruppe an, sobald das Backend nicht im Vordergrund läuft
+            # (`source start.sh`, IDE-Task) — „suspended (tty output)", und die
+            # Anfrage steht mitten in der Bearbeitung still. /dev/null als
+            # stdin nimmt ihr das Terminal, die eigene Sitzung auch den Weg
+            # über /dev/tty.
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
             capture_output=True,
             text=True,
             timeout=30,
@@ -247,6 +256,7 @@ def rufe_claude(
     timeout_s: int | None = None,
     token: str | None = None,
     json_schema: dict | None = None,
+    systemprompt: str | None = None,
     bei_start: Callable[[subprocess.Popen], None] | None = None,
 ) -> Antwort:
     """Schickt den Prompt an Claude Code und gibt den Antworttext zurück.
@@ -266,6 +276,10 @@ def rufe_claude(
     `token` ist der Zugang aus den Einstellungen des Nutzers; ohne ihn gilt der
     aus der Umgebung, sonst die Anmeldung der CLI selbst.
 
+    `systemprompt` ersetzt den Planer-Text durch eine andere Rolle — die
+    Trainingsanalyse tritt als kritischer Analyst auf, nicht als Planer. Ohne
+    Angabe gilt `SYSTEMPROMPT`, kein bestehender Aufrufer ändert sich.
+
     `bei_start` bekommt den laufenden Prozess gereicht. Darüber kann der Runner
     ihn abbrechen — anders käme er nicht an ihn heran, und ein Lauf, der
     Minuten dauert, muss abbrechbar sein.
@@ -278,6 +292,7 @@ def rufe_claude(
             timeout_s=timeout_s,
             token=token,
             json_schema=None,
+            systemprompt=systemprompt,
             bei_start=bei_start,
         )
 
@@ -289,6 +304,7 @@ def rufe_claude(
             timeout_s=timeout_s,
             token=token,
             json_schema=json_schema,
+            systemprompt=systemprompt,
             bei_start=bei_start,
         )
     except _OHNE_ZWEITEN_VERSUCH:
@@ -307,6 +323,7 @@ def rufe_claude(
             timeout_s=timeout_s,
             token=token,
             json_schema=None,
+            systemprompt=systemprompt,
             bei_start=bei_start,
         )
 
@@ -329,6 +346,7 @@ def _ein_lauf(
     timeout_s: int | None,
     token: str | None,
     json_schema: dict | None,
+    systemprompt: str | None = None,
     bei_start: Callable[[subprocess.Popen], None] | None,
 ) -> Antwort:
     """Ein einzelner Unterprozess — der eigentliche Aufruf."""
@@ -343,7 +361,7 @@ def _ein_lauf(
         "--safe-mode",
         "--no-session-persistence",
         "--permission-mode", "dontAsk",
-        "--system-prompt", SYSTEMPROMPT,
+        "--system-prompt", systemprompt or SYSTEMPROMPT,
         "--output-format", "json",
     ]
     if json_schema is not None:
@@ -361,6 +379,10 @@ def _ein_lauf(
                 text=True,
                 cwd=leeres_verzeichnis,
                 env=_umgebung(token),
+                # Eigene Sitzung, kein Steuerterminal — dieselbe Regel wie bei
+                # `ist_angemeldet`. Strg-C aus dem Terminal erreicht den Lauf
+                # damit nicht mehr; das Abbrechen übernimmt ohnehin der Runner.
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise KiCliFehlt() from exc

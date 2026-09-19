@@ -46,6 +46,10 @@ class FakeGarmin:
         # `get_activity_exercise_sets`. Leer, weil es sie nur bei Kraft und
         # Mobility gibt. `uebungssatz()` unten baut einen Eintrag.
         self.uebungssaetze: dict[str, dict[str, Any]] = {}
+        # ORIGINAL-ZIPs je Aktivitätskennung, für die Trainingsanalyse. Eine
+        # Kennung in `download_fehler` lässt den Download scheitern.
+        self.originale: dict[str, bytes] = {}
+        self.download_fehler: set[str] = set()
         self._tage = tage or []
         self._rate_limit_ab_tag = rate_limit_ab_tag
         self._tagesabrufe = 0
@@ -135,6 +139,26 @@ class FakeGarmin:
         """
         self.aufrufe.append("get_activity_exercise_sets")
         return self.uebungssaetze.get(str(activity_id), {"exerciseSets": []})
+
+    class ActivityDownloadFormat:
+        """Nur das eine Format, das die App anfragt — wie am Original ein
+        Klassenattribut, erreichbar über die Instanz."""
+
+        ORIGINAL = "ORIGINAL"
+
+    def download_activity(self, activity_id, dl_fmt=None):
+        """Die ORIGINAL-ZIP einer Aktivität — Bytes aus `originale`.
+
+        Eine Kennung in `download_fehler` wirft wie das Original bei einer in
+        Connect von Hand angelegten Aktivität, zu der es nie eine Datei gab.
+        """
+        self.aufrufe.append("download_activity")
+        if str(activity_id) in self.download_fehler:
+            raise RuntimeError(f"404 für Aktivität {activity_id}")
+        daten = self.originale.get(str(activity_id))
+        if daten is None:
+            raise RuntimeError(f"404 für Aktivität {activity_id}")
+        return daten
 
     # -- Bereichsabfragen ---------------------------------------------------
 

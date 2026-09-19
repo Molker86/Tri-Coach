@@ -324,3 +324,39 @@ def test_anmeldung_wird_am_programm_geprueft(monkeypatch):
     # „nicht angemeldet" beantwortete später die Frage anderer Tests — und zwar
     # nur dann, wenn sie *nach* diesem laufen, also je nach Dateinamen.
     ki_client._anmeldung_cache.clear()
+
+
+def test_anmeldepruefung_erbt_kein_terminal(monkeypatch):
+    """Die CLI darf das Terminal des Backends weder lesen noch verstellen.
+
+    Beobachtet: Läuft das Backend als Hintergrund-Job einer interaktiven Shell
+    (`source start.sh`), erbte `claude auth status` das Terminal als stdin und
+    stellte es um. Das darf nur die Vordergrundgruppe — der Kernel hielt die
+    ganze Prozessgruppe mit SIGTTOU an, zsh meldete „suspended (tty output)",
+    und die Anfrage /api/ki/status stand mitten in der Bearbeitung still.
+
+    Kein Terminal als stdin und eine eigene Sitzung schließen beides aus:
+    Lesen liefert sofort Dateiende, und ohne Steuerterminal gibt es nichts,
+    was sich verstellen ließe.
+    """
+    notiz = {}
+
+    def _run(argv, **kwargs):
+        notiz.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"loggedIn": True}), stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    ki_client.ist_angemeldet(erzwinge=True)
+    ki_client._anmeldung_cache.clear()
+
+    assert notiz["stdin"] is subprocess.DEVNULL
+    assert notiz["start_new_session"] is True
+
+
+def test_planungslauf_haengt_an_keinem_terminal(prozess):
+    """Dieselbe Regel für den langen Lauf — siehe die Anmeldeprüfung."""
+    notiz = prozess(FakeProzess(stdout=huelle()))
+    ki_client.rufe_claude("Plane bitte.")
+
+    assert notiz["kwargs"]["stdin"] is subprocess.PIPE
+    assert notiz["kwargs"]["start_new_session"] is True

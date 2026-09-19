@@ -1166,6 +1166,12 @@ class KiJobOut(BaseModel):
     wunsch: str | None = None
     # Nur bei `kind == "ernaehrung"`: der entstandene Ernährungsplan.
     ernaehrungsplan_id: int | None = None
+    # Nur bei `kind == "analyse"`: welches Training bewertet wird und die
+    # entstandene Analyse. Das Training steht auch an einem **gescheiterten**
+    # Lauf — daran erkennt die Oberfläche, an welcher Zeile der Fortschritt
+    # hängt, und nimmt ihn beim Öffnen der Seite dort wieder auf.
+    session_log_id: int | None = None
+    analyse_id: int | None = None
     progress_pct: int
     model_used: str | None = None
     cost_usd: float | None = None
@@ -1345,6 +1351,53 @@ class KiErnaehrungIn(BaseModel):
 
     start_date: date | None = None
     days: int | None = Field(None, ge=1, le=31)
+
+
+class KiAnalysierenIn(BaseModel):
+    """Ein absolviertes Training kritisch bewerten lassen.
+
+    Genau eines: Die erste Fassung nahm einen Zeitraum von 1–7 Tagen und
+    erzeugte daraus einen Bericht, der zu keiner Einheit gehörte. Welche
+    bewertet wird, sagt `session_log_id` — dieselbe Kennung, an der die Liste
+    im Verlauf und die Vorschau auf der Übersicht hängen.
+    """
+
+    session_log_id: int
+
+
+class AnalyseImportIn(BaseModel):
+    """Der Handweg: die Antwort der KI zur Trainingsanalyse, eingefügt.
+
+    `session_log_id` nennt dasselbe Training wie der Export davor. Es steht
+    hier und wird nicht aus dem Text gelesen: Was die KI zurückgibt, sind zwei
+    Textfelder — welche Einheit gemeint war, weiß nur die Oberfläche.
+    """
+
+    raw: str
+    session_log_id: int
+
+
+class AnalyseOut(BaseModel):
+    """Eine Trainingsanalyse in der Liste — bewusst ohne den Bericht.
+
+    `bericht_html` ist beliebig groß und gehört nicht in eine Liste, die der
+    Verlauf am Stück lädt. Wer ihn lesen will, holt das Detail.
+
+    Datum und Sportart stehen nicht darin: Die Liste wird im Frontend über
+    `session_log_id` an die Trainings geheftet, und die tragen beides schon.
+    """
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    session_log_id: int
+    created_at: UtcDatetime
+    kurzfazit: str
+    model_used: str | None = None
+
+
+class AnalyseDetailOut(AnalyseOut):
+    bericht_html: str
 
 
 class EinheitAnpassenIn(BaseModel):

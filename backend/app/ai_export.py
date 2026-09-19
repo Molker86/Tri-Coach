@@ -362,6 +362,113 @@ def _datenstand(konto: Any) -> dict[str, str] | None:
     return stand or None
 
 
+def _session_eintrag(lg: SessionLog) -> dict[str, Any]:
+    """Eine absolvierte Einheit als Payload-Block.
+
+    Herausgelöst aus `_history_block`, weil die Trainingsanalyse denselben
+    Block je Einheit braucht — dort für genau eine statt für dreißig. Zwei
+    Fassungen liefen beim ersten neuen Feld auseinander, und ein Feld, das
+    die Planung sieht und die Kritik nicht, ist genau der Unterschied, den
+    niemand bemerkt.
+    """
+    eintrag = {
+        "datum": lg.date.isoformat(),
+        # Ohne den Wochentag müsste die KI ihn aus dem Datum rechnen, um
+        # ein Muster wie "samstags lang" zu erkennen — Datumsarithmetik ist
+        # das Unzuverlässigste, was ein Sprachmodell tut.
+        "wochentag": WEEKDAYS[lg.date.weekday()],
+        "sportart": lg.sport,
+        "status": lg.status,
+        "dauer_min": lg.duration_min,
+        "distanz_km": lg.distance_km,
+        "hf_schnitt": lg.avg_hr,
+        "hf_max": lg.max_hr,
+        "pace": _pace_with_unit(lg.sport, lg.avg_pace),
+        "leistung_watt": lg.avg_power,
+        "trittfrequenz": lg.avg_cadence,
+        "hoehenmeter": lg.elevation_gain_m,
+        "rpe_1_10": lg.rpe,
+        "quelle": "garmin" if lg.source == "garmin" else "manuell",
+        # Garmin gibt die Werte mit voller Fließkommabreite zurück
+        # (57.09089660644531). Ungerundet sind sie Scheingenauigkeit und
+        # kosten über dreißig Einheiten spürbar Platz im Prompt.
+        "garmin_trainingslast": _gerundet(lg.garmin_training_load),
+        "trainingseffekt_aerob": _gerundet(lg.garmin_aerobic_te),
+        "trainingseffekt_anaerob": _gerundet(lg.garmin_anaerobic_te),
+        # Muskelkater, Schlaf und Morgenpuls je Einheit gibt es nicht mehr —
+        # sie kamen aus dem Erfassungsformular. Denselben Zustand beschreibt
+        # der `fitnessdaten`-Block, gemessen statt erinnert und für jeden
+        # Tag, nicht nur für Trainingstage.
+        #
+        # Ebenso wenig `trimp` und `kalorien`: Das erste ist aus Dauer, Puls
+        # und Profil hergeleitet und stand neben der **gemessenen**
+        # `garmin_trainingslast`, das zweite trägt keine
+        # Planungsentscheidung. Über fünfzig Einheiten waren beide zusammen
+        # eine Spalte Rauschen — und die sRPE-Last der Woche, die daraus
+        # nicht folgt, steht in der Wochenübersicht.
+        # Garmins roher Aktivitätstyp. `indoor_cycling` gegen
+        # `road_biking` ist der einzige belastbare Hinweis darauf, ob
+        # drinnen oder draußen gefahren wurde — und daran hängt, ob ein
+        # Wattkorridor überhaupt etwas steuern kann.
+        "garmin_typ": lg.garmin_activity_type,
+        "notiz": lg.notes,
+    }
+
+    # Wie die Einheit ausgeführt wurde. Alle vier fehlen, wo sie nicht
+    # belegt sind — dieselbe Regel wie bei `befinden_0_10`: Ein `null`
+    # wäre keine leere Angabe, sondern eine Behauptung.
+    if (zonen := _zonenminuten(lg.hr_zone_seconds)) is not None:
+        eintrag["zeit_in_hf_zonen_min"] = zonen
+    if lg.garmin_abschnitte:
+        eintrag["absolvierte_abschnitte"] = lg.garmin_abschnitte
+    # Das Gegenstück für Kraft und Mobility: Dort beschreibt `structure`
+    # keinen Zeitverlauf, und `absolvierte_abschnitte` sagt entsprechend
+    # nichts über die Übungsauswahl.
+    if lg.garmin_uebungen:
+        eintrag["absolvierte_uebungen"] = lg.garmin_uebungen
+    # Das Befinden steht nur an den wenigen Einheiten, die der Athlet in
+    # Connect bewertet hat. Ein `null` an allen übrigen wäre kein leeres
+    # Feld, sondern eine Behauptung — deshalb fehlt der Schlüssel dort ganz,
+    # wie der `fitnessdaten`-Block ohne verbundenes Konto.
+    if lg.garmin_feel is not None:
+        eintrag["befinden_0_10"] = lg.garmin_feel
+
+    # Fünf Messgrößen, die in Antworten stehen, die der Abgleich ohnehin
+    # holt. Wie die Nachbarn darüber fehlt der Schlüssel, wo nichts belegt
+    # ist — über dreißig Einheiten kostet ein `null` spürbar Platz, und es
+    # wäre keine leere Angabe, sondern eine Behauptung.
+    #
+    # Die Nettozeit nur, wo sie sich von der Gesamtdauer unterscheidet:
+    # Sonst stünde an jeder Einheit zweimal dieselbe Zahl.
+    if lg.netto_dauer_min and lg.duration_min and lg.netto_dauer_min < lg.duration_min:
+        eintrag["netto_dauer_min"] = lg.netto_dauer_min
+    # Ebenso die höhenkorrigierte Pace: In der Ebene ist sie die Pace.
+    if lg.gap_pace and lg.gap_pace != lg.avg_pace:
+        eintrag["pace_hoehenkorrigiert"] = _pace_with_unit(lg.sport, lg.gap_pace)
+    if lg.normalisierte_leistung:
+        eintrag["normalisierte_leistung"] = lg.normalisierte_leistung
+    if lg.swolf:
+        eintrag["swolf"] = lg.swolf
+    if lg.zuege:
+        eintrag["zuege_je_bahn"] = lg.zuege
+    if lg.temperatur_c is not None:
+        eintrag["temperatur_c"] = lg.temperatur_c
+    # Tempo bzw. Watt je Herzschlag. Die einzige Größe im Paket, die
+    # "langsamer geworden" von "müder geworden" trennt — beide senken das
+    # Tempo, aber nur die Ermüdung hebt dabei den Puls.
+    if (ef := effizienz_je_einheit(lg)) is not None:
+        eintrag["effizienz"] = ef
+
+    # Die Quelle nur, wo es auch einen Wert gibt. Ohne RPE stand dort der
+    # Spaltenvorgabewert "manual" — an einer Einheit aus Garmin, für die
+    # `schaetze_rpe` nichts hergab. `rpe_quelle`
+    # nenne die Schätzgrundlage; "manual" ohne Zahl war dort ein
+    # Widerspruch.
+    if lg.rpe is not None:
+        eintrag["rpe_quelle"] = lg.rpe_source
+    return eintrag
+
+
 def _history_block(
     logs: list[SessionLog],
     garmin_konto: Any = None,
@@ -377,105 +484,7 @@ def _history_block(
     weit = [lg for lg in echte if lg.date >= today - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)]
     recent = [lg for lg in weit if lg.date >= today - timedelta(weeks=HISTORY_WEEKS)]
 
-    sessions = []
-    for lg in recent:
-        eintrag = {
-            "datum": lg.date.isoformat(),
-            # Ohne den Wochentag müsste die KI ihn aus dem Datum rechnen, um
-            # ein Muster wie "samstags lang" zu erkennen — Datumsarithmetik ist
-            # das Unzuverlässigste, was ein Sprachmodell tut.
-            "wochentag": WEEKDAYS[lg.date.weekday()],
-            "sportart": lg.sport,
-            "status": lg.status,
-            "dauer_min": lg.duration_min,
-            "distanz_km": lg.distance_km,
-            "hf_schnitt": lg.avg_hr,
-            "hf_max": lg.max_hr,
-            "pace": _pace_with_unit(lg.sport, lg.avg_pace),
-            "leistung_watt": lg.avg_power,
-            "trittfrequenz": lg.avg_cadence,
-            "hoehenmeter": lg.elevation_gain_m,
-            "rpe_1_10": lg.rpe,
-            "quelle": "garmin" if lg.source == "garmin" else "manuell",
-            # Garmin gibt die Werte mit voller Fließkommabreite zurück
-            # (57.09089660644531). Ungerundet sind sie Scheingenauigkeit und
-            # kosten über dreißig Einheiten spürbar Platz im Prompt.
-            "garmin_trainingslast": _gerundet(lg.garmin_training_load),
-            "trainingseffekt_aerob": _gerundet(lg.garmin_aerobic_te),
-            "trainingseffekt_anaerob": _gerundet(lg.garmin_anaerobic_te),
-            # Muskelkater, Schlaf und Morgenpuls je Einheit gibt es nicht mehr —
-            # sie kamen aus dem Erfassungsformular. Denselben Zustand beschreibt
-            # der `fitnessdaten`-Block, gemessen statt erinnert und für jeden
-            # Tag, nicht nur für Trainingstage.
-            #
-            # Ebenso wenig `trimp` und `kalorien`: Das erste ist aus Dauer, Puls
-            # und Profil hergeleitet und stand neben der **gemessenen**
-            # `garmin_trainingslast`, das zweite trägt keine
-            # Planungsentscheidung. Über fünfzig Einheiten waren beide zusammen
-            # eine Spalte Rauschen — und die sRPE-Last der Woche, die daraus
-            # nicht folgt, steht in der Wochenübersicht.
-            # Garmins roher Aktivitätstyp. `indoor_cycling` gegen
-            # `road_biking` ist der einzige belastbare Hinweis darauf, ob
-            # drinnen oder draußen gefahren wurde — und daran hängt, ob ein
-            # Wattkorridor überhaupt etwas steuern kann.
-            "garmin_typ": lg.garmin_activity_type,
-            "notiz": lg.notes,
-        }
-
-        # Wie die Einheit ausgeführt wurde. Alle vier fehlen, wo sie nicht
-        # belegt sind — dieselbe Regel wie bei `befinden_0_10`: Ein `null`
-        # wäre keine leere Angabe, sondern eine Behauptung.
-        if (zonen := _zonenminuten(lg.hr_zone_seconds)) is not None:
-            eintrag["zeit_in_hf_zonen_min"] = zonen
-        if lg.garmin_abschnitte:
-            eintrag["absolvierte_abschnitte"] = lg.garmin_abschnitte
-        # Das Gegenstück für Kraft und Mobility: Dort beschreibt `structure`
-        # keinen Zeitverlauf, und `absolvierte_abschnitte` sagt entsprechend
-        # nichts über die Übungsauswahl.
-        if lg.garmin_uebungen:
-            eintrag["absolvierte_uebungen"] = lg.garmin_uebungen
-        # Das Befinden steht nur an den wenigen Einheiten, die der Athlet in
-        # Connect bewertet hat. Ein `null` an allen übrigen wäre kein leeres
-        # Feld, sondern eine Behauptung — deshalb fehlt der Schlüssel dort ganz,
-        # wie der `fitnessdaten`-Block ohne verbundenes Konto.
-        if lg.garmin_feel is not None:
-            eintrag["befinden_0_10"] = lg.garmin_feel
-
-        # Fünf Messgrößen, die in Antworten stehen, die der Abgleich ohnehin
-        # holt. Wie die Nachbarn darüber fehlt der Schlüssel, wo nichts belegt
-        # ist — über dreißig Einheiten kostet ein `null` spürbar Platz, und es
-        # wäre keine leere Angabe, sondern eine Behauptung.
-        #
-        # Die Nettozeit nur, wo sie sich von der Gesamtdauer unterscheidet:
-        # Sonst stünde an jeder Einheit zweimal dieselbe Zahl.
-        if lg.netto_dauer_min and lg.duration_min and lg.netto_dauer_min < lg.duration_min:
-            eintrag["netto_dauer_min"] = lg.netto_dauer_min
-        # Ebenso die höhenkorrigierte Pace: In der Ebene ist sie die Pace.
-        if lg.gap_pace and lg.gap_pace != lg.avg_pace:
-            eintrag["pace_hoehenkorrigiert"] = _pace_with_unit(lg.sport, lg.gap_pace)
-        if lg.normalisierte_leistung:
-            eintrag["normalisierte_leistung"] = lg.normalisierte_leistung
-        if lg.swolf:
-            eintrag["swolf"] = lg.swolf
-        if lg.zuege:
-            eintrag["zuege_je_bahn"] = lg.zuege
-        if lg.temperatur_c is not None:
-            eintrag["temperatur_c"] = lg.temperatur_c
-        # Tempo bzw. Watt je Herzschlag. Die einzige Größe im Paket, die
-        # "langsamer geworden" von "müder geworden" trennt — beide senken das
-        # Tempo, aber nur die Ermüdung hebt dabei den Puls.
-        if (ef := effizienz_je_einheit(lg)) is not None:
-            eintrag["effizienz"] = ef
-
-        # Die Quelle nur, wo es auch einen Wert gibt. Ohne RPE stand dort der
-        # Spaltenvorgabewert "manual" — an einer Einheit aus Garmin, für die
-        # `schaetze_rpe` nichts hergab. `rpe_quelle`
-        # nenne die Schätzgrundlage; "manual" ohne Zahl war dort ein
-        # Widerspruch.
-        if lg.rpe is not None:
-            eintrag["rpe_quelle"] = lg.rpe_source
-
-        sessions.append(eintrag)
+    sessions = [_session_eintrag(lg) for lg in recent]
 
     # Ebene 2. `by_sport_ab` zählt vom aktuellen Montag zurück, nicht von heute:
     # Die Übersicht rechnet in Kalenderwochen, und eine Grenze mitten in einer
@@ -2980,3 +2989,210 @@ def erzeuge_ernaehrung_export(
     }
 
     return Export(payload=payload, prompt=build_ernaehrung_prompt(payload))
+
+
+# --------------------------------------------------------------------------
+# Trainingsanalyse
+#
+# Vierte Aufgabe an dieselbe KI: kein Plan, sondern ein Urteil — und zwar über
+# **ein** Training. Eigener Prompt und ein eigener **Systemprompt**; hier
+# antwortet kein Planer, sondern ein kritischer Analyst, und der Standardtext
+# („Trainingsplaner") zöge die Antwort in Richtung Empfehlungen statt Bewertung.
+#
+# Das Datenpaket ist bewusst schmaler als beim Planen: Athlet und Fitnessdaten
+# wie dort, aber **keine Trainingshistorie** — Gegenstand ist diese eine
+# Einheit, einmal als Garmins Listendaten (`training`) und einmal als
+# Original-Aufzeichnung aus der FIT-Datei (`aktivitaeten`). Siehe
+# docs/analyse.md.
+# --------------------------------------------------------------------------
+
+
+# Was im Paket steht, wenn es zu einer Einheit keine ladbare Aufzeichnung gibt
+# (in Connect von Hand angelegt, Gerät hat nie eine Datei geschrieben). Ein
+# Satz und kein Flag: Die KI liest ihn — und bewertet dann aus `training`,
+# statt sich Sekundendaten auszudenken.
+HINWEIS_OHNE_FIT = (
+    "nur Listendaten — die Original-Aufzeichnung (FIT) ließ sich nicht laden"
+)
+
+
+ANALYSE_SYSTEMPROMPT = (
+    "Du bist ein kritischer, erfahrener Trainingsanalyst für Ausdauersport. "
+    "Antworte ausschließlich mit dem angeforderten JSON-Objekt, "
+    "ohne Begleittext und ohne Codefence."
+)
+
+
+# Das Antwortgerüst — minimal erzwungen. Genau zwei Felder: Ein Vollschema je
+# Abschnitt nähme dem Bericht die gewünschte Dynamik, purer Text ohne Hülle
+# machte das Kurzfazit zum Ratespiel.
+ANALYSE_STRUKTURSCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "kurzfazit": {
+            "type": "string",
+            "description": "2–3 Sätze Klartext für die Trainingsliste, ohne HTML",
+        },
+        "bericht_html": {
+            "type": "string",
+            "description": "Der vollständige Analysebericht als HTML-Fragment",
+        },
+    },
+    "required": ["kurzfazit", "bericht_html"],
+    "additionalProperties": False,
+}
+
+
+ANALYSE_PROMPT_TEMPLATE = """Du bist ein hochqualifizierter Ausdauer-Trainingswissenschaftler und ein kritischer, \
+erfahrener Trainingsanalyst. Bewerte **eine einzelne absolvierte Einheit** dieses \
+Athleten — {sportart} am {datum} — kritisch, persönlich und aus den Daten begründet.
+
+## Datenlage
+
+- `training` ist die Einheit, wie Garmin sie zusammenfasst: Dauer, Distanz, \
+Puls, Pace bzw. Watt, Trainingslast, Trainingseffekt, Zeit in den \
+Herzfrequenzzonen, dazu die absolvierten Abschnitte bzw. Übungen und — wo der \
+Athlet sie selbst vergeben hat — Anstrengung und Befinden.
+- `aktivitaeten.N` ist dieselbe Einheit als **Original-Aufzeichnung** der Uhr: \
+Kopfdaten, dazu als Tabellen `soll_schritte` (die geplanten Schritte des \
+Workouts, falls eines gestartet wurde), `runden` (das Gefahrene, mit Rückbezug \
+`soll_schritt`), `stuetzpunkte` (verdichtete Sekundendaten: Puls, Tempo, Watt, \
+Kadenz, Höhe), bei Schwimmen `bahnen`, bei Kraft `saetze`, dazu `pausen`. \
+Mehrere Abschnitte gibt es nur beim Multisport — eine Triathlon-Aufzeichnung \
+trägt Schwimmen, Rad und Lauf in einer Datei.
+- Der Vermerk „nur Listendaten" heißt: Zu dieser Einheit gibt es keine lesbare \
+Aufzeichnung. Bewerte dann nur, was in `training` steht, und erfinde nichts hinzu.
+- `geplante_einheit` ist die Vorgabe aus dem Trainingsplan, sofern die Einheit \
+einer zugeordnet ist — das Soll, wenn die Aufzeichnung keine Workout-Schritte \
+trägt. Fehlt der Block, war die Einheit frei aufgezeichnet: Dann gibt es kein \
+Soll, und „Plan verfehlt" ist keine zulässige Kritik.
+- `athlet` und `herzfrequenzzonen` beschreiben, wer da trainiert; \
+`fitnessdaten` den Zustand drumherum (Schlaf, HRV, Ruhepuls, Erholung, \
+Trainingsstatus) samt Garmins gemessenen Grenzen. Fehlt der Block, liegt \
+nichts vor — dann bewerte ohne ihn und behaupte nichts über Erholung.
+
+## Auftrag
+
+- Sprache Deutsch, Anrede **Du**, direkt und persönlich. Kritik klar benennen \
+und aus den Daten begründen; „gut" nur, wo die Daten es tragen.
+- Empfohlene Gliederung, kein starres Schema: die Ausführung gegen das Soll, \
+Pacing und Zonenverteilung über den Verlauf, dann die Einordnung — was diese \
+Einheit für die Belastung bedeutet und wie sie zur Erholungslage des Tages \
+passt. Der Detailgrad folgt der Datenlage: Zu einem 20-Minuten-Lauf gehören \
+drei Sätze, nicht drei Absätze.
+- Sprich aus, was daraus folgt: konkret, nicht als Allgemeinplatz.
+
+## Form des Berichts (`bericht_html`)
+
+- Ein HTML-Fragment, kein vollständiges Dokument. Erlaubt: h2–h4, p, ul/ol/li, \
+table/thead/tbody/tr/th/td, strong/em, figure/figcaption und **Inline-SVG** für \
+Diagramme (z. B. Pulskurve aus den Stützpunkten, Zonenverteilung) — Diagramme \
+nur, wo sie etwas zeigen, das der Text nicht sagt.
+- Farben ausschließlich über die CSS-Variablen der App: var(--text), \
+var(--text-muted), var(--accent), var(--danger), var(--warning), \
+var(--success), var(--border), var(--surface). Keine Hexwerte — sie brächen \
+das dunkle Farbschema.
+- Verboten: script, Event-Handler (on*), iframe/object/embed, style-Blöcke \
+und jede externe Ressource (Bilder, Fonts, Links nach außen).
+
+## Antwortformat
+
+Antworte ausschließlich mit einem JSON-Objekt nach diesem Schema:
+
+{schema}
+
+`kurzfazit` sind 2–3 Sätze Klartext ohne HTML — das Urteil in Kurzform.
+
+## Datenpaket
+
+{payload}"""
+
+
+def build_analyse_prompt(payload: dict[str, Any]) -> str:
+    kopf = payload.get("analyse", {})
+    return ANALYSE_PROMPT_TEMPLATE.format(
+        sportart=kopf.get("sportart", "die Einheit"),
+        datum=kopf.get("datum", ""),
+        schema=json.dumps(
+            ANALYSE_STRUKTURSCHEMA, separators=(",", ":"), ensure_ascii=False
+        ),
+        payload=paket_als_text(payload),
+    )
+
+
+def erzeuge_analyse_export(
+    db: Session,
+    user: User,
+    *,
+    log: SessionLog,
+    aktivitaeten: list[dict[str, Any]],
+) -> Export:
+    """Datenpaket und Prompt für die Analyse **eines** absolvierten Trainings.
+
+    `aktivitaeten` sind die fertigen Blöcke aus `garmin.fitdaten` — sie kommen
+    als Parameter, weil der Garmin-Abruf Sache des Runners ist: Er hält die
+    Sitzung, übersetzt die Fehler und schreibt den Fortschritt. Eine leere
+    Liste ist kein Fehler: Dann gab es keine ladbare Aufzeichnung, und der
+    Vermerk „nur Listendaten" tritt an ihre Stelle — bewertet wird trotzdem,
+    aus `training`.
+
+    Bewusst **nicht** über `_lade_kontext()`/`build_payload()`: Die laden die
+    Trainingshistorie über ein ganzes Jahr, und genau die gehört hier nicht
+    hinein — Gegenstand ist diese eine Einheit.
+    """
+    profile = user.profile
+    heute = date.today()
+
+    zones = hr_zones(
+        profile.max_hr if profile else None,
+        profile.resting_hr if profile else None,
+        calc_age(profile.birth_date) if profile else None,
+    )
+
+    # Dasselbe Fenster wie beim Planungsexport, aus demselben Grund: `aktuell`
+    # nimmt je Feld den jüngsten belegten Wert, und über ein Jahr fände es für
+    # ein lange leeres Feld einen uralten und stellte ihn als heutigen Stand hin.
+    wellness = (
+        db.query(WellnessDay)
+        .filter(
+            WellnessDay.user_id == user.id,
+            WellnessDay.date > heute - timedelta(days=FITNESS_FENSTER_TAGE),
+        )
+        .all()
+    )
+    konto = db.query(GarminAccount).filter(GarminAccount.user_id == user.id).first()
+
+    payload: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "erzeugt_am": datetime.now().isoformat(timespec="minutes"),
+        "analyse": {
+            "datum": log.date.isoformat(),
+            "wochentag": WEEKDAYS[log.date.weekday()],
+            "sportart": log.sport,
+            "datenstand": _datenstand(konto),
+        },
+        "athlet": _athlete_block(profile),
+        "herzfrequenzzonen": zones,
+        # Garmins Listendaten zur Einheit — derselbe Block, den die Planung in
+        # ihrer Historie sieht. Er trägt, was in der FIT-Datei nicht steht: das
+        # selbst vergebene Befinden, Garmins Trainingslast, die gezählten
+        # Übungen einer Krafteinheit.
+        "training": _session_eintrag(log),
+        "aktivitaeten": aktivitaeten or [{"hinweis": HINWEIS_OHNE_FIT}],
+    }
+
+    # Die Vorgabe, gegen die zu messen ist — aber nur, wo es eine gibt. Ohne
+    # zugeordnete Planeinheit war die Einheit frei aufgezeichnet, und ein leerer
+    # Block wäre eine Einladung, ein Soll zu erfinden.
+    if log.plan_session is not None:
+        payload["geplante_einheit"] = _einheit_felder(log.plan_session)
+
+    fitness = _fitness_block(wellness, heute)
+    if fitness is not None:
+        payload["fitnessdaten"] = fitness
+
+    return Export(
+        payload=payload,
+        prompt=build_analyse_prompt(payload),
+        schema=ANALYSE_STRUKTURSCHEMA,
+    )

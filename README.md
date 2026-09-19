@@ -20,6 +20,7 @@ Drei Dinge nimmt die App dem Nutzer inzwischen ab:
 |---|---|
 | **Garmin in beide Richtungen** | Wer ein Garmin-Connect-Konto verbindet, trägt nichts mehr von Hand nach — Trainings, Schlaf, HRV, Ruhepuls und Garmins Erholungsbewertungen werden täglich geholt. Umgekehrt geht jeder übernommene Block als strukturiertes Workout in den Garmin-Kalender und liegt beim nächsten Synchronisieren startbereit auf der Uhr. |
 | **Die KI-Mitte kann die App selbst** | Mit hinterlegtem Claude-Abo genügt ein Knopfdruck statt Kopieren; ein Schalter lässt den nächsten Block einmal pro Woche von selbst entstehen. Der Weg über die Zwischenablage bleibt als Rückfall für andere KIs oder ein aufgebrauchtes Kontingent. |
+| **Trainingsanalyse per KI** | Ein Knopf an jedem absolvierten Training holt dessen Original-Aufzeichnung (FIT) live von Garmin und lässt Claude die Ausführung kritisch bewerten — Soll gegen Ist, Pacing, Zonen, Belastung gegen Erholung. Der Bericht hängt an der Einheit: Kurzfazit in der Zeile, voller Bericht im Dialog, im Verlauf wie auf der Übersicht. |
 | **Ernährung zum Trainingsblock** | Auf Knopfdruck den passenden Ernährungsplan — Tag für Tag, Mahlzeit für Mahlzeit, mit Supplementgaben an ihrem Tag. Die Zutaten lassen sich als Einkauf auf eine Bring-Liste übertragen. |
 
 Dazu schärft ein optionaler Lauf den **heutigen Tag** morgens noch einmal nach:
@@ -303,9 +304,10 @@ gehört. Vieles darin ist eine teuer bezahlte Lektion.
 |---|---|
 | [planung.md](docs/planung.md) | Planungshorizont, Überbügeln eines Blocks, `Plan.geplant_ab`, Einzelanpassung, Tagesanpassung, Disziplinwahl |
 | [ki-und-prompt.md](docs/ki-und-prompt.md) | warum der Prompt keine Trainingslehre vorgibt, die drei Auflösungsebenen, `RESPONSE_SCHEMA`, Claude Code als Unterprozess, wöchentliche Planung, Tokenablage |
+| [analyse.md](docs/analyse.md) | Eine Analyse je Training, Original-FIT statt Datenbank, garmin-fit-sdk, eigener Systemprompt, Zweifelder-Schema, DOMPurify beim Rendern, nur manuell |
 | [ernaehrung.md](docs/ernaehrung.md) | eigener Prompt, gekürzte Historie, genau ein Ernährungsplan, Zutaten neben der Beschreibung |
 | [einkaufsliste.md](docs/einkaufsliste.md) | Zutaten von der KI, Einheiten normalisieren, Aufaddieren gegen Anhängen, Riegel je Tag |
-| [garmin-abgleich.md](docs/garmin-abgleich.md) | Token statt Passwort, Bereichsabfragen, Abgleich im eigenen Thread, Bewertung, Zeitzonen, Profilübernahme |
+| [garmin-abgleich.md](docs/garmin-abgleich.md) | Token statt Passwort, Netzfehler gegen abgelaufenes Token, truststore für den Firmenproxy, Bereichsabfragen, Abgleich im eigenen Thread, Bewertung, Zeitzonen, Profilübernahme |
 | [garmin-workouts.md](docs/garmin-workouts.md) | Bauplan statt Prosa, Wiederholungsgruppen, Watt- gegen Pulskorridor, Übungskennungen und Katalog |
 | [garmin-uebertragung.md](docs/garmin-uebertragung.md) | 15 dauerhafte Vorlagen, Slotkennung im Namen, Termin statt Vorlage löschen, Aufräumen des abgelösten Blocks |
 | [frontend.md](docs/frontend.md) | kein UI-Framework, Themenumschaltung, Einstellungsseite, Navigation am Telefon, „Heute" zur Laufzeit |

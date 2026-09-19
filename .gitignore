@@ -6,8 +6,8 @@ __pycache__/
 
 # Daten und Geheimnisse
 backend/data/
-backend/.secret_key
 .env
+.secret_key
 
 # Node
 node_modules/
@@ -18,3 +18,4 @@ backend/static/
 
 # System
 .DS_Store
+

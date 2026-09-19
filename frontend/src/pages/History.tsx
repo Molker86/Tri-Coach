@@ -1,44 +1,35 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import { Alert, EmptyState, Loading, Modal } from '../components/ui'
-import { paceFormat, schlafdauer, sportIcon, sportLabel } from '../constants'
+import { AnalyseBericht } from '../components/AnalyseBericht'
+import { TrainingDetail } from '../components/TrainingDetail'
+import { TrainingsTabelle } from '../components/TrainingsTabelle'
+import { Alert, EmptyState, Loading } from '../components/ui'
+import { useAnalysen } from '../components/useAnalysen'
+import { schlafdauer } from '../constants'
 import type { SessionLog, WellnessDay } from '../types'
 
-const STATUS_LABEL: Record<SessionLog['status'], string> = {
-  completed: 'Absolviert',
-  partial: 'Teilweise',
-  skipped: 'Ausgefallen',
-}
-
-/** Woher ein RPE stammt — als Erklärung beim Überfahren. */
-const RPE_QUELLE_TEXT: Record<string, string> = {
-  athlet: 'Vom Athleten in Garmin Connect bewertet',
-  hf_zonen: 'Aus der Zeitverteilung über die Herzfrequenzzonen geschätzt',
-  trainingseffekt: 'Aus Garmins Trainingseffekt geschätzt',
-  hf_schnitt: 'Aus dem Durchschnittspuls geschätzt',
-}
-
-/** Nur diese Quellen sind Schätzungen — sie bekommen die Tilde. */
-const GESCHAETZT = new Set(['hf_zonen', 'trainingseffekt', 'hf_schnitt'])
-
-/** Garmins Befinden in Worten. Die Zahl steht auf der Skala 0 bis 10, wie in
- *  Connect; die Uhr trifft mit ihren fünf Stufen 0, 2,5, 5, 7,5 und 10. */
-function befindenText(wert: number): string {
-  if (wert <= 1.2) return 'sehr schwach'
-  if (wert <= 3.7) return 'schwach'
-  if (wert <= 6.2) return 'normal'
-  if (wert <= 8.7) return 'stark'
-  return 'sehr stark'
-}
-
+/**
+ * Der Trainingsverlauf: alle absolvierten Einheiten, jede mit ihrer Analyse.
+ *
+ * Die Analysen haben hier **keine** eigene Rubrik mehr. Sie hatten eine,
+ * solange ein Bericht einen Zeitraum bewertete und zu keiner Einheit gehörte —
+ * eine Liste neben den Trainings, aus der nicht hervorging, worüber sie
+ * eigentlich urteilt. Jetzt hängt jeder Bericht an seinem Training und steht
+ * an dessen Zeile; die Rubrik wäre dieselbe Liste ein zweites Mal.
+ */
 export default function History() {
   const [logs, setLogs] = useState<SessionLog[] | null>(null)
   const [wellness, setWellness] = useState<WellnessDay[]>([])
   const [ansicht, setAnsicht] = useState<'trainings' | 'fitness'>('trainings')
   const [weeks, setWeeks] = useState(4)
   const [selected, setSelected] = useState<SessionLog | null>(null)
+  const [analyseFuer, setAnalyseFuer] = useState<SessionLog | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Auslösen, Fortschritt und Ablage der Analysen — derselbe Hook wie auf der
+  // Übersicht, damit sich beide Seiten gleich verhalten.
+  const analysen = useAnalysen()
 
   useEffect(() => {
     setLogs(null)
@@ -47,17 +38,6 @@ export default function History() {
     // erscheint gar nicht erst.
     api.garminWellness(weeks).then(setWellness).catch(() => setWellness([]))
   }, [weeks])
-
-  async function remove(log: SessionLog) {
-    if (!confirm('Diesen Eintrag wirklich löschen?')) return
-    try {
-      await api.deleteLog(log.id)
-      setLogs((current) => current?.filter((l) => l.id !== log.id) ?? null)
-      setSelected(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Löschen fehlgeschlagen.')
-    }
-  }
 
   if (error) return <Alert kind="error">{error}</Alert>
   if (!logs) return <Loading />
@@ -100,6 +80,13 @@ export default function History() {
         </div>
       </div>
 
+      {/* Fehler eines Laufs gehören an die Seite und nicht nur in den Dialog:
+          Wer ihn schließt, während der Lauf noch läuft, sähe sonst nie, dass er
+          gescheitert ist. Bei offenem Dialog steht er dort — sonst zweimal. */}
+      {!analyseFuer && analysen.fehler && (
+        <Alert kind="error">{analysen.fehler}</Alert>
+      )}
+
       {ansicht === 'fitness' ? (
         <FitnessTabelle tage={wellness} />
       ) : logs.length === 0 ? (
@@ -117,150 +104,37 @@ export default function History() {
         </EmptyState>
       ) : (
         <div className="card">
-          <div className="table-wrap">
-            <table className="table-cards">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Sportart</th>
-                  <th>Dauer</th>
-                  <th>Distanz</th>
-                  <th>Ø Puls</th>
-                  <th>RPE</th>
-                  <th>TRIMP</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="nowrap" data-label="Datum">
-                      {new Date(log.date).toLocaleDateString('de-DE', {
-                        weekday: 'short',
-                        day: '2-digit',
-                        month: '2-digit',
-                      })}
-                    </td>
-                    <td className="nowrap cell-title">
-                      {sportIcon(log.sport)} {sportLabel(log.sport)}
-                      {log.status !== 'completed' && (
-                        <> <span className="badge">{STATUS_LABEL[log.status]}</span></>
-                      )}
-                      {log.source === 'garmin' && (
-                        <> <span className="badge badge-accent">Garmin</span></>
-                      )}
-                    </td>
-                    <td data-label="Dauer">
-                      {log.duration_min ? `${log.duration_min} min` : '–'}
-                    </td>
-                    <td data-label="Distanz">
-                      {log.distance_km ? `${log.distance_km} km` : '–'}
-                    </td>
-                    <td data-label="Ø Puls">{log.avg_hr ?? '–'}</td>
-                    <td data-label="RPE">
-                      {log.rpe === null ? (
-                        '–'
-                      ) : GESCHAETZT.has(log.rpe_source) ? (
-                        // Die Tilde macht sichtbar, dass die Zahl geschätzt ist —
-                        // sie geht in sRPE-Last und Belastungsverhältnis ein.
-                        <span title={RPE_QUELLE_TEXT[log.rpe_source] ?? 'Geschätzt'}>
-                          ~{log.rpe}
-                        </span>
-                      ) : (
-                        <span title={RPE_QUELLE_TEXT[log.rpe_source]}>{log.rpe}</span>
-                      )}
-                    </td>
-                    <td data-label="TRIMP">{log.trimp ?? '–'}</td>
-                    <td className="nowrap cell-actions">
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => setSelected(log)}
-                      >
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TrainingsTabelle
+            logs={logs}
+            analysen={analysen.proTraining}
+            laeuftFuer={analysen.laeuftFuer}
+            onDetails={setSelected}
+            onAnalyse={setAnalyseFuer}
+          />
         </div>
       )}
 
-      {selected && (
-        <Modal
-          title={`${sportLabel(selected.sport)} am ${new Date(
-            selected.date,
-          ).toLocaleDateString('de-DE')}`}
-          onClose={() => setSelected(null)}
-        >
-          <div className="table-wrap">
-            <table>
-              <tbody>
-                <DetailRow label="Status" value={STATUS_LABEL[selected.status]} />
-                <DetailRow label="Dauer" value={selected.duration_min} unit="min" />
-                <DetailRow label="Distanz" value={selected.distance_km} unit="km" />
-                <DetailRow
-                  label={paceFormat(selected.sport).label}
-                  value={selected.avg_pace}
-                  unit={paceFormat(selected.sport).unit}
-                />
-                <DetailRow label="Durchschnittspuls" value={selected.avg_hr} unit="bpm" />
-                <DetailRow label="Maximalpuls" value={selected.max_hr} unit="bpm" />
-                <DetailRow label="Leistung" value={selected.avg_power} unit="Watt" />
-                <DetailRow label="Frequenz" value={selected.avg_cadence} unit="1/min" />
-                <DetailRow label="Höhenmeter" value={selected.elevation_gain_m} unit="m" />
-                <DetailRow label="Kalorien" value={selected.calories} unit="kcal" />
-                <DetailRow label="TRIMP" value={selected.trimp} />
-                <DetailRow
-                  label="Trainingslast (Garmin)"
-                  value={selected.garmin_training_load}
-                />
-                <DetailRow
-                  label="Trainingseffekt aerob"
-                  value={selected.garmin_aerobic_te}
-                  unit="/ 5"
-                />
-                <DetailRow
-                  label="Trainingseffekt anaerob"
-                  value={selected.garmin_anaerobic_te}
-                  unit="/ 5"
-                />
-                <DetailRow
-                  label="Anstrengung (RPE)"
-                  value={
-                    selected.rpe === null
-                      ? null
-                      : GESCHAETZT.has(selected.rpe_source)
-                        ? `~${selected.rpe} (geschätzt)`
-                        : String(selected.rpe)
-                  }
-                  unit="/ 10"
-                />
-                {/* Befinden und Anstrengung trägt der Athlet in Garmin Connect
-                    ein — meist gar nicht. Dann fehlt die Zeile, statt eine
-                    Bewertung zu behaupten. Schlaf und Morgenpuls stehen je Tag
-                    in der Fitnessdaten-Ansicht. */}
-                {selected.garmin_feel !== null && (
-                  <DetailRow
-                    label="Befinden"
-                    value={`${selected.garmin_feel.toLocaleString('de-DE')} (${befindenText(
-                      selected.garmin_feel,
-                    )})`}
-                    unit="/ 10"
-                  />
-                )}
-                <DetailRow label="Notizen" value={selected.notes} />
-              </tbody>
-            </table>
-          </div>
+      {analyseFuer && (
+        <AnalyseBericht
+          log={analyseFuer}
+          analyse={analysen.proTraining.get(analyseFuer.id) ?? null}
+          lauf={analysen}
+          onClose={() => setAnalyseFuer(null)}
+        />
+      )}
 
-          <div className="row row-end mt-2">
-            <button className="btn btn-danger" onClick={() => remove(selected)}>
-              Eintrag löschen
-            </button>
-          </div>
-        </Modal>
+      {selected && (
+        <TrainingDetail
+          log={selected}
+          onClose={() => setSelected(null)}
+          onGeloescht={() => {
+            setLogs((current) => current?.filter((l) => l.id !== selected.id) ?? null)
+            // Mit dem Training verschwindet auch seine Analyse — die Zuordnung
+            // muss das wissen, sonst bliebe sie als Karteileiche im Speicher.
+            analysen.neuLaden()
+          }}
+          onFehler={setError}
+        />
       )}
     </>
   )
@@ -338,26 +212,5 @@ function FitnessTabelle({ tage }: { tage: WellnessDay[] }) {
         </table>
       </div>
     </div>
-  )
-}
-
-function DetailRow({
-  label,
-  value,
-  unit,
-}: {
-  label: string
-  value: string | number | null
-  unit?: string
-}) {
-  if (value === null || value === '') return null
-  return (
-    <tr>
-      <th style={{ width: '45%' }}>{label}</th>
-      <td>
-        {value}
-        {unit ? ` ${unit}` : ''}
-      </td>
-    </tr>
   )
 }

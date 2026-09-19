@@ -108,6 +108,25 @@ lässt. Ein Vorschaudialog zeigt vorher, was übertragen wird. Ein Riegel je Tag
 verhindert, dass ein zweiter Knopfdruck die Mengen verdoppelt. Erst ab dem
 nächsten geplanten Block: Ältere Ernährungspläne haben keine Zutaten. Siehe
 „Die Zutaten kommen von der KI, nicht aus der Prosa".
+**Und jedes absolvierte Training lässt sich kritisch bewerten — einzeln.** An
+jeder Einheit im Verlauf steht neben „Details" ein zweiter Knopf: Er holt ihre
+Original-Aufzeichnung (FIT) **live von Garmin** — mit den geplanten
+Workout-Schritten neben den gefahrenen Runden in derselben Datei — und lässt
+Claude als kritischen Analysten einen persönlichen Bericht schreiben:
+Ausführung gegen Soll, Pacing, Zonen, Belastung gegen Erholung. **Der Bericht
+hängt an seiner Einheit** und nicht an einem Zeitraum: Das Kurzfazit steht in
+ihrer Zeile, und wo keines steht, steht „noch nicht bewertet" — man sieht auf
+einen Blick, was noch nie bewertet wurde. Ein zweiter Lauf über dasselbe
+Training ersetzt den Bericht. Derselbe Dialog (HTML samt Inline-SVG, beim
+Rendern per DOMPurify bereinigt) zeigt je nach Lage den Bericht, den Knopf oder
+den Fortschritt. **Die Startseite zeigt dieselbe Liste, gekürzt**: die letzten
+drei Trainings direkt unter den anstehenden, mit denselben Komponenten und
+demselben Verhalten. **Nur manuell** — jeder Lauf kostet Kontingent, einen
+Automatik-Zweig gibt es bewusst nicht. Der Weg über die Zwischenablage besteht
+wie überall auch hier; ohne Claude-Zugang sind die KI-Knöpfe gesperrt (mit
+Grund als Tooltip), und der Runner prüft den Zugang vor **jedem** Lauf selbst
+noch einmal. Siehe „Eine Analyse gehört zu genau einem Training".
+
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
 Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
 der Garmin-Seite, die Schalter dazu schon hier; jetzt liegt beides beieinander,
@@ -148,7 +167,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 730 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 786 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -222,6 +241,15 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Unterprozess, Jobs und ein Lauf je Konto, wöchentliche Planung, Tagesanpassung am
   Abgleich, Tokenablage.
   *Bei `PROMPT_TEMPLATE`, `paketformat.py`, `ki/`, `routers/ki.py`.*
+- [docs/analyse.md](docs/analyse.md) — eine Analyse je Training statt je
+  Zeitraum, Original-FIT statt `SessionLog`, `garmin-fit-sdk`, Verdichtung auf
+  ~150 Stützpunkte, eigener Systemprompt, Zweifelder-Schema ohne
+  Reparaturlauf, Zwischenablage-Weg, Zugangs-Riegel im Runner, DOMPurify beim
+  Rendern, gemeinsame Komponenten für Verlauf und Übersicht, nur manuell,
+  Grenzen der Fixture-Abdeckung.
+  *Bei `garmin/fitdaten.py`, `ai_export.ANALYSE_PROMPT_TEMPLATE`,
+  `ki/runner._analyse_lauf`, `routers/analysen.py`,
+  `frontend/src/components/{TrainingsTabelle,AnalyseBericht,useAnalysen}.tsx`.*
 - [docs/ernaehrung.md](docs/ernaehrung.md) — eigener Prompt, gekürzte Historie
   (Positivliste), genau ein Ernährungsplan, `KiJob.ernaehrungsplan_id`, Zutaten
   neben der Beschreibung.
@@ -232,6 +260,7 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   statt Job, warum das Bring-Passwort gespeichert wird.
   *Bei `einkaufsliste.py`, `bring/`, `routers/bring.py`.*
 - [docs/garmin-abgleich.md](docs/garmin-abgleich.md) — Token statt Passwort,
+  Netzfehler gegen abgelaufenes Token, `truststore` für den Firmenproxy,
   Bereichsabfragen, Nachlaufzeit, Abgleich im eigenen Thread, Ausführungsdaten,
   Bewertung, Zuordnung von Hand, Zeitzonen, Profilübernahme.
   *Bei `garmin/sync.py`, `mapping.py`, `client.py`, `runner.py`, `matching.py`,

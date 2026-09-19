@@ -11,6 +11,7 @@ from ..deps import CurrentUser, DbSession
 from ..ki import tagesform
 from ..ki.client import ist_angemeldet, token_aus
 from ..ki.runner import (
+    ANALYSE,
     EINHEIT,
     ENDZUSTAENDE,
     ERNAEHRUNG,
@@ -18,8 +19,15 @@ from ..ki.runner import (
     LaeuftBereits,
     runner,
 )
-from ..models import GarminAccount, KiJob, KiSettings, TrainingRequest
+from ..models import (
+    GarminAccount,
+    KiJob,
+    KiSettings,
+    SessionLog,
+    TrainingRequest,
+)
 from ..schemas import (
+    KiAnalysierenIn,
     KiEinheitIn,
     KiErnaehrungIn,
     KiJobOut,
@@ -424,6 +432,45 @@ def passe_einheit_an(data: KiEinheitIn, user: CurrentUser, db: DbSession) -> KiJ
         EINHEIT,
         plan_session_id=session.id,
         wunsch=data.wunsch,
+    )
+    return db.get(KiJob, job_id)
+
+
+@router.post(
+    "/analysieren", response_model=KiJobOut, status_code=status.HTTP_202_ACCEPTED
+)
+def analysiere_trainings(
+    data: KiAnalysierenIn, user: CurrentUser, db: DbSession
+) -> KiJob:
+    """Lässt Claude **ein** absolviertes Training kritisch bewerten.
+
+    Nur manuell — es gibt bewusst keinen Automatik-Zweig. Ohne verbundenes
+    Garmin-Konto endet es hier, sofern das Training eine Aufzeichnung hat: Der
+    Lauf holt sie live aus Connect, und ein Job, der sicher scheitert, muss gar
+    nicht erst entstehen. Ein Eintrag ohne Garmin-Kennung wird dagegen aus
+    seinen Listendaten bewertet und braucht die Verbindung nicht.
+    """
+    _pruefe_startbar(_einstellungen(db, user.id))
+
+    log = db.get(SessionLog, data.session_log_id)
+    if log is None or log.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Training nicht gefunden.")
+
+    if log.garmin_activity_id and (
+        db.scalar(select(GarminAccount).where(GarminAccount.user_id == user.id)) is None
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Es ist kein Garmin-Konto verbunden. Die Analyse liest die "
+            "Original-Aufzeichnung direkt aus Garmin Connect — verbinde "
+            "zuerst unter Einstellungen dein Konto.",
+        )
+
+    job_id = _starte(
+        user.id,
+        ANALYSE,
+        session_log_id=log.id,
+        start_date=log.date,
     )
     return db.get(KiJob, job_id)
 

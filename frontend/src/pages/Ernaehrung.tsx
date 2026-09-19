@@ -208,6 +208,13 @@ export default function Ernaehrung() {
               className="btn btn-primary"
               onClick={planeMitKi}
               disabled={busy || laeuft || !planbar || !kiVerfuegbar}
+              title={
+                kiVerfuegbar
+                  ? undefined
+                  : 'Kein Claude-Zugang hinterlegt — trage unter Einstellungen → ' +
+                    'KI-Planung ein Token ein, oder nutze den Weg über die ' +
+                    'Zwischenablage weiter unten.'
+              }
             >
               {busy ? 'Wird gestartet …' : 'Neuen Ernährungsplan erstellen'}
             </button>

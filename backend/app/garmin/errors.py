@@ -20,6 +20,17 @@ class GarminAnmeldungFehlgeschlagen(GarminFehler):
     meldung = "E-Mail-Adresse oder Passwort stimmen nicht."
 
 
+class GarminNichtErreichbar(GarminFehler):
+    """Netz oder TLS, nicht das Konto — neu verbinden hülfe hier nichts.
+
+    Eine eigene Klasse, damit `client_aus_token` sie von einem abgelehnten
+    Token unterscheiden kann: Wer sie zum abgelaufenen Token machte, sperrte
+    das Konto wegen eines Aussetzers der Leitung.
+    """
+
+    meldung = "Garmin ist gerade nicht erreichbar. Bitte versuche es später erneut."
+
+
 class GarminMfaErforderlich(GarminFehler):
     meldung = "Für dieses Konto ist eine Bestätigung in zwei Schritten aktiv."
 

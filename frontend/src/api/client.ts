@@ -1,5 +1,7 @@
 import type {
   AiExport,
+  Analyse,
+  AnalyseDetail,
   AuthResponse,
   BringSettingsIn,
   BringStatus,
@@ -306,6 +308,33 @@ export const api = {
       },
     }),
   kiJob: (id: number) => request<KiJob>(`/ki/jobs/${id}`),
+  /**
+   * Ein absolviertes Training bewerten lassen. Läuft als Job wie die
+   * Blockplanung; das Ergebnis hängt danach als `analyse_id` am Job und liegt
+   * unter `/analysen`. Ein zweiter Lauf über dasselbe Training ersetzt den
+   * bisherigen Bericht.
+   */
+  startAnalyse: (sessionLogId: number) =>
+    request<KiJob>('/ki/analysieren', {
+      method: 'POST',
+      body: { session_log_id: sessionLogId },
+    }),
+  /** Alle Analysen des Kontos — die Liste sagt an jedem Training, ob es schon
+   *  eine hat. Ohne Wochenfenster, sonst stünde ein älteres fälschlich als
+   *  unbewertet da. */
+  listAnalysen: () => request<Analyse[]>('/analysen'),
+  /** Der Weg über die Zwischenablage — holt die Aufzeichnung live von Garmin
+   *  und dauert deshalb ein paar Sekunden. */
+  analyseExport: (sessionLogId: number) =>
+    request<AiExport>(`/analysen/export?session_log_id=${sessionLogId}`),
+  importAnalyse: (raw: string, sessionLogId: number) =>
+    request<AnalyseDetail>('/analysen/import', {
+      method: 'POST',
+      body: { raw, session_log_id: sessionLogId },
+    }),
+  getAnalyse: (id: number) => request<AnalyseDetail>(`/analysen/${id}`),
+  deleteAnalyse: (id: number) =>
+    request<void>(`/analysen/${id}`, { method: 'DELETE' }),
   kiAbbrechen: (id: number) =>
     request<KiJob>(`/ki/jobs/${id}/abbrechen`, { method: 'POST' }),
   /**

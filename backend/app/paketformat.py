@@ -412,6 +412,49 @@ def _ernaehrung(block: dict[str, Any]) -> list[str]:
     )
 
 
+def _training(block: dict[str, Any]) -> list[str]:
+    """Die bewertete Einheit der Trainingsanalyse — Kopf als JSON, Listen als Tabellen.
+
+    Derselbe Block, den die Historie je Einheit als Tabellenzeile führt, hier
+    aber einzeln: Bei einer Zeile gewinnt eine Tabelle nichts (jede Spalte
+    wäre konstant), also bleibt der Kopf JSON. Seine beiden verschachtelten
+    Listen dagegen kosten in der Zelle dieselben wiederholten Schlüssel wie in
+    der Historie — dort löst sie `_langformat_liste` heraus, hier reicht, dass
+    sie eine eigene Tabelle bekommen.
+    """
+    abschnitte = block.pop("absolvierte_abschnitte", None) or []
+    uebungen = block.pop("absolvierte_uebungen", None) or []
+    return (
+        _kopf("training", block)
+        + _tabellenblock("training.absolvierte_abschnitte", abschnitte)
+        + _tabellenblock("training.absolvierte_uebungen", uebungen)
+    )
+
+
+def _aktivitaeten(liste: list[dict[str, Any]]) -> list[str]:
+    """Die Original-Aufzeichnungen der Trainingsanalyse — je Aktivität ein Satz.
+
+    Kopf als JSON, die vier gleichförmigen Listen als Tabellen darunter,
+    durchnummeriert (`aktivitaeten.1`, `aktivitaeten.2` …): Zwei Läufe am selben
+    Tag sind keine Seltenheit, und die Tabellen müssen eindeutig zu ihrem Kopf
+    finden. Eine Aktivität ohne FIT hat leere Listen und damit nur den Kopf —
+    samt dem Vermerk „nur Listendaten" aus `fitdaten.als_dict()`.
+    """
+    teile: list[str] = []
+    for nummer, roh in enumerate(liste, 1):
+        aktivitaet = dict(roh)
+        tabellen = {
+            feld: aktivitaet.pop(feld, None) or []
+            for feld in ("soll_schritte", "runden", "stuetzpunkte", "bahnen",
+                         "saetze", "pausen")
+        }
+        pfad = f"aktivitaeten.{nummer}"
+        teile += _kopf(pfad, aktivitaet)
+        for feld, zeilen in tabellen.items():
+            teile += _tabellenblock(f"{pfad}.{feld}", zeilen)
+    return teile
+
+
 # --------------------------------------------------------------------------
 # Das Ganze
 # --------------------------------------------------------------------------
@@ -465,6 +508,10 @@ def paket_als_text(payload: dict[str, Any]) -> str:
             abschnitte += _tagesform(wert)
         elif name == "ernaehrung":
             abschnitte += _ernaehrung(wert)
+        elif name == "training":
+            abschnitte += _training(wert)
+        elif name == "aktivitaeten":
+            abschnitte += _aktivitaeten(wert)
         elif isinstance(wert, dict):
             abschnitte += _kopf(name, wert)
         elif isinstance(wert, list) and all(isinstance(e, dict) for e in wert):

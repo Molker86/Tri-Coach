@@ -7,6 +7,8 @@ Möglich ist das, weil der gesamte Zugriff durch zwei Funktionen in
 
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from sqlalchemy import select, text
 
 from app.database import SessionLocal, engine
@@ -2131,3 +2133,114 @@ def test_die_alte_zustimmung_zur_automatik_zaehlt_nicht_mehr(tmp_path):
             "SELECT auto_plan_enabled FROM ki_settings"
         ).fetchone()
     assert zeile == (1,)
+
+
+# --------------------------------------------------------------------------
+# Netz- und Zertifikatsfehler sind keine Anmeldefehler
+#
+# Die Bibliothek verpackt einen Fehlschlag beim Profilabruf pauschal als
+# GarminConnectAuthenticationError — auch wenn darunter ein SSL- oder
+# Verbindungsfehler steckt (Firmenproxy, Netz weg). Als „Token abgelaufen"
+# gedeutet sperrte das fälschlich das Konto, und „bitte neu verbinden" hülfe
+# nichts, weil der nächste Versuch an derselben Leitung scheitert.
+# --------------------------------------------------------------------------
+
+
+def _login_scheitert_mit(ursache: BaseException):
+    """Ein Garmin-Stub, dessen Token-Anmeldung an `ursache` scheitert."""
+    from garminconnect import GarminConnectAuthenticationError
+
+    class _Stub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def login(self, tokenstore=None):
+            raise GarminConnectAuthenticationError(
+                "Failed to retrieve social profile"
+            ) from ursache
+
+    return _Stub
+
+
+def test_zertifikatsfehler_wird_nicht_zum_abgelaufenen_token(monkeypatch):
+    import ssl
+
+    from app.garmin import client as garmin_client
+    from app.garmin.errors import GarminNichtErreichbar
+
+    monkeypatch.setattr(
+        garmin_client,
+        "Garmin",
+        _login_scheitert_mit(
+            ssl.SSLCertVerificationError(
+                "certificate verify failed: self-signed certificate in chain"
+            )
+        ),
+    )
+    with pytest.raises(GarminNichtErreichbar) as fehler:
+        garmin_client.client_aus_token("{}")
+    assert "Zertifikat" in fehler.value.meldung
+
+
+def test_netzfehler_wird_nicht_zum_abgelaufenen_token(monkeypatch):
+    import requests
+
+    from app.garmin import client as garmin_client
+    from app.garmin.errors import GarminNichtErreichbar
+
+    monkeypatch.setattr(
+        garmin_client,
+        "Garmin",
+        _login_scheitert_mit(requests.exceptions.ConnectionError("Netz weg")),
+    )
+    with pytest.raises(GarminNichtErreichbar):
+        garmin_client.client_aus_token("{}")
+
+
+def test_echter_anmeldefehler_bleibt_ein_abgelaufenes_token(monkeypatch):
+    from app.garmin import client as garmin_client
+    from app.garmin.errors import GarminTokenUngueltig
+
+    monkeypatch.setattr(
+        garmin_client, "Garmin", _login_scheitert_mit(ValueError("401 Unauthorized"))
+    )
+    with pytest.raises(GarminTokenUngueltig):
+        garmin_client.client_aus_token("{}")
+
+
+def test_verbindungsproblem_sperrt_das_konto_nicht(client, verbunden, monkeypatch):
+    """`garmin_sitzung` darf bei einem Netzproblem kein token_expired vermerken —
+    sonst wäre nach einem SSL-Aussetzer jede Garmin-Funktion bis zum
+    Neu-Verbinden gesperrt."""
+    from app.database import SessionLocal
+    from app.garmin import verbindung as verbindung_modul
+    from app.garmin.errors import GarminNichtErreichbar
+    from app.models import GarminAccount
+
+    def _leitung_tot(token):
+        raise GarminNichtErreichbar()
+
+    monkeypatch.setattr(verbindung_modul, "client_aus_token", _leitung_tot)
+    user = client.get("/api/auth/me", headers=verbunden).json()
+
+    with SessionLocal() as db:
+        with pytest.raises(GarminNichtErreichbar):
+            with verbindung_modul.garmin_sitzung(db, user["id"]):
+                pass
+        konto = (
+            db.query(GarminAccount).filter(GarminAccount.user_id == user["id"]).one()
+        )
+        assert konto.status == "connected"
+
+
+def test_tls_vertraut_dem_systemspeicher(client):
+    """`truststore` muss injiziert sein, bevor irgendetwas TLS spricht.
+
+    Hinter einem Firmenproxy mit eigener Wurzel-CA ist das der Unterschied
+    zwischen einem funktionierenden Abgleich und CERTIFICATE_VERIFY_FAILED —
+    und die Injektion ist eine einzige Zeile in `main.py`, die beim nächsten
+    Umbau leicht verrutscht. `client` erzwingt den App-Import.
+    """
+    import ssl
+
+    assert ssl.SSLContext.__module__.startswith("truststore")

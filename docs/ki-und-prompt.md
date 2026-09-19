@@ -856,3 +856,18 @@ drei Fällen dieselbe, die Antwort steht nur an verschiedenen Orten. Das Ergebni
 wird eine Minute lang gehalten, damit nicht jedes Laden der Seite einen Prozess
 startet, **je Token** und nicht global (siehe „Der Zugang steht in der App").
 `POST /api/ki/pruefen` geht mit `erzwinge=True` daran vorbei.
+
+**Der Unterprozess bekommt kein Terminal.** Beide Aufrufe laufen mit
+`start_new_session=True`, die Anmeldeprüfung zusätzlich mit `/dev/null` als
+stdin; der Planungslauf hat ohnehin eine Pipe. Aufgefallen, als das Backend
+nach dem Login einfror und zsh „suspended (tty output)" meldete: Die Startseite
+fragt `/api/ki/status`, das ruft `claude auth status`, und die CLI stellt das
+Terminal um, das sie als stdin geerbt hatte. Das darf nur die
+Vordergrund-Prozessgruppe. Läuft das Backend als Hintergrund-Job einer
+interaktiven Shell — `source start.sh` statt `./start.sh`, ein IDE-Task —, hält
+der Kernel die ganze Gruppe mit SIGTTOU an, und die Anfrage steht still. Die
+CLI kennt dafür keinen Schalter; das Gegenstück zu PowerShells
+`-NonInteractive` ist unter Unix, dem Prozess gar kein Terminal zu geben.
+Nebenwirkung der eigenen Sitzung: Strg-C im Terminal erreicht den Lauf nicht
+mehr — das Abbrechen übernimmt der Runner, und die Statusprüfung hat einen
+`timeout`.
