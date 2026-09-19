@@ -309,21 +309,28 @@ export const api = {
     }),
   kiJob: (id: number) => request<KiJob>(`/ki/jobs/${id}`),
   /**
-   * Die absolvierten Trainings der letzten Tage bewerten lassen. Läuft als
-   * Job wie die Blockplanung; das Ergebnis hängt danach als `analyse_id` am
-   * Job und liegt unter `/analysen`.
+   * Ein absolviertes Training bewerten lassen. Läuft als Job wie die
+   * Blockplanung; das Ergebnis hängt danach als `analyse_id` am Job und liegt
+   * unter `/analysen`. Ein zweiter Lauf über dasselbe Training ersetzt den
+   * bisherigen Bericht.
    */
-  startAnalyse: (tage: number) =>
-    request<KiJob>('/ki/analysieren', { method: 'POST', body: { tage } }),
+  startAnalyse: (sessionLogId: number) =>
+    request<KiJob>('/ki/analysieren', {
+      method: 'POST',
+      body: { session_log_id: sessionLogId },
+    }),
+  /** Alle Analysen des Kontos — die Liste sagt an jedem Training, ob es schon
+   *  eine hat. Ohne Wochenfenster, sonst stünde ein älteres fälschlich als
+   *  unbewertet da. */
   listAnalysen: () => request<Analyse[]>('/analysen'),
-  /** Der Weg über die Zwischenablage — holt live von Garmin und dauert deshalb
-   *  ein paar Sekunden je Aktivität. */
-  analyseExport: (tage: number) =>
-    request<AiExport>(`/analysen/export?tage=${tage}`),
-  importAnalyse: (raw: string, tage: number, aktivitaetenAnzahl?: number) =>
+  /** Der Weg über die Zwischenablage — holt die Aufzeichnung live von Garmin
+   *  und dauert deshalb ein paar Sekunden. */
+  analyseExport: (sessionLogId: number) =>
+    request<AiExport>(`/analysen/export?session_log_id=${sessionLogId}`),
+  importAnalyse: (raw: string, sessionLogId: number) =>
     request<AnalyseDetail>('/analysen/import', {
       method: 'POST',
-      body: { raw, tage, aktivitaeten_anzahl: aktivitaetenAnzahl ?? null },
+      body: { raw, session_log_id: sessionLogId },
     }),
   getAnalyse: (id: number) => request<AnalyseDetail>(`/analysen/${id}`),
   deleteAnalyse: (id: number) =>

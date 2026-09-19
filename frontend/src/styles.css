@@ -1529,6 +1529,10 @@ textarea.paste-area {
   /* Die Schaltfläche rückt an den rechten Rand der Zeile, in der sie landet —
      eine eigene Zeile je Karte wäre eine Zeile Luft ohne Inhalt. */
   .table-cards .cell-actions { margin-left: auto; }
+
+  /* Das Kurzfazit ist ein Satz und kein Messwert — als Karte bekommt es eine
+     eigene Zeile, sonst stünde es zwischen „Ø Puls" und „RPE" eingeklemmt. */
+  .table-cards .cell-fazit { flex: 1 0 100%; }
 }
 
 /* ==========================================================================
@@ -1752,6 +1756,21 @@ textarea.paste-area {
 
 @media (prefers-reduced-motion: reduce) {
   .modal { animation: none; }
+}
+
+/* Das Kurzfazit in der Trainingsliste: zwei Zeilen, dann Schluss. Es sind zwei
+   bis drei Sätze; ungebremst drückte die Spalte alle Messwerte daneben
+   zusammen. Der ganze Satz steht im Tooltip, der ganze Bericht im Dialog.
+   Die Klammer sitzt am `span` und nicht an der Zelle: `display:-webkit-box`
+   auf einem `td` nähme der Tabelle ihr Layout. */
+.cell-fazit { max-width: 26rem; }
+.fazit {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-muted);
 }
 
 /* Der KI-Analysebericht: fremdes HTML (DOMPurify-bereinigt) in engen Grenzen.

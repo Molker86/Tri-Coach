@@ -475,13 +475,15 @@ export interface GarminDublette {
 // --------------------------------------------------------------------------
 
 /** Dieselben Zustände wie beim Garmin-Job — die Abfrageschleife gilt für beide. */
-/** Eine Trainingsanalyse in der Liste — der Bericht kommt nur im Detail. */
+/** Eine Trainingsanalyse in der Liste — der Bericht kommt nur im Detail.
+ *
+ *  Sie gehört zu genau **einem** absolvierten Training; Datum und Sportart
+ *  stehen deshalb nicht darin, sondern am `SessionLog`, an den sie über
+ *  `session_log_id` geheftet wird. */
 export interface Analyse {
   id: number
+  session_log_id: number
   created_at: string
-  zeitraum_von: string
-  zeitraum_bis: string
-  aktivitaeten_anzahl: number
   /** 2–3 Sätze Klartext, ohne HTML. */
   kurzfazit: string
   model_used: string | null
@@ -518,6 +520,9 @@ export interface KiJob {
   wunsch: string | null
   /** Nur bei kind === 'ernaehrung': der entstandene Ernährungsplan. */
   ernaehrungsplan_id: number | null
+  /** Nur bei kind === 'analyse': welches Training bewertet wird. Steht auch an
+   *  einem gescheiterten Lauf — daran findet die Oberfläche die Zeile wieder. */
+  session_log_id: number | null
   /** Nur bei kind === 'analyse': die entstandene Trainingsanalyse. */
   analyse_id: number | null
   progress_pct: number

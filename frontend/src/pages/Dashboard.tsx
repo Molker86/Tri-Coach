@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import { AnalyseKarte } from '../components/AnalyseKarte'
+import { AnalyseBericht } from '../components/AnalyseBericht'
 import { AnpassungsKarte } from '../components/AnpassungsKarte'
 import { SessionCard } from '../components/SessionCard'
 import { SessionDetail } from '../components/SessionDetail'
 import { TagesformKarte, zeigtTagesform } from '../components/TagesformKarte'
+import { TrainingDetail } from '../components/TrainingDetail'
+import { TrainingsTabelle } from '../components/TrainingsTabelle'
 import { Alert, EmptyState, Klappblock, Loading, Stat } from '../components/ui'
+import { useAnalysen } from '../components/useAnalysen'
 import { useEinheitAnpassung } from '../components/useEinheitAnpassung'
 import { useTagesform } from '../components/useTagesform'
 import { schlafdauer, sportIcon, sportLabel } from '../constants'
@@ -16,6 +19,7 @@ import type {
   Plan,
   PlanSession,
   Profile,
+  SessionLog,
   Stats,
   WeeklyBucket,
   WellnessDay,
@@ -262,9 +266,12 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [wellness, setWellness] = useState<WellnessDay[]>([])
   const [garminKonto, setGarminKonto] = useState<GarminAccount | null>(null)
+  const [letzteTrainings, setLetzteTrainings] = useState<SessionLog[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<PlanSession | null>(null)
+  const [trainingDetail, setTrainingDetail] = useState<SessionLog | null>(null)
+  const [analyseFuer, setAnalyseFuer] = useState<SessionLog | null>(null)
 
   // Als eigene Funktion und nicht nur im Effekt: Nach einer angepassten Einheit
   // steht eine andere Vorgabe im Plan, und die Übersicht zeigte sonst bis zum
@@ -280,13 +287,18 @@ export default function Dashboard() {
       // Nur wegen des Datenstands in der Kopfzeile. Die Anfrage kostet nichts
       // gegen Garmin — sie liest den Stand aus der eigenen Datenbank.
       api.garminStatus().then((zustand) => zustand.konto).catch(() => null),
+      // Die letzten Trainings für die Vorschau. Vier Wochen, weil die Liste
+      // absteigend kommt und drei Zeilen davon reichen — ein eigener Endpunkt
+      // mit Obergrenze wäre dieselbe Abfrage mit einem Parameter mehr.
+      api.listLogs(4).catch(() => [] as SessionLog[]),
     ])
-      .then(([activePlan, loadedStats, loadedProfile, loadedWellness, konto]) => {
+      .then(([activePlan, loadedStats, loadedProfile, loadedWellness, konto, logs]) => {
         setPlan(activePlan)
         setStats(loadedStats)
         setProfile(loadedProfile)
         setWellness(loadedWellness)
         setGarminKonto(konto)
+        setLetzteTrainings(logs)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
@@ -302,6 +314,9 @@ export default function Dashboard() {
   // ist: nicht „was habe ich gerade angestoßen", sondern „was ist heute früh
   // mit meinem Tag geschehen" — die gilt auch, wenn nichts geschehen ist.
   const tagesform = useTagesform(reload, setError)
+  // Und die Trainingsanalysen — derselbe Hook wie im Verlauf, damit Auslösen,
+  // Fortschritt und Anzeige sich hier genauso verhalten wie dort.
+  const analysen = useAnalysen()
   // Beide belegen den einen Lauf je Konto. Ohne das Oder liefe „Einheit
   // anpassen" in ein 409, während im Server gerade der Tag geprüft wird.
   const einLaufAktiv = anpassungLauf.laeuft || tagesform.laeuft
@@ -357,6 +372,27 @@ export default function Dashboard() {
             reload()
           }}
           onClose={() => setSelected(null)}
+        />
+      )}
+
+      {analyseFuer && (
+        <AnalyseBericht
+          log={analyseFuer}
+          analyse={analysen.proTraining.get(analyseFuer.id) ?? null}
+          lauf={analysen}
+          onClose={() => setAnalyseFuer(null)}
+        />
+      )}
+
+      {trainingDetail && (
+        <TrainingDetail
+          log={trainingDetail}
+          onClose={() => setTrainingDetail(null)}
+          onGeloescht={() => {
+            reload()
+            analysen.neuLaden()
+          }}
+          onFehler={setError}
         />
       )}
 
@@ -590,10 +626,32 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Nur mit verbundenem Garmin-Konto: Die Analyse liest die
-          Original-Aufzeichnungen direkt aus Garmin Connect — ohne Konto liefe
-          jeder Knopfdruck in dieselbe Fehlermeldung. */}
-      {garminKonto && <AnalyseKarte />}
+      {/* Die letzten drei Trainings, direkt unter den anstehenden: dieselbe
+          Tabelle und dieselben Knöpfe wie im Verlauf, nur gekürzt. Hier stand
+          einmal eine eigene Analysekarte mit einem Feld „Tage" — sie bewertete
+          einen Zeitraum, und ihr Ergebnis gehörte zu keiner Einheit. Wer sehen
+          will, was gestern war, sieht es jetzt an der Zeile von gestern. */}
+      {letzteTrainings.length > 0 && (
+        <div className="card">
+          <div className="card-title">
+            <h2>Letzte Trainings</h2>
+            <Link className="small" to="/verlauf">
+              Ganzen Verlauf ansehen
+            </Link>
+          </div>
+          {/* Bei offenem Dialog steht der Fehler dort — sonst zweimal. */}
+          {!analyseFuer && analysen.fehler && (
+            <Alert kind="error">{analysen.fehler}</Alert>
+          )}
+          <TrainingsTabelle
+            logs={letzteTrainings.slice(0, 3)}
+            analysen={analysen.proTraining}
+            laeuftFuer={analysen.laeuftFuer}
+            onDetails={setTrainingDetail}
+            onAnalyse={setAnalyseFuer}
+          />
+        </div>
+      )}
 
       {stats && stats.weekly.some((w) => w.sessions > 0) && (
         <div className="card">
