@@ -167,7 +167,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 868 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 873 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -269,7 +269,7 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   `leistungsschaetzung.py`.*
 - [docs/garmin-workouts.md](docs/garmin-workouts.md) — Bauplan statt Prosa,
   Zerleger als Rückfall, Wiederholungsgruppen, Watt- gegen Pulskorridor,
-  Beckenlänge, Übungskennungen und Katalog.
+  Wechsel an der Rundentaste, Beckenlänge, Übungskennungen und Katalog.
   *Bei `garmin/workouts.py`, `uebungen.py`, `katalog.py`.*
 - [docs/garmin-uebertragung.md](docs/garmin-uebertragung.md) — 15 dauerhafte
   Vorlagen, Slotkennung im Namen, Termin statt Vorlage löschen, Kalender lesen,

@@ -336,6 +336,10 @@ class Schritt:
     text: str = ""
     sport: str | None = None  # nur bei Koppeleinheiten belegt
     uebung: uebungen.Uebung | None = None  # nur bei Kraft und Mobility belegt
+    # Der Wartepunkt vor dem Disziplinwechsel: Dieser Schritt endet auf die
+    # Rundentaste statt nach Zeit oder Strecke. Der Wechsel gehört dem Athleten
+    # und nicht der Uhr — siehe `_wechselpunkte()`.
+    wechsel: bool = False
 
 
 @dataclass
@@ -1371,7 +1375,14 @@ def _schritt_json(
 ) -> dict[str, Any]:
     typ_id, typ_schluessel = _SCHRITT_TYPEN[schritt.art]
 
-    if schritt.distanz_m:
+    if schritt.wechsel:
+        # Am Disziplinwechsel entscheidet der Athlet, nicht die Uhr. Ein
+        # abgelaufener Zeitwert schaltete hier auf die nächste Sportart um,
+        # während das Rad noch unter einem steht — und das lässt sich nicht
+        # umsetzen. Was geplant war, steht stattdessen im Text des Schritts;
+        # der Zielkorridor bleibt, siehe `_wechselpunkte()`.
+        ende, endwert = _ENDE_RUNDENTASTE, None
+    elif schritt.distanz_m:
         ende, endwert = _ENDE_DISTANZ, float(schritt.distanz_m)
     elif schritt.dauer_s:
         ende, endwert = _ENDE_ZEIT, float(schritt.dauer_s)
@@ -1549,6 +1560,84 @@ def _koppel_segmente(
     return geschaetzt, True
 
 
+# Der Satz, mit dem ein Wechselschritt anfängt. Er steht **vorn**, weil
+# `_schritt_json()` den Beschreibungstext bei 512 Zeichen hinten abschneidet —
+# derselbe Grund, aus dem der Pulshinweis dort zuerst bemessen wird.
+_WECHSELHINWEIS = "Weiter per Rundentaste"
+
+# Der eigene Halt, wenn ein Abschnitt auf einer Wiederholungsgruppe endet.
+_WECHSELSCHRITT_TEXT = "Wechsel — weiter per Rundentaste."
+
+
+def _geplantes_mass(schritt: Schritt) -> str | None:
+    """Das Maß, das der Schritt als Abbruchbedingung verliert, als Text.
+
+    Die Vorgabe geht nicht verloren, sie wechselt bloß die Rolle: Aus der
+    Bedingung, nach der die Uhr weiterschaltet, wird ein Richtwert, den der
+    Athlet liest. „ca." steht bewusst davor — was hier stand, ist geplant und
+    nicht mehr gemessen.
+    """
+
+    def zahl(wert: float) -> str:
+        gerundet = round(wert, 1)
+        if abs(gerundet - round(gerundet)) < 0.05:
+            return f"{round(gerundet):d}"
+        return f"{gerundet:.1f}".replace(".", ",")
+
+    if schritt.dauer_s:
+        return f"ca. {zahl(schritt.dauer_s / 60)} min"
+    if schritt.distanz_m:
+        if schritt.distanz_m >= 1000:
+            return f"ca. {zahl(schritt.distanz_m / 1000)} km"
+        return f"ca. {zahl(schritt.distanz_m)} m"
+    return None
+
+
+def _wechseltext(schritt: Schritt) -> str:
+    mass = _geplantes_mass(schritt)
+    kopf = f"{_WECHSELHINWEIS} — geplant {mass}." if mass else f"{_WECHSELHINWEIS}."
+    return f"{kopf} {schritt.text.strip()}".strip()
+
+
+def _wechselpunkte(
+    abschnitte: list[tuple[str, list[Element]]],
+) -> list[tuple[str, list[Element]]]:
+    """Hält die Uhr am Disziplinwechsel an, bis der Athlet weiterschaltet.
+
+    **Der Wechsel ist die eine Stelle im Workout, die nicht die Uhr entscheiden
+    darf.** Überall sonst ist der automatische Schrittwechsel genau das, wofür
+    ein Workout da ist; hier bedeutet er, dass nach der geplanten Radzeit auf
+    Laufen umgeschaltet wird — auch wenn das Rad noch zehn Minuten von zu Hause
+    weg ist. Deshalb endet der letzte Schritt jedes Abschnitts **außer dem
+    letzten** auf die Rundentaste (auf der Uhr „nächstes Segment"), und die
+    geplante Dauer wandert in seine Beschreibung.
+
+    Zielkorridor und Countdown der übrigen Schritte bleiben unangetastet: Ein
+    Intervall im Laufteil soll weiterhin von selbst weiterschalten, sonst
+    kostete eine Serie ein Dutzend Tastendrücke.
+
+    Endet ein Abschnitt auf einer Wiederholungsgruppe, bekommt er einen eigenen
+    Halt angehängt. Ein Kind der Gruppe auf die Rundentaste zu setzen ließe
+    *jede* Runde warten — die Gruppe selbst endet über `iterations` und trägt
+    kein eigenes Maß.
+    """
+    if len(abschnitte) < 2:
+        return abschnitte
+
+    gesetzt: list[tuple[str, list[Element]]] = []
+    for nummer, (sport, teil) in enumerate(abschnitte, start=1):
+        if nummer == len(abschnitte):
+            gesetzt.append((sport, teil))
+            continue
+        letztes = teil[-1] if teil else None
+        if isinstance(letztes, Schritt):
+            teil = [*teil[:-1], replace(letztes, wechsel=True, text=_wechseltext(letztes))]
+        else:
+            teil = [*teil, Schritt(art="rest", text=_WECHSELSCHRITT_TEXT, wechsel=True)]
+        gesetzt.append((sport, teil))
+    return gesetzt
+
+
 def baue_workout(
     session: Any,
     *,
@@ -1585,6 +1674,7 @@ def baue_workout(
     hinweis: str | None = None
     if session.sport == "brick":
         abschnitte, geschaetzt = _koppel_segmente(elemente, session)
+        abschnitte = _wechselpunkte(abschnitte)
         if geschaetzt:
             hinweis = "Aufteilung Rad/Lauf geschätzt — bitte vor dem Start prüfen."
     else:

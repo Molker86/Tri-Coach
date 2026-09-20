@@ -937,6 +937,126 @@ def test_koppeleinheit_ohne_erkennbare_teilung_weist_die_schaetzung_aus():
     assert "geschätzt" in plan["description"]
 
 
+def test_koppeleinheit_springt_nicht_von_selbst_aufs_laufen():
+    """Der Wechsel gehört dem Athleten, nicht der Uhr.
+
+    Nach der geplanten Radzeit auf Laufen umzuschalten hieße, das Rad dort
+    stehen zu lassen, wo der Zeitwert abläuft. Der letzte Radschritt wartet
+    deshalb auf die Rundentaste — alles davor und der ganze Laufteil behalten
+    ihren Countdown.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="brick",
+            duration_min=75,
+            steps_json=[
+                {"kind": "warmup", "duration_s": 600, "sport": "bike", "text": "Einrollen"},
+                {"kind": "interval", "duration_s": 2400, "sport": "bike", "zone": "Z3", "text": "Rad Z3"},
+                {"kind": "cooldown", "duration_s": 300, "sport": "bike", "text": "Ausrollen locker"},
+                {"kind": "interval", "duration_s": 1200, "sport": "run", "zone": "Z2", "text": "Lauf Z2"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    rad = schritte(plan, 0)
+    assert [s["endCondition"]["conditionTypeKey"] for s in rad] == [
+        "time",
+        "time",
+        "lap.button",
+    ]
+    assert rad[-1]["endConditionValue"] is None
+    # Die Vorgabe geht nicht verloren, sie wechselt die Rolle.
+    assert "ca. 5 min" in rad[-1]["description"]
+    assert "Ausrollen locker" in rad[-1]["description"]
+
+    lauf = schritte(plan, 1)
+    assert [s["endCondition"]["conditionTypeKey"] for s in lauf] == ["time"]
+    assert lauf[-1]["endConditionValue"] == 1200
+
+
+def test_wechselschritt_behaelt_seinen_zielkorridor():
+    """Die Uhr zeigt weiter, *wie* gefahren wird — sie schaltet nur nicht um."""
+    plan = workouts.baue_workout(
+        einheit(
+            sport="brick",
+            duration_min=70,
+            target_power="200-220 W",
+            bike_location="indoor",
+            steps_json=[
+                {"kind": "interval", "distance_m": 20000, "sport": "bike", "zone": "Z3", "text": "Rad Z3"},
+                {"kind": "interval", "duration_s": 1200, "sport": "run", "zone": "Z2", "text": "Lauf Z2"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    wechsel = schritte(plan, 0)[-1]
+    assert wechsel["endCondition"]["conditionTypeKey"] == "lap.button"
+    assert wechsel["targetType"]["workoutTargetTypeKey"] == "power.zone"
+    assert (wechsel["targetValueOne"], wechsel["targetValueTwo"]) == (200.0, 220.0)
+    # Auch die Strecke bleibt als Richtwert lesbar, und der Pulshinweis daneben.
+    assert "ca. 20 km" in wechsel["description"]
+    assert "Zielpuls 140-155 bpm" in wechsel["description"]
+
+
+def test_wechsel_nach_einer_serie_bekommt_einen_eigenen_halt():
+    """Eine Wiederholungsgruppe endet über `iterations` und trägt kein Maß.
+
+    Ein Kind darin auf die Rundentaste zu setzen ließe *jede* Runde warten —
+    deshalb steht hier ein eigener Schritt hinter der Gruppe.
+    """
+    plan = workouts.baue_workout(
+        einheit(
+            sport="brick",
+            duration_min=80,
+            steps_json=[
+                {"kind": "warmup", "duration_s": 600, "sport": "bike", "text": "Einrollen"},
+                {
+                    "repeat": 4,
+                    "steps": [
+                        {"kind": "interval", "duration_s": 300, "sport": "bike", "zone": "Z4", "text": "Antritt"},
+                        {"kind": "recovery", "duration_s": 120, "sport": "bike", "text": "locker"},
+                    ],
+                },
+                {"kind": "interval", "duration_s": 900, "sport": "run", "zone": "Z2", "text": "Lauf Z2"},
+            ],
+        ),
+        zonen=ZONEN,
+    )
+    rad = schritte(plan, 0)
+    gruppe = rad[1]
+    assert gruppe["type"] == "RepeatGroupDTO"
+    assert gruppe["numberOfIterations"] == 4
+    assert [k["endCondition"]["conditionTypeKey"] for k in gruppe["workoutSteps"]] == [
+        "time",
+        "time",
+    ]
+    assert rad[-1]["stepType"]["stepTypeKey"] == "rest"
+    assert rad[-1]["endCondition"]["conditionTypeKey"] == "lap.button"
+
+
+def test_geschaetzte_koppeleinheit_wartet_ebenfalls():
+    """Auch der 2:1-Rückfall schaltet nicht von selbst aufs Laufen um."""
+    plan = workouts.baue_workout(
+        einheit(sport="brick", structure=None, duration_min=90), zonen=ZONEN
+    )
+    assert schritte(plan, 0)[-1]["endCondition"]["conditionTypeKey"] == "lap.button"
+    assert schritte(plan, 1)[-1]["endCondition"]["conditionTypeKey"] == "time"
+
+
+def test_einzeldisziplin_behaelt_ihre_zeitschritte():
+    """Die Rundentaste gilt nur am Disziplinwechsel.
+
+    Gälte sie überall, kostete eine Intervalleinheit ein Dutzend Tastendrücke.
+    """
+    plan = workouts.baue_workout(
+        einheit(structure="15 min Z2, 5 x 3 min Z4 mit 2 min Trabpause, 10 min Z1"),
+        zonen=ZONEN,
+    )
+    folge = schritte(plan)
+    assert folge[0]["endCondition"]["conditionTypeKey"] == "time"
+    assert folge[-1]["endCondition"]["conditionTypeKey"] == "time"
+
+
 def test_ruhetag_laesst_sich_nicht_bauen():
     with pytest.raises(ValueError):
         workouts.baue_workout(einheit(sport="rest"), zonen=ZONEN)

@@ -109,6 +109,35 @@ Prompt sagt ausdrücklich, dass beide dieselbe Einheit beschreiben müssen. Ein
 Auseinanderlaufen wäre aber ohnehin die bessere Lage als heute: Jetzt läuft der
 Text gegen die Uhr auseinander, und zwar unsichtbar.
 
+**Der Disziplinwechsel gehört dem Athleten, nicht der Uhr**
+(`workouts._wechselpunkte`, `Schritt.wechsel`). Eine Koppeleinheit geht als
+Multisport-Workout auf die Uhr, ein `workoutSegment` je Disziplin. Endete der
+letzte Radschritt wie jeder andere nach Zeit, schaltete die Uhr nach der
+geplanten Radzeit von selbst auf Laufen um — auch wenn das Rad da noch zehn
+Minuten von zu Hause weg ist. Das ist die eine Stelle im Workout, an der der
+automatische Schrittwechsel keine Anleitung mehr ist, sondern eine Anweisung,
+die sich nicht ausführen lässt. Deshalb endet der letzte Schritt jedes
+Abschnitts **außer dem letzten** auf `lap.button` — auf der Uhr die Taste für
+„nächstes Segment".
+
+**Verloren geht dabei nichts: Das Maß wechselt bloß die Rolle.** Aus der
+Bedingung, nach der die Uhr weiterschaltet, wird ein Richtwert im
+Beschreibungstext („Weiter per Rundentaste — geplant ca. 5 min. Ausrollen
+locker"). Der Satz steht **vorn**, weil `_schritt_json()` den Text bei 512
+Zeichen hinten abschneidet — derselbe Grund, aus dem der Pulshinweis dort
+zuerst bemessen wird. Der Zielkorridor bleibt unangetastet: Watt, Puls oder
+Pace stehen weiter am Schritt, die Uhr zeigt also unverändert, *wie* gefahren
+werden soll, und hört nur auf zu entscheiden, *wann* Schluss ist.
+
+**Das gilt nur am Wechsel, nicht überall.** Innerhalb eines Abschnitts behält
+jeder Schritt seinen Countdown, denn dafür ist ein Workout da; gälte die
+Rundentaste durchgehend, kostete eine Serie im Laufteil ein Dutzend
+Tastendrücke. Endet ein Abschnitt auf einer Wiederholungsgruppe, bekommt er
+einen eigenen `rest`-Schritt als Halt angehängt: Die Gruppe selbst endet über
+`iterations` und trägt kein Maß, und ein Kind darin auf die Rundentaste zu
+setzen ließe *jede* Runde warten. Der 2:1-Rückfall aus `_koppel_segmente()`
+läuft durch dieselbe Stelle und wartet genauso.
+
 **Die Bahnlänge gehört ans Becken, nicht an jede Schwimmeinheit**
 (`workouts.schwimmort`, `PlanSession.swim_location`). `poolLength` stand einmal
 an *jedem* Schwimm-Workout, und damit ging auch die Freiwasserrunde als

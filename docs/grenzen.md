@@ -462,6 +462,17 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Gerät erscheint** — das zeigt sich erst auf der Uhr.
 - Eine **Koppeleinheit** ohne erkennbare Teilung im Aufbautext wird 2:1 auf Rad
   und Lauf geschätzt; die Beschreibung des Workouts weist das aus.
+- **Der Halt am Disziplinwechsel ist am Gerät nicht nachgemessen.** Der letzte
+  Schritt jedes Koppelabschnitts endet auf `lap.button` mit leerem
+  `endConditionValue` — die Form, die die App bei Laufeinheiten ohne Maß schon
+  länger schickt, aber noch nie in einem Multisport-Segment. Nimmt Garmin sie
+  dort nicht an, kostet das **das ganze** Workout; der Rückfall wäre der
+  Platzhalter 10.0 wie bei den Übungsschritten. Ob die Uhr dann tatsächlich
+  wartet, statt das Segment selbst zu wechseln, zeigt sich erst auf dem Gerät.
+- Die **geschätzte Workout-Dauer** zählt einen Wechselschritt mit null:
+  `_geschaetzte_dauer()` summiert nur Schritte, die über `time` enden. Folgenlos,
+  solange `duration_min` an der Einheit steht — es ist Pflichtfeld, und die
+  Funktion kehrt damit vorher zurück.
 - Workouts landen über den Kalender auf der Uhr — beim nächsten Synchronisieren
   des Geräts. Ein Direktversand an ein bestimmtes Gerät
   (`push_workout_to_device`) ist nicht eingebaut; er kostete zusätzliche
