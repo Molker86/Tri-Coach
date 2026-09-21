@@ -12,3 +12,6 @@ README.md
 CLAUDE.md
 docs
 start.sh
+# Die iOS-App gehört nicht ins Add-on-Abbild — sie nur mitzuschicken
+# verlängerte den Build-Context auf dem Pi.
+ios

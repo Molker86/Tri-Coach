@@ -19,3 +19,11 @@ backend/static/
 # System
 .DS_Store
 
+
+# iOS-App (Xcode)
+ios/build/
+ios/build.log
+xcuserdata/
+*.xcuserstate
+DerivedData/
+ios/Lokal/zugang.json
