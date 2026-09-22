@@ -222,6 +222,37 @@ final class AppZustand {
     }
     #endif
 
+    // MARK: - Übungsanimationen
+    //
+    // Nicht im Zustand gehalten, sondern je Einheit geladen
+    // (`UebungenModell`): Die Bewegungen sind ein paar Dutzend Kilobyte je
+    // Einheit und werden nur gebraucht, wenn jemand eine öffnet.
+
+    func uebungen(einheit id: Int) async throws -> EinheitUebungen {
+        try await verbundenerClient().uebungen(einheit: id)
+    }
+
+    func animationFreigeben(_ schluessel: String) async throws -> UebungsAnimation {
+        try await verbundenerClient().animationFreigeben(schluessel)
+    }
+
+    func animationVerwerfen(_ schluessel: String, rueckmeldung: String?) async throws -> UebungsAnimation {
+        try await verbundenerClient().animationVerwerfen(schluessel, rueckmeldung: rueckmeldung)
+    }
+
+    func animationenErzeugen() async throws -> KiLauf {
+        try await verbundenerClient().animationenErzeugen()
+    }
+
+    func kiLauf(_ id: Int) async throws -> KiLauf {
+        try await verbundenerClient().kiLauf(id)
+    }
+
+    private func verbundenerClient() throws -> TriCoachClient {
+        guard let client else { throw APIFehler.nichtAngemeldet }
+        return client
+    }
+
     // MARK: - Abfragen je Tag
 
     func einheitenAm(_ tag: String) -> [PlanEinheit] { einheitenNachTag[tag] ?? [] }

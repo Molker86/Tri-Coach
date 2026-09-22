@@ -15,6 +15,10 @@ actor TriCoachClient {
         d.keyDecodingStrategy = .convertFromSnakeCase
         return d
     }()
+    /// Ohne Umschreiben der Schlüssel — für die Animationen. Die Strategie oben
+    /// griffe auch in die Posen („huefte_beugen_l“ → „huefteBeugenL“), siehe
+    /// `Animation/Bewegung.swift`.
+    private let wortgetreu = JSONDecoder()
 
     private(set) var token: String?
     private var kontoID: Int?
@@ -72,13 +76,42 @@ actor TriCoachClient {
         try await abrufen("/logs?weeks=\(wochen)")
     }
 
+    // MARK: Übungsanimationen
+
+    func uebungen(einheit id: Int) async throws -> EinheitUebungen {
+        try await abrufen("/animationen/einheit/\(id)", decoder: wortgetreu)
+    }
+
+    func animationFreigeben(_ schluessel: String) async throws -> UebungsAnimation {
+        try await abrufen("/animationen/\(schluessel)/freigeben", methode: "POST", decoder: wortgetreu)
+    }
+
+    func animationVerwerfen(_ schluessel: String, rueckmeldung: String?) async throws -> UebungsAnimation {
+        var objekt: [String: Any] = [:]
+        if let rueckmeldung, !rueckmeldung.isEmpty { objekt["rueckmeldung"] = rueckmeldung }
+        let body = try JSONSerialization.data(withJSONObject: objekt)
+        return try await abrufen(
+            "/animationen/\(schluessel)/verwerfen", methode: "POST", body: body, decoder: wortgetreu
+        )
+    }
+
+    /// Lässt Claude die fehlenden Animationen des aktiven Plans beschreiben.
+    func animationenErzeugen() async throws -> KiLauf {
+        try await abrufen("/ki/animationen", methode: "POST", decoder: wortgetreu)
+    }
+
+    func kiLauf(_ id: Int) async throws -> KiLauf {
+        try await abrufen("/ki/jobs/\(id)", decoder: wortgetreu)
+    }
+
     // MARK: - Transport
 
     private func abrufen<T: Decodable>(
         _ endpunkt: String,
         methode: String = "GET",
         body: Data? = nil,
-        authentifiziert: Bool = true
+        authentifiziert: Bool = true,
+        decoder: JSONDecoder? = nil
     ) async throws -> T {
         if authentifiziert, token == nil {
             guard let kontoID else { throw APIFehler.nichtAngemeldet }
@@ -99,7 +132,7 @@ actor TriCoachClient {
         #if DEBUG && targetEnvironment(simulator)
         Diagnose.antwort(endpunkt, status: antwort.statusCode, daten: daten)
         #endif
-        return try auswerten(daten, antwort)
+        return try auswerten(daten, antwort, decoder: decoder ?? self.decoder)
     }
 
     private func senden(
@@ -147,7 +180,14 @@ actor TriCoachClient {
         }
     }
 
-    private func auswerten<T: Decodable>(_ daten: Data, _ antwort: HTTPURLResponse) throws -> T {
+    private func auswerten<T: Decodable>(_ daten: Data, _ antwort: HTTPURLResponse, decoder: JSONDecoder) throws -> T {
+        // Ein Add-on vor 4.6.0 beantwortet einen unbekannten API-Pfad mit der
+        // Startseite (HTML, 200). Das ist in Wahrheit ein 404 — so erkennen die
+        // Ansichten ein zu altes Add-on, statt „Antwort nicht lesbar“ zu melden.
+        if (200..<300).contains(antwort.statusCode),
+           antwort.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/html") == true {
+            throw APIFehler.server(status: 404, meldung: "Not Found")
+        }
         guard (200..<300).contains(antwort.statusCode) else {
             throw APIFehler.server(
                 status: antwort.statusCode,

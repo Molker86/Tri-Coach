@@ -15,18 +15,20 @@ import truststore
 # installiert ist: requests liest den Systemspeicher von sich aus nicht.
 truststore.inject_into_ssl()
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .config import CORS_ORIGINS, GARMIN_AUTOSYNC
-from .database import init_db
+from .animation import bibliothek as animationsbibliothek
+from .database import SessionLocal, init_db
 from .garmin.automatik import automatik_schleife
 from .garmin.runner import markiere_unterbrochene_jobs
 from .ki.runner import runner as ki_runner
 from .protokoll import richte_ein as richte_protokoll_ein
 from .routers import (
     analysen,
+    animationen,
     auth,
     bring,
     ernaehrung,
@@ -49,6 +51,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_db()
+    # Die kuratierten Übungsanimationen: neue und geänderte bei jedem Start,
+    # damit ein Update des Add-ons sie ohne weiteres Zutun mitbringt.
+    # Scheitert das, startet die App trotzdem — ohne Animationen, nicht ohne
+    # Trainingsplan.
+    try:
+        with SessionLocal() as db:
+            animationsbibliothek.einspielen(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("Übungsanimationen konnten nicht eingespielt werden")
     # Läufe, die im Zustand "läuft" stehen, können den Neustart nicht überlebt
     # haben — ihr Thread ist mit dem Prozess gestorben. Ohne das Aufräumen zeigte
     # die Oberfläche für immer einen Fortschrittsbalken, der sich nie bewegt.
@@ -105,6 +116,7 @@ app.include_router(ki.router)
 app.include_router(analysen.router)
 app.include_router(ernaehrung.router)
 app.include_router(bring.router)
+app.include_router(animationen.router)
 
 
 @app.get("/api/health")
@@ -139,6 +151,12 @@ def _index_with_base(request: Request) -> Response:
 if STATIC_DIR.is_dir():
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str, request: Request) -> Response:
+        # Ein unbekannter API-Pfad bekommt ein 404 und nicht die Startseite:
+        # Die iOS-App erkennt daran ein Add-on, das einen Endpunkt noch nicht
+        # kennt — mit HTML als Antwort scheiterte sie am JSON und meldete
+        # „Antwort nicht lesbar“.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
         candidate = (STATIC_DIR / full_path).resolve()
         # Eingrenzung auf STATIC_DIR: Sonst liest ein Pfad wie `../app/config.py`
         # Dateien außerhalb des Auslieferungsverzeichnisses.

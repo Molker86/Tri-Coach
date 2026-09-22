@@ -207,17 +207,28 @@ Teil der Kontextdokumentation von Tri-Coach. Überblick, Setup und Konventionen:
   Form. Wärme, Untergrund und Höhenmeter verschieben
   ihn ebenfalls — die Temperatur steht seither wenigstens daneben, Untergrund
   nirgends.
-- **Aerobe Entkopplung und der Verlauf über die Wiederholungen fehlen noch —
-  aber nicht mehr wegen des Preises.** Hier stand einmal, beides bräuchte die
-  Sekunden-Zeitreihe, und die koste eine Anfrage je Einheit. Seit der Abgleich
-  jede Original-Aufzeichnung ohnehin **einmal** holt (siehe „Die Aufzeichnung
-  wird einmal je Training geholt" in
-  [garmin-abgleich.md](garmin-abgleich.md)), fehlt nur noch die Rechnung. Was
-  fehlt, sind Einheiten, an denen sie etwas aussagt: gleichmäßig, ab etwa
-  45 min, mit Watt oder in der Ebene. Am echten Konto waren das in 26 Wochen
-  rund fünf Läufe und sechs Indoor-Fahrten, gemessen am Handgelenk. Die
-  Straßenfahrten haben keine gemessenen Watt, die geschätzten kennen keinen
-  Wind, und Tempo gegen Puls ist dort Wind und Gelände. Wächst der Umfang, ist das der nächste Schritt.
+- **Die aerobe Entkopplung gibt es jetzt — aber an den wenigsten Einheiten.**
+  Gerechnet wird sie aus der Original-Aufzeichnung (`fitdaten._entkopplung`,
+  siehe „Die aerobe Entkopplung entsteht nur dort, wo sie etwas aussagt" in
+  [garmin-abgleich.md](garmin-abgleich.md)). Nicht die Rechnung ist das
+  Problem, sondern die Datenlage: Sie verlangt eine gleichmäßig durchgezogene
+  Dauerbelastung ab 45 min, auf dem Rad mit gemessenen Watt, beim Laufen flach.
+  Am echten Konto waren das in 26 Wochen rund fünf Läufe und sechs
+  Indoor-Fahrten, gemessen am Handgelenk. Die Straßenfahrten haben keine
+  gemessenen Watt, die geschätzten kennen keinen Wind, und Tempo gegen Puls ist
+  dort Wind und Gelände. Ein leeres Feld ist deshalb der Normalfall und
+  ausdrücklich **keine** Aussage über die Einheit; der Prompt sagt das dazu.
+- **Und was drinsteht, ist nicht bereinigt.** Wind, Hitze, Untergrund und ein
+  Pulsgurt, der am Handgelenk sitzt, stecken ungetrennt in der Zahl: Ein
+  Out-and-back bei 20 km/h Wind hat in beiden Hälften dasselbe Profil und
+  trotzdem verschiedenes Tempo je Schlag, und keine Bedingung fängt das ab. Die
+  Prozentzahl wird nirgends bewertet — die App kennt keine Schwelle, ab der eine
+  Entkopplung zu hoch wäre, und schreibt auch keine in den Prompt. Was sie sagt,
+  liest die KI aus der Reihe, mit `hf_schnitt` und Dauer daneben.
+- **Der Verlauf über die Wiederholungen fehlt weiter.** Ob der fünfte
+  1000er langsamer war als der erste, steht in der Aufzeichnung, geht aber in
+  keine Kennzahl ein — die Einzelanalyse eines Trainings sieht die Runden, die
+  Planung sieht nur `absolvierte_abschnitte`.
 - **Nicht jede Einheit hat Zonenzeiten.** Ohne Pulshistogramm stehen im
   Export keine — älter als 26 Wochen, in Connect von Hand angelegt, ohne Puls
   oder noch nicht nachgeholt. Garmins Zählung nach den Zonen der Uhr springt

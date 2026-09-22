@@ -101,6 +101,10 @@ _NACHGEREICHTE_SPALTEN: dict[str, dict[str, str]] = {
         # Kommt später als die drei darüber: Bereits ausgewertete Fahrten
         # stehen dafür einmal wieder offen (`_ZURUECKZUSETZENDE_ALTWERTE`).
         "leistung_geschaetzt": "JSON",
+        # Ebenso: Die Entkopplung entsteht beim Auswerten der Aufzeichnung, und
+        # die langen Einheiten der Historie sind genau die, an denen sie etwas
+        # aussagt (`_ZURUECKZUSETZENDE_ALTWERTE`).
+        "entkopplung_pct": "FLOAT",
     },
     "athlete_profiles": {
         "garmin_personal_bests": "JSON",
@@ -325,6 +329,21 @@ _ZURUECKZUSETZENDE_ALTWERTE: tuple[tuple[str, str, str], ...] = (
         "leistung_geschaetzt",
         "UPDATE session_logs SET fit_ausgewertet_am = NULL "
         "WHERE sport = 'bike' AND (avg_power IS NULL OR avg_power = 0)",
+    ),
+    # Dasselbe für die aerobe Entkopplung: Sie entsteht beim Auswerten der
+    # Aufzeichnung, und ohne das Zurücksetzen bekämen nur Einheiten ab dem
+    # Update eine. Gerade die Historie trägt sie aber — sie beschreibt den
+    # Verlauf der Grundlage, und ein einzelner Wert sagt darüber nichts.
+    #
+    # Nur Lauf und Rad ab 45 min: Kürzere und alle anderen Sportarten fallen in
+    # `fitdaten._entkopplung` ohnehin heraus, und ihre Dateien noch einmal zu
+    # laden kostet Anfragen gegen ein Rate-Limit. Was `_hole_kennwerte` dabei
+    # sonst noch rechnet, entsteht unverändert neu.
+    (
+        "session_logs",
+        "entkopplung_pct",
+        "UPDATE session_logs SET fit_ausgewertet_am = NULL "
+        "WHERE sport IN ('run', 'bike') AND duration_min >= 45",
     ),
 )
 

@@ -389,11 +389,14 @@ def test_ausgewertete_fahrten_stehen_einmal_wieder_offen(tmp_path):
     with alt.begin() as verbindung:
         verbindung.exec_driver_sql(
             "CREATE TABLE session_logs (id INTEGER PRIMARY KEY, sport VARCHAR(32),"
-            " avg_power INTEGER, fit_ausgewertet_am DATETIME)"
+            " avg_power INTEGER, duration_min INTEGER, fit_ausgewertet_am DATETIME)"
         )
+        # Alle drei unter 45 min: Die Entkopplung rüstet im selben Lauf nach
+        # und öffnet die langen Lauf- und Radeinheiten (siehe
+        # `test_entkopplung.py`) — hier soll nur die Schätzung greifen.
         verbindung.exec_driver_sql(
-            "INSERT INTO session_logs VALUES (1, 'bike', NULL, '2026-09-01'),"
-            " (2, 'bike', 190, '2026-09-01'), (3, 'run', NULL, '2026-09-01')"
+            "INSERT INTO session_logs VALUES (1, 'bike', NULL, 40, '2026-09-01'),"
+            " (2, 'bike', 190, 40, '2026-09-01'), (3, 'run', NULL, 40, '2026-09-01')"
         )
 
     with alt.begin() as verbindung:

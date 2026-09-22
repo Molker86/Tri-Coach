@@ -32,6 +32,12 @@ struct EinheitDetailView: View {
                     }
                 }
 
+                // Die Übungen stehen vor dem Aufbautext: Bei Kraft und
+                // Mobility sind sie der Inhalt, der Text nur ihre Liste.
+                if einheit.sportart == .strength || einheit.sportart == .mobility {
+                    UebungenAbschnitt(einheit: einheit)
+                }
+
                 TextAbschnitt(titel: "Aufbau", text: einheit.structure, symbol: "list.bullet.rectangle")
                 TextAbschnitt(titel: "Beschreibung", text: einheit.description, symbol: "text.alignleft")
                 TextAbschnitt(titel: "Zweck", text: einheit.purpose, symbol: "target")

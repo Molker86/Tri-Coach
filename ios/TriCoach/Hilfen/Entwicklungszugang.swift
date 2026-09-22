@@ -16,6 +16,10 @@ enum Entwicklungszugang {
         /// Benutzername in Tri-Coach — ist er gesetzt, meldet sich die App
         /// beim Start selbst an (nur im Simulator).
         let konto: String?
+        /// Öffnet nach dem Laden eine Einheit — Kennung oder Sportart.
+        let startEinheit: String?
+        /// Öffnet darin eine Übung — Schlüssel oder „*“ für die erste.
+        let startUebung: String?
     }
 
     static func laden() -> Daten? {
@@ -29,5 +33,12 @@ enum Entwicklungszugang {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try? decoder.decode(Daten.self, from: daten)
     }
+}
+
+/// Merkt sich, dass `start_einheit`/`start_uebung` schon gewirkt haben — sonst
+/// öffnete jedes Neuladen die Seite ein weiteres Mal.
+enum Entwicklungsstart {
+    static var einheitGeoeffnet = false
+    static var uebungGeoeffnet = false
 }
 #endif

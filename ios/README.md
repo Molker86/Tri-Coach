@@ -4,6 +4,29 @@ Native SwiftUI-App zum Tri-Coach-Add-on. Sie zeigt den **aktiven
 Trainingsblock im Kalender** und **zu jedem Tag den Ernährungsplan** —
 lesend; geplant und angepasst wird weiter in der Web-Oberfläche.
 
+Dazu **zu jeder Kraft- und Mobility-Übung eine Animation**: Wer eine solche
+Einheit öffnet, sieht ihre Übungen mit laufender Vorschau; ein Tippen zeigt
+die Übung groß, samt Ablauf und betonten Muskeln. Animationen, die Claude
+erstellt hat, stehen auf „ungeprüft“ und lassen sich hier freigeben oder mit
+Anmerkung verwerfen. Hintergrund: `docs/animationen.md`.
+
+## Animationen
+
+- `TriCoach/Animation/Koerper.swift` — das Körpermodell, Zahl für Zahl wie
+  `backend/app/animation/koerper.py`. Der Debug-Build im Simulator rechnet beim
+  Start die Referenzposen aus `backend/tests/fixtures/animation_fk_referenz.json`
+  nach und schreibt die größte Abweichung ins Protokoll
+  („Körpermodell stimmt …“). Wer an einem der beiden Modelle dreht, zieht das
+  andere nach.
+- `TriCoach/Animation/Figur.swift` — Kamera, Ausschnitt und Zeichnen mit
+  `Canvas` in einer `TimelineView`; derselbe Stil wie die Vorschaubilder des
+  Backends. Übergänge laufen über die gelösten Zwischenbilder.
+- `TriCoach/Animation/Bewegung.swift` — die Modelle. **Wortgetreu dekodiert**,
+  ohne `.convertFromSnakeCase`: Die Strategie schriebe auch die Schlüssel der
+  Posen um („huefte_beugen_l“ → „huefteBeugenL“).
+- Ein Add-on vor 4.6.0 kennt die Endpunkte nicht; die App sagt dann, dass es
+  aktualisiert werden will.
+
 ## Verbindung
 
 Die App geht zwei Wege:
@@ -37,6 +60,9 @@ Token (HA und Tri-Coach) liegen im Schlüsselbund, der Rest in den UserDefaults.
 | `GET /api/plans/active` | Kalender: Einheiten des aktiven Blocks |
 | `GET /api/ernaehrung/aktiv` | Ernährung je Tag, Supplemente |
 | `GET /api/logs?weeks=8` | Kalender: absolvierte Einheiten aus Garmin |
+| `GET /api/animationen/einheit/{id}` | Übungen einer Einheit samt Animation |
+| `POST /api/animationen/{schluessel}/freigeben`, `…/verwerfen` | Prüfen einer KI-Animation |
+| `POST /api/ki/animationen`, `GET /api/ki/jobs/{id}` | Fehlende erstellen lassen, Fortschritt |
 
 Die Modelle in `TriCoach/Modelle/Modelle.swift` spiegeln die Pydantic-Schemas
 (wie `frontend/src/types.ts`) — ändert sich dort ein Feld, muss es hier mit.
@@ -78,6 +104,18 @@ im Release und auf dem iPhone nicht enthalten):
     "konto": "Molker"
   }
   ```
+
+  Zwei weitere Schlüssel öffnen nach dem Laden von selbst eine Seite — für
+  den Fall, dass Klicks im Simulator nicht ankommen: `"start_einheit"` (eine
+  Kennung oder eine Sportart, `"strength"` = die nächste Krafteinheit ab heute)
+  und darin `"start_uebung"` (ein Schlüssel wie `"clamshell"` oder `"*"` für
+  die erste Übung mit Animation).
+
+- **Übungen ohne neues Add-on.** Antwortet das Add-on auf
+  `/api/animationen/…` noch nicht (vor 4.6.0), nimmt der Simulator die
+  Bibliothek aus dem Repository (`backend/app/animation/bibliothek/bibliothek.json`,
+  `Hilfen/Entwicklungsbibliothek.swift`) — die Zuordnung dort ist vereinfacht,
+  maßgeblich ist die des Backends.
 
 - **`ios/build/diagnose/`** bekommt ein Protokoll (`protokoll.txt`: WebSocket,
   Ingress, jede Anfrage mit Status), die Rohantworten der API als JSON und alle

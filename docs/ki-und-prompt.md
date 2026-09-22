@@ -402,6 +402,21 @@ bekommen denselben Satz, weil beide denselben Einheitenblock lesen
 (`_session_eintrag`); der Ernährung fehlen die Felder schon in ihrer
 Positivliste.
 
+**Und der Satz zur aeroben Entkopplung nach demselben Muster**
+(`_entkopplungshinweis()`). `entkopplung_pct` steht an der Einheit und
+`athlet.entkopplung` als Tabelle über 26 Wochen — aber nur an den wenigen
+Einheiten, an denen die Zahl etwas aussagt (siehe „Die aerobe Entkopplung
+entsteht nur dort, wo sie etwas aussagt" in `docs/garmin-abgleich.md`). Der Satz
+sagt, wie sie gerechnet ist (zweite gegen erste Hälfte, ab Minute 10), was
+positiv heißt, und — wichtiger als beides — **woran ein fehlender Wert liegt**:
+zu kurz, zu wellig, zu ungleichmäßig, keine gemessenen Watt. Ohne diesen
+Nachsatz läse die KI die Lücken als Aussage über die Einheiten und den einen
+vorhandenen Wert als den einzigen langen Dauerlauf des Halbjahres. Eine
+Schwelle nennt er nicht: Ab wann eine Entkopplung zu hoch ist und was daraus für
+den Zielbereich der Grundlage folgt, ist Trainingslehre und steht deshalb
+nirgends in diesem Dokument. Wieder bekommen Planung und Analyse denselben Satz,
+und wieder fehlen der Ernährung die Felder schon in ihrer Positivliste.
+
 Im selben Absatz steht: `zeit_in_hf_zonen_min` zählt nach `herzfrequenzzonen`,
 Zeit unter Z1 als Z1, je Woche nur Ausdauer, und `zonen_abdeckung_pct` sagt, wie
 viel davon ausgezählt ist. Bis hierher stimmte schon der erste Teil nicht — die

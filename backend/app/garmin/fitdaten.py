@@ -526,6 +526,10 @@ class FitKennwerte:
     # `beste_minute_w` aus Tempo, Steigung und Gewicht (`leistungsschaetzung`).
     # Nie in `bestwerte` — die rechnen nur mit gemessener Leistung.
     leistung_geschaetzt: dict[str, int] | None = None
+    # Aerobe Entkopplung in Prozent — und nur an den Einheiten, an denen sie
+    # etwas aussagt (`_entkopplung`). `None` heißt „nicht auswertbar" und ist
+    # keine Aussage über die Einheit.
+    entkopplung_pct: float | None = None
 
 
 def kennwerte_aus_fit(
@@ -581,7 +585,218 @@ def kennwerte_aus_fit(
         puls_histogramm=_pulshistogramm(records, dauern) or None,
         bestwerte=bestwerte or None,
         leistung_geschaetzt=leistung,
+        entkopplung_pct=_entkopplung(sessions, records, dauern),
     )
+
+
+# --------------------------------------------------------------------------
+# Aerobe Entkopplung
+#
+# Wie viel Leistung bzw. Tempo je Herzschlag von der ersten zur zweiten Hälfte
+# einer Einheit verloren geht (Friels Pw:Hr bzw. Pa:Hr). Die einzige Größe im
+# Paket, die etwas über die **Haltbarkeit** der Grundlage sagt: Der
+# Effizienzfaktor (`sportscience.effizienz_je_einheit`) mittelt über die ganze
+# Einheit und sieht deshalb nicht, ob der Puls im zweiten Teil davongelaufen
+# ist.
+#
+# Gerechnet wird nichts weg: Die Zahl ist ein Quotient aus zwei gemessenen
+# Mittelwerten. Dafür wird **streng ausgewählt**, an welchen Einheiten sie
+# überhaupt entsteht — an einer Intervalleinheit oder am Berg ist sie eine
+# Aussage über das Profil und nicht über den Athleten. Wo eine Bedingung nicht
+# hält, steht `None`, und im Export fehlt das Feld ganz (siehe
+# `docs/garmin-abgleich.md`, „Die aerobe Entkopplung entsteht nur dort, wo sie
+# etwas aussagt").
+# --------------------------------------------------------------------------
+
+# Das Einfahren zählt nicht mit: Der Puls hinkt dem Tempo die ersten Minuten
+# hinterher, und eine Einheit sähe allein dadurch entkoppelt aus.
+_ENTKOPPLUNG_EINFAHREN_S = 600
+# Was danach übrig bleiben muss. Zusammen mit dem Einfahren sind das die
+# 45 Minuten, ab denen ein Dauerlauf überhaupt eine Aussage über die Ausdauer
+# trägt — darunter misst man den Pulsanstieg des Anfangs.
+_ENTKOPPLUNG_FENSTER_S = 2100
+# Anteil des Fensters, der Puls **und** Bezugsgröße tragen muss. Ein Gurt, der
+# nach einer halben Stunde aussetzt, ergäbe sonst eine Entkopplung aus der
+# Lücke.
+_ENTKOPPLUNG_ABDECKUNG = 0.9
+# Glättung für den Schwankungsindex — dieselben 30 Sekunden wie bei Coggans
+# normalisierter Leistung, aus demselben Grund: Sekundenwerte springen auch in
+# der gleichmäßigsten Fahrt.
+_ENTKOPPLUNG_GLAETTUNG_S = 30
+# Ab hier ist es keine gleichmäßige Dauerbelastung mehr, sondern ein Wechsel
+# von Reiz und Pause — zwischen denen ein Verhältnis von Leistung zu Puls
+# nichts bedeutet. 1,05 ist der übliche Schnitt für „gleichmäßig gefahren".
+_ENTKOPPLUNG_MAX_SCHWANKUNG = 1.05
+# Nur fürs Laufen, wo die Bezugsgröße das Tempo ist: Bergauf kostet jeder
+# Höhenmeter Tempo bei gleichem Puls, und eine Runde mit dem Anstieg in der
+# ersten Hälfte ergäbe eine Entkopplung, die niemand gespürt hat.
+_ENTKOPPLUNG_MAX_ANSTIEG_M_JE_KM = 10.0
+
+
+@dataclass(slots=True)
+class _Probe:
+    """Eine Sekunde der Einheit, so wie die Entkopplung sie braucht."""
+
+    dauer: float  # wie lange der Record gilt, ohne Timerpausen
+    wert: float  # Watt oder m/s, je nach Sportart
+    puls: int
+    verstrichen: float  # wirksame Sekunden seit dem Start der Einheit
+
+
+def _entkopplung(
+    sessions: list[dict], records: list[dict], dauern: list[float]
+) -> float | None:
+    """Der Verlust an Leistung bzw. Tempo je Herzschlag über die Einheit.
+
+    Positiv heißt: Die zweite Hälfte trug weniger Watt bzw. Meter je Schlag als
+    die erste — der Puls ist davongelaufen oder die Leistung eingebrochen.
+
+    Auf dem Rad **nur mit gemessener Leistung**, beim Laufen nur über die
+    Geschwindigkeit und nur flach. Geschätzte Watt (`leistungsschaetzung`)
+    bleiben draußen, aus demselben Grund wie beim Effizienzfaktor: Sie kennen
+    keinen Wind, und der weht in der zweiten Hälfte womöglich anders. Garmins
+    Laufleistung ebenso — sie ist ein Modell aus Tempo und Steigung und würde
+    genau die Einheiten hereinholen, die die Steigungsschranke aussortiert.
+    Schwimmen und Kraft haben gar keine gleichmäßige Dauerbelastung.
+
+    Multisport bleibt außen vor wie bei der Leistungsschätzung: Eine
+    Triathlon-Datei trägt drei Sportarten, und ein Wert über alle drei wäre
+    keiner.
+    """
+    if len(sessions) != 1:
+        return None
+    session = sessions[0]
+    sportart = _SPORTART.get(hole(session, "sport"))
+    if sportart == "bike":
+        groesse = _watt
+    elif sportart == "run" and hole(session, "sub_sport") not in _OHNE_TEMPO:
+        if not _flach(session):
+            return None
+        groesse = _tempo
+    else:
+        return None
+
+    verstrichen = 0.0
+    fenster: list[_Probe] = []
+    for record, dauer in zip(records, dauern):
+        if dauer <= 0:
+            continue
+        verstrichen += dauer
+        # Die Uhr des Einfahrens läuft über **alle** wirksamen Sekunden, nicht
+        # nur über die brauchbaren: Sonst schöbe eine Pulslücke am Anfang den
+        # Schnitt ungewollt in die Einheit hinein.
+        if verstrichen <= _ENTKOPPLUNG_EINFAHREN_S:
+            continue
+        puls = hole(record, "heart_rate")
+        wert = groesse(record)
+        if isinstance(puls, int) and 0 < puls < 255 and isinstance(wert, (int, float)):
+            fenster.append(_Probe(dauer, float(wert), puls, verstrichen))
+
+    brauchbar = sum(probe.dauer for probe in fenster)
+    if brauchbar < _ENTKOPPLUNG_FENSTER_S:
+        return None
+    if brauchbar < _ENTKOPPLUNG_ABDECKUNG * (verstrichen - _ENTKOPPLUNG_EINFAHREN_S):
+        return None
+
+    schwankung = _schwankungsindex(fenster)
+    if schwankung is None or schwankung > _ENTKOPPLUNG_MAX_SCHWANKUNG:
+        return None
+
+    # Geteilt wird nach der **verstrichenen** Zeit und nicht nach der Zahl der
+    # brauchbaren Sekunden: Eine Pulslücke soll die Mitte der Einheit nicht
+    # verschieben. Weit auseinanderlaufen können beide ohnehin nicht — dafür
+    # sorgt die Abdeckung oben.
+    mitte = (_ENTKOPPLUNG_EINFAHREN_S + verstrichen) / 2
+    erste = [probe for probe in fenster if probe.verstrichen <= mitte]
+    zweite = [probe for probe in fenster if probe.verstrichen > mitte]
+
+    vorher, nachher = _je_schlag(erste), _je_schlag(zweite)
+    if vorher is None or nachher is None:
+        return None
+    return round((vorher - nachher) / vorher * 100, 1)
+
+
+def _watt(record: dict) -> Any:
+    """Gemessene Leistung. Ohne Powermeter fehlt das Feld, und damit der Wert."""
+    watt = hole(record, "power")
+    return watt if isinstance(watt, (int, float)) and 0 <= watt < 3000 else None
+
+
+def _tempo(record: dict) -> Any:
+    tempo = hole(record, "enhanced_speed")
+    if tempo is None:
+        tempo = hole(record, "speed")
+    return tempo if isinstance(tempo, (int, float)) and 0 <= tempo <= _MAX_LAUF_M_S else None
+
+
+def _flach(session: dict) -> bool:
+    """Lief die Einheit im Flachen?
+
+    Aus Garmins eigener Summe und nicht aus den Höhenwerten der Records: Der
+    barometrische Wert springt sekündlich um einen halben Meter, und aufaddiert
+    ergibt das an einer flachen Runde dreistellige Höhenmeter. Ohne Angabe gilt
+    die Bedingung als nicht erfüllt — eine fehlende Messung ist kein Beleg für
+    flaches Gelände.
+    """
+    anstieg = hole(session, "total_ascent")
+    strecke = hole(session, "total_distance")
+    if not isinstance(anstieg, (int, float)) or not isinstance(strecke, (int, float)):
+        return False
+    if strecke <= 0:
+        return False
+    return anstieg / (strecke / 1000) <= _ENTKOPPLUNG_MAX_ANSTIEG_M_JE_KM
+
+
+def _schwankungsindex(fenster: list["_Probe"]) -> float | None:
+    """Coggans Variabilitätsindex über die Bezugsgröße: geglättet gegen Schnitt.
+
+    Vier Minuten Tempodauerlauf mit vier Minuten Trabpause haben denselben
+    Schnitt wie ein ruhiger Dauerlauf — und ein Verhältnis von Tempo zu Puls,
+    das nur den Wechsel beschreibt. Die vierte Potenz gewichtet die Spitzen
+    hoch und macht genau diesen Unterschied sichtbar.
+
+    Für das Tempo ist das keine physiologische Größe, sondern ein Maß für
+    Unruhe — hier wird nichts damit gerechnet außer der Entscheidung, ob die
+    Einheit gleichmäßig genug war.
+    """
+    # (verstrichene Sekunde, bis dahin aufsummierte Bezugsgröße × Zeit)
+    punkte: list[tuple[float, float]] = [(0.0, 0.0)]
+    zeit, summe = 0.0, 0.0
+    for probe in fenster:
+        zeit += probe.dauer
+        summe += probe.wert * probe.dauer
+        punkte.append((zeit, summe))
+
+    # Je Endpunkt das **kürzeste** Fenster, das noch dreißig Sekunden füllt.
+    # Eine feste Zahl von Records täte es nicht: Mit Smart Recording schreibt
+    # die Uhr in ruhigen Abschnitten seltener.
+    mittel: list[float] = []
+    anfang = 0
+    for ende in range(1, len(punkte)):
+        while (
+            anfang + 1 < ende
+            and punkte[ende][0] - punkte[anfang + 1][0] >= _ENTKOPPLUNG_GLAETTUNG_S
+        ):
+            anfang += 1
+        spanne = punkte[ende][0] - punkte[anfang][0]
+        if spanne >= _ENTKOPPLUNG_GLAETTUNG_S:
+            mittel.append((punkte[ende][1] - punkte[anfang][1]) / spanne)
+
+    schnitt = summe / zeit if zeit > 0 else 0.0
+    if not mittel or schnitt <= 0:
+        return None
+    normalisiert = (sum(wert**4 for wert in mittel) / len(mittel)) ** 0.25
+    return normalisiert / schnitt
+
+
+def _je_schlag(teil: list["_Probe"]) -> float | None:
+    """Bezugsgröße je Herzschlag, beide Mittel über die wirksame Zeit gewichtet."""
+    zeit = sum(probe.dauer for probe in teil)
+    if zeit <= 0:
+        return None
+    wert = sum(probe.wert * probe.dauer for probe in teil) / zeit
+    puls = sum(probe.puls * probe.dauer for probe in teil) / zeit
+    return wert / puls if wert > 0 and puls > 0 else None
 
 
 # Unter diesem Anteil an Records mit Strecke und Höhe fehlt zu viel vom Weg.

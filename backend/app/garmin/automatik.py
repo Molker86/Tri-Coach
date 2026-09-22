@@ -25,6 +25,10 @@ aus, sobald jemand die beiden Uhrzeiten auseinanderlegte oder den Abgleich
 abschaltete. Sie hat trotzdem **keine eigene Schleife**: Der Weckruf kommt
 weiterhin von hier, es gibt genau einen Zeitgeber im Prozess.
 
+**Ein dritter Zweig erzeugt fehlende Übungsanimationen** (`animation.erzeugung`)
+— ohne Uhrzeit, sobald der aktive Plan eine Übung ohne Animation enthält,
+höchstens alle paar Stunden je Konto.
+
 Der Abgleich läuft im Server, nicht im Browser — es muss niemand die Seite
 offen haben.
 """
@@ -36,6 +40,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..animation.erzeugung import erzeuge_faellige as erzeuge_faellige_animationen
 from ..config import GARMIN_SYNC_HOUR
 from ..database import SessionLocal
 from ..ki import automatik as ki_automatik
@@ -79,6 +84,16 @@ async def automatik_schleife() -> None:
             raise
         except Exception:  # noqa: BLE001
             logger.exception("Automatische Planung fehlgeschlagen")
+
+        # Zuletzt: Ein eben gestarteter Planungslauf belegt das Konto, und
+        # die Animationen für seinen neuen Block kommen dann eine Runde
+        # später — nach ihm, nicht an seiner Stelle.
+        try:
+            await asyncio.to_thread(erzeuge_faellige_animationen)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("Automatische Animationserzeugung fehlgeschlagen")
 
 
 def starte_faellige_syncs(jetzt: datetime | None = None) -> int:

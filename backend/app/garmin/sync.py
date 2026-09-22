@@ -390,6 +390,7 @@ def importiere_aufzeichnungen(
         log.puls_histogramm = kennwerte.puls_histogramm if kennwerte else None
         log.fit_bestwerte = kennwerte.bestwerte if kennwerte else None
         log.leistung_geschaetzt = kennwerte.leistung_geschaetzt if kennwerte else None
+        log.entkopplung_pct = kennwerte.entkopplung_pct if kennwerte else None
         log.fit_ausgewertet_am = jetzt_utc()
         # Je Training festschreiben: Eine Sperre beim nächsten Download soll
         # die schon geholten nicht mitnehmen.

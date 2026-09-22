@@ -52,6 +52,13 @@ ERNAEHRUNG = "ernaehrung"
 # es gibt bewusst keinen Automatik-Zweig (siehe docs/analyse.md).
 ANALYSE = "analyse"
 
+# Die Jobart, die fehlende Übungsanimationen erzeugt — siehe
+# `docs/animationen.md`. Denkt nicht mit `max`: Die Aufgabe ist Handwerk
+# (Gelenkwinkel), keine Trainingsentscheidung, und die Genauigkeit liefert
+# ohnehin der Löser.
+ANIMATION = "animation"
+ANIMATION_EFFORT = "high"
+
 # Die Jobart, die den heutigen Tag an die Tagesverfassung anpasst. Wird nicht
 # von einem Knopf gestartet, sondern nach jedem automatischen Garmin-Abgleich —
 # siehe `ki/tagesform.py`.
@@ -64,6 +71,7 @@ _STARTMELDUNG = {
     ERNAEHRUNG: "Der Ernährungsplan wird vorbereitet …",
     TAGESFORM: "Der heutige Tag wird geprüft …",
     ANALYSE: "Die Analyse wird vorbereitet …",
+    ANIMATION: "Die Übungsanimationen werden vorbereitet …",
 }
 _STARTMELDUNG_VORGABE = "Der Planungslauf wird vorbereitet …"
 
@@ -260,6 +268,8 @@ class KiRunner:
                 self._tagesform_lauf(db, job, user, einstellungen)
             elif job.kind == ANALYSE:
                 self._analyse_lauf(db, job, user, einstellungen)
+            elif job.kind == ANIMATION:
+                self._animation_lauf(db, job, user, einstellungen)
             else:
                 # Der Auffangfall ist die Blockplanung („manual" und das alte
                 # „auto"). Eine neue Jobart gehört deshalb **davor** als `elif`
@@ -667,6 +677,48 @@ class KiRunner:
         job.analyse_id = analyse.id
         _fertig(job, _analyse_meldung(log, antwort.modell))
 
+    def _animation_lauf(
+        self, db, job: KiJob, user: User, einstellungen: KiSettings
+    ) -> None:
+        """Fehlende Übungsanimationen des aktiven Plans von der KI beschreiben lassen.
+
+        Was fehlt, wird erst **hier** bestimmt und nicht beim Anstoßen: Zwischen
+        Knopf und Lauf kann ein anderer Lauf dieselbe Übung schon erzeugt haben.
+        Die Antwort geht durch denselben Löser wie die Bibliothek; was sich
+        nicht lösen lässt, wird verworfen, der Rest landet als „ungeprüft“ und
+        wartet auf die Freigabe in der App.
+        """
+        from ..animation import erzeugung
+        from ..animation.ki import JSON_SCHEMA, SYSTEMPROMPT, prompt
+
+        auftraege = erzeugung.fehlende(db, user.id)[: erzeugung.MAX_JE_LAUF]
+        if not auftraege:
+            _fertig(job, "Alle Übungen des Plans haben schon eine Animation.")
+            return
+
+        antwort = self._frage_claude(
+            db,
+            job,
+            einstellungen,
+            prompt(auftraege),
+            f"Claude beschreibt {len(auftraege)} Übung(en) — das dauert einige Minuten …",
+            json_schema=JSON_SCHEMA,
+            systemprompt=SYSTEMPROMPT,
+            effort=ANIMATION_EFFORT,
+        )
+
+        job.message = "Die Bewegungen werden berechnet …"
+        job.progress_pct = 85
+        db.commit()
+
+        ergebnis = erzeugung.uebernimm(db, auftraege, antwort, job.id)
+        if not ergebnis.gespeichert:
+            raise KiAntwortUnbrauchbar(
+                "Aus der Antwort ließ sich keine Animation berechnen. "
+                + "; ".join(ergebnis.fehler[:3])
+            )
+        _fertig(job, erzeugung.meldung(ergebnis))
+
     def _aufzeichnung(self, db, job: KiJob, user: User, log) -> list[dict]:
         """Die Original-Aufzeichnung des Trainings — oder nichts, mit Vermerk.
 
@@ -713,6 +765,7 @@ class KiRunner:
         meldung: str,
         json_schema: dict | None = None,
         systemprompt: str | None = None,
+        effort: str | None = None,
     ):
         """Der Aufruf selbst — für beide Aufgaben derselbe.
 
@@ -750,7 +803,9 @@ class KiRunner:
         antwort = client.rufe_claude(
             prompt,
             modell=einstellungen.model or None,
-            effort=einstellungen.effort or None,
+            # Eine Jobart kann ihre eigene Denktiefe mitbringen — die
+            # Animationen brauchen kein `max`, wie ihn die Planung will.
+            effort=effort or einstellungen.effort or None,
             token=token,
             json_schema=json_schema,
             systemprompt=systemprompt,

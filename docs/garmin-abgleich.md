@@ -558,8 +558,8 @@ Minute Grundlage gelaufen war.
 (`sync.importiere_aufzeichnungen`, `SessionLog.fit_ausgewertet_am`). Es ist
 derselbe Download wie bei der Trainingsanalyse (ORIGINAL-ZIP), aber im Abgleich
 und nur ein einziges Mal: Eine FIT-Datei ändert sich nicht. Daraus entstehen
-Histogramm und Bestwerte (`fitdaten.kennwerte_aus_fit`); die Datei selbst wird
-nicht gespeichert. Der Schritt hängt nicht am Zeitraum des Laufs. Er nimmt die
+Histogramm, Bestwerte, die geschätzte Radleistung und die aerobe Entkopplung
+(`fitdaten.kennwerte_aus_fit`); die Datei selbst wird nicht gespeichert. Der Schritt hängt nicht am Zeitraum des Laufs. Er nimmt die
 jüngsten noch offenen Trainings der letzten `AUFZEICHNUNG_WOCHEN` = 26 (so weit
 wie die Wochenübersicht; ein Test hält beide gleich), höchstens
 `AUFZEICHNUNGEN_JE_LAUF` = 40 je Lauf. Beim ersten Mal liegen rund zweihundert
@@ -613,6 +613,59 @@ Die Spalte kam später als Histogramm und Bestwerte, und die Aufzeichnung wird
 je Training nur einmal geholt. Beim Anlegen der Spalte stehen deshalb alle
 Radfahrten ohne Messung einmal wieder offen (`database._ZURUECKZUSETZENDE_ALTWERTE`)
 und werden über die nächsten Abgleiche nachgeholt, jüngste zuerst.
+
+**Die aerobe Entkopplung entsteht nur dort, wo sie etwas aussagt**
+(`fitdaten._entkopplung`, `SessionLog.entkopplung_pct`). Sie ist der Abfall von
+Leistung bzw. Tempo je Herzschlag von der ersten zur zweiten Hälfte einer
+Einheit (Friels Pw:Hr und Pa:Hr) — die einzige Zahl im Paket, die die
+**Haltbarkeit** der Grundlage beschreibt und nicht ihren Stand. Der
+Effizienzfaktor (`sportscience.effizienz_je_einheit`) mittelt über die ganze
+Einheit und sieht deshalb nicht, ob der Puls im zweiten Teil davongelaufen ist;
+genau das ist aber die Frage, an der hängt, bis zu welchem Puls Grundlage
+wirklich Grundlage ist.
+
+Gerechnet wird ein Quotient aus zwei gemessenen Mittelwerten, sonst nichts.
+Teuer ist nicht die Rechnung, sondern die **Auswahl**: An einer
+Intervalleinheit oder am Berg beschreibt die Zahl das Profil und nicht den
+Athleten. Fünf Bedingungen, und wo eine nicht hält, bleibt die Spalte leer:
+
+- **Zehn Minuten Einfahren zählen nicht mit.** Der Puls hinkt dem Tempo am
+  Anfang hinterher — über die ganze Datei gerechnet wäre jede Einheit
+  entkoppelt.
+- **Danach müssen 35 Minuten übrig bleiben**, zusammen also 45. Darunter misst
+  man den Pulsanstieg des Anfangs.
+- **Gleichmäßig durchgezogen.** Geprüft über Coggans Variabilitätsindex
+  (normalisiert gegen Schnitt, über 30-s-Mittel) mit der üblichen Grenze 1,05.
+  Er lässt langsames Nachlassen durch — das ist das Gesuchte — und fängt den
+  Wechsel von Reiz und Pause ab, zwischen denen der Quotient nichts bedeutet.
+- **Rad nur mit gemessenen Watt, Laufen nur flach und über die
+  Geschwindigkeit.** Geschätzte Watt bleiben draußen, aus demselben Grund wie
+  beim Effizienzfaktor: Sie kennen keinen Wind, und der weht in der zweiten
+  Hälfte womöglich anders. Garmins Laufleistung ebenso — sie ist ein Modell aus
+  Tempo und Steigung und holte genau die Einheiten herein, die die
+  Steigungsschranke (10 Höhenmeter je Kilometer, aus Garmins eigener Summe)
+  aussortiert. Schwimmen, Kraft und Multisport haben gar keine gleichmäßige
+  Dauerbelastung.
+- **Puls und Bezugsgröße müssen 90 % des Fensters tragen.** Ein Gurt, der nach
+  einer halben Stunde aussetzt, ergäbe sonst eine Entkopplung aus der Lücke.
+  Geteilt wird trotzdem nach der verstrichenen Zeit, damit eine kurze Lücke die
+  Mitte der Einheit nicht verschiebt.
+
+Im Export steht der Wert an der Einheit (`entkopplung_pct`) und zusätzlich als
+Tabelle `athlet.entkopplung` über 26 Wochen, mit Dauer und Puls daneben. Beides,
+weil ein einzelner Wert ein Tag ist und erst die Reihe die Richtung zeigt — und
+weil sich in sechs Wochen oft keine einzige auswertbare Einheit findet. Gemittelt
+wird nichts: Ein Monatsmittel über zwei Einheiten verschiedener Dauer und
+Intensität wäre eine Zahl, die keine Einheit beschreibt. Ein Satz im Prompt sagt,
+woher die Zahl kommt und wofür sie nicht steht (`ai_export._entkopplungshinweis`);
+**was daraus folgt, entscheidet die KI** — der Prompt nennt keine Schwelle, wie
+überall sonst auch (siehe „Der Prompt schreibt die Trainingslehre nicht mehr vor" in
+[ki-und-prompt.md](ki-und-prompt.md)).
+
+Die Spalte kam später als Histogramm und Bestwerte. Beim Anlegen stehen deshalb
+alle Lauf- und Radeinheiten ab 45 min einmal wieder offen
+(`database._ZURUECKZUSETZENDE_ALTWERTE`) — gerade die Historie trägt die Zahl,
+und kürzere Einheiten fallen ohnehin heraus.
 
 **Zugeordnet wird über die Workout-Kennung, nicht über den Tag**
 (`garmin/matching.py`). Die Regel hieß einmal „gleicher Tag, gleiche Sportart,

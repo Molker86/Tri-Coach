@@ -4,9 +4,10 @@ struct KalenderView: View {
     @Environment(AppZustand.self) private var app
     @State private var monat = Datum.monatsanfang(Date())
     @State private var ausgewaehlt = Datum.kalender.startOfDay(for: Date())
+    @State private var pfad = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $pfad) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let fehler = app.fehlermeldung {
@@ -47,7 +48,34 @@ struct KalenderView: View {
             .navigationDestination(for: PlanEinheit.self) { EinheitDetailView(einheit: $0) }
             .navigationDestination(for: ErnaehrungsTag.self) { ErnaehrungsTagView(tag: $0) }
         }
+        #if DEBUG && targetEnvironment(simulator)
+        .task(id: app.plan?.id) { oeffneFuerEntwicklung() }
+        #endif
     }
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// `start_einheit` in `ios/Lokal/zugang.json` öffnet eine Einheit von selbst:
+    /// eine Kennung oder eine Sportart („strength“ = die nächste Krafteinheit ab
+    /// heute). Einmal je Start — im Simulator kommen Klicks nicht immer an.
+    private func oeffneFuerEntwicklung() {
+        guard !Entwicklungsstart.einheitGeoeffnet,
+              let ziel = Entwicklungszugang.laden()?.startEinheit,
+              let plan = app.plan
+        else { return }
+        let heute = Datum.schluessel(Date())
+        let sortiert = plan.sessions.sorted { ($0.tag, $0.orderInDay ?? 0) < ($1.tag, $1.orderInDay ?? 0) }
+        let treffer = Int(ziel).flatMap { id in sortiert.first { $0.id == id } }
+            ?? sortiert.first { $0.sport == ziel && $0.tag >= heute }
+            ?? sortiert.first { $0.sport == ziel }
+        guard let treffer else {
+            protokolliere("start_einheit „\(ziel)“: keine passende Einheit im Plan")
+            return
+        }
+        Entwicklungsstart.einheitGeoeffnet = true
+        protokolliere("Öffne Einheit \(treffer.id) (\(treffer.sport), \(treffer.tag)) für die Entwicklung")
+        pfad.append(treffer)
+    }
+    #endif
 
     private func springeZuHeute() {
         let heute = Datum.kalender.startOfDay(for: Date())

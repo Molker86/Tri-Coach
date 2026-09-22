@@ -528,6 +528,12 @@ def _session_eintrag(
     # Tempo, aber nur die Ermüdung hebt dabei den Puls.
     if (ef := effizienz_je_einheit(lg)) is not None:
         eintrag["effizienz"] = ef
+    # Was die Effizienz **nicht** zeigt: ob sie über die Einheit gehalten hat.
+    # Steht nur an gleichmäßigen Dauerbelastungen ab 45 min
+    # (`fitdaten._entkopplung`) — an allen übrigen fehlt der Schlüssel, weil
+    # eine Null dort eine Aussage wäre.
+    if lg.entkopplung_pct is not None:
+        eintrag["entkopplung_pct"] = lg.entkopplung_pct
 
     # Die Quelle nur, wo es auch einen Wert gibt. Ohne RPE stand dort der
     # Spaltenvorgabewert "manual" — an einer Einheit aus Garmin, für die
@@ -623,6 +629,43 @@ def _bestwerte_block(logs: list[SessionLog], heute: date) -> list[dict[str, Any]
                 zeile[f"datum_{name}"] = tag.isoformat()
         zeilen.append(zeile)
     return zeilen
+
+
+# Wie viele Zeilen die Entkopplungstabelle höchstens trägt, die jüngsten
+# zuerst gerettet. Eine Obergrenze, keine Auswahl: Am echten Konto qualifizieren
+# sich in einem halben Jahr eine Handvoll Einheiten — wer täglich gleichmäßig
+# zwei Stunden fährt, füllte den Prompt sonst mit einer einzigen Tabelle.
+ENTKOPPLUNG_ZEILEN = 30
+
+
+def _entkopplung_block(logs: list[SessionLog], heute: date) -> list[dict[str, Any]]:
+    """Die aerobe Entkopplung der letzten 26 Wochen, Einheit für Einheit.
+
+    Denselben Wert trägt jede Einheit der letzten sechs Wochen schon in
+    `trainingshistorie.einheiten` — hier steht er ein halbes Jahr weit, und
+    das ist der Punkt: Eine einzelne Entkopplung ist ein Tag, erst ihre Reihe
+    sagt, ob die Grundlage wächst. Auszuwerten sind nur wenige Einheiten
+    (gleichmäßig, ab 45 min, Rad mit Watt oder Laufen flach), und in sechs
+    Wochen liegt davon oft keine einzige.
+
+    Addiert wird nichts und gemittelt auch nicht: Ein Monatsmittel über zwei
+    Einheiten verschiedener Dauer und Intensität wäre eine Zahl, die keine
+    Einheit beschreibt. Der Puls steht daneben, weil erst er sagt, **wobei**
+    entkoppelt wurde.
+    """
+    ab = heute - timedelta(weeks=WOCHENUEBERSICHT_WOCHEN)
+    zeilen = [
+        {
+            "datum": lg.date.isoformat(),
+            "sportart": lg.sport,
+            "dauer_min": lg.duration_min,
+            "hf_schnitt": lg.avg_hr,
+            "entkopplung_pct": lg.entkopplung_pct,
+        }
+        for lg in sorted(logs, key=lambda lg: lg.date)
+        if lg.entkopplung_pct is not None and lg.date >= ab
+    ]
+    return zeilen[-ENTKOPPLUNG_ZEILEN:]
 
 
 def _history_block(
@@ -1224,6 +1267,15 @@ def build_payload(
     ):
         payload["athlet"]["bestwerte_training"] = bestwerte
 
+    # Daneben, weil beide dieselbe Frage von zwei Seiten beantworten: Die
+    # Bestwerte sagen, wie viel gerade geht, die Entkopplung, wie lange es
+    # hält. Ebenfalls nur bei einem Profil — ohne steht im `athlet`-Block ein
+    # Hinweis statt Werten, und eine Tabelle darunter widerspräche ihm.
+    if profile is not None and (
+        entkopplung := _entkopplung_block([lg for lg in logs if _ist_einheit(lg)], heute)
+    ):
+        payload["athlet"]["entkopplung"] = entkopplung
+
     # Nur aufnehmen, wenn wirklich Daten vorliegen: Sonst stünden im Prompt
     # Regeln zu einem Block, der leer ist — und die KI erfände sich Werte dazu.
     if fitness is not None:
@@ -1767,7 +1819,8 @@ Herzschlag; vergleichbar nur zwischen ähnlichen Einheiten); in `athlet.verlauf`
 Saison zu- oder abgenommen hat und ob die Effizienz mitging. `ist_vollstaendig: false` ist \
 die laufende Woche bzw. der laufende Monat. `zeit_in_hf_zonen_min` zählt nach \
 `herzfrequenzzonen`, Zeit unter Z1 als Z1, je Woche nur Ausdauer; `zonen_abdeckung_pct` \
-sagt, welcher Anteil davon ausgezählt ist.{schwellenhinweis}{schaetzhinweis}
+sagt, welcher Anteil davon ausgezählt ist.{schwellenhinweis}{schaetzhinweis}\
+{entkopplungshinweis}
 
 {fitnessregeln}
 
@@ -2537,6 +2590,41 @@ def _schaetzhinweis(payload: dict[str, Any]) -> str:
     )
 
 
+def _entkopplungshinweis(payload: dict[str, Any]) -> str:
+    """Woher `entkopplung_pct` kommt und wofür sie nicht steht.
+
+    Wie beim Schätzhinweis nur, wo eine Einheit den Wert trägt: Ein Absatz über
+    ein Feld, das nirgends dasteht, ist eine Einladung, es sich zu denken.
+    Beschrieben wird die Herkunft — was aus der Zahl folgt, entscheidet die KI,
+    wie überall in diesem Dokument.
+    """
+    einheiten = [
+        *((payload.get("trainingshistorie") or {}).get("einheiten") or []),
+        payload.get("training") or {},
+    ]
+    tabelle = (payload.get("athlet") or {}).get("entkopplung") or []
+    if not tabelle and not any("entkopplung_pct" in e for e in einheiten):
+        return ""
+
+    satz = (
+        " `entkopplung_pct` ist die **aerobe Entkopplung**: um wie viel Prozent "
+        "Leistung bzw. Tempo je Herzschlag in der zweiten Hälfte unter der ersten lag, "
+        "ab Minute 10 gerechnet. Positiv heißt, dieselbe Arbeit kostete später mehr "
+        "Schläge."
+    )
+    if tabelle:
+        satz += (
+            f" `athlet.entkopplung` führt sie {WOCHENUEBERSICHT_WOCHEN} Wochen weit mit "
+            "Dauer und Puls daneben; die Reihe zeigt die Richtung."
+        )
+    return satz + (
+        " Sie steht **nur** an gleichmäßigen Dauerbelastungen ab 45 min — Rad mit "
+        "gemessenen Watt, Laufen flach über das Tempo; Intervalle, Anstiege und kurze "
+        "Einheiten haben keine, und das ist keine Aussage über sie. Wind, Hitze und "
+        "Untergrund stecken ungetrennt darin, `hf_schnitt` sagt die Intensität."
+    )
+
+
 def build_prompt(payload: dict[str, Any]) -> str:
     period = payload.get("planungszeitraum", {})
     # Die Disziplin steht im Payload, nicht in der Signatur: So erben beide
@@ -2553,6 +2641,7 @@ def build_prompt(payload: dict[str, Any]) -> str:
         neuplanungshinweis=_neuplanungshinweis(period),
         schwellenhinweis=_schwellenhinweis(payload),
         schaetzhinweis=_schaetzhinweis(payload),
+        entkopplungshinweis=_entkopplungshinweis(payload),
         fitnessregeln=_fitnessregeln(payload, "summary"),
         wettkampfhinweis=_wettkampfhinweis(payload),
         # Alle vier gehen als fertiger Text hinein: `.format()` formatiert
@@ -3386,8 +3475,10 @@ def erzeuge_ernaehrung_export(
             payload["trainingshistorie"]
         )
     # Der Energiebedarf von morgen hängt am geplanten Block, nicht an der besten
-    # 20-Minuten-Leistung des Sommers.
+    # 20-Minuten-Leistung des Sommers — und ebenso wenig daran, wie gut der
+    # Puls im August über zwei Stunden gehalten hat.
     payload["athlet"].pop("bestwerte_training", None)
+    payload["athlet"].pop("entkopplung", None)
 
     payload["ernaehrung"] = {
         "zeitraum": {
@@ -3463,7 +3554,8 @@ Athleten — {sportart} am {datum} — kritisch, persönlich und aus den Daten b
 - `training` ist die Einheit, wie Garmin sie zusammenfasst: Dauer, Distanz, \
 Puls, Pace bzw. Watt, Trainingslast, Trainingseffekt, Zeit in den \
 Herzfrequenzzonen, dazu die absolvierten Abschnitte bzw. Übungen und — wo der \
-Athlet sie selbst vergeben hat — Anstrengung und Befinden.{schaetzhinweis}
+Athlet sie selbst vergeben hat — Anstrengung und Befinden.{schaetzhinweis}\
+{entkopplungshinweis}
 - `aktivitaeten.N` ist dieselbe Einheit als **Original-Aufzeichnung** der Uhr: \
 Kopfdaten, dazu als Tabellen `soll_schritte` (die geplanten Schritte des \
 Workouts, falls eines gestartet wurde), `runden` (das Gefahrene, mit Rückbezug \
@@ -3525,6 +3617,7 @@ def build_analyse_prompt(payload: dict[str, Any]) -> str:
         sportart=kopf.get("sportart", "die Einheit"),
         datum=kopf.get("datum", ""),
         schaetzhinweis=_schaetzhinweis(payload),
+        entkopplungshinweis=_entkopplungshinweis(payload),
         schema=json.dumps(
             ANALYSE_STRUKTURSCHEMA, separators=(",", ":"), ensure_ascii=False
         ),

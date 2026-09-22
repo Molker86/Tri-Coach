@@ -38,6 +38,7 @@ struct RootView: View {
         }
         #if DEBUG && targetEnvironment(simulator)
         .task {
+            Koerper.pruefeReferenz()
             Task { await app.automatischAnmelden() }
             await Bildschirmfoto.laufen()
         }

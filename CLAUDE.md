@@ -127,6 +127,18 @@ wie überall auch hier; ohne Claude-Zugang sind die KI-Knöpfe gesperrt (mit
 Grund als Tooltip), und der Runner prüft den Zugang vor **jedem** Lauf selbst
 noch einmal. Siehe „Eine Analyse gehört zu genau einem Training".
 
+**Und zu jeder Kraft- und Mobility-Übung gibt es eine Animation — in der
+iOS-App.** Die App unter `ios/` (SwiftUI, spricht über den Home-Assistant-Ingress
+mit dem Add-on; siehe `ios/README.md`) zeigt Kalender und Ernährungsplan; tippt
+man eine Kraft- oder Mobility-Einheit an, spielt jede ihrer Übungen eine
+Strichfigur-Schleife ab. **Keine Videos aus dem Netz**, sondern eigene
+Bewegungsdaten: ein Körpermodell mit Vorwärtskinematik, ein Löser, der Kontakte
+auf den Zentimeter setzt, und eine kuratierte Bibliothek von 46 Übungen.
+Schlüssel ist der englische Name in Klammern hinter der Übung. Fehlt eine,
+beschreibt Claude sie von selbst (Weckschleife, höchstens alle 6 h je Konto)
+— als „ungeprüft", bis jemand sie in der App freigibt oder mit Rückmeldung
+verwirft. Siehe „Eigene Animationen statt Videos aus dem Netz".
+
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
 Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
 der Garmin-Seite, die Schalter dazu schon hier; jetzt liegt beides beieinander,
@@ -167,7 +179,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 873 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 930 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -285,6 +297,13 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Home-Assistant-Add-on.
   *Bei `main.py`, `database.py`, `routers/auth.py`, `Dockerfile`,
   `config.yaml`.*
+- [docs/animationen.md](docs/animationen.md) — eigene Animationen statt Videos,
+  Rezept und Bewegung, der Löser, Körpermodell in Python und Swift,
+  Schwenkvektor statt Euler-Winkel, Bibliothek vorab gelöst, englischer Name
+  als Schlüssel, Erzeugung durch die KI mit Freigabe, was beim Schreiben der
+  Bibliothek schiefging.
+  *Bei `animation/`, `routers/animationen.py`, `ki/runner._animation_lauf`,
+  `scripts/animationen_loesen.py`, `ios/TriCoach/Animation/`.*
 - [docs/grenzen.md](docs/grenzen.md) — was die App nicht kann und nicht prüft.
   *Vor jedem neuen Feature und bei jedem „warum geht das nicht?".*
 
@@ -312,7 +331,8 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   und die sechs Messgrößen aus derselben Antwort (`netto_dauer_min`,
   `gap_pace`, `normalisierte_leistung`, `swolf`, `zuege`, `temperatur_c`)
   stehen dort bewusst nicht, sonst zöge jedes neue Feld
-  `frontend/src/types.ts` mit. `garmin_compliance` wird weiter befüllt, aber von
+  `frontend/src/types.ts` mit. Dasselbe gilt für `entkopplung_pct` aus der
+  Aufzeichnung. `garmin_compliance` wird weiter befüllt, aber von
   niemandem mehr gelesen — es ist Garmins Bewertung *gegen die Vorgabe* und
   damit ein Planvergleich.
 - **Die KI entscheidet, die Pipeline rechnet.** Was sich aus `steps` ableiten
@@ -356,6 +376,14 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   ohne Wind. Eigene Spalte `SessionLog.leistung_geschaetzt`, **nie**
   `avg_power`: Effizienz und Rad-Bestwerte rechnen nur mit Messung (siehe
   „Draußen ohne Wattmessung wird die Leistung geschätzt").
+- **Aerobe Entkopplung** (`garmin/fitdaten._entkopplung`): Abfall von Leistung
+  bzw. Tempo je Herzschlag von der ersten zur zweiten Hälfte, ab Minute 10.
+  Eigene Spalte `SessionLog.entkopplung_pct`, im Export an der Einheit und als
+  Tabelle `athlet.entkopplung` über 26 Wochen. Sie entsteht **nur** an
+  gleichmäßigen Dauerbelastungen ab 45 min — Rad mit gemessenen Watt, Laufen
+  flach über die Geschwindigkeit; an allen übrigen ist sie leer, und das ist
+  keine Aussage über sie (siehe „Die aerobe Entkopplung entsteht nur dort, wo
+  sie etwas aussagt").
 - **TRIMP** nach Banister, geschlechtsspezifisch gewichtet.
 - **sRPE-Last** nach Foster (Dauer × RPE) — funktioniert ohne Pulsgurt.
 - **ACWR**: Last der letzten Woche gegen den Vier-Wochen-Schnitt. Über 1,3 gilt

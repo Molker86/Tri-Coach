@@ -498,6 +498,17 @@ class SessionLog(Base):
     # gemessener Leistung: Eine Schätzung ohne Wind darin verschöbe die
     # Effizienz je Monat und meldete womöglich eine veraltete FTP.
     leistung_geschaetzt: Mapped[dict | None] = mapped_column(JSON)
+    # Aerobe Entkopplung in Prozent: um wie viel Leistung bzw. Tempo je
+    # Herzschlag von der ersten zur zweiten Hälfte nachgelassen hat. Positiv
+    # heißt, der Puls ist davongelaufen — die einzige Zahl im Paket, die die
+    # **Haltbarkeit** der Grundlage beschreibt und nicht ihren Stand.
+    # `effizienz` mittelt über die ganze Einheit und sieht das nicht.
+    #
+    # Steht nur an gleichmäßigen Dauerbelastungen ab 45 min — Rad mit
+    # gemessenen Watt, Laufen flach über das Tempo (`fitdaten._entkopplung`).
+    # `NULL` heißt „nicht auswertbar" und ist keine Aussage über die Einheit;
+    # der Export lässt das Feld dort weg.
+    entkopplung_pct: Mapped[float | None] = mapped_column(Float)
     fit_ausgewertet_am: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Woher `rpe` stammt. Ohne Schätzung fielen sRPE, ACWR und die Abstandsregel
@@ -871,7 +882,7 @@ class KiJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # manual | einheit | ernaehrung | tagesform | analyse — „auto" steht an den
+    # manual | einheit | ernaehrung | tagesform | analyse | animation — „auto" an den
     # Läufen der wöchentlichen Planung.
     kind: Mapped[str] = mapped_column(String(16), default="manual")
     state: Mapped[str] = mapped_column(String(16), default="queued")
@@ -1246,3 +1257,46 @@ class BringAccount(Base):
     last_push_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     user: Mapped[User] = relationship(back_populates="bring_account")
+
+
+class UebungsAnimation(Base):
+    """Die Bewegung zu einer Übung — aus der Bibliothek oder von der KI erzeugt.
+
+    **Für alle Konten gemeinsam.** Ein Clamshell sieht für jeden gleich aus, und
+    eine Animation, die ein Konto hat erzeugen lassen und freigegeben hat,
+    kostet das nächste kein Kontingent mehr. Das Freigeben gilt deshalb auch
+    für alle — es ist ein Haushalt (siehe `docs/backend.md`, „Anmeldung ohne
+    Passwort“).
+
+    `daten` ist die abspielbare Bewegung (`animation.format.Bewegung` ohne
+    Schlüssel, Name und Aliase, die als eigene Spalten stehen). Siehe
+    `docs/animationen.md`.
+    """
+
+    __tablename__ = "uebungs_animationen"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Der normalisierte englische Übungsname (`animation.schluessel`).
+    schluessel: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    aliase: Mapped[list] = mapped_column(JSON, default=list)
+    daten: Mapped[dict] = mapped_column(JSON)
+
+    # bibliothek | ki
+    herkunft: Mapped[str] = mapped_column(String(16))
+    # freigegeben | ungeprueft | verworfen. Die Bibliothek steht von Anfang an
+    # auf „freigegeben“; eine KI-Animation erst, wenn jemand sie angesehen hat.
+    zustand: Mapped[str] = mapped_column(String(16), default="ungeprueft")
+    # Prüfsumme der Bibliotheksfassung — ändert sie sich, zieht der Start die
+    # Zeile nach. Bei KI-Animationen leer.
+    fassung: Mapped[str | None] = mapped_column(String(16))
+    # Was der Löser an einer KI-Animation zu bemängeln hatte, und was der
+    # Athlet beim Verwerfen dazugeschrieben hat — beides geht in den nächsten
+    # Versuch ein.
+    hinweise: Mapped[list | None] = mapped_column(JSON)
+    rueckmeldung: Mapped[str | None] = mapped_column(Text)
+    ki_job_id: Mapped[int | None] = mapped_column(Integer)
+    model_used: Mapped[str | None] = mapped_column(String(64))
+
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    geaendert_am: Mapped[datetime] = mapped_column(DateTime, default=_now)

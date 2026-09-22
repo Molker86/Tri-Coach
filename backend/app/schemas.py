@@ -1781,3 +1781,69 @@ class BringUebertragungOut(BaseModel):
     ergaenzt: int = 0
     liste: str = ""
 
+
+
+# --------------------------------------------------------------------------
+# Übungsanimationen (siehe `docs/animationen.md`)
+# --------------------------------------------------------------------------
+
+
+class AnimationOut(BaseModel):
+    """Eine Animation samt abspielbarer Bewegung.
+
+    `bewegung` bleibt ein freier Dict und wird nicht noch einmal als Modell
+    ausgeschrieben: Geprüft ist sie schon beim Schreiben
+    (`animation.format.Bewegung`), und die App liest sie mit ihrem eigenen
+    Gegenstück. `format` sagt ihr, ob sie das Format überhaupt kennt.
+    """
+
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    schluessel: str
+    name: str
+    aliase: list[str] = []
+    herkunft: str
+    zustand: str
+    format: int = 1
+    bewegung: dict[str, Any]
+    hinweise: list[str] | None = None
+    rueckmeldung: str | None = None
+    model_used: str | None = None
+    geaendert_am: UtcDatetime
+
+
+class AnimationKurzOut(BaseModel):
+    """Eine Zeile der Übersicht — ohne die Bewegung selbst."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schluessel: str
+    name: str
+    herkunft: str
+    zustand: str
+    geaendert_am: UtcDatetime
+
+
+class EinheitUebungOut(BaseModel):
+    """Eine Übung aus dem Aufbautext der Einheit, mit ihrer Animation."""
+
+    zeile: str
+    name_en: str | None = None
+    schluessel: str
+    # Leer, solange es keine gibt (oder die letzte verworfen wurde).
+    animation: AnimationOut | None = None
+
+
+class EinheitUebungenOut(BaseModel):
+    plan_session_id: int
+    uebungen: list[EinheitUebungOut] = []
+    # Wie viele Übungen dieser Einheit noch keine Animation haben.
+    fehlend: int = 0
+    # Der jüngste Animationslauf des Kontos — daran hängt die App ihren
+    # Fortschritt und zeigt, warum der letzte Versuch nichts brachte.
+    erzeugung: KiJobOut | None = None
+
+
+class AnimationVerwerfenIn(BaseModel):
+    # Geht wörtlich in den nächsten Versuch ein („das Becken muss höher").
+    rueckmeldung: str | None = Field(None, max_length=1000)

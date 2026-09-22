@@ -12,6 +12,7 @@ from ..ki import tagesform
 from ..ki.client import ist_angemeldet, token_aus
 from ..ki.runner import (
     ANALYSE,
+    ANIMATION,
     EINHEIT,
     ENDZUSTAENDE,
     ERNAEHRUNG,
@@ -493,4 +494,27 @@ def plane_ernaehrung(
     _, start, tage = pruefe_zeitraum(db, user.id, data.start_date, data.days)
 
     job_id = _starte(user.id, ERNAEHRUNG, start_date=start, days=tage)
+    return db.get(KiJob, job_id)
+
+
+@router.post(
+    "/animationen", response_model=KiJobOut, status_code=status.HTTP_202_ACCEPTED
+)
+def erzeuge_animationen(user: CurrentUser, db: DbSession) -> KiJob:
+    """Lässt Claude die Übungsanimationen beschreiben, die dem aktiven Plan fehlen.
+
+    Dasselbe tut die Weckschleife von selbst (`animation.erzeugung`); der Knopf
+    ist für den, der nicht auf sie warten will — und für den zweiten Versuch
+    nach einem Verwerfen. Ohne Lücke gibt es gar keinen Lauf: Er kostete
+    Kontingent und endete mit „alles schon da".
+    """
+    from ..animation.erzeugung import fehlende
+
+    _pruefe_startbar(_einstellungen(db, user.id))
+    if not fehlende(db, user.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Alle Übungen des aktiven Plans haben schon eine Animation.",
+        )
+    job_id = _starte(user.id, ANIMATION)
     return db.get(KiJob, job_id)

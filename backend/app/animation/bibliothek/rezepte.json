@@ -1,0 +1,6215 @@
+{
+ "format": 1,
+ "rezepte": [
+  {
+   "schluessel": "glute-bridge",
+   "name": "Glute Bridge",
+   "aliase": [
+    "Hip Raise",
+    "Bridge",
+    "Beckenheben"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_l": 52,
+      "huefte_beugen_r": 52,
+      "knie_l": 104,
+      "knie_r": 104,
+      "fuss_l": -38,
+      "fuss_r": -38,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.1,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "fuss_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.9,
+     "uebergang_s": 1.1,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "single-leg-glute-bridge",
+   "name": "Single Leg Glute Bridge",
+   "aliase": [
+    "Single-leg Hip Raise",
+    "Single Leg Bridge"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "gesaess",
+    "oberschenkel_r"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_r": 52,
+      "knie_r": 104,
+      "fuss_r": -38,
+      "huefte_abspreizen_r": 4,
+      "huefte_beugen_l": 52,
+      "knie_l": 0,
+      "fuss_l": -10,
+      "huefte_abspreizen_l": 4
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_r",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "fuss_r",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_r": 0,
+      "knie_r": 90,
+      "fuss_r": -25,
+      "huefte_abspreizen_r": 4,
+      "huefte_beugen_l": 0,
+      "knie_l": 0,
+      "fuss_l": -10,
+      "huefte_abspreizen_l": 4
+     },
+     "halten_s": 0.9,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_r",
+      "fuss_r",
+      "huefte_beugen_r",
+      "huefte_beugen_l",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "marching-glute-bridge",
+   "name": "Marching Glute Bridge",
+   "aliase": [
+    "Glute Bridge March",
+    "Marching Bridge"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "gesaess",
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_l": 52,
+      "huefte_beugen_r": 52,
+      "knie_l": 104,
+      "knie_r": 104,
+      "fuss_l": -38,
+      "fuss_r": -38,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.0,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "fuss_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 0.7,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 85,
+      "huefte_beugen_r": 0,
+      "knie_l": 95,
+      "knie_r": 90,
+      "fuss_l": 0,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 0.7,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_r",
+      "fuss_r",
+      "huefte_beugen_r",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 0.7,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 85,
+      "knie_l": 90,
+      "knie_r": 95,
+      "fuss_l": -25,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 0.7,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "zehen_l"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_l",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.0,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "dead-bug",
+   "name": "Dead Bug",
+   "aliase": [
+    "Deadbug"
+   ],
+   "ansicht": {
+    "gieren": 62,
+    "neigen": 18
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": 10,
+      "fuss_r": 10,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 168,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_beugen_l": 18,
+      "huefte_beugen_r": 90,
+      "knie_l": 2,
+      "knie_r": 90,
+      "fuss_l": -15,
+      "fuss_r": 10,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": 10,
+      "fuss_r": 10,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_beugen_l": 168,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 18,
+      "knie_l": 90,
+      "knie_r": 2,
+      "fuss_l": 10,
+      "fuss_r": -15,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "knee-to-chest",
+   "name": "Knee to Chest",
+   "aliase": [
+    "Lying Knee-to-Chest Stretch",
+    "Knee to Chest Stretch"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "gesaess_l",
+    "oberschenkel_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 4,
+      "knie_r": 4,
+      "fuss_l": -20,
+      "fuss_r": -20,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 5
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.4,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "ellbogen_l": 80,
+      "ellbogen_r": 80,
+      "schulter_beugen_l": 55,
+      "schulter_beugen_r": 55,
+      "huefte_beugen_l": 125,
+      "huefte_beugen_r": 0,
+      "knie_l": 125,
+      "knie_r": 4,
+      "fuss_l": 0,
+      "fuss_r": -20,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 5
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.4,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knie_l",
+       "versatz": [
+        0.02,
+        -0.02,
+        0.04
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knie_l",
+       "versatz": [
+        -0.08,
+        -0.02,
+        0.04
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "huefte_beugen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "supine-figure-four-stretch",
+   "name": "Figure Four Stretch",
+   "aliase": [
+    "Figure Four Stretch",
+    "Figure 4 Stretch",
+    "Piriformis Stretch",
+    "Supine Piriformis Stretch"
+   ],
+   "ansicht": {
+    "gieren": 40,
+    "neigen": 22
+   },
+   "betont": [
+    "gesaess_r"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_r": 70,
+      "knie_r": 95,
+      "huefte_abspreizen_r": 20,
+      "huefte_drehen_r": 60,
+      "fuss_r": 5,
+      "huefte_beugen_l": 52,
+      "knie_l": 104,
+      "fuss_l": -38,
+      "huefte_abspreizen_l": 2,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.4,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "zehen_l",
+      "hand_l",
+      "hand_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_r",
+       "an": "knie_l",
+       "versatz": [
+        -0.03,
+        0.08,
+        -0.04
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "schulter_beugen_",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_abspreizen_r",
+      "huefte_drehen_r",
+      "knie_r",
+      "fuss_l"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_r": 70,
+      "knie_r": 95,
+      "huefte_abspreizen_r": 20,
+      "huefte_drehen_r": 60,
+      "fuss_r": 5,
+      "huefte_beugen_l": 100,
+      "knie_l": 95,
+      "fuss_l": 0,
+      "huefte_abspreizen_l": 2,
+      "schulter_abspreizen_l": 15,
+      "schulter_abspreizen_r": 15,
+      "ellbogen_l": 70,
+      "ellbogen_r": 70,
+      "schulter_beugen_l": 60,
+      "schulter_beugen_r": 60
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.4,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_r",
+       "an": "knie_l",
+       "versatz": [
+        -0.03,
+        0.08,
+        -0.04
+       ]
+      },
+      {
+       "gelenk": "hand_l",
+       "an": "knie_l",
+       "versatz": [
+        0.0,
+        -0.06,
+        -0.1
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knie_l",
+       "versatz": [
+        -0.09,
+        -0.06,
+        -0.1
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_r",
+      "huefte_abspreizen_r",
+      "huefte_drehen_r",
+      "knie_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "supine-hamstring-stretch",
+   "name": "Supine Hamstring Stretch",
+   "aliase": [
+    "Lying Hamstring Stretch"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "oberschenkel_l",
+    "waden_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_l": 52,
+      "knie_l": 104,
+      "fuss_l": -38,
+      "huefte_beugen_r": 0,
+      "knie_r": 4,
+      "fuss_r": -20
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.5,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "zehen_l",
+      "ferse_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "fuss_l",
+      "huefte_beugen_r",
+      "schulter_beugen_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_l": 82,
+      "knie_l": 5,
+      "fuss_l": 12,
+      "huefte_beugen_r": 0,
+      "knie_r": 4,
+      "fuss_r": -20,
+      "schulter_beugen_l": 95,
+      "schulter_beugen_r": 95,
+      "ellbogen_l": 30,
+      "ellbogen_r": 30,
+      "schulter_abspreizen_l": 10,
+      "schulter_abspreizen_r": 10
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.5,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knie_l",
+       "versatz": [
+        0.05,
+        -0.12,
+        -0.02
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knie_l",
+       "versatz": [
+        -0.05,
+        -0.12,
+        -0.02
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "lying-spinal-twist",
+   "name": "Lying Spinal Twist",
+   "aliase": [
+    "Supine Spinal Twist",
+    "Lying Spinal Twist Stretch",
+    "Supine Twist"
+   ],
+   "ansicht": {
+    "gieren": 15,
+    "neigen": 55
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 88,
+      "schulter_abspreizen_r": 88,
+      "ellbogen_l": 5,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 0,
+      "schulter_beugen_r": 0,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 95,
+      "knie_r": 95,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 0,
+      "huefte_abspreizen_r": 0
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.6,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "schulter_beugen_",
+      "schulter_abspreizen_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 0,
+      "schulter_abspreizen_l": 88,
+      "schulter_abspreizen_r": 88,
+      "ellbogen_l": 5,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 0,
+      "schulter_beugen_r": 0,
+      "huefte_beugen_l": 85,
+      "huefte_beugen_r": 85,
+      "knie_l": 95,
+      "knie_r": 95,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 0,
+      "huefte_abspreizen_r": 0,
+      "drehen": -80,
+      "rumpf_drehen": 76
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.6,
+     "boden": [
+      "brust",
+      "kopf",
+      "huefte_r",
+      "knie_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "drehen",
+      "rumpf_drehen",
+      "kopf_beugen",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "schulter_abspreizen_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "happy-baby-pose",
+   "name": "Happy Baby",
+   "aliase": [
+    "Happy Baby"
+   ],
+   "ansicht": {
+    "gieren": 72,
+    "neigen": 22
+   },
+   "betont": [
+    "oberschenkel",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_l": 140,
+      "huefte_beugen_r": 140,
+      "huefte_abspreizen_l": 50,
+      "huefte_abspreizen_r": 50,
+      "huefte_drehen_l": 15,
+      "huefte_drehen_r": 15,
+      "knie_l": 58,
+      "knie_r": 58,
+      "fuss_l": -5,
+      "fuss_r": -5,
+      "schulter_beugen_l": 95,
+      "schulter_beugen_r": 95,
+      "schulter_abspreizen_l": 25,
+      "schulter_abspreizen_r": 25,
+      "ellbogen_l": 15,
+      "ellbogen_r": 15,
+      "drehen": -7
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.6,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knoechel_l",
+       "versatz": [
+        0.07,
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knoechel_r",
+       "versatz": [
+        -0.07,
+        0.0,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "drehen",
+      "kopf_beugen",
+      "huefte_beugen_",
+      "knie_",
+      "huefte_abspreizen_",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_l": 140,
+      "huefte_beugen_r": 140,
+      "huefte_abspreizen_l": 50,
+      "huefte_abspreizen_r": 50,
+      "huefte_drehen_l": 15,
+      "huefte_drehen_r": 15,
+      "knie_l": 58,
+      "knie_r": 58,
+      "fuss_l": -5,
+      "fuss_r": -5,
+      "schulter_beugen_l": 95,
+      "schulter_beugen_r": 95,
+      "schulter_abspreizen_l": 25,
+      "schulter_abspreizen_r": 25,
+      "ellbogen_l": 15,
+      "ellbogen_r": 15,
+      "drehen": 7
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.6,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knoechel_l",
+       "versatz": [
+        0.07,
+        0.0,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knoechel_r",
+       "versatz": [
+        -0.07,
+        0.0,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "drehen",
+      "kopf_beugen",
+      "huefte_beugen_",
+      "knie_",
+      "huefte_abspreizen_",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "diaphragmatic-breathing",
+   "name": "Diaphragmatic Breathing",
+   "aliase": [
+    "Belly Breathing",
+    "Bauchatmung"
+   ],
+   "ansicht": {
+    "gieren": 66,
+    "neigen": 16
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_l": 52,
+      "huefte_beugen_r": 52,
+      "knie_l": 104,
+      "knie_r": 104,
+      "fuss_l": -38,
+      "fuss_r": -38,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4,
+      "schulter_beugen_l": 25,
+      "schulter_beugen_r": 25,
+      "ellbogen_l": 95,
+      "ellbogen_r": 95,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "atmen": 0.0
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 3.0,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "taille",
+       "versatz": [
+        0.06,
+        0.13,
+        0.06
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "taille",
+       "versatz": [
+        -0.06,
+        0.13,
+        0.06
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "fuss_",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "huefte_beugen_l": 52,
+      "huefte_beugen_r": 52,
+      "knie_l": 104,
+      "knie_r": 104,
+      "fuss_l": -38,
+      "fuss_r": -38,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4,
+      "schulter_beugen_l": 25,
+      "schulter_beugen_r": 25,
+      "ellbogen_l": 95,
+      "ellbogen_r": 95,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "atmen": 1.0
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 4.0,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "taille",
+       "versatz": [
+        0.06,
+        0.15,
+        0.06
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "taille",
+       "versatz": [
+        -0.06,
+        0.15,
+        0.06
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "kopf_beugen",
+      "fuss_",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_drehen_l",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "clam-bridge",
+   "name": "Clam Bridge",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 35,
+    "neigen": 25
+   },
+   "betont": [
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -90,
+      "y": 0.12,
+      "kopf_beugen": 6,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -2,
+      "schulter_beugen_r": -2,
+      "huefte_beugen_l": 52,
+      "huefte_beugen_r": 52,
+      "knie_l": 104,
+      "knie_r": 104,
+      "fuss_l": -38,
+      "fuss_r": -38,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.1,
+     "boden": [
+      "brust",
+      "becken",
+      "kopf",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "fuss_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 0.8,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 24,
+      "huefte_abspreizen_r": 24,
+      "huefte_drehen_l": 30,
+      "huefte_drehen_r": 30
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 0.8,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -115,
+      "y": 0.3,
+      "kopf_beugen": 30,
+      "schulter_abspreizen_l": 12,
+      "schulter_abspreizen_r": 12,
+      "ellbogen_l": 4,
+      "ellbogen_r": 4,
+      "schulter_beugen_l": -25,
+      "schulter_beugen_r": -25,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -25,
+      "fuss_r": -25,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.1,
+     "boden": [
+      "brust",
+      "kopf",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "knie_",
+      "fuss_",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "clamshell",
+   "name": "Clamshell",
+   "aliase": [
+    "Clamshell Hold",
+    "Clam Shell",
+    "Clam Shells",
+    "Muschel"
+   ],
+   "ansicht": {
+    "gieren": 12,
+    "neigen": 24
+   },
+   "betont": [
+    "gesaess_l",
+    "huefte"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 45,
+      "huefte_beugen_r": 45,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -10,
+      "fuss_r": -10,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_r": 170,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 10,
+      "schulter_abspreizen_l": 5,
+      "ellbogen_l": 100
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 0.9,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_l",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.1,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "knie_l",
+       "an": "knie_r",
+       "versatz": [
+        0.0,
+        0.14,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.0,
+        0.08,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "huefte_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "ellbogen_l",
+      "schulter_abspreizen_r",
+      "kopf_beugen",
+      "rumpf_seit"
+     ]
+    },
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 45,
+      "huefte_beugen_r": 45,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -10,
+      "fuss_r": -10,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_r": 170,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 10,
+      "schulter_abspreizen_l": 5,
+      "ellbogen_l": 100,
+      "huefte_drehen_l": 38,
+      "huefte_abspreizen_l": 12
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 0.9,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "halten": [
+      "knoechel_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.0,
+        0.08,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "huefte_beugen_l",
+      "knie_l",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "ellbogen_l",
+      "schulter_abspreizen_r",
+      "kopf_beugen",
+      "rumpf_seit"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "side-lying-leg-raise",
+   "name": "Side Lying Leg Raise",
+   "aliase": [
+    "Side Lying Hip Abduction",
+    "Side-Lying Abduction"
+   ],
+   "ansicht": {
+    "gieren": 12,
+    "neigen": 24
+   },
+   "betont": [
+    "gesaess_l",
+    "oberschenkel_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 8,
+      "huefte_beugen_r": 8,
+      "knie_l": 3,
+      "knie_r": 3,
+      "fuss_l": -15,
+      "fuss_r": -15,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_r": 170,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 10,
+      "schulter_abspreizen_l": 5,
+      "ellbogen_l": 100
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.0,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_l",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.11,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.0,
+        0.08,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "ellbogen_l",
+      "schulter_abspreizen_r",
+      "kopf_beugen",
+      "rumpf_seit"
+     ]
+    },
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 8,
+      "knie_l": 3,
+      "knie_r": 3,
+      "fuss_l": -15,
+      "fuss_r": -15,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_r": 170,
+      "ellbogen_r": 5,
+      "schulter_beugen_l": 10,
+      "schulter_abspreizen_l": 5,
+      "ellbogen_l": 100,
+      "huefte_abspreizen_l": 38,
+      "huefte_drehen_l": -5
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.0,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.0,
+        0.08,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "ellbogen_l",
+      "schulter_abspreizen_r",
+      "kopf_beugen",
+      "rumpf_seit"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "side-plank",
+   "name": "Side Plank",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 12,
+    "neigen": 24
+   },
+   "betont": [
+    "rumpf",
+    "gesaess_r"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "rollen": 86,
+      "y": 0.2,
+      "kopf_beugen": 0,
+      "schulter_abspreizen_r": 78,
+      "ellbogen_r": 90,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_l": 10,
+      "ellbogen_l": 100,
+      "schulter_beugen_l": -20,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -5,
+      "fuss_r": -5
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ellbogen_r",
+      "hand_r",
+      "huefte_r",
+      "knoechel_r",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_l",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.11,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "schulter_abspreizen_r",
+      "huefte_abspreizen_r",
+      "huefte_abspreizen_l"
+     ]
+    },
+    {
+     "pose": {
+      "rollen": 72,
+      "y": 0.35,
+      "kopf_beugen": 0,
+      "schulter_abspreizen_r": 78,
+      "ellbogen_r": 90,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_l": 10,
+      "ellbogen_l": 100,
+      "schulter_beugen_l": -20,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -5,
+      "fuss_r": -5
+     },
+     "halten_s": 1.5,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "halten": [
+      "knoechel_r",
+      "ferse_r",
+      "ellbogen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_l",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.11,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "schulter_abspreizen_r",
+      "huefte_abspreizen_r",
+      "huefte_abspreizen_l"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "side-plank-with-leg-lift",
+   "name": "Side Plank with Leg Lift",
+   "aliase": [
+    "Side Plank Leg Raise",
+    "Side Plank Leg Lift"
+   ],
+   "ansicht": {
+    "gieren": 12,
+    "neigen": 24
+   },
+   "betont": [
+    "rumpf",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "rollen": 72,
+      "y": 0.35,
+      "kopf_beugen": 0,
+      "schulter_abspreizen_r": 78,
+      "ellbogen_r": 90,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_l": 10,
+      "ellbogen_l": 100,
+      "schulter_beugen_l": -20,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -5,
+      "fuss_r": -5
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 0.9,
+     "boden": [
+      "ellbogen_r",
+      "hand_r",
+      "knoechel_r",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knoechel_l",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.11,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "schulter_abspreizen_r",
+      "huefte_abspreizen_r",
+      "huefte_abspreizen_l"
+     ]
+    },
+    {
+     "pose": {
+      "rollen": 72,
+      "y": 0.35,
+      "kopf_beugen": 0,
+      "schulter_abspreizen_r": 78,
+      "ellbogen_r": 90,
+      "schulter_beugen_r": 0,
+      "schulter_abspreizen_l": 10,
+      "ellbogen_l": 100,
+      "schulter_beugen_l": -20,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -5,
+      "fuss_r": -5,
+      "huefte_abspreizen_l": 35
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 0.9,
+     "boden": [
+      "ellbogen_r",
+      "hand_r"
+     ],
+     "halten": [
+      "knoechel_r",
+      "ferse_r",
+      "ellbogen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "schulter_abspreizen_r",
+      "huefte_abspreizen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "open-book",
+   "name": "Open Book",
+   "aliase": [
+    "Open Book Stretch",
+    "Side Lying Open Book"
+   ],
+   "ansicht": {
+    "gieren": 0,
+    "neigen": 60
+   },
+   "betont": [
+    "rumpf",
+    "schultern"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 85,
+      "huefte_beugen_r": 85,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -10,
+      "fuss_r": -10,
+      "schulter_beugen_l": 88,
+      "schulter_beugen_r": 88,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.8,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "hand_r",
+      "hand_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knie_l",
+       "an": "knie_r",
+       "versatz": [
+        0.0,
+        0.14,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "schulter_beugen_",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "huefte_abspreizen_r",
+      "rumpf_seit"
+     ]
+    },
+    {
+     "pose": {
+      "rollen": 90,
+      "y": 0.2,
+      "x": 0.0,
+      "kopf_beugen": -5,
+      "huefte_beugen_l": 85,
+      "huefte_beugen_r": 85,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -10,
+      "fuss_r": -10,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 88,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 80,
+      "rumpf_drehen": -75
+     },
+     "halten_s": 1.5,
+     "uebergang_s": 1.8,
+     "boden": [
+      "huefte_r",
+      "knie_r",
+      "knoechel_r",
+      "hand_r",
+      "hand_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knie_l",
+       "an": "knie_r",
+       "versatz": [
+        0.0,
+        0.14,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "rumpf_drehen",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "schulter_drehen_l",
+      "schulter_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "huefte_abspreizen_r",
+      "rumpf_seit"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "plank",
+   "name": "Plank",
+   "aliase": [
+    "Front Plank",
+    "Forearm Plank",
+    "Unterarmstütz"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 16
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 88,
+      "y": 0.3,
+      "kopf_beugen": -5,
+      "schulter_beugen_l": 88,
+      "schulter_beugen_r": 88,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "schulter_abspreizen_l": 8,
+      "schulter_abspreizen_r": 8,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 35,
+      "fuss_r": 35,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4,
+      "atmen": 0.0
+     },
+     "halten_s": 1.0,
+     "uebergang_s": 2.0,
+     "boden": [
+      "ellbogen_l",
+      "ellbogen_r",
+      "hand_l",
+      "hand_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "fuss_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 88,
+      "y": 0.3,
+      "kopf_beugen": -5,
+      "schulter_beugen_l": 88,
+      "schulter_beugen_r": 88,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "schulter_abspreizen_l": 8,
+      "schulter_abspreizen_r": 8,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 35,
+      "fuss_r": 35,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4,
+      "atmen": 0.6
+     },
+     "halten_s": 1.0,
+     "uebergang_s": 2.0,
+     "boden": [
+      "ellbogen_l",
+      "ellbogen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "fuss_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "push-up",
+   "name": "Push-up",
+   "aliase": [
+    "Pushup",
+    "Liegestütz"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 16
+   },
+   "betont": [
+    "schultern",
+    "arme",
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 80,
+      "y": 0.6,
+      "kopf_beugen": -5,
+      "schulter_beugen_l": 85,
+      "schulter_beugen_r": 85,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "schulter_abspreizen_l": 10,
+      "schulter_abspreizen_r": 10,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 35,
+      "fuss_r": 35,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.1,
+     "boden": [
+      "hand_l",
+      "hand_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "finger_l",
+       "y": 0.033
+      },
+      {
+       "gelenk": "finger_r",
+       "y": 0.033
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "handgelenk_",
+      "fuss_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 88,
+      "y": 0.3,
+      "kopf_beugen": -5,
+      "schulter_beugen_l": 40,
+      "schulter_beugen_r": 40,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "schulter_abspreizen_l": 20,
+      "schulter_abspreizen_r": 20,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 35,
+      "fuss_r": 35,
+      "huefte_abspreizen_l": 4,
+      "huefte_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.1,
+     "halten": [
+      "hand_l",
+      "hand_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "finger_l",
+       "y": 0.033
+      },
+      {
+       "gelenk": "finger_r",
+       "y": 0.033
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "ellbogen_",
+      "handgelenk_",
+      "fuss_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "superman",
+   "name": "Superman",
+   "aliase": [
+    "Superman from Floor"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 16
+   },
+   "betont": [
+    "rumpf",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.12,
+      "kopf_beugen": 0,
+      "schulter_beugen_l": 170,
+      "schulter_beugen_r": 170,
+      "ellbogen_l": 5,
+      "ellbogen_r": 5,
+      "schulter_abspreizen_l": 15,
+      "schulter_abspreizen_r": 15,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -35,
+      "fuss_r": -35,
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.2,
+     "boden": [
+      "brust",
+      "becken",
+      "hand_l",
+      "hand_r",
+      "zehen_l",
+      "zehen_r",
+      "kopf"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "fuss_",
+      "kopf_beugen",
+      "huefte_beugen_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.12,
+      "kopf_beugen": -10,
+      "schulter_beugen_l": 188,
+      "schulter_beugen_r": 188,
+      "ellbogen_l": 5,
+      "ellbogen_r": 5,
+      "schulter_abspreizen_l": 15,
+      "schulter_abspreizen_r": 15,
+      "huefte_beugen_l": -12,
+      "huefte_beugen_r": -12,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": -35,
+      "fuss_r": -35,
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6,
+      "rumpf_beugen": -18
+     },
+     "halten_s": 1.2,
+     "uebergang_s": 1.2,
+     "boden": [
+      "becken",
+      "taille"
+     ],
+     "frei": [
+      "y",
+      "z"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "bird-dog",
+   "name": "Bird Dog",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 18
+   },
+   "betont": [
+    "rumpf",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.1,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 0,
+      "huefte_beugen_r": 90,
+      "knie_l": 0,
+      "knie_r": 90,
+      "fuss_l": -30,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 172,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.7,
+     "uebergang_s": 1.1,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_l",
+      "huefte_beugen_r",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.1,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 0,
+      "knie_l": 90,
+      "knie_r": 0,
+      "fuss_l": -40,
+      "fuss_r": -30,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 172,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 0,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.7,
+     "uebergang_s": 1.1,
+     "boden": [
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l"
+     ],
+     "halten": [
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_r",
+      "huefte_beugen_l",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "donkey-kick",
+   "name": "Donkey Kick",
+   "aliase": [
+    "Donkey Kicks",
+    "Quadruped Hip Extension"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 18
+   },
+   "betont": [
+    "gesaess_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": -22,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": 15,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "fire-hydrant",
+   "name": "Fire Hydrant",
+   "aliase": [
+    "Fire Hydrants"
+   ],
+   "ansicht": {
+    "gieren": 160,
+    "neigen": 25
+   },
+   "betont": [
+    "gesaess_l",
+    "huefte"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 85,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 55,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_drehen_l": -10
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_",
+      "huefte_beugen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "cat-cow",
+   "name": "Cat Cow",
+   "aliase": [
+    "Cat Camel"
+   ],
+   "ansicht": {
+    "gieren": 90,
+    "neigen": 10
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -35,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "rumpf_beugen": -28
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 1.6,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": 45,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "rumpf_beugen": 32
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 1.6,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "thread-the-needle",
+   "name": "Thread the Needle",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 20,
+    "neigen": 32
+   },
+   "betont": [
+    "rumpf",
+    "schultern"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -20,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 40,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 95,
+      "rumpf_drehen": -50
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.8,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_l",
+      "huefte_beugen_",
+      "handgelenk_l",
+      "fuss_",
+      "rumpf_drehen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": 5,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 95,
+      "ellbogen_l": 35,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 0,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": -65,
+      "rumpf_drehen": 50
+     },
+     "halten_s": 1.5,
+     "uebergang_s": 1.8,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r",
+      "hand_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_r",
+       "an": "hand_l",
+       "versatz": [
+        0.22,
+        0.0,
+        -0.1
+       ]
+      },
+      {
+       "gelenk": "schulter_r",
+       "y": 0.24
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_l",
+      "ellbogen_l",
+      "schulter_beugen_r",
+      "schulter_abspreizen_r",
+      "rumpf_drehen",
+      "huefte_beugen_",
+      "knie_",
+      "fuss_",
+      "handgelenk_l",
+      "kopf_beugen",
+      "schulter_drehen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "childs-pose",
+   "name": "Child's Pose",
+   "aliase": [
+    "Childs Pose",
+    "Child's Pose Stretch",
+    "Kindhaltung"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 18
+   },
+   "betont": [
+    "rumpf",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 3,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 2.0,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_",
+      "handgelenk_",
+      "fuss_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 100,
+      "y": 0.3,
+      "kopf_beugen": 10,
+      "huefte_beugen_l": 150,
+      "huefte_beugen_r": 150,
+      "knie_l": 150,
+      "knie_r": 150,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 12,
+      "huefte_abspreizen_r": 12,
+      "schulter_beugen_l": 165,
+      "schulter_beugen_r": 165,
+      "ellbogen_l": 5,
+      "ellbogen_r": 5,
+      "handgelenk_l": 20,
+      "handgelenk_r": 20,
+      "schulter_abspreizen_l": 10,
+      "schulter_abspreizen_r": 10
+     },
+     "halten_s": 2.5,
+     "uebergang_s": 2.0,
+     "boden": [
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r",
+      "hand_l",
+      "hand_r",
+      "kopf"
+     ],
+     "halten": [
+      "knie_l",
+      "zehen_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_",
+      "knie_",
+      "schulter_beugen_",
+      "kopf_beugen",
+      "rumpf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "adductor-rock-back",
+   "name": "Adductor Rock Back",
+   "aliase": [
+    "Adductor Rockback",
+    "Quadruped Adductor Rock Back"
+   ],
+   "ansicht": {
+    "gieren": 150,
+    "neigen": 28
+   },
+   "betont": [
+    "oberschenkel_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 5,
+      "huefte_beugen_r": 90,
+      "knie_l": 0,
+      "knie_r": 90,
+      "fuss_l": 0,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 80,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_drehen_l": -15
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.4,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "handgelenk_",
+      "fuss_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 5,
+      "huefte_beugen_r": 125,
+      "knie_l": 0,
+      "knie_r": 125,
+      "fuss_l": 0,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 80,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_drehen_l": -15
+     },
+     "halten_s": 1.0,
+     "uebergang_s": 1.4,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "schulter_beugen_",
+      "huefte_beugen_r",
+      "knie_r",
+      "huefte_beugen_l",
+      "huefte_abspreizen_l",
+      "huefte_drehen_l",
+      "handgelenk_",
+      "fuss_",
+      "rumpf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "hip-cars",
+   "name": "Hip CARs",
+   "aliase": [
+    "Hip Controlled Articular Rotations",
+    "Quadruped Hip CARs"
+   ],
+   "ansicht": {
+    "gieren": 115,
+    "neigen": 30
+   },
+   "betont": [
+    "huefte",
+    "gesaess_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 125,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.15,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_",
+      "handgelenk_",
+      "huefte_beugen_r",
+      "fuss_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 65,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_drehen_l": 10
+     },
+     "halten_s": 0.15,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_",
+      "handgelenk_",
+      "huefte_beugen_r",
+      "fuss_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": 5,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 45,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4,
+      "huefte_drehen_l": -25
+     },
+     "halten_s": 0.15,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_",
+      "handgelenk_",
+      "huefte_beugen_r",
+      "fuss_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 90,
+      "y": 0.55,
+      "kopf_beugen": -10,
+      "huefte_beugen_l": -15,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": -40,
+      "fuss_r": -40,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 90,
+      "schulter_beugen_r": 90,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 88,
+      "handgelenk_r": 88,
+      "schulter_abspreizen_l": 4,
+      "schulter_abspreizen_r": 4
+     },
+     "halten_s": 0.15,
+     "uebergang_s": 0.9,
+     "boden": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "schulter_beugen_",
+      "handgelenk_",
+      "huefte_beugen_r",
+      "fuss_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "pigeon-pose",
+   "name": "Pigeon Pose",
+   "aliase": [
+    "Pigeon Pose Stretch",
+    "Pigeon Stretch"
+   ],
+   "ansicht": {
+    "gieren": 55,
+    "neigen": 18
+   },
+   "betont": [
+    "gesaess_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 30,
+      "y": 0.3,
+      "rumpf_beugen": -30,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 45,
+      "huefte_abspreizen_l": 20,
+      "huefte_drehen_l": 55,
+      "knie_l": 100,
+      "fuss_l": -5,
+      "huefte_beugen_r": -40,
+      "knie_r": 0,
+      "fuss_r": -40,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 10,
+      "schulter_beugen_r": 10,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18
+     },
+     "halten_s": 1.2,
+     "uebergang_s": 2.2,
+     "boden": [
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "zehen_r",
+      "hand_l",
+      "finger_l",
+      "hand_r",
+      "finger_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "huefte_beugen_l",
+      "huefte_drehen_l",
+      "huefte_abspreizen_l",
+      "knie_l",
+      "huefte_beugen_r",
+      "rumpf_beugen",
+      "schulter_beugen_",
+      "handgelenk_",
+      "fuss_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 65,
+      "y": 0.3,
+      "rumpf_beugen": 25,
+      "kopf_beugen": 10,
+      "huefte_beugen_l": 45,
+      "huefte_abspreizen_l": 20,
+      "huefte_drehen_l": 55,
+      "knie_l": 100,
+      "fuss_l": -5,
+      "huefte_beugen_r": -40,
+      "knie_r": 0,
+      "fuss_r": -40,
+      "huefte_abspreizen_r": 3,
+      "schulter_beugen_l": 165,
+      "schulter_beugen_r": 165,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 15,
+      "handgelenk_r": 15,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18
+     },
+     "halten_s": 2.2,
+     "uebergang_s": 2.2,
+     "boden": [
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "rumpf_beugen",
+      "huefte_beugen_l",
+      "huefte_drehen_l",
+      "huefte_abspreizen_l",
+      "knie_l",
+      "huefte_beugen_r",
+      "schulter_beugen_",
+      "kopf_beugen",
+      "fuss_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-hip-abduction",
+   "name": "Standing Hip Abduction",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "gesaess_l",
+    "huefte"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "schulter_abspreizen_l": 38,
+      "schulter_abspreizen_r": 38,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 0.9,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    },
+    {
+     "pose": {
+      "schulter_abspreizen_l": 38,
+      "schulter_abspreizen_r": 38,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105,
+      "huefte_abspreizen_l": 35,
+      "fuss_l": -5,
+      "rumpf_seit": -4
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 0.9,
+     "boden": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "single-leg-deadlift",
+   "name": "Single Leg Deadlift",
+   "aliase": [
+    "Single-Leg Romanian Deadlift",
+    "Single Leg RDL"
+   ],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "gesaess_r",
+    "oberschenkel_r"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": -8,
+      "knie_l": 15,
+      "fuss_l": -10,
+      "knie_r": 8
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_r",
+      "zehen_r",
+      "zehen_l"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_beugen_r",
+      "huefte_beugen_l",
+      "fuss_l"
+     ]
+    },
+    {
+     "pose": {
+      "schulter_beugen_l": 78,
+      "schulter_beugen_r": 78,
+      "huefte_beugen_r": 72,
+      "knie_r": 18,
+      "fuss_r": 5,
+      "huefte_beugen_l": -2,
+      "knie_l": 3,
+      "fuss_l": 5,
+      "nicken": 78,
+      "kopf_beugen": -10
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_r",
+      "knie_r",
+      "fuss_r",
+      "schulter_beugen_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "lateral-lunge",
+   "name": "Lateral Lunge",
+   "aliase": [
+    "Side Lunge"
+   ],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel",
+    "gesaess"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_abspreizen_l": 24,
+      "huefte_abspreizen_r": 24,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 45,
+      "schulter_beugen_r": 45,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "x": 0.0
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_abspreizen_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 30,
+      "huefte_abspreizen_r": 24,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 45,
+      "schulter_beugen_r": 45,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "x": 0.0,
+      "huefte_beugen_l": 80,
+      "knie_l": 95,
+      "huefte_beugen_r": 35,
+      "knie_r": 0,
+      "nicken": 28
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "fuss_l",
+      "fuss_r",
+      "rumpf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 24,
+      "huefte_abspreizen_r": 24,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 45,
+      "schulter_beugen_r": 45,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "x": 0.0
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_abspreizen_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 24,
+      "huefte_abspreizen_r": 30,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 45,
+      "schulter_beugen_r": 45,
+      "ellbogen_l": 90,
+      "ellbogen_r": 90,
+      "x": 0.0,
+      "huefte_beugen_r": 80,
+      "knie_r": 95,
+      "huefte_beugen_l": 35,
+      "knie_l": 0,
+      "nicken": 28
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.1,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "fuss_l",
+      "fuss_r",
+      "rumpf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "cossack-squat",
+   "name": "Cossack Squat",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel",
+    "gesaess"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_abspreizen_l": 34,
+      "huefte_abspreizen_r": 34,
+      "huefte_drehen_l": 20,
+      "huefte_drehen_r": 20,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 80,
+      "schulter_beugen_r": 80,
+      "ellbogen_l": 20,
+      "ellbogen_r": 20
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.3,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_abspreizen_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 35,
+      "huefte_abspreizen_r": 34,
+      "huefte_drehen_l": 20,
+      "huefte_drehen_r": 45,
+      "fuss_l": 15,
+      "fuss_r": 30,
+      "schulter_beugen_l": 80,
+      "schulter_beugen_r": 80,
+      "ellbogen_l": 20,
+      "ellbogen_r": 20,
+      "huefte_beugen_l": 105,
+      "knie_l": 130,
+      "huefte_beugen_r": 30,
+      "knie_r": 0,
+      "nicken": 22
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.3,
+     "boden": [
+      "ferse_l",
+      "zehen_l",
+      "ferse_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "zehen_l",
+      "ferse_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "fuss_l",
+      "fuss_r",
+      "rumpf_beugen",
+      "huefte_drehen_r"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 34,
+      "huefte_abspreizen_r": 34,
+      "huefte_drehen_l": 20,
+      "huefte_drehen_r": 20,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "schulter_beugen_l": 80,
+      "schulter_beugen_r": 80,
+      "ellbogen_l": 20,
+      "ellbogen_r": 20
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.3,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_abspreizen_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 34,
+      "huefte_abspreizen_r": 35,
+      "huefte_drehen_l": 45,
+      "huefte_drehen_r": 20,
+      "fuss_l": 30,
+      "fuss_r": 15,
+      "schulter_beugen_l": 80,
+      "schulter_beugen_r": 80,
+      "ellbogen_l": 20,
+      "ellbogen_r": 20,
+      "huefte_beugen_r": 105,
+      "knie_r": 130,
+      "huefte_beugen_l": 30,
+      "knie_l": 0,
+      "nicken": 22
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.3,
+     "boden": [
+      "ferse_r",
+      "zehen_r",
+      "ferse_l"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r",
+      "ferse_l"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "fuss_l",
+      "fuss_r",
+      "rumpf_beugen",
+      "huefte_drehen_l"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "wall-sit",
+   "name": "Wall Sit",
+   "aliase": [
+    "Wall Squat",
+    "Body-weight Wall Squat"
+   ],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel"
+   ],
+   "unterlage": "boden",
+   "requisiten": [
+    {
+     "art": "wand",
+     "z": -0.32
+    }
+   ],
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6,
+      "schulter_beugen_l": 0,
+      "schulter_beugen_r": 0,
+      "ellbogen_l": 10,
+      "ellbogen_r": 10,
+      "y": 0.5,
+      "z": 0.0,
+      "atmen": 0.0
+     },
+     "halten_s": 1.0,
+     "uebergang_s": 2.0,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "brust",
+       "z": -0.19
+      },
+      {
+       "gelenk": "becken",
+       "z": -0.20500000000000002
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_",
+      "knie_",
+      "fuss_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 90,
+      "knie_r": 90,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6,
+      "schulter_beugen_l": 0,
+      "schulter_beugen_r": 0,
+      "ellbogen_l": 10,
+      "ellbogen_r": 10,
+      "y": 0.5,
+      "z": 0.0,
+      "atmen": 0.6
+     },
+     "halten_s": 1.0,
+     "uebergang_s": 2.0,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "brust",
+       "z": -0.19
+      },
+      {
+       "gelenk": "becken",
+       "z": -0.20500000000000002
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_",
+      "knie_",
+      "fuss_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "step-up",
+   "name": "Step Up",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel_l",
+    "gesaess_l"
+   ],
+   "unterlage": "boden",
+   "requisiten": [
+    {
+     "art": "kasten",
+     "x": 0.08,
+     "z": 0.42,
+     "breite": 0.6,
+     "tiefe": 0.42,
+     "hoehe": 0.3
+    }
+   ],
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": 70,
+      "knie_l": 90,
+      "fuss_l": 0,
+      "schulter_beugen_l": 10,
+      "schulter_beugen_r": 10
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.2,
+     "boden": [
+      "ferse_r",
+      "zehen_r",
+      {
+       "gelenk": "ferse_l",
+       "hoehe": 0.3
+      },
+      {
+       "gelenk": "zehen_l",
+       "hoehe": 0.3
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_r"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": 0,
+      "knie_l": 3,
+      "fuss_l": 0,
+      "huefte_beugen_r": 75,
+      "knie_r": 90,
+      "fuss_r": -10,
+      "schulter_beugen_r": 40,
+      "ellbogen_r": 80,
+      "schulter_beugen_l": -20,
+      "ellbogen_l": 80
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.2,
+     "boden": [
+      {
+       "gelenk": "ferse_l",
+       "hoehe": 0.3
+      },
+      {
+       "gelenk": "zehen_l",
+       "hoehe": 0.3
+      }
+     ],
+     "halten": [
+      "ferse_l",
+      "zehen_l"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-pelvic-drop",
+   "name": "Standing Pelvic Drop",
+   "aliase": [
+    "Pelvic Drop",
+    "Hip Hike",
+    "Hip Hikes"
+   ],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "gesaess_l",
+    "huefte"
+   ],
+   "unterlage": "boden",
+   "requisiten": [
+    {
+     "art": "kasten",
+     "x": 0.14,
+     "z": 0.02,
+     "breite": 0.36,
+     "tiefe": 0.5,
+     "hoehe": 0.2
+    }
+   ],
+   "ablauf": [
+    {
+     "pose": {
+      "schulter_abspreizen_l": 38,
+      "schulter_abspreizen_r": 38,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105,
+      "huefte_abspreizen_r": -4,
+      "rollen": -7
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.0,
+     "boden": [
+      {
+       "gelenk": "ferse_l",
+       "hoehe": 0.2
+      },
+      {
+       "gelenk": "zehen_l",
+       "hoehe": 0.2
+      }
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    },
+    {
+     "pose": {
+      "schulter_abspreizen_l": 38,
+      "schulter_abspreizen_r": 38,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105,
+      "huefte_abspreizen_r": -4,
+      "rollen": 7
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.0,
+     "boden": [
+      {
+       "gelenk": "ferse_l",
+       "hoehe": 0.2
+      },
+      {
+       "gelenk": "zehen_l",
+       "hoehe": 0.2
+      }
+     ],
+     "halten": [
+      "ferse_l",
+      "zehen_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-quad-stretch",
+   "name": "Standing Quad Stretch",
+   "aliase": [
+    "Quad Stretch",
+    "Standing Quadriceps Stretch"
+   ],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel_l"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "schulter_abspreizen_r": 30
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": -12,
+      "knie_l": 150,
+      "fuss_l": -40,
+      "schulter_beugen_l": -30,
+      "ellbogen_l": 60,
+      "schulter_abspreizen_r": 35
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_r",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knoechel_l",
+       "versatz": [
+        0.0,
+        0.02,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_beugen_l",
+      "knie_l",
+      "schulter_beugen_l",
+      "schulter_abspreizen_l",
+      "ellbogen_l",
+      "schulter_drehen_l"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-hamstring-stretch",
+   "name": "Standing Hamstring Stretch",
+   "aliase": [],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel_l",
+    "waden_l"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": 28,
+      "knie_l": 0,
+      "fuss_l": 25,
+      "knie_r": 10,
+      "schulter_abspreizen_l": 38,
+      "schulter_abspreizen_r": 38,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_beugen_l",
+      "fuss_l",
+      "knie_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": 65,
+      "knie_l": 0,
+      "fuss_l": 25,
+      "huefte_beugen_r": 40,
+      "knie_r": 20,
+      "schulter_beugen_l": 40,
+      "schulter_beugen_r": 40,
+      "ellbogen_l": 20,
+      "ellbogen_r": 20,
+      "nicken": 38,
+      "kopf_beugen": -10
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knie_r",
+       "versatz": [
+        0.06,
+        0.08,
+        0.06
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knie_r",
+       "versatz": [
+        -0.06,
+        0.08,
+        0.06
+       ]
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "knie_r",
+      "fuss_l",
+      "fuss_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-it-band-stretch",
+   "name": "Standing IT Band Stretch",
+   "aliase": [
+    "IT Band Stretch",
+    "Standing ITB Stretch"
+   ],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "oberschenkel_r",
+    "huefte"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_abspreizen_r": -14,
+      "huefte_beugen_r": -6
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_r": -24,
+      "huefte_beugen_r": -6,
+      "schulter_abspreizen_r": 165,
+      "huefte_abspreizen_l": 10,
+      "schulter_abspreizen_l": 20,
+      "ellbogen_l": 90,
+      "rumpf_seit": 28,
+      "rollen": -6
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "rollen",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "standing-side-bend",
+   "name": "Standing Side Bend",
+   "aliase": [
+    "Standing Side Stretch",
+    "Side Bend"
+   ],
+   "ansicht": {
+    "gieren": 8,
+    "neigen": 8
+   },
+   "betont": [
+    "rumpf"
+   ],
+   "unterlage": "boden",
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6,
+      "schulter_abspreizen_r": 170,
+      "ellbogen_l": 10,
+      "rumpf_seit": 30
+     },
+     "halten_s": 1.2,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6
+     },
+     "halten_s": 0.3,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_abspreizen_l": 6,
+      "huefte_abspreizen_r": 6,
+      "schulter_abspreizen_l": 170,
+      "ellbogen_r": 10,
+      "rumpf_seit": -30
+     },
+     "halten_s": 1.2,
+     "uebergang_s": 1.4,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "calf-stretch",
+   "name": "Calf Stretch",
+   "aliase": [
+    "Wall Calf Stretch",
+    "Standing Calf Stretch"
+   ],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "waden_r"
+   ],
+   "unterlage": "boden",
+   "requisiten": [
+    {
+     "art": "wand",
+     "z": 0.72
+    }
+   ],
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": 30,
+      "knie_l": 35,
+      "huefte_beugen_r": -18,
+      "knie_r": 0,
+      "schulter_beugen_l": 85,
+      "schulter_beugen_r": 85,
+      "ellbogen_l": 15,
+      "ellbogen_r": 15,
+      "handgelenk_l": 80,
+      "handgelenk_r": 80,
+      "nicken": 10
+     },
+     "halten_s": 0.5,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "finger_l",
+       "z": 0.6849999999999999
+      },
+      {
+       "gelenk": "finger_r",
+       "z": 0.6849999999999999
+      },
+      {
+       "gelenk": "hand_l",
+       "z": 0.6799999999999999
+      },
+      {
+       "gelenk": "hand_r",
+       "z": 0.6799999999999999
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "knie_l",
+      "fuss_l",
+      "fuss_r",
+      "schulter_beugen_",
+      "ellbogen_",
+      "handgelenk_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": 38,
+      "knie_l": 55,
+      "huefte_beugen_r": -25,
+      "knie_r": 0,
+      "schulter_beugen_l": 85,
+      "schulter_beugen_r": 85,
+      "ellbogen_l": 40,
+      "ellbogen_r": 40,
+      "handgelenk_l": 80,
+      "handgelenk_r": 80,
+      "nicken": 16
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 1.6,
+     "boden": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "finger_l",
+       "z": 0.6849999999999999
+      },
+      {
+       "gelenk": "finger_r",
+       "z": 0.6849999999999999
+      },
+      {
+       "gelenk": "hand_l",
+       "z": 0.6799999999999999
+      },
+      {
+       "gelenk": "hand_r",
+       "z": 0.6799999999999999
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "knie_l",
+      "fuss_l",
+      "fuss_r",
+      "schulter_beugen_",
+      "ellbogen_",
+      "handgelenk_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "ankle-dorsiflexion-mobilization",
+   "name": "Ankle Dorsiflexion Mobilization",
+   "aliase": [
+    "Knee to Wall",
+    "Knee-to-Wall Ankle Mobilization",
+    "Ankle Dorsiflexion Stretch"
+   ],
+   "ansicht": {
+    "gieren": 80,
+    "neigen": 8
+   },
+   "betont": [
+    "waden_l"
+   ],
+   "unterlage": "matte",
+   "requisiten": [
+    {
+     "art": "wand",
+     "z": 0.55
+    }
+   ],
+   "ablauf": [
+    {
+     "pose": {
+      "huefte_beugen_l": 90,
+      "knie_l": 90,
+      "fuss_l": 0,
+      "huefte_beugen_r": -5,
+      "knie_r": 95,
+      "fuss_r": -35,
+      "schulter_beugen_l": 75,
+      "schulter_beugen_r": 75,
+      "ellbogen_l": 25,
+      "ellbogen_r": 25,
+      "handgelenk_l": 80,
+      "handgelenk_r": 80,
+      "y": 0.55
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.2,
+     "boden": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "zehen_l",
+       "z": 0.43000000000000005
+      },
+      {
+       "gelenk": "finger_l",
+       "z": 0.515
+      },
+      {
+       "gelenk": "finger_r",
+       "z": 0.515
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_r",
+      "knie_r",
+      "fuss_r",
+      "schulter_beugen_",
+      "ellbogen_"
+     ]
+    },
+    {
+     "pose": {
+      "huefte_beugen_l": 90,
+      "knie_l": 120,
+      "fuss_l": 30,
+      "huefte_beugen_r": -5,
+      "knie_r": 95,
+      "fuss_r": -35,
+      "schulter_beugen_l": 75,
+      "schulter_beugen_r": 75,
+      "ellbogen_l": 25,
+      "ellbogen_r": 25,
+      "handgelenk_l": 80,
+      "handgelenk_r": 80,
+      "y": 0.55
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.2,
+     "boden": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "halten": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "knie_l",
+       "z": 0.49000000000000005
+      },
+      {
+       "gelenk": "finger_l",
+       "z": 0.515
+      },
+      {
+       "gelenk": "finger_r",
+       "z": 0.515
+      }
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_r",
+      "knie_r",
+      "schulter_beugen_",
+      "ellbogen_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "butterfly-stretch",
+   "name": "Butterfly Stretch",
+   "aliase": [
+    "Butterfly"
+   ],
+   "ansicht": {
+    "gieren": 15,
+    "neigen": 40
+   },
+   "betont": [
+    "oberschenkel"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 0,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 58,
+      "huefte_beugen_r": 58,
+      "huefte_abspreizen_l": 66,
+      "huefte_abspreizen_r": 66,
+      "huefte_drehen_l": 60,
+      "huefte_drehen_r": 60,
+      "knie_l": 122,
+      "knie_r": 122,
+      "fuss_l": 20,
+      "fuss_r": 20,
+      "schulter_beugen_l": 40,
+      "schulter_beugen_r": 40,
+      "ellbogen_l": 15,
+      "ellbogen_r": 15,
+      "schulter_abspreizen_l": 8,
+      "schulter_abspreizen_r": 8
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 2.0,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      {
+       "gelenk": "knie_l",
+       "hoehe": 0.16
+      },
+      {
+       "gelenk": "knie_r",
+       "hoehe": 0.16
+      }
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "zehen_l",
+       "versatz": [
+        0.03,
+        0.05,
+        -0.02
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "zehen_r",
+       "versatz": [
+        -0.03,
+        0.05,
+        -0.02
+       ]
+      },
+      {
+       "gelenk": "ferse_l",
+       "an": "ferse_r",
+       "versatz": [
+        0.1,
+        0.0,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "huefte_beugen_",
+      "huefte_abspreizen_",
+      "huefte_drehen_",
+      "knie_",
+      "fuss_",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r"
+     ]
+    },
+    {
+     "pose": {
+      "rumpf_beugen": 38,
+      "kopf_beugen": 12
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 2.0,
+     "aus_vorherigem": true,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "knie_l",
+      "knie_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "zehen_l",
+       "versatz": [
+        0.03,
+        0.05,
+        -0.02
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "zehen_r",
+       "versatz": [
+        -0.03,
+        0.05,
+        -0.02
+       ]
+      }
+     ],
+     "frei": [
+      "rumpf_beugen",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "seated-hamstring-stretch",
+   "name": "Seated Hamstring Stretch",
+   "aliase": [
+    "Seated Forward Fold"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 18
+   },
+   "betont": [
+    "oberschenkel",
+    "waden"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 0,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 15,
+      "fuss_r": 15,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 5,
+      "schulter_beugen_l": 20,
+      "schulter_beugen_r": 20,
+      "ellbogen_l": 30,
+      "ellbogen_r": 30
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 2.0,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "ferse_l",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knie_l",
+       "versatz": [
+        0.02,
+        0.07,
+        0.0
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knie_r",
+       "versatz": [
+        -0.02,
+        0.07,
+        0.0
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "ellbogen_",
+      "kopf_beugen"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 28,
+      "y": 0.13,
+      "kopf_beugen": 10,
+      "huefte_beugen_l": 90,
+      "huefte_beugen_r": 90,
+      "knie_l": 0,
+      "knie_r": 0,
+      "fuss_l": 15,
+      "fuss_r": 15,
+      "huefte_abspreizen_l": 5,
+      "huefte_abspreizen_r": 5,
+      "schulter_beugen_l": 70,
+      "schulter_beugen_r": 70,
+      "ellbogen_l": 10,
+      "ellbogen_r": 10,
+      "rumpf_beugen": 28
+     },
+     "halten_s": 2.2,
+     "uebergang_s": 2.0,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r"
+     ],
+     "halten": [
+      "ferse_l",
+      "ferse_r"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "knoechel_l",
+       "versatz": [
+        0.0,
+        0.07,
+        -0.06
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "knoechel_r",
+       "versatz": [
+        0.0,
+        0.07,
+        -0.06
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "rumpf_beugen",
+      "huefte_beugen_",
+      "schulter_beugen_",
+      "ellbogen_",
+      "kopf_beugen"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "90-90-hip-stretch",
+   "name": "90/90 Hip Stretch",
+   "aliase": [
+    "90/90 Hip Stretch",
+    "90/90 Stretch",
+    "90-90 Stretch"
+   ],
+   "ansicht": {
+    "gieren": 30,
+    "neigen": 30
+   },
+   "betont": [
+    "gesaess_l"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 0,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 85,
+      "huefte_drehen_l": 65,
+      "huefte_abspreizen_l": 30,
+      "knie_l": 90,
+      "fuss_l": 0,
+      "huefte_beugen_r": 30,
+      "huefte_abspreizen_r": 65,
+      "huefte_drehen_r": -55,
+      "knie_r": 95,
+      "fuss_r": -20,
+      "schulter_beugen_l": 10,
+      "schulter_beugen_r": 10,
+      "schulter_abspreizen_l": 25,
+      "schulter_abspreizen_r": 25,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85
+     },
+     "halten_s": 0.8,
+     "uebergang_s": 2.0,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "knoechel_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "gieren",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_drehen_l",
+      "huefte_drehen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "schulter_beugen_",
+      "schulter_abspreizen_",
+      "handgelenk_"
+     ]
+    },
+    {
+     "pose": {
+      "schulter_beugen_l": 55,
+      "schulter_beugen_r": 55,
+      "ellbogen_l": 15,
+      "ellbogen_r": 15,
+      "rumpf_beugen": 40,
+      "kopf_beugen": 10
+     },
+     "halten_s": 2.0,
+     "uebergang_s": 2.0,
+     "aus_vorherigem": true,
+     "boden": [
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "knoechel_r",
+      "gesaess_l"
+     ],
+     "frei": [
+      "rumpf_beugen",
+      "rumpf_drehen",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "ellbogen_l",
+      "ellbogen_r",
+      "handgelenk_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "90-90-hip-switch",
+   "name": "90/90 Hip Switch",
+   "aliase": [
+    "90/90 Switch",
+    "Hip Switch",
+    "Windshield Wipers"
+   ],
+   "ansicht": {
+    "gieren": 20,
+    "neigen": 32
+   },
+   "betont": [
+    "huefte",
+    "gesaess"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": -12,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 85,
+      "huefte_drehen_l": 65,
+      "huefte_abspreizen_l": 30,
+      "knie_l": 90,
+      "fuss_l": 0,
+      "huefte_beugen_r": 30,
+      "huefte_abspreizen_r": 65,
+      "huefte_drehen_r": -55,
+      "knie_r": 95,
+      "fuss_r": -20,
+      "schulter_beugen_l": -35,
+      "schulter_beugen_r": -35,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.1,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "knoechel_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "gieren",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_drehen_l",
+      "huefte_drehen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "schulter_beugen_",
+      "schulter_abspreizen_",
+      "handgelenk_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -12,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 65,
+      "huefte_beugen_r": 65,
+      "knie_l": 100,
+      "knie_r": 100,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 18,
+      "huefte_abspreizen_r": 18,
+      "schulter_beugen_l": -35,
+      "schulter_beugen_r": -35,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.1,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "gieren",
+      "huefte_beugen_",
+      "knie_",
+      "fuss_",
+      "huefte_abspreizen_",
+      "schulter_beugen_",
+      "handgelenk_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -12,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_r": 85,
+      "huefte_drehen_r": 65,
+      "huefte_abspreizen_r": 30,
+      "knie_r": 90,
+      "fuss_r": 0,
+      "huefte_beugen_l": 30,
+      "huefte_abspreizen_l": 65,
+      "huefte_drehen_l": -55,
+      "knie_l": 95,
+      "fuss_l": -20,
+      "schulter_beugen_l": -35,
+      "schulter_beugen_r": -35,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85
+     },
+     "halten_s": 0.4,
+     "uebergang_s": 1.1,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "knie_l",
+      "knoechel_l",
+      "knie_r",
+      "knoechel_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "rollen",
+      "gieren",
+      "huefte_beugen_l",
+      "huefte_beugen_r",
+      "huefte_drehen_l",
+      "huefte_drehen_r",
+      "huefte_abspreizen_l",
+      "huefte_abspreizen_r",
+      "knie_l",
+      "knie_r",
+      "schulter_beugen_",
+      "schulter_abspreizen_",
+      "handgelenk_"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": -12,
+      "y": 0.13,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 65,
+      "huefte_beugen_r": 65,
+      "knie_l": 100,
+      "knie_r": 100,
+      "fuss_l": 0,
+      "fuss_r": 0,
+      "huefte_abspreizen_l": 18,
+      "huefte_abspreizen_r": 18,
+      "schulter_beugen_l": -35,
+      "schulter_beugen_r": -35,
+      "schulter_abspreizen_l": 18,
+      "schulter_abspreizen_r": 18,
+      "ellbogen_l": 0,
+      "ellbogen_r": 0,
+      "handgelenk_l": 85,
+      "handgelenk_r": 85
+     },
+     "halten_s": 0.2,
+     "uebergang_s": 1.1,
+     "boden": [
+      "gesaess_l",
+      "gesaess_r",
+      "ferse_l",
+      "ferse_r",
+      "zehen_l",
+      "zehen_r",
+      "hand_l",
+      "hand_r"
+     ],
+     "halten": [
+      "hand_l",
+      "hand_r"
+     ],
+     "frei": [
+      "x",
+      "y",
+      "z",
+      "nicken",
+      "gieren",
+      "huefte_beugen_",
+      "knie_",
+      "fuss_",
+      "huefte_abspreizen_",
+      "schulter_beugen_",
+      "handgelenk_"
+     ]
+    }
+   ]
+  },
+  {
+   "schluessel": "half-kneeling-hip-flexor-stretch",
+   "name": "Half-Kneeling Hip Flexor Stretch",
+   "aliase": [
+    "Lunging Hip Flexor Stretch",
+    "Kneeling Hip Flexor Stretch",
+    "Hip Flexor Stretch"
+   ],
+   "ansicht": {
+    "gieren": 70,
+    "neigen": 18
+   },
+   "betont": [
+    "oberschenkel_r",
+    "huefte"
+   ],
+   "unterlage": "matte",
+   "ablauf": [
+    {
+     "pose": {
+      "nicken": 0,
+      "y": 0.55,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 90,
+      "knie_l": 90,
+      "fuss_l": 0,
+      "huefte_beugen_r": 0,
+      "knie_r": 90,
+      "fuss_r": -40,
+      "schulter_abspreizen_l": 35,
+      "schulter_abspreizen_r": 35,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": -12,
+      "ellbogen_l": 105,
+      "ellbogen_r": 105
+     },
+     "halten_s": 0.6,
+     "uebergang_s": 1.8,
+     "boden": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      },
+      {
+       "gelenk": "hand_r",
+       "an": "huefte_r",
+       "versatz": [
+        -0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_r",
+      "fuss_r",
+      "schulter_abspreizen_l",
+      "schulter_abspreizen_r",
+      "schulter_beugen_l",
+      "schulter_beugen_r",
+      "ellbogen_l",
+      "ellbogen_r"
+     ]
+    },
+    {
+     "pose": {
+      "nicken": 0,
+      "y": 0.55,
+      "kopf_beugen": 0,
+      "huefte_beugen_l": 70,
+      "knie_l": 65,
+      "fuss_l": 0,
+      "huefte_beugen_r": -25,
+      "knie_r": 90,
+      "fuss_r": -40,
+      "schulter_abspreizen_l": 35,
+      "schulter_abspreizen_r": 0,
+      "schulter_beugen_l": -12,
+      "schulter_beugen_r": 170,
+      "ellbogen_l": 105,
+      "ellbogen_r": 5,
+      "rumpf_seit": -8
+     },
+     "halten_s": 2.2,
+     "uebergang_s": 1.8,
+     "boden": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "halten": [
+      "knie_r",
+      "zehen_r",
+      "ferse_l",
+      "zehen_l"
+     ],
+     "ziele": [
+      {
+       "gelenk": "hand_l",
+       "an": "huefte_l",
+       "versatz": [
+        0.07,
+        0.07,
+        -0.03
+       ]
+      }
+     ],
+     "frei": [
+      "y",
+      "z",
+      "nicken",
+      "huefte_beugen_l",
+      "knie_l",
+      "fuss_l",
+      "huefte_beugen_r",
+      "fuss_r",
+      "schulter_abspreizen_l",
+      "schulter_beugen_l",
+      "ellbogen_l"
+     ]
+    }
+   ]
+  }
+ ]
+}
