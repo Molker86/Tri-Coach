@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EinheitDetailView: View {
     let einheit: PlanEinheit
+    @State private var workoutOffen = false
 
     var body: some View {
         ScrollView {
@@ -35,6 +36,16 @@ struct EinheitDetailView: View {
                 // Die Übungen stehen vor dem Aufbautext: Bei Kraft und
                 // Mobility sind sie der Inhalt, der Text nur ihre Liste.
                 if einheit.sportart == .strength || einheit.sportart == .mobility {
+                    Button {
+                        workoutOffen = true
+                    } label: {
+                        Label("Workout starten", systemImage: "play.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+
                     UebungenAbschnitt(einheit: einheit)
                 }
 
@@ -51,6 +62,20 @@ struct EinheitDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(einheit.sportart.name)
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $workoutOffen) {
+            WorkoutView(einheit: einheit)
+        }
+        #if DEBUG && targetEnvironment(simulator)
+        .task {
+            // `start_training` in `ios/Lokal/zugang.json`: das Workout gleich öffnen.
+            guard !Entwicklungsstart.trainingGeoeffnet, Entwicklungszugang.laden()?.startTraining == true,
+                  einheit.sportart == .strength || einheit.sportart == .mobility
+            else { return }
+            Entwicklungsstart.trainingGeoeffnet = true
+            try? await Task.sleep(for: .seconds(1))
+            workoutOffen = true
+        }
+        #endif
     }
 
     private var unterzeile: String {

@@ -1300,3 +1300,36 @@ class UebungsAnimation(Base):
 
     erstellt_am: Mapped[datetime] = mapped_column(DateTime, default=_now)
     geaendert_am: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AppTraining(Base):
+    """Ein Kraft- oder Mobility-Workout, das in der iOS-App absolviert wurde.
+
+    Es ist **kein** Trainingseintrag: Der entsteht, wie jeder andere, erst im
+    Garmin-Abgleich (siehe „Garmin ist die einzige Quelle“). Diese Zeile hält
+    fest, was die App gemeldet hat, ob es in Garmin angekommen ist — und zu
+    welcher Planeinheit es gehört. Denn die Aktivität, die aus der hochgeladenen
+    Datei entsteht, trägt keine Workout-Kennung (`matching.finde_planeinheit`
+    fände sie nie); der Abgleich knüpft sie über diese Zeile an
+    (`matching.planeinheit_aus_app`). Siehe `docs/app-training.md`.
+    """
+
+    __tablename__ = "app_trainings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    plan_session_id: Mapped[int | None] = mapped_column(ForeignKey("plan_sessions.id"))
+    # Von der App vergeben: Schickt sie denselben Bericht zweimal (Netz weg,
+    # Antwort verloren), wird nicht zweimal hochgeladen.
+    kennung: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    sport: Mapped[str] = mapped_column(String(32))
+    beginn: Mapped[datetime] = mapped_column(DateTime)
+    ende: Mapped[datetime] = mapped_column(DateTime)
+    # Der Bericht der App, wie er kam — die Sätze samt Wiederholungen.
+    daten: Mapped[dict] = mapped_column(JSON)
+    # offen | hochgeladen | fehlgeschlagen
+    zustand: Mapped[str] = mapped_column(String(16), default="offen")
+    meldung: Mapped[str | None] = mapped_column(Text)
+    garmin_activity_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    hochgeladen_am: Mapped[datetime | None] = mapped_column(DateTime)

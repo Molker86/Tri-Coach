@@ -48,7 +48,7 @@ from .mapping import (
     uebernimm_bewertung,
     uebungen_aus_saetzen,
 )
-from .matching import finde_planeinheit
+from .matching import finde_planeinheit, planeinheit_aus_app
 from .verbindung import verschwunden
 from .workouts import UEBUNGSSPORTARTEN
 
@@ -284,7 +284,9 @@ def importiere_aktivitaeten(
                     f"{felder['notes']} — {notiz}" if felder.get("notes") else notiz
                 )
 
-        _speichere_aktivitaet(db, user_id, felder, ergebnis)
+        _speichere_aktivitaet(
+            db, user_id, felder, ergebnis, startzeit_gmt=hole(aktivitaet, "startTimeGMT")
+        )
         # Je Training einzeln festschreiben. Sammelt man sie und eine einzige
         # Einheit kollidiert (siehe `_speichere_aktivitaet`), würde das nötige
         # `rollback()` auch alle zuvor verarbeiteten Trainings dieses Durchlaufs
@@ -435,7 +437,12 @@ def _hole_kennwerte(
 
 
 def _speichere_aktivitaet(
-    db: Session, user_id: int, felder: dict[str, Any], ergebnis: SyncErgebnis
+    db: Session,
+    user_id: int,
+    felder: dict[str, Any],
+    ergebnis: SyncErgebnis,
+    *,
+    startzeit_gmt: str | None = None,
 ) -> None:
     vorhanden = db.scalar(
         select(SessionLog).where(
@@ -446,9 +453,11 @@ def _speichere_aktivitaet(
 
     if vorhanden is None:
         log = SessionLog(user_id=user_id, **felder)
-        log.plan_session_id = finde_planeinheit(
-            db, user_id, log.date, log.garmin_workout_id
-        )
+        # Erst die App: Was sie hochgeladen hat, trägt keine Workout-Kennung,
+        # und `finde_planeinheit` ginge leer aus.
+        log.plan_session_id = planeinheit_aus_app(
+            db, user_id, log.garmin_activity_id, startzeit_gmt
+        ) or finde_planeinheit(db, user_id, log.date, log.garmin_workout_id)
         db.add(log)
         try:
             db.flush()
@@ -493,9 +502,9 @@ def _speichere_aktivitaet(
     # Sein Wort steht über der Kennung — sonst käme sie beim nächsten Abgleich
     # sofort zurück, denn die Workout-Kennung bleibt an der Aktivität stehen.
     if vorhanden.plan_session_id is None and not vorhanden.zuordnung_manuell:
-        planeinheit_id = finde_planeinheit(
-            db, user_id, vorhanden.date, vorhanden.garmin_workout_id
-        )
+        planeinheit_id = planeinheit_aus_app(
+            db, user_id, vorhanden.garmin_activity_id, startzeit_gmt
+        ) or finde_planeinheit(db, user_id, vorhanden.date, vorhanden.garmin_workout_id)
         if planeinheit_id is not None:
             vorhanden.plan_session_id = planeinheit_id
             geaendert = True

@@ -5,27 +5,51 @@ struct KalenderView: View {
     @State private var monat = Datum.monatsanfang(Date())
     @State private var ausgewaehlt = Datum.kalender.startOfDay(for: Date())
     @State private var pfad = NavigationPath()
+    /// Wird bei „Heute“ hochgezählt — der Anlass, nach oben zu rollen, auch
+    /// wenn heute schon ausgewählt war.
+    @State private var zurueckNachOben = 0
+
+    private enum Anker: Hashable { case heute, auswahl }
 
     var body: some View {
+        // Bei jedem Zeichnen neu bestimmt, nicht einmal beim Start: Bleibt die
+        // App über Mitternacht offen, rückt „Heute“ mit dem nächsten Neuladen
+        // (Rückkehr in die App, Herunterziehen) auf den neuen Tag.
+        let heute = Datum.kalender.startOfDay(for: Date())
+
         NavigationStack(path: $pfad) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let fehler = app.fehlermeldung {
-                        FehlerBanner(text: fehler)
+            ScrollViewReader { leser in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if let fehler = app.fehlermeldung {
+                            FehlerBanner(text: fehler)
+                        }
+
+                        // Der heutige Tag steht immer oben — dafür öffnet man
+                        // die App. Den Block als Ganzes zeigt der Kalender darunter.
+                        TagesUebersicht(datum: heute, ueberschrift: "Heute")
+                            .id(Anker.heute)
+
+                        MonatsKalender(monat: $monat, ausgewaehlt: $ausgewaehlt)
+
+                        // Ein anderer Tag erscheint unter dem Kalender; heute
+                        // steht schon oben und käme sonst doppelt.
+                        if !Datum.kalender.isDate(ausgewaehlt, inSameDayAs: heute) {
+                            TagesUebersicht(datum: ausgewaehlt)
+                                .id(Anker.auswahl)
+                        }
                     }
-                    if let plan = app.plan {
-                        PlanKopf(plan: plan)
-                    } else if !app.laedt, app.fehlermeldung == nil {
-                        HinweisKarte(
-                            symbol: "calendar.badge.exclamationmark",
-                            titel: "Kein aktiver Trainingsblock",
-                            text: "Sobald in Tri-Coach ein Block übernommen ist, erscheint er hier."
-                        )
-                    }
-                    MonatsKalender(monat: $monat, ausgewaehlt: $ausgewaehlt)
-                    TagesUebersicht(datum: ausgewaehlt)
+                    .padding()
                 }
-                .padding()
+                .onChange(of: ausgewaehlt) { _, tag in
+                    let istHeute = Datum.kalender.isDate(tag, inSameDayAs: heute)
+                    withAnimation(.snappy) {
+                        leser.scrollTo(istHeute ? Anker.heute : Anker.auswahl, anchor: .top)
+                    }
+                }
+                .onChange(of: zurueckNachOben) { _, _ in
+                    withAnimation(.snappy) { leser.scrollTo(Anker.heute, anchor: .top) }
+                }
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Kalender")
@@ -83,37 +107,7 @@ struct KalenderView: View {
             ausgewaehlt = heute
             monat = Datum.monatsanfang(heute)
         }
-    }
-}
-
-private struct PlanKopf: View {
-    let plan: TrainingsPlan
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Aktiver Block · \(Datum.zeitraum(plan.startDate, plan.endDate))")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.accentColor)
-                .textCase(.uppercase)
-            Text(plan.title)
-                .font(.headline)
-            if let summary = plan.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-            }
-            if let notizen = plan.coachingNotes, !notizen.isEmpty {
-                DisclosureGroup("Coaching-Hinweise") {
-                    Text(notizen)
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                }
-                .font(.subheadline.weight(.semibold))
-            }
-        }
-        .karte()
+        zurueckNachOben += 1
     }
 }
 
@@ -247,6 +241,8 @@ private struct TagesZelle: View {
 
 struct TagesUebersicht: View {
     let datum: Date
+    /// „Heute“ über dem Datum — für den Tag oben auf der Seite.
+    var ueberschrift: String? = nil
     @Environment(AppZustand.self) private var app
 
     var body: some View {
@@ -256,9 +252,17 @@ struct TagesUebersicht: View {
         let essen = app.ernaehrungAm(schluessel)
 
         VStack(alignment: .leading, spacing: 10) {
-            Text(Datum.lang(datum))
-                .font(.title3.weight(.semibold))
-                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 2) {
+                if let ueberschrift {
+                    Text(ueberschrift)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .textCase(.uppercase)
+                }
+                Text(Datum.lang(datum))
+                    .font(ueberschrift == nil ? .title3.weight(.semibold) : .title2.weight(.bold))
+            }
+            .padding(.top, 4)
 
             AbschnittTitel("Training", symbol: "figure.run")
             if einheiten.isEmpty {

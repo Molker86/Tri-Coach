@@ -63,6 +63,13 @@ class FakeGarmin:
         self._termine: dict[int, tuple[int, str]] = {}
         self._workout_id = 5000
         self._schedule_id = 9000
+        # Hochgeladene Aktivitätsdateien (Name, Inhalt) — aus der iOS-App.
+        # `upload_fehler` lässt den nächsten Upload mit dieser Meldung scheitern,
+        # `upload_ohne_kennung` antwortet wie ein Connect, das noch verarbeitet.
+        self.uploads: list[tuple[str, bytes]] = []
+        self.upload_fehler: str | None = None
+        self.upload_ohne_kennung = False
+        self._upload_id = 77000
 
     # -- Anmeldung ----------------------------------------------------------
 
@@ -460,6 +467,24 @@ class FakeGarmin:
     # Bibliothek, ein Zeitplaneintrag verweist darauf. Die Nachbildung hält
     # beides ebenso getrennt — sonst fiele nicht auf, wenn die App eine Vorlage
     # löscht und den Termin stehen lässt.
+
+    def upload_activity(self, activity_path):
+        """Wie das Original: eine Datei, Antwort mit `detailedImportResult`."""
+        from pathlib import Path as _Pfad
+
+        self.aufrufe.append("upload_activity")
+        if self.upload_fehler:
+            meldung, self.upload_fehler = self.upload_fehler, None
+            raise Exception(meldung)
+        pfad = _Pfad(activity_path)
+        self.uploads.append((pfad.name, pfad.read_bytes()))
+        self._upload_id += 1
+        erfolge = [] if self.upload_ohne_kennung else [
+            {"internalId": self._upload_id, "externalId": None, "messages": None}
+        ]
+        return {"detailedImportResult": {
+            "uploadId": 1, "fileName": pfad.name, "successes": erfolge, "failures": [],
+        }}
 
     def upload_workout(self, workout_json):
         self.aufrufe.append("upload_workout")

@@ -139,6 +139,15 @@ beschreibt Claude sie von selbst (Weckschleife, höchstens alle 6 h je Konto)
 — als „ungeprüft", bis jemand sie in der App freigibt oder mit Rückmeldung
 verwirft. Siehe „Eigene Animationen statt Videos aus dem Netz".
 
+**Und dieselben Einheiten lassen sich in der App absolvieren.** „Workout
+starten“ führt Satz für Satz durch die Einheit, nach demselben Ablauf wie das
+Workout auf der Uhr: Zeitsätze zählen herunter und schalten weiter, gezählte
+warten aufs Tippen und haben die Soll-Wiederholungen vorbelegt. Danach geht das
+Workout **als FIT-Datei nach Garmin Connect** und kommt mit dem nächsten
+Abgleich als Trainingseintrag zurück. Es gibt also weiterhin nur eine Quelle,
+und die Zuordnung zur Planeinheit hängt an `AppTraining`. Siehe „Das Ergebnis
+geht über Garmin, nicht in die Datenbank".
+
 **Was die App ohne Zutun tut, steht unter „Einstellungen".** Dort wird auch das
 Garmin-Konto **verbunden und getrennt** — das Anmeldeformular stand einmal auf
 der Garmin-Seite, die Schalter dazu schon hier; jetzt liegt beides beieinander,
@@ -179,7 +188,7 @@ denselben Dialog wie im Trainingsplan: ansehen, per Freitext anpassen lassen.
 
 ```bash
 ./start.sh                                        # beide Server
-cd backend && .venv/bin/python -m pytest tests/ -q # 930 Tests
+cd backend && .venv/bin/python -m pytest tests/ -q # 945 Tests
 cd frontend && npm run build                       # Typecheck + Produktionsbuild
 ```
 
@@ -304,6 +313,12 @@ Absatzanfang in einer dieser Dateien; die Titel sind eindeutig und lassen sich
   Bibliothek schiefging.
   *Bei `animation/`, `routers/animationen.py`, `ki/runner._animation_lauf`,
   `scripts/animationen_loesen.py`, `ios/TriCoach/Animation/`.*
+- [docs/app-training.md](docs/app-training.md) — Workouts in der iOS-App:
+  derselbe Ablauf wie auf der Uhr, Vorbereitung statt erfundener Pausen,
+  Zeitpunkte statt Zähler, das Ergebnis als FIT über Garmin, Zuordnung über
+  `AppTraining`, Warteschlange und `kennung`.
+  *Bei `garmin/ablauf.py`, `fit_schreiben.py`, `app_training.py`,
+  `routers/training.py`, `ios/TriCoach/Training/`.*
 - [docs/grenzen.md](docs/grenzen.md) — was die App nicht kann und nicht prüft.
   *Vor jedem neuen Feature und bei jedem „warum geht das nicht?".*
 

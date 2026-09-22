@@ -19,6 +19,12 @@ actor TriCoachClient {
     /// griffe auch in die Posen („huefte_beugen_l“ → „huefteBeugenL“), siehe
     /// `Animation/Bewegung.swift`.
     private let wortgetreu = JSONDecoder()
+    /// Zeitpunkte als ISO 8601 — der Vorgabe-Encoder schriebe Sekunden seit 2001.
+    private let kodierer: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
 
     private(set) var token: String?
     private var kontoID: Int?
@@ -102,6 +108,19 @@ actor TriCoachClient {
 
     func kiLauf(_ id: Int) async throws -> KiLauf {
         try await abrufen("/ki/jobs/\(id)", decoder: wortgetreu)
+    }
+
+    // MARK: Workouts in der App
+
+    func ablauf(einheit id: Int) async throws -> Ablauf {
+        try await abrufen("/training/einheit/\(id)/ablauf", decoder: wortgetreu)
+    }
+
+    func trainingAbschliessen(einheit id: Int, bericht: TrainingsBericht) async throws -> TrainingsQuittung {
+        let body = try kodierer.encode(bericht)
+        return try await abrufen(
+            "/training/einheit/\(id)/abschluss", methode: "POST", body: body, decoder: wortgetreu
+        )
     }
 
     // MARK: - Transport

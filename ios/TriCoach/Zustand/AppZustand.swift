@@ -145,6 +145,7 @@ final class AppZustand {
             )
             #endif
             fehlermeldung = nil
+            await offeneTrainingsSenden()
         } catch {
             fehlermeldung = error.localizedDescription
             #if DEBUG && targetEnvironment(simulator)
@@ -246,6 +247,50 @@ final class AppZustand {
 
     func kiLauf(_ id: Int) async throws -> KiLauf {
         try await verbundenerClient().kiLauf(id)
+    }
+
+    // MARK: - Workouts in der App
+
+    func ablauf(einheit id: Int) async throws -> Ablauf {
+        try await verbundenerClient().ablauf(einheit: id)
+    }
+
+    /// Meldet ein absolviertes Workout. Was nicht in Garmin ankommt, bleibt in
+    /// der Warteschlange und geht beim nächsten Laden erneut hinaus.
+    func trainingAbschliessen(einheit id: Int, bericht: TrainingsBericht) async -> Result<TrainingsQuittung, Error> {
+        do {
+            let quittung = try await verbundenerClient().trainingAbschliessen(einheit: id, bericht: bericht)
+            if quittung.istHochgeladen {
+                Warteschlange.vergessen(bericht.kennung)
+            } else {
+                Warteschlange.merken(einheitID: id, bericht: bericht, meldung: quittung.meldung)
+            }
+            return .success(quittung)
+        } catch {
+            Warteschlange.merken(einheitID: id, bericht: bericht, meldung: error.localizedDescription)
+            return .failure(error)
+        }
+    }
+
+    /// Schickt liegengebliebene Workouts erneut. Ohne Netz bricht es beim ersten
+    /// ab — die übrigen scheiterten genauso.
+    func offeneTrainingsSenden() async {
+        guard let client else { return }
+        for eintrag in Warteschlange.alle() {
+            do {
+                let quittung = try await client.trainingAbschliessen(einheit: eintrag.einheitID, bericht: eintrag.bericht)
+                if quittung.istHochgeladen {
+                    Warteschlange.vergessen(eintrag.bericht.kennung)
+                    protokolliere("Nachgereichtes Workout \(eintrag.bericht.kennung) in Garmin")
+                } else {
+                    Warteschlange.merken(einheitID: eintrag.einheitID, bericht: eintrag.bericht, meldung: quittung.meldung)
+                }
+            } catch APIFehler.netzwerk {
+                break
+            } catch {
+                Warteschlange.merken(einheitID: eintrag.einheitID, bericht: eintrag.bericht, meldung: error.localizedDescription)
+            }
+        }
     }
 
     private func verbundenerClient() throws -> TriCoachClient {

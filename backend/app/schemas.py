@@ -1847,3 +1847,77 @@ class EinheitUebungenOut(BaseModel):
 class AnimationVerwerfenIn(BaseModel):
     # Geht wörtlich in den nächsten Versuch ein („das Becken muss höher").
     rueckmeldung: str | None = Field(None, max_length=1000)
+
+
+# --------------------------------------------------------------------------
+# Workouts in der iOS-App (siehe `docs/app-training.md`)
+# --------------------------------------------------------------------------
+
+
+class AblaufUebungOut(BaseModel):
+    nummer: int
+    titel: str
+    name_en: str | None = None
+    zeile: str
+    je_seite: bool = False
+    # Garmins Katalognamen — die App schickt sie mit den Sätzen zurück, damit
+    # Connect die Übung erkennt.
+    kategorie: str | None = None
+    garmin_name: str | None = None
+    animation: AnimationOut | None = None
+
+
+class AblaufSchrittOut(BaseModel):
+    uebung: int
+    art: Literal["zeit", "wiederholungen", "taste"]
+    dauer_s: int | None = None
+    wiederholungen: int | None = None
+    satz: int = 1
+    saetze: int = 1
+    seite: int | None = None
+
+
+class AblaufOut(BaseModel):
+    plan_session_id: int
+    sport: str
+    titel: str
+    quelle: str
+    uebungen: list[AblaufUebungOut] = []
+    schritte: list[AblaufSchrittOut] = []
+
+
+class AppSatzIn(BaseModel):
+    uebung: int = Field(..., ge=0, le=200)
+    beginn: UtcDatetime
+    dauer_s: float = Field(..., ge=0, le=7200)
+    wiederholungen: int | None = Field(None, ge=0, le=1000)
+    kategorie: str | None = Field(None, max_length=64)
+    garmin_name: str | None = Field(None, max_length=96)
+
+
+class AppTrainingIn(BaseModel):
+    # Von der App vergeben (UUID) — derselbe Bericht zweimal lädt nicht zweimal hoch.
+    kennung: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    beginn: UtcDatetime
+    ende: UtcDatetime
+    pausiert_s: float = Field(0, ge=0, le=86400)
+    saetze: list[AppSatzIn] = Field(default_factory=list, max_length=400)
+
+    @model_validator(mode="after")
+    def _zeiten(self) -> "AppTrainingIn":
+        if self.ende <= self.beginn:
+            raise ValueError("Das Training endet vor seinem Beginn.")
+        if (self.ende - self.beginn).total_seconds() > 6 * 3600:
+            raise ValueError("Ein Training über sechs Stunden ist kein Kraft- oder Mobility-Workout.")
+        return self
+
+
+class AppTrainingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kennung: str
+    plan_session_id: int | None = None
+    zustand: str
+    meldung: str | None = None
+    garmin_activity_id: str | None = None
+    hochgeladen_am: UtcDatetime | None = None

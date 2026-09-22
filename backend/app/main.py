@@ -38,6 +38,7 @@ from .routers import (
     plans,
     profile,
     questionnaire,
+    training,
 )
 
 # Vor allem anderen und **nicht** im `lifespan`: Bis der läuft, haben `init_db()`
@@ -117,6 +118,7 @@ app.include_router(analysen.router)
 app.include_router(ernaehrung.router)
 app.include_router(bring.router)
 app.include_router(animationen.router)
+app.include_router(training.router)
 
 
 @app.get("/api/health")

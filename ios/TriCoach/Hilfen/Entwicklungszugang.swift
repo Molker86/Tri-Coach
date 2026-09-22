@@ -20,6 +20,8 @@ enum Entwicklungszugang {
         let startEinheit: String?
         /// Öffnet darin eine Übung — Schlüssel oder „*“ für die erste.
         let startUebung: String?
+        /// Öffnet in der Einheit gleich das Workout.
+        let startTraining: Bool?
     }
 
     static func laden() -> Daten? {
@@ -40,5 +42,6 @@ enum Entwicklungszugang {
 enum Entwicklungsstart {
     static var einheitGeoeffnet = false
     static var uebungGeoeffnet = false
+    static var trainingGeoeffnet = false
 }
 #endif

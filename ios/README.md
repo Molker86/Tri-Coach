@@ -10,6 +10,16 @@ die Übung groß, samt Ablauf und betonten Muskeln. Animationen, die Claude
 erstellt hat, stehen auf „ungeprüft“ und lassen sich hier freigeben oder mit
 Anmerkung verwerfen. Hintergrund: `docs/animationen.md`.
 
+## Workouts
+
+Kraft- und Mobility-Einheiten lassen sich in der App absolvieren
+(`TriCoach/Training/`). `WorkoutModell` führt durch die Sätze — Zeitsätze nach
+Uhr mit fünf Sekunden Vorbereitung, gezählte per Tippen mit vorbelegten
+Soll-Wiederholungen — und meldet das Ergebnis ans Add-on, das es als FIT-Datei
+nach Garmin Connect hochlädt. Was nicht ankommt, liegt in der `Warteschlange`
+auf dem Telefon und geht beim nächsten Laden erneut hinaus. Hintergrund:
+`docs/app-training.md`.
+
 ## Animationen
 
 - `TriCoach/Animation/Koerper.swift` — das Körpermodell, Zahl für Zahl wie
@@ -63,6 +73,8 @@ Token (HA und Tri-Coach) liegen im Schlüsselbund, der Rest in den UserDefaults.
 | `GET /api/animationen/einheit/{id}` | Übungen einer Einheit samt Animation |
 | `POST /api/animationen/{schluessel}/freigeben`, `…/verwerfen` | Prüfen einer KI-Animation |
 | `POST /api/ki/animationen`, `GET /api/ki/jobs/{id}` | Fehlende erstellen lassen, Fortschritt |
+| `GET /api/training/einheit/{id}/ablauf` | Workout: Übungen und Sätze in Reihenfolge |
+| `POST /api/training/einheit/{id}/abschluss` | Workout melden — das Add-on lädt es nach Garmin |
 
 Die Modelle in `TriCoach/Modelle/Modelle.swift` spiegeln die Pydantic-Schemas
 (wie `frontend/src/types.ts`) — ändert sich dort ein Feld, muss es hier mit.
@@ -109,7 +121,10 @@ im Release und auf dem iPhone nicht enthalten):
   den Fall, dass Klicks im Simulator nicht ankommen: `"start_einheit"` (eine
   Kennung oder eine Sportart, `"strength"` = die nächste Krafteinheit ab heute)
   und darin `"start_uebung"` (ein Schlüssel wie `"clamshell"` oder `"*"` für
-  die erste Übung mit Animation).
+  die erste Übung mit Animation) oder `"start_training": true` (das Workout
+  gleich öffnen). Kennt das Add-on `/api/training/…` noch nicht, baut der
+  Simulator den Ablauf vereinfacht aus dem Aufbautext
+  (`Hilfen/Entwicklungsablauf.swift`).
 
 - **Übungen ohne neues Add-on.** Antwortet das Add-on auf
   `/api/animationen/…` noch nicht (vor 4.6.0), nimmt der Simulator die
