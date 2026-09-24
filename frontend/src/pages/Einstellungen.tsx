@@ -34,6 +34,7 @@ const MINUTEN = Array.from({ length: 12 }, (_, i) => i * 5)
 
 const MODELLE = [
   { wert: '', text: 'Vorgabe' },
+  { wert: 'claude-opus-5-5', text: 'Opus 5.5 — neuestes Modell' },
   { wert: 'opus', text: 'Opus — am stärksten' },
   { wert: 'sonnet', text: 'Sonnet — schneller, günstiger' },
   { wert: 'haiku', text: 'Haiku — am sparsamsten' },

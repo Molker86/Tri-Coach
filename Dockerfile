@@ -36,7 +36,13 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Das `claude --version` am Ende ist Absicht: Schlägt die Installation fehl,
 # soll der Build abbrechen und nicht ein Abbild entstehen, in dem die Funktion
 # still nicht da ist.
-RUN apt-get update \
+# `BUILD_VERSION` reicht Home Assistant beim Bau mit (die Version aus
+# `config.yaml`). Erwähnt wird es nur, damit jede neue Add-on-Version diesen
+# Schritt aus dem Docker-Cache wirft — sonst bliebe die CLI beim Stand des
+# ersten Baus stehen und kennte neuere Modelle nicht.
+ARG BUILD_VERSION
+RUN echo "Claude Code für Add-on-Version ${BUILD_VERSION:-unbekannt}" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends bash curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://claude.ai/install.sh | bash \
